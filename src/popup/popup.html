@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Marktplaats Relist</title>
+    <style>
+      body { font: 14px system-ui, sans-serif; margin: 0; width: 320px; }
+      header { padding: 12px 14px; border-bottom: 1px solid #e5e5e5; font-weight: 600; }
+      #status { padding: 12px 14px; color: #555; }
+      ul { list-style: none; margin: 0; padding: 0; }
+      li { display: flex; justify-content: space-between; align-items: center;
+           padding: 10px 14px; border-bottom: 1px solid #f0f0f0; gap: 8px; }
+      .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .price { color: #777; font-variant-numeric: tabular-nums; }
+    </style>
+  </head>
+  <body>
+    <header>My Marktplaats ads</header>
+    <div id="status">Loading…</div>
+    <ul id="ads" hidden></ul>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

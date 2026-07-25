@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Marktplaats Relist (POC)",
+  "version": "0.0.1",
+  "description": "Relist your Marktplaats ads to regain top ranking. Proof of concept.",
+  "permissions": ["storage", "unlimitedStorage"],
+  "host_permissions": ["https://www.marktplaats.nl/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Marktplaats Relist",
+    "default_popup": "popup.html"
+  }
+}

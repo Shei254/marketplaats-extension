@@ -1,0 +1,19 @@
+{
+  "name": "marktplaats-relist-extension",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Chrome MV3 extension to relist Marktplaats ads (POC). See docs/specs/poc-relist.md.",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build": "node scripts/build.mjs"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.268",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

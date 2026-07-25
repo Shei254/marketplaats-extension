@@ -17,6 +17,18 @@ export class AdNotFoundError extends Error {
 }
 
 /**
+ * Raised when a Marktplaats endpoint (or the CSRF token source) has not yet been
+ * wired from the spike findings (issues #3/#4). Surfaced in the popup as a
+ * "not wired up yet" state so the POC runs end-to-end with clear gaps.
+ */
+export class SpikePendingError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SpikePendingError";
+  }
+}
+
+/**
  * System boundary (ADR-0004): the extension's access to Marktplaats via its own
  * internal API, riding the user's session. The real implementation is a spike gate
  * (issue #3); the orchestrator is tested against a fake of this interface.

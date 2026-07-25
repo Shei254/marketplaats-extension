@@ -1,5 +1,6 @@
 import type { SnapshotStore } from "../domain/snapshot-store";
 import type { AdSnapshot, Photo } from "../domain/types";
+import { base64ToBytes, bytesToBase64 } from "../shared/base64";
 
 /**
  * Real SnapshotStore over chrome.storage.local (ADR-0003). Photo bytes are base64
@@ -71,17 +72,4 @@ export class ChromeSnapshotStore implements SnapshotStore {
   async clear(listingId: string): Promise<void> {
     await chrome.storage.local.remove(keyFor(listingId));
   }
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
-}
-
-function base64ToBytes(base64: string): Uint8Array {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-  return bytes;
 }

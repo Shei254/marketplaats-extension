@@ -1,5 +1,12 @@
-import { MarktplaatsHttpClient, SpikePendingError } from "../adapters/marktplaats-http-client";
-import { NotAuthenticatedError, type MarktplaatsClient } from "../domain/marktplaats-client";
+import {
+  NoMarktplaatsTabError,
+  RelayMarktplaatsClient,
+} from "../adapters/relay-marktplaats-client";
+import {
+  NotAuthenticatedError,
+  SpikePendingError,
+  type MarktplaatsClient,
+} from "../domain/marktplaats-client";
 import type { ListingSummary } from "../domain/types";
 
 /**
@@ -49,14 +56,16 @@ async function load(client: MarktplaatsClient): Promise<void> {
   try {
     renderAds(await client.listMyAds());
   } catch (error) {
-    if (error instanceof NotAuthenticatedError) {
+    if (error instanceof NoMarktplaatsTabError) {
+      showStatus("Open marktplaats.nl in a tab, then reopen this popup.");
+    } else if (error instanceof NotAuthenticatedError) {
       showStatus("Please log in to Marktplaats first, then reopen this popup.");
     } else if (error instanceof SpikePendingError) {
-      showStatus("Live ad listing is not wired up yet (pending spike #2).");
+      showStatus("Live ad listing is not wired up yet (endpoints pending spike #2/#3).");
     } else {
       showStatus("Could not load your ads. Please try again.");
     }
   }
 }
 
-void load(new MarktplaatsHttpClient());
+void load(new RelayMarktplaatsClient());

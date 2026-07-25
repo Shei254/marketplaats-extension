@@ -4,10 +4,21 @@
   "version": "0.0.1",
   "description": "Relist your Marktplaats ads to regain top ranking. Proof of concept.",
   "permissions": ["storage", "unlimitedStorage"],
-  "host_permissions": ["https://www.marktplaats.nl/*"],
+  "host_permissions": ["https://www.marktplaats.nl/*", "https://*.marktplaats.nl/*"],
   "background": {
     "service_worker": "background.js",
     "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.marktplaats.nl/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
   },
   "action": {
     "default_title": "Marktplaats Relist",

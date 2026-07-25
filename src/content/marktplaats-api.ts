@@ -8,7 +8,9 @@ import {
   isEndpointConfigChange,
   loadEndpointConfig,
   type EndpointConfig,
+  type EndpointName,
 } from "../shared/endpoint-config";
+import { csrfHeaders } from "./csrf";
 
 /**
  * The real internal-API calls (ADR-0004), running INSIDE the marktplaats.nl page
@@ -31,44 +33,40 @@ async function config(): Promise<EndpointConfig> {
   return cachedConfig;
 }
 
-function pathOf(cfg: EndpointConfig, name: keyof EndpointConfig, listingId?: string): string {
+function pathOf(cfg: EndpointConfig, name: EndpointName, listingId?: string): string {
   const path = cfg[name];
-  if (typeof path !== "string" || path === "") {
+  if (path === "") {
     throw new SpikePendingError(`endpoint '${name}' is not set — configure it in the extension's Options`);
   }
   return listingId ? path.replace(":id", encodeURIComponent(listingId)) : path;
 }
 
-async function csrfHeaders(cfg: EndpointConfig): Promise<Record<string, string>> {
-  if (cfg.csrf.mode === "none") return {};
-  const token = readCsrfToken(cfg);
-  if (!token) {
-    throw new SpikePendingError(
-      `CSRF token (${cfg.csrf.mode} '${cfg.csrf.name}') not found — check the Options config`,
-    );
-  }
-  return { [cfg.csrf.header]: token };
+interface RequestOptions {
+  init?: RequestInit;
+  /** substituted into the path's ":id" and used for AdNotFoundError on 404. */
+  listingId?: string;
+  /** when true, a 404 becomes AdNotFoundError (so the orchestrator treats it as already-deleted). */
+  notFoundIsMissing?: boolean;
 }
 
-function readCsrfToken(cfg: EndpointConfig): string | undefined {
-  if (cfg.csrf.mode === "meta") {
-    return document.querySelector(`meta[name="${cfg.csrf.name}"]`)?.getAttribute("content") ?? undefined;
+/** One place for the fetch → auth-guard → ok-guard shape shared by every call. */
+async function request(
+  cfg: EndpointConfig,
+  name: EndpointName,
+  { init, listingId, notFoundIsMissing }: RequestOptions = {},
+): Promise<Response> {
+  const res = await fetch(pathOf(cfg, name, listingId), { credentials: "include", ...init });
+  if (notFoundIsMissing && res.status === 404 && listingId !== undefined) {
+    throw new AdNotFoundError(listingId);
   }
-  // cookie (must be non-HttpOnly to be readable here).
-  const prefix = `${cfg.csrf.name}=`;
-  const cookie = document.cookie.split("; ").find((c) => c.startsWith(prefix));
-  return cookie ? decodeURIComponent(cookie.slice(prefix.length)) : undefined;
-}
-
-function assertAuthed(status: number): void {
-  if (status === 401 || status === 403) throw new NotAuthenticatedError();
+  if (res.status === 401 || res.status === 403) throw new NotAuthenticatedError();
+  if (!res.ok) throw new Error(`${name} failed: ${res.status}`);
+  return res;
 }
 
 export async function listMyAds(): Promise<ListingSummary[]> {
   const cfg = await config();
-  const res = await fetch(pathOf(cfg, "listMyAds"), { credentials: "include" });
-  assertAuthed(res.status);
-  if (!res.ok) throw new Error(`listMyAds failed: ${res.status}`);
+  const res = await request(cfg, "listMyAds");
   const data = await res.json();
   // TODO(spike #2): map the real response shape → ListingSummary[].
   return (data.ads ?? []).map(
@@ -82,10 +80,7 @@ export async function listMyAds(): Promise<ListingSummary[]> {
 
 export async function captureAd(listingId: string): Promise<CapturedAd> {
   const cfg = await config();
-  const res = await fetch(pathOf(cfg, "captureAd", listingId), { credentials: "include" });
-  if (res.status === 404) throw new AdNotFoundError(listingId);
-  assertAuthed(res.status);
-  if (!res.ok) throw new Error(`captureAd failed: ${res.status}`);
+  const res = await request(cfg, "captureAd", { listingId, notFoundIsMissing: true });
   const data = await res.json();
   // TODO(spike #2/#4): map the real detail response → draft + photo URLs.
   const draft: ListingDraft = {
@@ -112,29 +107,25 @@ async function downloadPhoto(url: string): Promise<Photo> {
 
 export async function deleteAd(listingId: string): Promise<void> {
   const cfg = await config();
-  const res = await fetch(pathOf(cfg, "deleteAd", listingId), {
-    method: "DELETE",
-    credentials: "include",
-    headers: await csrfHeaders(cfg),
+  await request(cfg, "deleteAd", {
+    listingId,
+    notFoundIsMissing: true,
+    init: { method: "DELETE", headers: csrfHeaders(cfg.csrf) },
   });
-  if (res.status === 404) throw new AdNotFoundError(listingId);
-  assertAuthed(res.status);
-  if (!res.ok) throw new Error(`deleteAd failed: ${res.status}`);
 }
 
 export async function createAd(draft: ListingDraft, photos: Photo[]): Promise<{ id: string }> {
   const cfg = await config();
-  const csrf = await csrfHeaders(cfg);
+  const csrf = csrfHeaders(cfg.csrf);
   const mediaIds = await Promise.all(photos.map((photo) => uploadPhoto(cfg, csrf, photo)));
-  const res = await fetch(pathOf(cfg, "createAd"), {
-    method: "POST",
-    credentials: "include",
-    headers: { "content-type": "application/json", ...csrf },
-    // TODO(spike #3): assemble the real create payload from draft + mediaIds.
-    body: JSON.stringify({ ...draft, mediaIds }),
+  const res = await request(cfg, "createAd", {
+    init: {
+      method: "POST",
+      headers: { "content-type": "application/json", ...csrf },
+      // TODO(spike #3): assemble the real create payload from draft + mediaIds.
+      body: JSON.stringify({ ...draft, mediaIds }),
+    },
   });
-  assertAuthed(res.status);
-  if (!res.ok) throw new Error(`createAd failed: ${res.status}`);
   const data = await res.json();
   // TODO(spike #3): confirm the new-listing id field.
   return { id: String(data.id) };
@@ -149,13 +140,9 @@ async function uploadPhoto(
   new Uint8Array(buffer).set(photo.data);
   const form = new FormData();
   form.append("file", new Blob([buffer], { type: photo.mimeType }), photo.filename);
-  const res = await fetch(pathOf(cfg, "uploadPhoto"), {
-    method: "POST",
-    credentials: "include",
-    headers: csrf,
-    body: form,
+  const res = await request(cfg, "uploadPhoto", {
+    init: { method: "POST", headers: csrf, body: form },
   });
-  if (!res.ok) throw new Error(`uploadPhoto failed: ${res.status}`);
   const data = await res.json();
   // TODO(spike #4): confirm the media id field.
   return String(data.id);

@@ -26,9 +26,21 @@ filter **Fetch/XHR**, then do each action by hand and record method + URL + head
 | Delete a throwaway ad | `deleteAd` + the CSRF header/token source |
 | Post a new ad (with photo) | `uploadPhoto` (multipart → media id) and `createAd` |
 
-Note the **host** (may be an `api.` subdomain — already covered by
-`host_permissions`) and where the **CSRF token** lives (a `<meta>`, a readable
-cookie, or none).
+Note the **host** (it may be an `api.` subdomain — see the CORS caveat below) and
+where the **CSRF token** lives (a `<meta>`, a readable cookie, or none).
+
+> ### ⚠️ Cross-subdomain CORS caveat
+> The content script's `fetch`es run in the **page origin** (`www.marktplaats.nl`)
+> and are therefore subject to **CORS**. Same-origin calls (`www` → `www`) are fine.
+> But if an endpoint lives on a **different subdomain** (e.g. `api.marktplaats.nl`)
+> and that host doesn't return CORS headers allowing the `www` origin, the call is
+> **blocked by the browser** — you'll see a CORS error in the page console, not a
+> clear app message. Two mitigations, decided during the spike:
+> 1. Prefer the **same-origin** variant of the endpoint if one exists.
+> 2. Otherwise route that specific call through the **background service worker**,
+>    whose `fetch` is *not* CORS-bound for hosts in `host_permissions`. The content
+>    script would read the CSRF token from the page and hand it to the worker to
+>    perform the request. (Not wired yet — capture the real host first.)
 
 ## 3. Configure the extension
 Either the **Options page** (`chrome://extensions` → this extension → *Details* →

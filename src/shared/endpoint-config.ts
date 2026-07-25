@@ -18,17 +18,15 @@ export interface CsrfConfig {
   header: string;
 }
 
-export interface EndpointConfig {
-  /** GET → the user's ads. */
-  listMyAds: string;
-  /** GET → one ad's full detail. May contain ":id". */
-  captureAd: string;
-  /** DELETE → remove an ad. May contain ":id". */
-  deleteAd: string;
-  /** POST → create a new ad. */
-  createAd: string;
-  /** POST (multipart) → upload one photo, returns a media id. */
-  uploadPhoto: string;
+/** The internal-API operations whose paths are configured at runtime. */
+export type EndpointName =
+  | "listMyAds" // GET → the user's ads.
+  | "captureAd" // GET → one ad's full detail. May contain ":id".
+  | "deleteAd" // DELETE → remove an ad. May contain ":id".
+  | "createAd" // POST → create a new ad.
+  | "uploadPhoto"; // POST (multipart) → upload one photo, returns a media id.
+
+export interface EndpointConfig extends Record<EndpointName, string> {
   csrf: CsrfConfig;
 }
 

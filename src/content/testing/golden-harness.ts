@@ -94,7 +94,7 @@ export function installDom(url = "https://www.marktplaats.nl/"): () => void {
  * listener at import time, so this has to be installed before it is imported.
  *
  * @param stored value to serve as the persisted `endpointConfig`; omit for none,
- *   which is what makes the module fall back to `EMPTY_ENDPOINT_CONFIG`.
+ *   which is what makes the module fall back to `DEFAULT_ENDPOINT_CONFIG`.
  */
 export function installChromeStub(stored?: Record<string, unknown>): void {
   const area = { ...stored };

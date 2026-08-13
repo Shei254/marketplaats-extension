@@ -11,90 +11,33 @@ import type {
 } from "../domain/types";
 import { extractCsrfToken } from "./csrf";
 import { ApiRequestError } from "../adapters/relay-marktplaats-client";
+import {
+  isEndpointConfigChange,
+  loadEndpointConfig,
+  type EndpointConfig,
+  type EndpointName,
+} from "../shared/endpoint-config";
 
 // ============================================================================
-// Types & Configuration (Moved to top for visibility)
+// Configuration
 // ============================================================================
 
-export type CsrfMode = "meta" | "cookie" | "none" | "fetch";
-
-export interface BaseCsrfConfig { header: string; }
-export interface NoneCsrfConfig extends BaseCsrfConfig { mode: "none"; }
-export interface MetaCsrfConfig extends BaseCsrfConfig { mode: "meta"; name: string; }
-export interface CookieCsrfConfig extends BaseCsrfConfig { mode: "cookie"; name: string; }
-export interface FetchCsrfConfig extends BaseCsrfConfig {
-  mode: "fetch";
-  url: string;
-  extractor: { type: "dom"; selector: string; attribute: string } | { type: "regex"; pattern: RegExp; matchIndex: number };
-}
-
-export type CsrfConfig = NoneCsrfConfig | MetaCsrfConfig | CookieCsrfConfig | FetchCsrfConfig;
-
-export type EndpointName =
-    | "listMyAds"
-    | "captureAd"
-    | "deleteAd"
-    | "createAd"
-    | "createAdPage"
-    | "uploadPhoto"
-    | "getBuckets"
-    | "searchAd"
-    | "getBucketCategories";
-
-// FIX: Proper use of Partial with Record for strict typing
-export type EndpointConfig = Partial<Record<EndpointName, string>> & {
-  csrf: CsrfConfig;
-};
-
-export const EMPTY_ENDPOINT_CONFIG: EndpointConfig = {
-  listMyAds: "/my-account/sell/api/listings",
-  captureAd: "/seller/view/:id",
-  deleteAd: "/seller/api/delete-ad",
-  createAd: "/plaats/ads",
-  createAdPage: "/plaats/1744/1745",
-  uploadPhoto: "/plaats/api/image/upload",
-  getBuckets: "/plaats/api/v1/category-aggregate/:parentCategoryId/buckets", // FIX: Synced name to plural 'getBuckets'
-  getBucketCategories: "/plaats/api/v1/category-aggregate/:parentCategoryId/buckets/:bucketId/categories",
-  searchAd: "/my-account/sell/api/listings",
-  csrf: {
-    mode: "fetch",
-    url: "https://www.marktplaats.nl/plaats/1/2",
-    header: "x-mp-xsrf",
-    extractor: {
-      type: "dom",
-      selector: "input[name='xsrf.token']",
-      attribute: "value",
-    },
-  },
-};
-
-const STORAGE_KEY = "endpointConfig";
-
+/**
+ * The config itself lives in ../shared/endpoint-config — one definition for the
+ * content script, the background worker and the options page. What is local to
+ * this module is only the caching: the config and the CSRF token are read once
+ * per content-script lifetime and dropped when the stored config changes.
+ */
 let cachedConfig: EndpointConfig | null = null;
 let cachedCsrfToken: string | null = null;
 let activeRefreshPromise: Promise<string> | null = null;
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName === "local" && STORAGE_KEY in changes) {
+  if (isEndpointConfigChange(changes, areaName)) {
     cachedConfig = null;
     cachedCsrfToken = null;
   }
 });
-
-export async function loadEndpointConfig(): Promise<EndpointConfig> {
-  const stored = await chrome.storage.local.get(STORAGE_KEY);
-  const partial = stored[STORAGE_KEY] as Partial<EndpointConfig> | undefined;
-
-  return {
-    ...EMPTY_ENDPOINT_CONFIG,
-    ...partial,
-    csrf: partial?.csrf ?? EMPTY_ENDPOINT_CONFIG.csrf,
-  };
-}
-
-export async function saveEndpointConfig(config: EndpointConfig): Promise<void> {
-  await chrome.storage.local.set({ [STORAGE_KEY]: config });
-}
 
 async function config(): Promise<EndpointConfig> {
   if (!cachedConfig) cachedConfig = await loadEndpointConfig();

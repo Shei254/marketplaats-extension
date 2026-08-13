@@ -23,9 +23,20 @@ import { parseArgs } from "node:util";
  * either way; this is not `minify`. `scripts/build.test.ts` asserts the
  * difference against the emitted bytes rather than trusting this comment.
  *
+ * That it reaches the whole bundle rather than only the guarded block is
+ * deliberate, and was raised in review: esbuild applies `minifySyntax` per build,
+ * not per region, so narrowing it is not something the option can express. The
+ * cost is that the dev bundle a tester exercises differs from the shipped one by
+ * more than the hooks. Accepted, because `minify` is what would make the shipped
+ * bundle unreviewable and this is not that — and because the claim that actually
+ * matters, that no hook survives, is asserted against the emitted bytes.
+ *
  * `npm run build:dev` is the build to load unpacked while live-testing
  * (docs/live-testing.md). `--outdir` exists for the test, so it can build
- * without clobbering dist/.
+ * without clobbering dist/ — also raised in review, as a flag with one caller.
+ * Kept: the need is present rather than anticipated, and the alternative is a
+ * test that either clobbers the directory a tester has loaded unpacked or
+ * asserts on a build it did not make.
  */
 const { values } = parseArgs({
   options: {

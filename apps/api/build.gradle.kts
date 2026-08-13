@@ -39,8 +39,24 @@ dependencies {
     // (spring-modulith-core) is a test dependency: nothing verifies boundaries at runtime.
     implementation("org.springframework.modulith:spring-modulith-api")
 
+    // Flyway, its Boot auto-configuration, and through it a DataSource and JdbcTemplate. Boot 4 splits
+    // auto-configuration into per-technology modules, so flyway-core alone would put Flyway on the
+    // classpath and nothing would run it — this starter is what makes `migrate` happen on startup. Not
+    // spring-boot-starter-data-jpa: no module maps an entity yet, and Hibernate arriving before the first
+    // one would bring `ddl-auto` with it, a second schema author beside these migrations.
+    implementation("org.springframework.boot:spring-boot-starter-flyway")
+    // Flyway 10 moved per-database support out of the core jar; without this one Postgres is simply an
+    // unsupported database at runtime.
+    runtimeOnly("org.flywaydb:flyway-database-postgresql")
+    runtimeOnly("org.postgresql:postgresql")
+
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.modulith:spring-modulith-core")
+    // Postgres for the tests, started by them. The schema uses partial indexes, jsonb and expression
+    // checks, so an in-memory stand-in would either reject the migration or accept rows Postgres will
+    // not — and this suite exists precisely to hold those constraints.
+    testImplementation("org.springframework.boot:spring-boot-testcontainers")
+    testImplementation("org.testcontainers:testcontainers-postgresql")
     testImplementation(boundaryFixture.output)
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

@@ -2,6 +2,18 @@ spring:
   application:
     name: mprelist-api
 
+  # The `mprelist` database of infra/docker-compose.yml. Development-only credentials, committed for the
+  # same reason they are committed there — `up` then `bootRun` should need no step in between. Anywhere
+  # else these are overridden by SPRING_DATASOURCE_URL / _USERNAME / _PASSWORD.
+  #
+  # Flyway needs no block of its own: enabled, classpath:db/migration and validate-before-migrate are its
+  # defaults, and they are what this wants. It migrates on startup, which is why Keycloak was given a
+  # separate database — two schema managers in one is the collision infra/README.md avoids.
+  datasource:
+    url: jdbc:postgresql://localhost:5432/mprelist
+    username: mprelist
+    password: mprelist
+
 server:
   # Pinned, though it is also Boot's default: infra/docker-compose.yml gives Keycloak 8081 specifically to
   # keep 8080 free for this application, and that pairing should not rest on a default staying put.

@@ -25,11 +25,15 @@ MP sessions live only in the user's browser. Nothing here holds them server-side
 - **Entitlement** — the limits/features resolved from the Subscription's **Tier**: relists per period,
   max MarktplaatsAccounts, feature flags (bulk, scheduling). The thing quotas check. Read from Postgres,
   never from Stripe on the hot path.
-- **RelistEvent (UsageRecord)** — one recorded relist attempt: which User, ad reference, timestamp,
-  outcome. Backend-owned; the authoritative usage count (ADR-0007), and the telemetry that reveals a
-  Marktplaats-side breakage.
+- **UsageReservation** — one quota unit, held from `authorize` until `complete` settles or refunds it, for
+  a User and an ad reference. Backend-owned; usage in a period is the reservations in it that were not
+  refunded, so a relist still in flight already counts (ADR-0007).
+- **RelistEvent (UsageRecord)** — what the extension reported about a relist it was authorized for:
+  outcome and timestamp, against the reservation that carries the User and the ad. Backend-owned; recorded
+  for refunds too, which is what makes it the telemetry that reveals a Marktplaats-side breakage.
 - **RelistAuthorization** — a short-lived, signed backend OK the extension must obtain *before*
-  a gated relist (ADR-0007). Transient, not persisted long-term.
+  a gated relist (ADR-0007). The token is transient; its `jti` is the id of the reservation it was issued
+  against, which is what `complete` settles and how a second report for it is refused.
 - **SafetyPolicy** — per-account rate limits, pacing/jitter, and caps applied by the extension
   and enforced/audited by the backend (ADR-0008).
 - **AdSnapshot** — *client-side only* (`chrome.storage.local`): the full pre-delete capture
@@ -41,7 +45,8 @@ MP sessions live only in the user's browser. Nothing here holds them server-side
 User 1───1 Subscription (always exists) ───1 Tier ──resolves──▶ Entitlement
                           │                        │
                     periodStart/End          stripePriceId ──▶ Stripe Price (money only)
-User 1───* RelistEvent   (counted within [periodStart, periodEnd))
+User 1───* UsageReservation  (the unit; counted within [periodStart, periodEnd) unless refunded)
+                 └──1 RelistEvent   (the outcome reported for it, at most one)
 User      ──requests──▶ RelistAuthorization ──checked against──▶ Entitlement + SafetyPolicy
 
 User 1───* MarktplaatsAccount   ── modelled, not yet realised (no stable MP identifier)
@@ -55,8 +60,9 @@ User 1───* MarktplaatsAccount   ── modelled, not yet realised (no stab
    (rate/pacing), **reserves one usage unit**, and returns a short-lived single-use signed OK or a typed deny.
 3. On OK, extension captures the **AdSnapshot** (durable, client-side), then **delete-first**:
    delete the ad → create the identical ad via the internal-API engine, with retry/restore.
-4. Extension reports the outcome; backend finalizes the reservation into a **RelistEvent**, or refunds it if
-   the relist failed *before* the delete, and returns the updated quota.
+4. Extension reports the outcome; backend settles the reservation and records a **RelistEvent** against it,
+   or refunds the unit if the relist failed *before* the delete — the event is written either way — and
+   returns the updated quota.
 
 ## Invariants
 - **Every User has exactly one current Subscription.** "No subscription" is unreachable; free users hold an

@@ -8,7 +8,7 @@ Monorepo, one deployable per workspace ([ADR-0011](docs/adr/0011-repository-layo
 | Path | What | State |
 |---|---|---|
 | `apps/extension` | Chrome MV3 extension (esbuild, TypeScript) | the POC, working |
-| `apps/api` | Spring Boot, Gradle, Java 21, Flyway | skeleton: five modules and the boundary check; schema still #17 |
+| `apps/api` | Spring Boot, Gradle, Java 21, Flyway | five modules with the boundary check, and the schema; no endpoints yet — #19, #22 |
 | `apps/dashboard` | React SPA | reserved — #42 |
 | `packages/contracts` | API types shared by both clients | reserved — no owner; consumers #34/#36 |
 | `packages/ui` | design tokens + components (popup and dashboard) | reserved — #37 |
@@ -42,9 +42,10 @@ npm run build -w @mprelist/extension
 cd apps/api && ./gradlew test
 ```
 
-The wrapper fetches Gradle, and a Java 21 toolchain if the machine has none, on first run. CI will run it
-separately from npm once this repo has CI — it has no CI config yet. That mixed Gradle + npm toolchain is the
-cost ADR-0011 accepted; [`apps/api/README.md`](apps/api/README.md) covers the build in full.
+The wrapper fetches Gradle, and a Java 21 toolchain if the machine has none, on first run. Those tests start
+a Postgres of their own, so they need a Docker daemon but not the stack below. CI will run them separately
+from npm once this repo has CI — it has no CI config yet. That mixed Gradle + npm toolchain is the cost
+ADR-0011 accepted; [`apps/api/README.md`](apps/api/README.md) covers the build in full.
 
 ## The local stack
 
@@ -55,7 +56,8 @@ docker compose -f infra/docker-compose.yml up -d --wait   # Postgres on 5432, Ke
 docker compose -f infra/docker-compose.yml down           # -v to also drop the data
 ```
 
-Development credentials, ports and how to reset are in [`infra/README.md`](infra/README.md).
+`apps/api` will not start without it: Flyway migrates `mprelist` on startup and there is nowhere else to
+point. Development credentials, ports and how to reset are in [`infra/README.md`](infra/README.md).
 
 ## Loading the extension
 

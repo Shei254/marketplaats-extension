@@ -66,21 +66,31 @@ function runRelist(request: BackgroundRequest): Promise<RelistOutcome> {
 }
 
 /**
- * Dev-only manual test hooks. Open the service-worker console
- * (chrome://extensions → this extension → "Inspect views: service worker") with
- * a marktplaats.nl tab open. Configure endpoints once, then relist:
- *   await __setEndpoints({ listMyAds: "…", deleteAd: "/api/ads/:id", … })
+ * Manual test hooks, present only in a `npm run build:dev` build — `__DEV__` is
+ * a build-time constant, so the default build drops this block instead of
+ * shipping globals that can delete a user's ad (scripts/build.mjs).
+ *
+ * Open the service-worker console (chrome://extensions → this extension →
+ * "Inspect views: service worker") with a marktplaats.nl tab open:
+ *   await __getEndpoints()                       // what the layer will call
  *   await __relist("<throwaway-ad-id>")
- * (Endpoints can also be set in the Options page.)
+ *
+ * `__setEndpoints` outlives the Options page it duplicated (ADR-0013): the
+ * backend-served config that supersedes both is #36 and does not exist yet, so
+ * without it a Marktplaats-side path change means editing source and rebuilding.
+ * The rest are live-test drivers — docs/live-testing.md and the M7 spikes
+ * (#46–#48) drive the real site through them.
  */
-Object.assign(globalThis, {
-  __relist: (listingId: string) => orchestrator.relist(listingId),
-  __captureAd: (listingId: string) => orchestrator.captureAd(listingId),
-  __listAds: () => orchestrator.listAds(),
-  __retry: (listingId: string) => orchestrator.retry(listingId),
-  __resume: () => orchestrator.resumeAll(),
-  __searchAd: (adName: string) => orchestrator.searchAd(adName),
-  __getEndpoints: () => loadEndpointConfig(),
-  __setEndpoints: (partial: Partial<EndpointConfig>) =>
-    loadEndpointConfig().then((current) => saveEndpointConfig({ ...current, ...partial })),
-});
+if (__DEV__) {
+  Object.assign(globalThis, {
+    __relist: (listingId: string) => orchestrator.relist(listingId),
+    __captureAd: (listingId: string) => orchestrator.captureAd(listingId),
+    __listAds: () => orchestrator.listAds(),
+    __retry: (listingId: string) => orchestrator.retry(listingId),
+    __resume: () => orchestrator.resumeAll(),
+    __searchAd: (adName: string) => orchestrator.searchAd(adName),
+    __getEndpoints: () => loadEndpointConfig(),
+    __setEndpoints: (partial: Partial<EndpointConfig>) =>
+      loadEndpointConfig().then((current) => saveEndpointConfig({ ...current, ...partial })),
+  });
+}

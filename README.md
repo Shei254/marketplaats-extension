@@ -42,7 +42,13 @@ repo has no CI config yet. That mixed Gradle + npm toolchain is the cost ADR-001
 ## Loading the extension
 
 `npm run build` writes `apps/extension/dist/`. Load that directory unpacked at `chrome://extensions` with
-developer mode on. Live-testing notes, including the console hooks: [`docs/live-testing.md`](docs/live-testing.md).
+developer mode on.
+
+That default build is the shippable one. For live-testing use `npm run build:dev -w @mprelist/extension`,
+which additionally defines `__DEV__` and so keeps the service worker's manual test hooks (`__relist`,
+`__setEndpoints`, …). They are *eliminated* from the default build, not merely inert in it — hooks that can
+delete a user's ad have no business in a published extension.
+[`docs/live-testing.md`](docs/live-testing.md) drives the whole flow through them.
 
 ## Where to start reading
 

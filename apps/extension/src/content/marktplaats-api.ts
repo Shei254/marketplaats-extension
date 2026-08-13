@@ -24,7 +24,7 @@ import {
 
 /**
  * The config itself lives in ../shared/endpoint-config — one definition for the
- * content script, the background worker and the options page. What is local to
+ * content script and the background worker. What is local to
  * this module is only the caching: the config and the CSRF token are read once
  * per content-script lifetime and dropped when the stored config changes.
  */
@@ -56,7 +56,7 @@ function pathOf(
 ): string {
   let path = cfg[name];
   if (!path) {
-    throw new SpikePendingError(`Endpoint '${name}' is not set in extension options.`);
+    throw new SpikePendingError(`Endpoint '${name}' is not set in the endpoint config.`);
   }
 
   if (params) {

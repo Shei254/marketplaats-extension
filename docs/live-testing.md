@@ -1,22 +1,29 @@
 # Live-testing the POC against real Marktplaats
 
-The extension is fully wired **except** the actual Marktplaats internal endpoints,
-which are unknown until discovered in a browser (spikes #2/#3/#4). Endpoints are
-**runtime config** — you paste them in; no source edit or rebuild needed to retune.
+The endpoints the spikes discovered ship as `DEFAULT_ENDPOINT_CONFIG` in
+`apps/extension/src/shared/endpoint-config.ts`, so the extension works out of the
+box. They stay **runtime config**: when Marktplaats moves one, you paste the new
+path in from the console — no source edit or rebuild needed to retune. (Backend-served
+config replaces that console hook — [ADR-0013](adr/0013-remote-client-configuration.md), #36.)
 
 > ⚠️ delete + re-create is destructive and against Marktplaats's terms (ADR-0002).
 > Use a **throwaway ad on a test account**.
 
 ## 1. Build & load
 ```
-npm install             # from the repo root — npm workspaces
-npm run build           # emits apps/extension/dist/
+npm install                          # from the repo root — npm workspaces
+npm run build:dev -w @mprelist/extension   # emits apps/extension/dist/
 ```
 `chrome://extensions` → enable Developer mode → **Load unpacked** → pick `apps/extension/dist/`.
 
-## 2. Discover the endpoints (DevTools)
-Log in to marktplaats.nl, open **Mijn Advertenties**, DevTools → **Network** →
-filter **Fetch/XHR**, then do each action by hand and record method + URL + headers
+**Use `build:dev`, not `build`.** The console hooks below exist only in that build;
+plain `npm run build` emits the shippable extension, with the hooks eliminated at
+build time rather than merely hidden (`apps/extension/scripts/build.mjs`).
+
+## 2. Re-discover an endpoint (DevTools)
+Only needed when something breaks — a call 404s, or the CSRF token stops being
+found. Log in to marktplaats.nl, open **Mijn Advertenties**, DevTools → **Network** →
+filter **Fetch/XHR**, then do the action by hand and record method + URL + headers
 + request/response body:
 
 | Action | Fills |
@@ -42,20 +49,18 @@ where the **CSRF token** lives (a `<meta>`, a readable cookie, or none).
 >    script would read the CSRF token from the page and hand it to the worker to
 >    perform the request. (Not wired yet — capture the real host first.)
 
-## 3. Configure the extension
-Either the **Options page** (`chrome://extensions` → this extension → *Details* →
-*Extension options*) — paste each path (use `:id` where the ad id goes) and the
-CSRF source — **or** the service-worker console:
+## 3. Override what changed
+In the service-worker console (`chrome://extensions` → *Inspect views: service worker*).
+Only the keys you pass are overridden; the rest keep their defaults, and the override
+persists in `chrome.storage.local` until you clear it:
 ```js
-await __setEndpoints({
-  listMyAds: "/my-account/api/l/my-ads",
-  captureAd: "/api/ads/:id",
-  deleteAd:  "/api/ads/:id",
-  createAd:  "/api/ads",
-  uploadPhoto: "/api/pictures",
-  csrf: { mode: "meta", name: "csrf-token", header: "x-csrf-token" },
-});
+await __getEndpoints();                        // what the layer will actually call
+await __setEndpoints({ deleteAd: "/seller/api/remove-ad" });
+await __setEndpoints({ csrf: { mode: "meta", name: "csrf-token", header: "x-csrf-token" } });
 ```
+The `csrf` object is replaced wholesale, never merged — the four modes carry
+different fields, so pass a complete one. The POC Options page that also wrote this
+config is gone (ADR-0013); `__setEndpoints` is the whole surface until #36 lands.
 
 ## 4. Run a relist
 
@@ -78,19 +83,24 @@ in the relist contract. The reloaded list may not show the new ad immediately if
 Marktplaats hasn't indexed it yet — the banner says so.
 
 ### From the console
-Open the service-worker console (`chrome://extensions` → *Inspect views: service worker*):
+Same service-worker console as step 3 — again, only in a `build:dev` build:
 ```js
-await __getEndpoints();          // sanity-check config
+await __listAds();               // what the popup would render
+await __captureAd("<id>");       // capture only, nothing destructive
 await __relist("<throwaway-ad-id>");
 ```
 Watch it capture → snapshot → delete → re-create. Then verify safety for real:
-force the create to fail (e.g. temporarily break `createAd`), confirm the snapshot
-survives and `await __retry("<id>")` restores the ad — the ADR-0003 guarantee.
+force the create to fail (e.g. `await __setEndpoints({ createAd: "/nope" })`), confirm
+the snapshot survives and `await __retry("<id>")` restores the ad — the ADR-0003
+guarantee. `await __resume()` replays whatever a crash left half-done.
 
 ## Response-shape mapping
-The `TODO(spike …)` comments in `apps/extension/src/content/marktplaats-api.ts` mark where the
-real JSON field names go (ad id, price, photo URLs, media id, create payload).
-Fill those once from the captured responses.
+The mapping from Marktplaats's JSON to our types is in
+`apps/extension/src/content/marktplaats-api.ts`, and the exact bytes each operation
+emits are frozen by `marktplaats-api.golden.test.ts`
+([ADR-0015](adr/0015-frozen-internal-api-golden-tests.md)) — read the test to see a
+request without making one. What the spikes *observed*, including the known fidelity
+limits, is #53's findings note; it does not exist yet.
 
 ## Where things run
 - **content script** (in the page): makes the real fetches, has session + CSRF.

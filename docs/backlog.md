@@ -185,7 +185,7 @@ Authorization Code + PKCE against Keycloak; sign-out clears tokens. Refs: [ADR-0
 Backend endpoint plus worker-side cache and hardcoded fallback.
 - Schema-versioned; an unknown version falls back to built-ins rather than failing.
 - **Data only** — assert nothing executable can be delivered.
-- **Decide what outranks what.** `__setEndpoints` now stores only the keys the tester passed, so an untouched endpoint follows the build (the shadowing bug found reviewing #12 is fixed). Once config is *served*, resolution has three sources rather than two — built-in defaults, the served config, and a tester's local override — and which wins is this ticket's call to make.
+- **Decide where the served config ranks.** Resolution gains a third source: built-in defaults, the served config, and a tester's local override (`endpointOverrides`, written by `__setEndpoints`). Defaults-vs-override is already settled — an override wins, and an endpoint left untouched follows the build — so the open call is only where a served value sits between them.
 - Refs: [ADR-0013](adr/0013-remote-client-configuration.md).
 
 ---

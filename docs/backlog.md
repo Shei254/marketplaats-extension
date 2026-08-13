@@ -103,6 +103,14 @@ One command brings up a working local stack; documented in the README.
 
 ### T09 · Seed the tier catalog · **S** · T08
 Flyway seed: Free (default, null price), Pro, Power. Stripe price ids filled from T22.
+- **Decided in #18:** relists per period are **3 / 50 / 200**, and quota is the *whole* ladder. The other
+  two columns a tier could differ on are identical across all three on purpose — `maxMpAccounts` is 1
+  everywhere because it is sellable only once T38 finds a stable identifier, and `features` stays `{}`
+  because bulk and scheduling have no implementation and no ticket, so seeding one would have `/api/me`
+  hand the UI an entitlement to a feature that does not exist. No tier carries a `stripePriceId` until T22
+  creates the Prices, so nothing in the catalog is purchasable yet and T19/T34 will find it so.
+- Seeded, not owned: the insert is `on conflict (code) do nothing`, so an operator's edit survives a
+  re-application and the catalog stays admin-managed per ADR-0014.
 
 ### T10 · OAuth2 resource server + `identity` module · **M** · T06, T07
 - Keycloak JWT validation; `CurrentUser` resolved from the token.

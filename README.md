@@ -12,12 +12,11 @@ Monorepo, one deployable per workspace ([ADR-0011](docs/adr/0011-repository-layo
 | `apps/dashboard` | React SPA | reserved — #42 |
 | `packages/contracts` | API types shared by both clients | reserved — no owner; consumers #34/#36 |
 | `packages/ui` | design tokens + components (popup and dashboard) | reserved — #37 |
-| `infra` | docker-compose: Postgres + Keycloak | reserved — #14 |
+| `infra` | docker-compose: Postgres + Keycloak | reserved — #14, #15 |
 | `docs` | ADRs, specs, glossary, backlog | — |
 
-Reserved directories hold a README and nothing else. It names the ticket that fills the directory — or,
-where no ticket owns that yet, the first tickets that will consume it and are expected to create it, which
-is the case for `packages/contracts`.
+Each reserved directory holds a README and nothing else, naming the ticket or tickets that fill it — or,
+where none owns it yet, the first tickets expected to create it, as with `packages/contracts`.
 
 ## Working on it
 
@@ -37,7 +36,8 @@ the Gradle `apps/api` — is skipped rather than a failure. To work in one place
 npm run build -w @mprelist/extension
 ```
 
-`apps/api` is built with `./gradlew`, not npm. Mixed Gradle + npm CI is the cost ADR-0011 accepted.
+`apps/api` will be built with `./gradlew`, not npm, and CI will run it separately once either exists — this
+repo has no CI config yet. That mixed Gradle + npm toolchain is the cost ADR-0011 accepted.
 
 ## Loading the extension
 

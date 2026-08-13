@@ -1,11 +1,11 @@
 # `apps/api` — Spring Boot API
 
-Five empty modules, the build-time check that makes them mean something, and the schema they will fill. No
-endpoints and no security yet — those arrive with the tickets named below.
+Five empty modules, the build-time check that makes them mean something, the schema they will fill, and the
+tier catalog seeded into it. No endpoints and no security yet — those arrive with the tickets named below.
 
 ```bash
 cd apps/api
-./gradlew test      # 19 tests: the module boundary, and the schema against a real Postgres
+./gradlew test      # 27 tests: the module boundary, the schema against a real Postgres, and the catalog
 ./gradlew build     # the above, plus the executable jar
 ./gradlew bootRun   # http://localhost:8080 — 404 on everything, there are no controllers yet
 ```
@@ -66,10 +66,16 @@ Mutation-verified — each of these was applied, observed, and reverted:
 what it has already applied, so a correction to that file once it has run anywhere is a new `V2` — never an
 edit to `V1`.
 
+> If startup fails with **`Migration checksum mismatch for migration version 1`**, your Postgres volume
+> predates the rename `keycloak_subject` → `idp_subject` in [#17](https://github.com/Shei254/marketplaats-extension/issues/17),
+> which edited `V1` after some machines had run it. `docker compose -f infra/docker-compose.yml down -v`
+> and start again: `V1` has been applied to no deployed environment, so a dropped local volume is the
+> whole of the cost. It is also the rule above, demonstrated.
+
 | Table | Holds | Filled by |
 |---|---|---|
 | `app_user` | one row per human, keyed to the IdP `sub` (Keycloak's, today) | [#20](https://github.com/Shei254/marketplaats-extension/issues/20) |
-| `tier` | our catalog: quota, max MP accounts, feature flags, nullable `stripe_price_id` | [#18](https://github.com/Shei254/marketplaats-extension/issues/18), [#21](https://github.com/Shei254/marketplaats-extension/issues/21) |
+| `tier` | our catalog: quota, max MP accounts, feature flags, nullable `stripe_price_id` | seeded by [#18](https://github.com/Shei254/marketplaats-extension/issues/18), read by [#21](https://github.com/Shei254/marketplaats-extension/issues/21) |
 | `subscription` | the mirror: user, tier, normalized status, period, Stripe ids | [#20](https://github.com/Shei254/marketplaats-extension/issues/20), [#30](https://github.com/Shei254/marketplaats-extension/issues/30) |
 | `usage_reservation` | one quota unit, held from `authorize` until `complete` | [#22](https://github.com/Shei254/marketplaats-extension/issues/22), [#23](https://github.com/Shei254/marketplaats-extension/issues/23) |
 | `relist_event` | what the extension reported about a relist | [#23](https://github.com/Shei254/marketplaats-extension/issues/23) |
@@ -118,9 +124,50 @@ Mutation-verified — each applied, observed, reverted:
 | the `status` check constraint is dropped | `andAStatusOutsideTheSevenIsRejected` |
 | `relist_event` is left out of the migration | `theMigrationCreatesTheFiveTablesTheDomainModelOwns` (+1) |
 
-The fixtures name no tier `code` that [#18](https://github.com/Shei254/marketplaats-extension/issues/18)'s
-seed could also name, and each test empties the catalog it arranges — checked by adding that seed as a
-temporary `V2` and running the suite green against it.
+The fixtures name no tier `code` the seed below names, and each test empties the catalog it arranges — in a
+transaction that is rolled back, so the seeded rows are still there for the class that is actually about
+them.
+
+## The catalog
+
+`V2__seed_tier_catalog.sql` puts three tiers in that table: **Free** (3 relists a period, the `is_default`
+one), **Pro** (50) and **Power** (200). `TierCatalogSeedTest` reads them back — it inserts nothing, because
+the subject is the rows the migration left behind.
+
+Quota is the whole ladder. The other two columns a tier could differ on are deliberately identical across
+all three, and the file says why beside each: `max_marktplaats_accounts` is 1 everywhere because it is
+sellable only once [#47](https://github.com/Shei254/marketplaats-extension/issues/47) finds a stable
+Marktplaats account identifier, and `features` keeps its `{}` default because the flags
+[`docs/domain-model.md`](../../docs/domain-model.md) names — bulk, scheduling — have no implementation and
+no ticket, and [#26](https://github.com/Shei254/marketplaats-extension/issues/26)'s `/api/me` would hand a
+seeded `"bulk": true` to the UI to render as though it did. The numbers themselves are configuration —
+[`docs/specs/quota-enforcement.md`](../../docs/specs/quota-enforcement.md) puts them outside its scope — and
+none of them is a rate: pacing and burst are [#25](https://github.com/Shei254/marketplaats-extension/issues/25)'s
+SafetyPolicy.
+
+**No tier carries a `stripe_price_id` yet**, so nothing in the catalog is purchasable:
+[#28](https://github.com/Shei254/marketplaats-extension/issues/28) creates the Products and Prices by hand
+in the Stripe dashboard and a migration after it fills the ids in. Free has none by design either way
+([ADR-0014](../../docs/adr/0014-tier-catalog-and-entitlements.md)).
+
+**Seeded here, not owned here.** ADR-0014 makes the catalog admin-managed, so the insert is
+`on conflict (code) do nothing`: a quota an operator has edited stays edited, and a second application — a
+restored dump, a hand-run — is a no-op rather than a duplicate catalog. The arbiter is named on purpose. A
+bare `on conflict do nothing` would also swallow a collision with a *different* tier already flagged
+default, which is not this file's conflict to ignore and should fail on `tier_single_default`. It is not an
+`R__` repeatable migration for the reason that makes it idempotent: a re-run changes nothing, so the `R__`
+form would advertise that editing a number below re-seeds it, and this file cannot keep that promise.
+
+Mutation-verified — each applied, observed, reverted:
+
+| Mutation | Fails |
+|---|---|
+| `on conflict (code) do nothing` dropped | `applyingTheSeedAgainLeavesTheCatalogExactlyAsItWas`, on `tier_code_key` |
+| Free is seeded `is_default = false` | `freeIsTheTierEveryNewUserIsProvisionedOnto` |
+| Free is seeded with quota 0 | `andTheFreeRungHasSomethingToSpend` |
+| the Power row is left out | `theCatalogHoldsFreeProAndPower`, `quotaRisesFromFreeToPower` |
+| Pro is seeded with a `stripe_price_id` | `andNoTierCarriesAStripePriceUntilOneExists` |
+| Pro is seeded `{"bulk": true}`, Power three MP accounts | `andNoTierPromisesAFeatureThatDoesNotExist`, `noTierSellsMoreThanOneMarktplaatsAccountYet` |
 
 ## Versions, and where they are stated
 
@@ -139,8 +186,9 @@ temporary `V2` and running the suite green against it.
 
 ## Not here yet
 
-The OAuth2 resource server ([#19](https://github.com/Shei254/marketplaats-extension/issues/19)), the tier
-seed ([#18](https://github.com/Shei254/marketplaats-extension/issues/18)), and the endpoints of
+The OAuth2 resource server ([#19](https://github.com/Shei254/marketplaats-extension/issues/19)), the
+Tier → Entitlement resolution that reads the catalog above
+([#21](https://github.com/Shei254/marketplaats-extension/issues/21)), and the endpoints of
 [`docs/enforcement-contract.md`](../../docs/enforcement-contract.md)
 ([#22](https://github.com/Shei254/marketplaats-extension/issues/22),
 [#23](https://github.com/Shei254/marketplaats-extension/issues/23),

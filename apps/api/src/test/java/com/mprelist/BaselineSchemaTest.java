@@ -35,9 +35,10 @@ class BaselineSchemaTest {
 	private JdbcTemplate db;
 
 	/**
-	 * Whatever the catalog holds is another ticket's data — #18 seeds Free, Pro and Power, one of them the
-	 * default. These tests are about the constraints and arrange the whole catalog themselves, so they
-	 * empty it first; the transaction is rolled back, so the seeded rows are still there afterwards.
+	 * Whatever the catalog holds is another ticket's data — {@code V2__seed_tier_catalog.sql} puts Free, Pro
+	 * and Power there, one of them the default, and {@link TierCatalogSeedTest} is what reads them back.
+	 * These tests are about the constraints and arrange the whole catalog themselves, so they empty it
+	 * first; the transaction is rolled back, so the seeded rows are still there afterwards.
 	 */
 	@BeforeEach
 	void theCatalogIsOnlyWhatEachTestArranges() {
@@ -190,8 +191,8 @@ class BaselineSchemaTest {
 				.isInstanceOf(DataIntegrityViolationException.class).hasMessageContaining("tier_features_check");
 	}
 
-	// The fixtures below name nothing a seed could also name: #18's tier codes are real data in the same
-	// table, and a test that collided with one would fail on the collision rather than on its subject.
+	// The fixtures below name nothing the seed also names: its tier codes are real data in the same table,
+	// and a test that collided with one would fail on the collision rather than on its subject.
 
 	private UUID user() {
 		return db.queryForObject("insert into app_user (idp_subject) values (?) returning id", UUID.class,

@@ -150,6 +150,7 @@ describe("getBuckets", () => {
     const req = http.only("/buckets");
     expectSessionRequest(req, "GET", "/plaats/api/v1/category-aggregate/1744/buckets");
     expect(req.headers).toEqual({});
+    expect(req.body).toEqual({ kind: "none" });
     expect(buckets).toEqual([{ id: 12, name: "Fietsen" }]);
   });
 });
@@ -179,7 +180,10 @@ describe("captureAd", () => {
 
     const { draft, photos } = await api.captureAd(AD_ID);
 
-    expectSessionRequest(http.only(`/seller/view/${AD_ID}`), "GET", `/seller/view/${AD_ID}`);
+    const page = http.only(`/seller/view/${AD_ID}`);
+    expectSessionRequest(page, "GET", `/seller/view/${AD_ID}`);
+    expect(page.headers).toEqual({});
+    expect(page.body).toEqual({ kind: "none" });
 
     // Photos are fetched directly, not through request() — same credentials, no CSRF.
     const images = http.matching("images.marktplaats.com");
@@ -197,11 +201,14 @@ describe("captureAd", () => {
     ]);
 
     // Category → bucket mapping is an N-request fan-out, one per bucket.
+    const categories = http.only("/buckets/12/categories");
     expectSessionRequest(
-      http.only("/buckets/12/categories"),
+      categories,
       "GET",
       "/plaats/api/v1/category-aggregate/1744/buckets/12/categories",
     );
+    expect(categories.headers).toEqual({});
+    expect(categories.body).toEqual({ kind: "none" });
     expect(draft.bucketId).toBe(12);
     expect(draft.title).toBe("Vintage herenfiets");
   });
@@ -303,7 +310,10 @@ describe("getCreateFormAttributes (via createAd)", () => {
 
     await api.createAd(goldenAd(), []);
 
-    expectSessionRequest(http.only("/plaats/1744/1745"), "GET", "/plaats/1744/1745");
+    const page = http.only("/plaats/1744/1745");
+    expectSessionRequest(page, "GET", "/plaats/1744/1745");
+    expect(page.headers).toEqual({});
+    expect(page.body).toEqual({ kind: "none" });
     const order = http.calls.map((c) => c.url);
     expect(order.indexOf("/plaats/1744/1745")).toBeLessThan(order.indexOf("/plaats/ads"));
   });

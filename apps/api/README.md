@@ -8,5 +8,5 @@ Planned by [ADR-0012](../../docs/adr/0012-backend-modular-monolith.md): Gradle, 
 Modulith boundary test that fails the build on a cross-module `internal/` reach.
 
 Gradle, not npm, and so deliberately **not** an npm workspace — the root scripts skip a directory with no
-`package.json` ([root README](../../README.md#working-on-it)). CI will run `./gradlew` here separately; no CI
-config exists in this repo yet. That mixed toolchain is the cost ADR-0011 accepted.
+`package.json`, and CI will run `./gradlew` here separately. Both are covered in
+[../../README.md](../../README.md#working-on-it).

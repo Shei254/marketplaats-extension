@@ -81,8 +81,10 @@ config is gone (ADR-0013); `__setEndpoints` is the whole surface until #36 lands
 `endpointConfig` key, and it holds a *resolved* config — all nine endpoints frozen
 at the defaults of whatever build first wrote it, which is the bug overrides fixed.
 Nothing reads that key any more, so you are already back on the build's defaults and
-need do nothing; the first `__setEndpoints` call clears it. Re-apply by hand any
-override you still want.
+need do nothing. Re-apply by hand any override you still want: the first
+`__setEndpoints` call also sweeps the dead key — though only in a dev build, since
+that is the only place the hook exists, so a production install keeps it forever,
+inert and unread.
 
 ## 4. Run a relist
 

@@ -124,13 +124,14 @@ describe("extension build", () => {
   });
 
   it("leaves no trace of a manual test hook in any production bundle", () => {
-    // Named, so the search below cannot pass by having quietly stopped covering
-    // a bundle — an empty or shrunken set would otherwise sail through the loop.
-    expect(Object.keys(production.bundles).sort()).toEqual([
-      "background.js",
-      "content.js",
-      "popup.js",
-    ]);
+    // Pinned against the emitted file list, so the search below cannot pass by
+    // having quietly stopped covering a bundle — an empty or shrunken set would
+    // otherwise sail through the loop. Derived rather than a second literal list:
+    // the test above is the one place the filenames are spelled out, and a copy
+    // here could agree with itself while both drifted from what is emitted.
+    expect(Object.keys(production.bundles).sort()).toEqual(
+      production.files.filter((file) => file.endsWith(".js")),
+    );
 
     for (const [name, source] of Object.entries(production.bundles)) {
       for (const hook of DEV_HOOK_NAMES) {

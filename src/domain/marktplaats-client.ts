@@ -40,6 +40,12 @@ export interface MarktplaatsClient {
   captureAd(listingId: string): Promise<CapturedAd>;
   /** Delete an ad. Throws AdNotFoundError if it is already gone. */
   deleteAd(listingId: string): Promise<void>;
-  /** Create a fresh ad from a draft + photos; resolves with the new listing id. */
-  createAd(draft: ListingDraft, photos: Photo[]): Promise<{ id: string }>;
+
+  searchAd (adName: string): Promise<ListingDraft[]>
+  /**
+   * Create a fresh ad from a draft + photos. Marktplaats answers a create with a
+   * 200/201/redirect and no JSON body, so there is no new listing id to hand back:
+   * resolving at all is the success signal, and a failure throws.
+   */
+  createAd(draft: ListingDraft, photos: Photo[]): Promise<void>;
 }

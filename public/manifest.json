@@ -4,7 +4,7 @@
   "version": "0.0.1",
   "description": "Relist your Marktplaats ads to regain top ranking. Proof of concept.",
   "permissions": ["storage", "unlimitedStorage"],
-  "host_permissions": ["https://www.marktplaats.nl/*", "https://*.marktplaats.nl/*"],
+  "host_permissions": ["https://www.marktplaats.nl/*", "https://*.marktplaats.nl/*", "*://*.marktplaats.nl/*"],
   "background": {
     "service_worker": "background.js",
     "type": "module"

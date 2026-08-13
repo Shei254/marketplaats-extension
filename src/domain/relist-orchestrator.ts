@@ -4,11 +4,12 @@ import type { AdSnapshot } from "./types";
 
 /** Outcome of a relist attempt. */
 export type RelistOutcome =
-  | { status: "relisted"; newListingId: string }
+  | { status: "relisted" }
   /** Nothing was removed from Marktplaats; the original ad is intact. */
   | { status: "failed-before-delete"; error: unknown }
   /** The original was deleted but re-create failed; snapshot retained for retry. */
-  | { status: "failed-recoverable"; listingId: string; error: unknown };
+  | { status: "failed-recoverable"; listingId: string; error: unknown }
+  | null;
 
 export class RelistOrchestrator {
   constructor(
@@ -16,11 +17,27 @@ export class RelistOrchestrator {
     private readonly store: SnapshotStore,
   ) {}
 
+  async captureAd (listingId: string) {
+    const captured = await this.client.captureAd(listingId);
+    console.log("Captured", captured);
+  }
+
+  async searchAd (query: string) {
+    const ads = await this.client.searchAd(query)
+    console.log("Searched ads", ads)
+  }
+
+  async listAds () {
+    const ads = await this.client.listMyAds();
+    console.log(ads);
+  }
+
   async relist(listingId: string): Promise<RelistOutcome> {
     // 1. Capture the full ad. A failure here removed nothing.
     let snapshot: AdSnapshot;
     try {
       const captured = await this.client.captureAd(listingId);
+      console.log("Captured", captured);
       snapshot = {
         listingId,
         draft: captured.draft,
@@ -29,6 +46,7 @@ export class RelistOrchestrator {
         createdAt: Date.now(),
       };
     } catch (error) {
+      console.error("Failed when capturing data");
       return { status: "failed-before-delete", error };
     }
 
@@ -36,6 +54,7 @@ export class RelistOrchestrator {
     try {
       await this.store.save(snapshot);
     } catch (error) {
+      console.error("failed saving snapshot");
       return { status: "failed-before-delete", error };
     }
 
@@ -44,6 +63,7 @@ export class RelistOrchestrator {
     const deletion = await this.ensureDeleted(snapshot);
     if (!deletion.ok) {
       await this.store.clear(listingId);
+      console.error("Failed ensuring deletion");
       return { status: "failed-before-delete", error: deletion.error };
     }
 
@@ -100,9 +120,9 @@ export class RelistOrchestrator {
 
   private async createFromSnapshot(snapshot: AdSnapshot): Promise<RelistOutcome> {
     try {
-      const { id } = await this.client.createAd(snapshot.draft, snapshot.photos);
+      await this.client.createAd(snapshot.draft, snapshot.photos);
       await this.store.clear(snapshot.listingId);
-      return { status: "relisted", newListingId: id };
+      return { status: "relisted" };
     } catch (error) {
       // The original is already gone; keep the snapshot so the user can retry/restore.
       return { status: "failed-recoverable", listingId: snapshot.listingId, error };

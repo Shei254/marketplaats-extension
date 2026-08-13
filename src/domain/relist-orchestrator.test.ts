@@ -15,10 +15,9 @@ describe("RelistOrchestrator", () => {
 
     const outcome = await orchestrator.relist("ad-1");
 
-    expect(outcome.status).toBe("relisted");
-    if (outcome.status !== "relisted") throw new Error("unreachable");
+    expect(outcome).toEqual({ status: "relisted" });
     expect(client.has("ad-1")).toBe(false); // original deleted
-    expect(client.has(outcome.newListingId)).toBe(true); // fresh ad created
+    expect(client.lastCreated()).toEqual(sampleAd()); // identical ad created
     expect(await store.get("ad-1")).toBeNull(); // snapshot cleared on success
   });
 
@@ -84,9 +83,8 @@ describe("RelistOrchestrator", () => {
     expect(kept?.phase).toBe("deleted"); // snapshot retained for recovery
 
     const retried = await orchestrator.retry("ad-1");
-    expect(retried.status).toBe("relisted");
-    if (retried.status !== "relisted") throw new Error("unreachable");
-    expect(client.has(retried.newListingId)).toBe(true);
+    expect(retried).toEqual({ status: "relisted" });
+    expect(client.lastCreated()).toEqual(sampleAd()); // restored from the snapshot
     expect(await store.get("ad-1")).toBeNull();
   });
 

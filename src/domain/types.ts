@@ -19,18 +19,164 @@ export interface Photo {
 
 /** Everything needed to re-create an identical ad. */
 export interface ListingDraft {
-  title: string;
-  description: string;
-  priceCents: number;
+  itemId: string;
   categoryId: string;
+  categoryName: string;
+  title: string;
+  vipUrl: string;
+  sVipUrl: string;
+  highestBid: string;
+  verticals: string[];
+  primaryImageUrl: string;
+  viewCount: number;
+  closeDate: string;
+  editableByUser: boolean;
+  reserved: boolean;
+  fotoknallerImages?: string[];
+  priceCents: number;
+  biddingEnabled: boolean;
+  minimumBidPriceCents: number;
+  upCallPhoneCode: string;
+  hasAnyUpsellFeatureCampaignDiscount: boolean;
+  urgencyOriginalFee: number;
+  urgencyHasDiscount: boolean;
+  etalageOriginalFee: number;
+  etalageHasDiscount: boolean;
+  dagTopper7DaysOriginalFee: number;
+  dagTopper7DaysHasDiscount: boolean;
+  dagTopperOriginalFee: number;
+  dagTopperHasDiscount: boolean;
+  phoneUpCallOriginalFee: number;
+  phoneUpCallHasDiscount: boolean;
+  upCallOriginalFee: number;
+  upCallHasDiscount: boolean;
+  urlOriginalFee: number;
+  urlHasDiscount: boolean;
+  dagTopper3DaysOriginalFee: number;
+  dagTopper3DaysHasDiscount: boolean;
+  extraImagesSnippetOriginalFee: number;
+  extraImagesSnippetHasDiscount: boolean;
+  urgencyFee: number;
+  etalageFee: number;
+  dagTopper7DaysFee: number;
+  dagTopperFee: number;
+  phoneUpCallFee: number;
+  upCallFee: number;
+  urlFee: number;
+  dagTopper3DaysFee: number;
+  extraImagesSnippetFee: number;
+  urgencyAvailable: boolean;
+  etalageAvailable: boolean;
+  dagTopper7DaysAvailable: boolean;
+  dagTopperAvailable: boolean;
+  phoneUpCallAvailable: boolean;
+  upCallAvailable: boolean;
+  urlAvailable: boolean;
+  dagTopper3DaysAvailable: boolean;
+  extraImagesSnippetAvailable: boolean;
+  packageFreeActive: boolean;
+  expiring: boolean;
+  durationInDays: number;
+  status: string;
+  showExtensionLink: boolean;
+  extensionFeeForFreeCategory: number;
+  extensionPending: boolean;
+  nextExtensionPaidNotificationNeeded: boolean;
+  microTipText: string | null;
+  description: string;
   attributes: Record<string, string>;
   location: string;
 }
 
 /** The full capture of an existing ad, ready to be re-created. */
 export interface CapturedAd {
-  draft: ListingDraft;
-  photos: Photo[];
+  adFeatures: {
+    active: boolean;
+    discountPercentage: number;
+    duration: number;
+    effectivePrice: number;
+    featureType: string;
+    forSale: boolean;
+    includedInSubscription: boolean;
+    maxReplications: number;
+    originalPrice: number;
+    productType: string;
+    reapplyAfter: number;
+  }[],
+  adViews: number;
+  attributes: {
+    attributeType: string;
+    key: string;
+    label: string;
+    value: string;
+    values: { key: string, value: string }
+  }[],
+  buyItNowEnabled: boolean;
+  categoryInformation: {
+    categoryId: number;
+    categoryName: string;
+    parentCategoryId: number;
+    parentCategoryName: string;
+    verticals: string[]
+  },
+  closeDate: number;
+  deliveryMethod: string;
+  description: string;
+  editable: boolean;
+  escrowAllowed: boolean;
+  gallery: {
+    imageUrls: string[];
+  },
+  isBuyerProtectionActiveOnListing: boolean;
+  isCarAd: boolean;
+  isMultiLingual: boolean;
+  itemId: string;
+  phoneUpcallAllowed: boolean;
+  price: {
+    biddingEnabled: boolean;
+    priceCent: number;
+    priceType: string;
+  },
+  reserved: boolean;
+  shippingInformation: {
+    augmentedLabels: {
+      carrierId: string;
+      labels: {
+        carrierName: string;
+        deliveryMethod: string;
+        label: string;
+        price: string;
+      }[],
+    }[],
+    selectedShippingOptions: {
+      id: string;
+      carrierId: string;
+      carrierName: string;
+      code: string;
+      cost: number;
+      deliveryMethod: string;
+      description: string;
+      discountDetails: { discountType: string; originalCost: number };
+      label: string;
+      mostUsed: boolean;
+      serviceType: string;
+      termsAndConditionsUrl: string;
+      weightInfo: { max: number; min: number; }
+    }[]
+  },
+  shippingServices: {
+    code: string;
+    priceCent: number;
+  }[],
+  showTAMSurvey: boolean;
+  startDate: number;
+  suspended: boolean;
+  title: string;
+  bucketId: number;
+  contactInformation: {
+    name: string;
+    postcode: string;
+  }
 }
 
 /**
@@ -48,4 +194,44 @@ export interface AdSnapshot {
   photos: Photo[];
   phase: SnapshotPhase;
   createdAt: number;
+}
+
+export interface UploadPhoto {
+  id: string;
+  extraLargeImageUrl: string;
+  imageUrl: string;
+  largeImageUrl: string;
+  valid: boolean;
+}
+
+export interface Bucket {
+  id: number;
+  name: string;
+}
+
+export interface Category {
+  id: number;
+  name: string;
+  parentId: number;
+  readOnly: boolean;
+  shortName: string;
+}
+
+export interface RequestOptions {
+  init?: RequestInit;
+  listingId?: string; // Kept for backward compatibility
+  pathParams?: Record<string, string | number>; // New generic parameter dictionary
+  notFoundIsMissing?: boolean;
+  queryParams?: Record<string, string | number>
+}
+
+export interface CreateAdPageOptions {
+  reactData: {
+    form: {
+      signature: string;
+      timestamp: number;
+      tmsid: string;
+    }
+
+  }
 }

@@ -17,6 +17,17 @@ export class NoMarktplaatsTabError extends Error {
   }
 }
 
+export class ApiRequestError extends Error {
+  constructor(
+      public endpoint: string,
+      public status: number,
+      public body: string
+  ) {
+    super(`API Error [${endpoint}]: HTTP ${status} - ${body.substring(0, 200)}...`);
+    this.name = "ApiRequestError";
+  }
+}
+
 /**
  * MarktplaatsClient used by the popup/background. It doesn't call Marktplaats
  * directly; it relays each request to the content script running in a
@@ -25,23 +36,30 @@ export class NoMarktplaatsTabError extends Error {
  */
 export class RelayMarktplaatsClient implements MarktplaatsClient {
   async listMyAds(): Promise<ListingSummary[]> {
-    return this.send<ListingSummary[]>({ kind: "listMyAds" });
+    return this.send<ListingSummary[]>({kind: "listMyAds"});
   }
 
   async captureAd(listingId: string): Promise<CapturedAd> {
-    const wire = await this.send<WireCapturedAd>({ kind: "captureAd", listingId });
-    return { draft: wire.draft, photos: wire.photos.map(fromWirePhoto) };
+    const wire = await this.send<WireCapturedAd>({kind: "captureAd", listingId});
+    return {draft: wire.draft, photos: wire.photos.map(fromWirePhoto)};
   }
 
   async deleteAd(listingId: string): Promise<void> {
-    await this.send<null>({ kind: "deleteAd", listingId });
+    await this.send<null>({kind: "deleteAd", listingId});
   }
 
-  async createAd(draft: ListingDraft, photos: Photo[]): Promise<{ id: string }> {
-    return this.send<{ id: string }>({
+  async createAd(draft: ListingDraft, photos: Photo[]): Promise<void> {
+    await this.send<null>({
       kind: "createAd",
       draft,
       photos: photos.map(toWirePhoto),
+    });
+  }
+
+  searchAd(query: string): Promise<ListingDraft[]> {
+    return this.send({
+      kind: "searchAd",
+      query
     });
   }
 
@@ -51,6 +69,7 @@ export class RelayMarktplaatsClient implements MarktplaatsClient {
     if (!response.ok) throw fromWireError(response.error);
     return response.value as T;
   }
+
 }
 
 async function findMarktplaatsTab(): Promise<number> {

@@ -91,20 +91,28 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
     this.events.push({ type: "delete", listingId });
   }
 
-  async createAd(draft: ListingDraft, photos: Photo[]): Promise<{ id: string }> {
+  async createAd(draft: ListingDraft, photos: Photo[]): Promise<void> {
     if (this.createFailuresLeft > 0) {
       this.createFailuresLeft -= 1;
       throw new Error("create failed");
     }
+    // The real client gets no id back from Marktplaats; the fake still needs one
+    // internally to keep holding the ad, but never hands it to the caller.
     const id = `new-${this.nextId++}`;
     this.ads.set(id, { draft, photos });
     this.events.push({ type: "create", newId: id });
-    return { id };
   }
 
   /** Test helper: does an ad with this id currently exist? */
   has(listingId: string): boolean {
     return this.ads.has(listingId);
+  }
+
+  /** Test helper: the most recently created ad, or null if none was created. */
+  lastCreated(): CapturedAd | null {
+    const created = this.events.filter((e) => e.type === "create");
+    const newId = created[created.length - 1]?.newId;
+    return newId ? (this.ads.get(newId) ?? null) : null;
   }
 }
 

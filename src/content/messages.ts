@@ -5,6 +5,7 @@ import {
 } from "../domain/marktplaats-client";
 import type { ListingDraft, ListingSummary, Photo } from "../domain/types";
 import { base64ToBytes, bytesToBase64 } from "../shared/base64";
+import {ApiRequestError, NoMarktplaatsTabError} from "../adapters/relay-marktplaats-client";
 
 /**
  * Wire protocol for the content-script relay. The popup/background send a
@@ -26,22 +27,31 @@ export interface WireCapturedAd {
 
 export type RelayRequest =
   | { kind: "listMyAds" }
+  | { kind: "getBuckets"; }
+  | { kind: "getBucketCategories"}
   | { kind: "captureAd"; listingId: string }
   | { kind: "deleteAd"; listingId: string }
-  | { kind: "createAd"; draft: ListingDraft; photos: WirePhoto[] };
+  | { kind: "createAd"; draft: ListingDraft; photos: WirePhoto[] }
+  | { kind: "downloadPhoto"; urls: string[] }
+  | { kind: "searchAd"; query: string }
 
-export type RelayResult = ListingSummary[] | WireCapturedAd | null | { id: string };
+
+export type RelayResult = ListingSummary[] | WireCapturedAd | null;
 
 export type WireErrorCode =
   | "AD_NOT_FOUND"
   | "NOT_AUTHENTICATED"
+  | "NO_MARKTPLAATS_TAB"
   | "SPIKE_PENDING"
+  | "API_ERROR"
   | "UNKNOWN";
 
 export interface WireError {
   code: WireErrorCode;
   message: string;
   listingId?: string;
+  status?: number; // Add these fields
+  body?: string;
 }
 
 export type RelayResponse =
@@ -64,6 +74,21 @@ export function toWireError(error: unknown): WireError {
   if (error instanceof NotAuthenticatedError) {
     return { code: "NOT_AUTHENTICATED", message: error.message };
   }
+
+  if (error instanceof NoMarktplaatsTabError) {
+    return { code: "NO_MARKTPLAATS_TAB", message: error.message };
+  }
+
+  if (error instanceof ApiRequestError) {
+    return {
+      code: "API_ERROR",
+      name: error.name,
+      message: error.message,
+      status: error.status,
+      body: error.body
+    } as WireError;
+  }
+
   if (error instanceof SpikePendingError) {
     return { code: "SPIKE_PENDING", message: error.message };
   }
@@ -77,10 +102,14 @@ export function toWireError(error: unknown): WireError {
  */
 export function fromWireError(error: WireError): Error {
   switch (error.code) {
+    case "API_ERROR":
+      return new ApiRequestError("unknown", error.status ?? 0, error.body ?? "");
     case "AD_NOT_FOUND":
       return new AdNotFoundError(error.listingId ?? "");
     case "NOT_AUTHENTICATED":
       return new NotAuthenticatedError();
+    case "NO_MARKTPLAATS_TAB":
+      return new NoMarktplaatsTabError();
     case "SPIKE_PENDING":
       return new SpikePendingError(error.message);
     case "UNKNOWN":

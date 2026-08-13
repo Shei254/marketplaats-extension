@@ -1,108 +1,325 @@
-import {
-  AdNotFoundError,
-  NotAuthenticatedError,
-  SpikePendingError,
-} from "../domain/marktplaats-client";
-import type { CapturedAd, ListingDraft, ListingSummary, Photo } from "../domain/types";
-import {
-  isEndpointConfigChange,
-  loadEndpointConfig,
-  type EndpointConfig,
-  type EndpointName,
-} from "../shared/endpoint-config";
-import { csrfHeaders } from "./csrf";
+import { AdNotFoundError, NotAuthenticatedError, SpikePendingError } from "../domain/marktplaats-client";
+import type {
+  Bucket,
+  CapturedAd,
+  Category,
+  CreateAdPageOptions,
+  ListingDraft,
+  Photo,
+  RequestOptions,
+  UploadPhoto
+} from "../domain/types";
+import { extractCsrfToken } from "./csrf";
+import { ApiRequestError } from "../adapters/relay-marktplaats-client";
 
-/**
- * The real internal-API calls (ADR-0004), running INSIDE the marktplaats.nl page
- * via the content script, so they carry the user's session cookies and can read
- * the page's CSRF token.
- *
- * Endpoints + CSRF source come from runtime config (Options page / __setEndpoints),
- * NOT hardcoded — so they can be tuned during live testing without a rebuild. An
- * unset endpoint throws SpikePendingError. Filling these is spike #2/#3/#4.
- */
+// ============================================================================
+// Types & Configuration (Moved to top for visibility)
+// ============================================================================
+
+export type CsrfMode = "meta" | "cookie" | "none" | "fetch";
+
+export interface BaseCsrfConfig { header: string; }
+export interface NoneCsrfConfig extends BaseCsrfConfig { mode: "none"; }
+export interface MetaCsrfConfig extends BaseCsrfConfig { mode: "meta"; name: string; }
+export interface CookieCsrfConfig extends BaseCsrfConfig { mode: "cookie"; name: string; }
+export interface FetchCsrfConfig extends BaseCsrfConfig {
+  mode: "fetch";
+  url: string;
+  extractor: { type: "dom"; selector: string; attribute: string } | { type: "regex"; pattern: RegExp; matchIndex: number };
+}
+
+export type CsrfConfig = NoneCsrfConfig | MetaCsrfConfig | CookieCsrfConfig | FetchCsrfConfig;
+
+export type EndpointName =
+    | "listMyAds"
+    | "captureAd"
+    | "deleteAd"
+    | "createAd"
+    | "createAdPage"
+    | "uploadPhoto"
+    | "getBuckets"
+    | "searchAd"
+    | "getBucketCategories";
+
+// FIX: Proper use of Partial with Record for strict typing
+export type EndpointConfig = Partial<Record<EndpointName, string>> & {
+  csrf: CsrfConfig;
+};
+
+export const EMPTY_ENDPOINT_CONFIG: EndpointConfig = {
+  listMyAds: "/my-account/sell/api/listings",
+  captureAd: "/seller/view/:id",
+  deleteAd: "/seller/api/delete-ad",
+  createAd: "/plaats/ads",
+  createAdPage: "/plaats/1744/1745",
+  uploadPhoto: "/plaats/api/image/upload",
+  getBuckets: "/plaats/api/v1/category-aggregate/:parentCategoryId/buckets", // FIX: Synced name to plural 'getBuckets'
+  getBucketCategories: "/plaats/api/v1/category-aggregate/:parentCategoryId/buckets/:bucketId/categories",
+  searchAd: "/my-account/sell/api/listings",
+  csrf: {
+    mode: "fetch",
+    url: "https://www.marktplaats.nl/plaats/1/2",
+    header: "x-mp-xsrf",
+    extractor: {
+      type: "dom",
+      selector: "input[name='xsrf.token']",
+      attribute: "value",
+    },
+  },
+};
+
+const STORAGE_KEY = "endpointConfig";
 
 let cachedConfig: EndpointConfig | null = null;
+let cachedCsrfToken: string | null = null;
+let activeRefreshPromise: Promise<string> | null = null;
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (isEndpointConfigChange(changes, areaName)) cachedConfig = null;
+  if (areaName === "local" && STORAGE_KEY in changes) {
+    cachedConfig = null;
+    cachedCsrfToken = null;
+  }
 });
+
+export async function loadEndpointConfig(): Promise<EndpointConfig> {
+  const stored = await chrome.storage.local.get(STORAGE_KEY);
+  const partial = stored[STORAGE_KEY] as Partial<EndpointConfig> | undefined;
+
+  return {
+    ...EMPTY_ENDPOINT_CONFIG,
+    ...partial,
+    csrf: partial?.csrf ?? EMPTY_ENDPOINT_CONFIG.csrf,
+  };
+}
+
+export async function saveEndpointConfig(config: EndpointConfig): Promise<void> {
+  await chrome.storage.local.set({ [STORAGE_KEY]: config });
+}
 
 async function config(): Promise<EndpointConfig> {
   if (!cachedConfig) cachedConfig = await loadEndpointConfig();
   return cachedConfig;
 }
 
-function pathOf(cfg: EndpointConfig, name: EndpointName, listingId?: string): string {
-  const path = cfg[name];
-  if (path === "") {
-    throw new SpikePendingError(`endpoint '${name}' is not set — configure it in the extension's Options`);
+// ============================================================================
+// Core Request Logic
+// ============================================================================
+
+function pathOf(
+    cfg: EndpointConfig,
+    name: EndpointName,
+    params?: Record<string, string | number>,
+    queries?: Record<string, string | number>
+): string {
+  let path = cfg[name];
+  if (!path) {
+    throw new SpikePendingError(`Endpoint '${name}' is not set in extension options.`);
   }
-  return listingId ? path.replace(":id", encodeURIComponent(listingId)) : path;
+
+  if (params) {
+    for (const [key, value] of Object.entries(params)) {
+      const regex = new RegExp(`:${key}(?!\\w)`, "g");
+      path = path.replace(regex, encodeURIComponent(String(value)));
+    }
+  }
+
+  if (queries) {
+    const searchParams = new URLSearchParams()
+    for (const [key, value] of Object.entries(queries)) {
+      searchParams.append(key, String(value))
+    }
+
+    const queryString = searchParams.toString();
+    if (queryString) {
+      path += path.includes("?") ? `&${queryString}` : `?${queryString}`
+    }
+  }
+
+  if (path.includes(":")) {
+    console.warn(`[pathOf] URL '${path}' may contain unresolved path variables.`);
+  }
+
+  return path;
 }
 
-interface RequestOptions {
-  init?: RequestInit;
-  /** substituted into the path's ":id" and used for AdNotFoundError on 404. */
-  listingId?: string;
-  /** when true, a 404 becomes AdNotFoundError (so the orchestrator treats it as already-deleted). */
-  notFoundIsMissing?: boolean;
+async function ensureCsrfToken(cfg: EndpointConfig, forceRefresh = false): Promise<string> {
+  if (cfg.csrf.mode === "none") return "";
+  if (!forceRefresh && cachedCsrfToken) return cachedCsrfToken;
+
+  if (!activeRefreshPromise) {
+    activeRefreshPromise = (async () => {
+      try {
+        const token = await extractCsrfToken(cfg.csrf);
+        if (!token) throw new SpikePendingError("CSRF token extraction failed. Token not found.");
+        cachedCsrfToken = token;
+        return token;
+      } finally {
+        activeRefreshPromise = null;
+      }
+    })();
+  }
+
+  return activeRefreshPromise;
 }
 
-/** One place for the fetch → auth-guard → ok-guard shape shared by every call. */
 async function request(
-  cfg: EndpointConfig,
-  name: EndpointName,
-  { init, listingId, notFoundIsMissing }: RequestOptions = {},
+    cfg: EndpointConfig,
+    name: EndpointName,
+    { init = {}, listingId, pathParams = {}, notFoundIsMissing, queryParams }: RequestOptions = {}
 ): Promise<Response> {
-  const res = await fetch(pathOf(cfg, name, listingId), { credentials: "include", ...init });
-  if (notFoundIsMissing && res.status === 404 && listingId !== undefined) {
-    throw new AdNotFoundError(listingId);
+  // FIX: Immutably merge parameters so we don't pollute the caller's pathParams object
+  const mergedParams: Record<string, string | number> = { ...pathParams };
+  if (listingId !== undefined) {
+    mergedParams.id = listingId;
   }
-  if (res.status === 401 || res.status === 403) throw new NotAuthenticatedError();
-  if (!res.ok) throw new Error(`${name} failed: ${res.status}`);
+
+  const url = pathOf(cfg, name, mergedParams, queryParams);
+  const method = init.method?.toUpperCase() ?? "GET";
+  const requiresCsrf = ["POST", "PUT", "DELETE", "PATCH"].includes(method);
+
+  const headers = new Headers(init.headers);
+
+  if (requiresCsrf) {
+    const token = await ensureCsrfToken(cfg);
+    if (token) headers.set(cfg.csrf.header, token);
+  }
+
+  let res = await fetch(url, { credentials: "include", ...init, headers });
+
+  if (requiresCsrf && (res.status === 403 || res.status === 419)) {
+    console.warn(`[${name}] Token expired. Fetching fresh token and retrying...`);
+    const freshToken = await ensureCsrfToken(cfg, true);
+    headers.set(cfg.csrf.header, freshToken);
+    res = await fetch(url, { credentials: "include", ...init, headers });
+  }
+
+  if (notFoundIsMissing && res.status === 404 && mergedParams.id !== undefined) {
+    throw new AdNotFoundError(String(mergedParams.id));
+  }
+
+  if (res.status === 401 || res.status === 403) {
+    throw new NotAuthenticatedError();
+  }
+
+  if (!res.ok) {
+    const bodyText = await res.text().catch(() => "Could not read response body");
+    console.error(`[Marktplaats API] ${method} ${url} failed with ${res.status}:`, bodyText);
+    throw new ApiRequestError(name, res.status, bodyText);
+  }
+
   return res;
 }
 
-export async function listMyAds(): Promise<ListingSummary[]> {
+// ============================================================================
+// Business Logic Functions
+// ============================================================================
+
+export async function listMyAds(): Promise<ListingDraft[]> {
   const cfg = await config();
   const res = await request(cfg, "listMyAds");
   const data = await res.json();
-  // TODO(spike #2): map the real response shape → ListingSummary[].
-  return (data.ads ?? []).map(
-    (ad: { id: string | number; title: string; priceCents: number }): ListingSummary => ({
-      id: String(ad.id),
-      title: ad.title,
-      priceCents: ad.priceCents,
-    }),
-  );
+  return data.ads ?? [];
 }
 
-export async function captureAd(listingId: string): Promise<CapturedAd> {
+export async function captureAd(listingId: string): Promise<{ draft: CapturedAd; photos: Photo[] }> {
   const cfg = await config();
-  const res = await request(cfg, "captureAd", { listingId, notFoundIsMissing: true });
-  const data = await res.json();
-  // TODO(spike #2/#4): map the real detail response → draft + photo URLs.
-  const draft: ListingDraft = {
-    title: data.title,
-    description: data.description,
-    priceCents: data.priceCents,
-    categoryId: String(data.categoryId),
-    attributes: data.attributes ?? {},
-    location: data.location,
-  };
-  const photoUrls: string[] = data.pictureUrls ?? [];
-  const photos = await Promise.all(photoUrls.map(downloadPhoto));
+  const res = await request(cfg, "captureAd", { pathParams: { id: listingId } });
+  const html = await res.text();
+
+  const windowConfig = (await captureAdViaJson(html)) ?? (await captureAdViaWindowConfig(html)) ;
+
+  if (!windowConfig) throw new AdNotFoundError(listingId);
+
+  const draft: CapturedAd = windowConfig.listing ?? windowConfig;
+  if (!draft) throw new AdNotFoundError(listingId);
+
+  const photoUrls: string[] = draft.gallery?.imageUrls ?? [];
+  const photos = await Promise.all(photoUrls.map((url) => downloadPhoto(url)));
+
+  const buckets = await getBuckets(draft.categoryInformation.parentCategoryId);
+
+  const mappedBucket = await mapCategoryToBucket(cfg, draft.categoryInformation.categoryId, draft.categoryInformation.parentCategoryId, buckets);
+  if (!draft) throw new SpikePendingError("Could not resolve a mapped bucket");
+
+  draft.bucketId = mappedBucket.id;
+  console.log("mappedBucket", mappedBucket);
+
   return { draft, photos };
 }
 
-async function downloadPhoto(url: string): Promise<Photo> {
-  const res = await fetch(url, { credentials: "include" });
-  if (!res.ok) throw new Error(`photo download failed: ${res.status}`);
-  const blob = await res.blob();
-  const data = new Uint8Array(await blob.arrayBuffer());
-  const filename = new URL(url, location.href).pathname.split("/").pop() || "photo.jpg";
-  return { filename, mimeType: blob.type || "image/jpeg", data };
+export async function searchAd (query: string): Promise<ListingDraft[]> {
+  console.log("Searching ad: ", query);
+  const cfg = await config();
+  const res = await request(cfg, "searchAd", { queryParams: { query } });
+
+  const data = await res.json();
+  return data.ads;
+}
+
+export async function mapCategoryToBucket(
+    cfg: EndpointConfig,
+    categoryId: number,
+    parentCategoryId: number,
+    buckets: Bucket[],
+): Promise<Bucket | null> {
+  if (!buckets || buckets.length === 0) return null;
+
+  // Optimized: Use Promise.all to fetch concurrently and return the first valid bucket
+  const results = await Promise.all(buckets.map(async (bucket) => {
+    try {
+      const res = await request(cfg, "getBucketCategories", {
+        pathParams: { parentCategoryId, bucketId: bucket.id }
+      });
+      const categories: Category[] = await res.json();
+      return categories.some((c) => c.id === categoryId) ? bucket : null;
+    } catch (e) {
+      console.warn(`Failed to fetch categories for bucket ${bucket.id}`, e);
+      return null;
+    }
+  }));
+
+  return results.find((result) => result !== null) || null;
+}
+
+export async function downloadPhoto(url: string): Promise<Photo> {
+  try {
+    const res = await fetch(url, { credentials: "include" });
+    if (res.ok) {
+      const blob = await res.blob();
+      const data = new Uint8Array(await blob.arrayBuffer());
+      const filename = new URL(url, location.href).pathname.split("/").pop() || "photo.jpg";
+      return { filename, mimeType: blob.type || "image/jpeg", data };
+    }
+  } catch (err) {
+    console.warn(`[DownloadPhoto] Direct fetch failed for ${url}, attempting canvas fallback:`, err);
+  }
+
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return reject(new Error("Failed to initialize canvas context"));
+
+      ctx.drawImage(img, 0, 0);
+      canvas.toBlob((blob) => {
+        if (!blob) return reject(new Error("Canvas blob conversion failed"));
+        blob.arrayBuffer().then((buffer) => {
+          const filename = new URL(url, location.href).pathname.split("/").pop() || "photo.jpg";
+          resolve({
+            filename,
+            mimeType: blob.type || "image/jpeg",
+            data: new Uint8Array(buffer),
+          });
+        }).catch(reject);
+      }, "image/jpeg", 0.95);
+    };
+    img.onerror = () => reject(new Error(`Failed to load image element for URL: ${url}`));
+    img.src = url;
+  });
 }
 
 export async function deleteAd(listingId: string): Promise<void> {
@@ -110,40 +327,208 @@ export async function deleteAd(listingId: string): Promise<void> {
   await request(cfg, "deleteAd", {
     listingId,
     notFoundIsMissing: true,
-    init: { method: "DELETE", headers: csrfHeaders(cfg.csrf) },
-  });
-}
-
-export async function createAd(draft: ListingDraft, photos: Photo[]): Promise<{ id: string }> {
-  const cfg = await config();
-  const csrf = csrfHeaders(cfg.csrf);
-  const mediaIds = await Promise.all(photos.map((photo) => uploadPhoto(cfg, csrf, photo)));
-  const res = await request(cfg, "createAd", {
     init: {
-      method: "POST",
-      headers: { "content-type": "application/json", ...csrf },
-      // TODO(spike #3): assemble the real create payload from draft + mediaIds.
-      body: JSON.stringify({ ...draft, mediaIds }),
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ itemId: listingId, reason: "NO_DEAL_VIA_MP" }),
     },
   });
-  const data = await res.json();
-  // TODO(spike #3): confirm the new-listing id field.
-  return { id: String(data.id) };
 }
 
-async function uploadPhoto(
-  cfg: EndpointConfig,
-  csrf: Record<string, string>,
-  photo: Photo,
-): Promise<string> {
+export async function getBuckets(categoryId: number): Promise<Bucket[]> {
+  const cfg = await config();
+  const res = await request(cfg, "getBuckets", { pathParams: { parentCategoryId: categoryId } });
+  return res.json();
+}
+
+export async function createAd(draft: CapturedAd, photos: Photo[]): Promise<void> {
+  const cfg = await config();
+
+  const uploadedMedia: UploadPhoto[] = await Promise.all(
+      photos.map((photo) => uploadPhoto(cfg, photo))
+  );
+
+  // CRITICAL FIX: Use URLSearchParams for application/x-www-form-urlencoded
+  const form = new URLSearchParams();
+
+  uploadedMedia.forEach((media) => {
+    form.append("images.ids", media.id);
+    form.append("images.urls", media.imageUrl);
+  });
+
+  if (uploadedMedia.length) {
+    form.append("images.ids", "");
+  }
+
+  form.append("title_nl-NL", draft.title || "");
+  form.append("description_nl-NL", draft.description || "");
+
+  // MOVED: Placed up here to match the working payload order
+  form.append("url", "");
+
+  const typeAttr = draft.attributes?.find((a) => a.key === "type")?.value || draft.categoryInformation?.categoryName;
+  if (typeAttr) {
+    form.append("singleSelectAttribute[type]", typeAttr);
+  }
+
+  if (draft.deliveryMethod) form.append("deliveryMethod", draft.deliveryMethod);
+
+  if (draft.isBuyerProtectionActiveOnListing) {
+    form.append("buyerProtectionAllowed", "on");
+  }
+
+  if (draft.shippingInformation?.selectedShippingOptions?.length) {
+    const uniqueCarriers = Array.from(
+        new Set(
+            draft.shippingInformation.selectedShippingOptions
+                .map((option) => option.carrierId || option.code)
+                .filter(Boolean)
+        )
+    );
+
+    uniqueCarriers.forEach((carrierCode) => {
+      form.append("shippingMethod", carrierCode.toLowerCase());
+    });
+
+    // MOVED: Package size comes before price details in the working payload
+    form.append("packageSize", "M");
+
+    const primaryShipping = draft.shippingInformation.selectedShippingOptions[0];
+    if (primaryShipping) {
+      form.append("shippingDetails.price", String(primaryShipping.cost));
+      form.append("shippingDetails.provider", "other");
+    }
+  }
+
+  if (draft.price) {
+    const priceType = draft.price.priceType || "FAST_BID";
+    form.append("Dropdown-prijstype", priceType);
+
+    // MOVED: minimumBidPrice is placed before typeValue in the working payload
+    form.append("price.minimumBidPrice", "");
+    form.append("price.typeValue", priceType);
+    form.append("previousPriceType", "");
+
+    // FIXED: Only append if true. Omit entirely if false.
+    if (draft.price.biddingEnabled) {
+      form.append("price.biddingEnabled", "on");
+    }
+  }
+
+  form.append("contactInformation.sellerName", draft.contactInformation.name || "");
+  // FIXED: Cast boolean to string, and reordered before syi-address fields
+  form.append("contactInformation.phoneNumberSwitch", "false");
+  form.append("syi-address-radio-home", "syi-address-nl");
+  form.append("address-index-filter", "syi-address-nl");
+  form.append("contactInformation.postCode", draft.contactInformation.postcode || "");
+  form.append("bundle-selection", "FREE");
+  form.append("selectedBundle", "FREE");
+
+  const csrfToken = await ensureCsrfToken(cfg);
+  if (csrfToken) form.append("xsrf.token", csrfToken);
+
+  if (draft.categoryInformation) {
+    form.append("l1", String(draft.categoryInformation.parentCategoryId));
+    // MOVED: Bucket must be grouped with the category IDs
+    form.append("bucket", String(draft.bucketId || 9));
+    form.append("l2", String(draft.categoryInformation.categoryId));
+    form.append("l2CategoryFullName", draft.categoryInformation.categoryName || "");
+  }
+
+  const formAttributes = await getCreateFormAttributes(cfg);
+
+  // Reordered to strictly match the working payload's exact sequence
+  form.append("tmsid", formAttributes.tmsid);
+  form.append("timestamp", String(formAttributes.timestamp));
+  form.append("signature", formAttributes.signature);
+
+  // request() throws on any non-ok status, so reaching here means the ad was
+  // created — Marktplaats answers with 200/201/a redirect and no JSON to read.
+  await request(cfg, "createAd", {
+    init: {
+      method: "POST",
+      body: form
+    },
+  });
+
+  console.log("Ad Created Successfully");
+}
+
+// FIX: Returned a single UploadPhoto instead of an array.
+async function uploadPhoto(cfg: EndpointConfig, photo: Photo): Promise<UploadPhoto> {
   const buffer = new ArrayBuffer(photo.data.byteLength);
   new Uint8Array(buffer).set(photo.data);
+
   const form = new FormData();
-  form.append("file", new Blob([buffer], { type: photo.mimeType }), photo.filename);
+  form.append("name", photo.filename);
+  form.append("imageData", new Blob([buffer], { type: photo.mimeType }), photo.filename);
+
   const res = await request(cfg, "uploadPhoto", {
-    init: { method: "POST", headers: csrf, body: form },
+    init: { method: "POST", body: form },
   });
-  const data = await res.json();
-  // TODO(spike #4): confirm the media id field.
-  return String(data.id);
+  return res.json();
+}
+
+// ============================================================================
+// Hydration Parsing Helpers
+// ============================================================================
+
+export async function captureAdViaJson(htmlText: string): Promise<any> {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(htmlText, "text/html");
+
+  const nextDataScript = doc.querySelector("script#__NEXT_DATA__[type='application/json']");
+  if (nextDataScript?.textContent) {
+    return JSON.parse(nextDataScript.textContent);
+  }
+
+  const apolloScript = doc.querySelector("script#__APOLLO_STATE__[type='application/json']");
+  if (apolloScript?.textContent) {
+    return JSON.parse(apolloScript.textContent);
+  }
+
+  return null;
+}
+
+export async function captureAdViaWindowConfig(htmlText: string): Promise<any> {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(htmlText, "text/html");
+  const scripts = Array.from(doc.querySelectorAll("script:not([src])"));
+
+  for (const script of scripts) {
+    const text = script.textContent || "";
+    if (text.includes("window.__CONFIG__")) {
+      const match = text.match(/window\.__CONFIG__\s*=\s*(\{[\s\S]*?\});?\s*(<\/script>|$|window\.)/);
+      if (match && match[1]) {
+        try {
+          return JSON.parse(match[1]);
+        } catch (e) {
+          console.error("[Parser] JSON parse error on window config state:", e);
+        }
+      } else {
+        console.warn("[Capture] Found window.__CONFIG__ but couldn't isolate the JSON structure.");
+      }
+    }
+  }
+
+  return null;
+}
+
+export async function getCreateFormAttributes (cfg: EndpointConfig): Promise<{
+  signature: string,
+  timestamp: number,
+  tmsid: string
+}> {
+  const res = await request(cfg, "createAdPage");
+  const html = await res.text();
+
+  console.log("html text response", html);
+
+  const windowConfig = (await captureAdViaJson(html)) ?? (await captureAdViaWindowConfig(html)) ;
+  console.log("createAdFormAttributes", windowConfig);
+  return {
+    signature: windowConfig.reactData.form.signature,
+    timestamp: windowConfig.reactData.form.timestamp,
+    tmsid:  windowConfig.reactData.form.tmsid
+  }
 }

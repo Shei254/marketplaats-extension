@@ -1,0 +1,8 @@
+spring:
+  application:
+    name: mprelist-api
+
+server:
+  # Pinned, though it is also Boot's default: infra/docker-compose.yml gives Keycloak 8081 specifically to
+  # keep 8080 free for this application, and that pairing should not rest on a default staying put.
+  port: 8080

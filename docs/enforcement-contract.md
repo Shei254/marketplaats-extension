@@ -36,7 +36,10 @@ conversion surface available. The login gate is a product decision, not a securi
 ## Quota period
 `periodStart`/`periodEnd` are stored on the `Subscription`: copied from Stripe's current period for paid
 subscriptions, rolled monthly from the provisioning date for free ones. `resetAt = periodEnd`, always
-answerable. Usage is `count(RelistEvent) in [periodStart, periodEnd)`.
+answerable. Usage is the reservations in `[periodStart, periodEnd)` that were not refunded — the
+**reservation holds the unit**, from `authorize` until `complete` settles or refunds it, so a relist still
+in flight already counts against quota. A RelistEvent records what the extension reported, refunds
+included, and is therefore not itself the count (#17).
 
 ## Endpoints
 

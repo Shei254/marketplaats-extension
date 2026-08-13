@@ -1,18 +1,19 @@
 # `apps/api` — Spring Boot API
 
-The skeleton: five empty modules and the build-time check that makes them mean something. No endpoints, no
-database, no security — those arrive with the tickets named below.
+Five empty modules, the build-time check that makes them mean something, and the schema they will fill. No
+endpoints and no security yet — those arrive with the tickets named below.
 
 ```bash
 cd apps/api
-./gradlew test      # 4 tests: the context starts, and three that hold the module boundary
+./gradlew test      # 18 tests: the module boundary, and the schema against a real Postgres
 ./gradlew build     # the above, plus the executable jar
 ./gradlew bootRun   # http://localhost:8080 — 404 on everything, there are no controllers yet
 ```
 
-Nothing here needs [the local stack](../../infra/README.md) yet: no datasource is configured, and no token is
-validated. Postgres becomes a requirement with [#17](https://github.com/Shei254/marketplaats-extension/issues/17)
-(Flyway), Keycloak with [#19](https://github.com/Shei254/marketplaats-extension/issues/19).
+`bootRun` needs [the local stack](../../infra/README.md) up: it migrates `postgres://localhost:5432/mprelist`
+on startup and will not start without it. `test` does not — it starts a Postgres of its own — but it does
+need a Docker daemon, for the same reason. Keycloak becomes a requirement with
+[#19](https://github.com/Shei254/marketplaats-extension/issues/19).
 
 ## The modules
 
@@ -58,6 +59,61 @@ Mutation-verified — each of these was applied, observed, and reverted:
 | the fixture's `beta` stops reaching into `alpha.internal` | `andTheCheckAboveIsWhatWouldCatchOneThatDid` |
 | `catalog`'s `package-info` loses `@ApplicationModule` | `allFiveModulesAreVisibleToTheCheck` |
 
+## The schema
+
+`src/main/resources/db/migration/V1__baseline_schema.sql`, applied by Flyway on startup: the five tables
+[`docs/domain-model.md`](../../docs/domain-model.md) calls backend-owned, and nothing else. Flyway checksums
+what it has already applied, so a correction to that file once it has run anywhere is a new `V2` — never an
+edit to `V1`.
+
+| Table | Holds | Filled by |
+|---|---|---|
+| `app_user` | one row per human, keyed to the Keycloak `sub` | [#20](https://github.com/Shei254/marketplaats-extension/issues/20) |
+| `tier` | our catalog: quota, max MP accounts, feature flags, nullable `stripe_price_id` | [#18](https://github.com/Shei254/marketplaats-extension/issues/18), [#21](https://github.com/Shei254/marketplaats-extension/issues/21) |
+| `subscription` | the mirror: user, tier, normalized status, period, Stripe ids | [#20](https://github.com/Shei254/marketplaats-extension/issues/20), [#30](https://github.com/Shei254/marketplaats-extension/issues/30) |
+| `usage_reservation` | one quota unit, held from `authorize` until `complete` | [#22](https://github.com/Shei254/marketplaats-extension/issues/22), [#23](https://github.com/Shei254/marketplaats-extension/issues/23) |
+| `relist_event` | what the extension reported about a relist | [#23](https://github.com/Shei254/marketplaats-extension/issues/23) |
+
+**The reservation holds the quota unit, and the event does not.** An in-flight relist has to hold one — the
+extension is between the delete and the create and has reported nothing yet — so usage in a period is the
+reservations in it that were not refunded, and a refund is a status change on one row. That also leaves
+`relist_event` free to record the `FAILED_BEFORE_DELETE` outcomes that cost no quota, which is precisely the
+breakage canary [`docs/enforcement-contract.md`](../../docs/enforcement-contract.md) says `/complete` exists
+for. That contract had said usage was `count(RelistEvent)`, written before the reservation existed; it, the
+domain model and the glossary were corrected to match.
+
+Each invariant is in the schema rather than in a service, so no module can write around it by forgetting:
+
+| Invariant | Held by | Asserted by |
+|---|---|---|
+| At most one tier is the default | partial unique index `tier_single_default` | `aSecondDefaultTierIsRejected`, and `butTheCatalogMayHoldAnyNumberOfTiersThatAreNotTheDefault` for the *partial* |
+| A user has at most one subscription | `subscription.app_user_id` unique | `aUserHasAtMostOneSubscription` |
+| Status is one of the seven the contract normalizes to | check constraint | `aSubscriptionCarriesOneOfTheSevenNormalizedStatuses`, `andNothingElse` |
+| A tier with subscribers cannot be dropped | foreign key, no delete rule | `aTierWithSubscribersCannotBeDeleted` |
+| `complete` is idempotent per `jti` | `relist_event.reservation_id` unique | `aReservationIsReportedOnAtMostOnce` |
+| A settled reservation says when it settled | paired check constraint | `aSettledReservationSaysWhenItWasSettled`, `andOneStillHoldingItsUnitDoesNot` |
+
+`BaselineSchemaTest` runs them against a Postgres it starts itself (Testcontainers), on **the image
+`infra/docker-compose.yml` names** — `LocalStackPostgres` reads the tag out of that file rather than
+restating it, because a schema proven on one major and served by another is a divergence nothing would
+report until deploy. Pointing that file at `postgres:16-alpine` moves the whole suite onto 16.14, which is
+the coupling working. An in-memory stand-in was never an option: partial indexes, `jsonb` and expression
+checks are the subject here, not incidental to it.
+
+Mutation-verified — each applied, observed, reverted:
+
+| Mutation | Fails |
+|---|---|
+| `tier_single_default` becomes a plain `unique (is_default)` | `butTheCatalogMayHoldAnyNumberOfTiersThatAreNotTheDefault` (+2) |
+| `subscription.app_user_id` loses `unique` | `aUserHasAtMostOneSubscription` |
+| `relist_event.reservation_id` loses `unique` | `aReservationIsReportedOnAtMostOnce` |
+| the `status` check constraint is dropped | `andNothingElse` |
+| `relist_event` is left out of the migration | `theMigrationCreatesTheFiveTablesTheDomainModelOwns` (+1) |
+
+The fixtures name no tier `code` that [#18](https://github.com/Shei254/marketplaats-extension/issues/18)'s
+seed could also name, and each test empties the catalog it arranges — checked by adding that seed as a
+temporary `V2` and running the suite green against it.
+
 ## Versions, and where they are stated
 
 - **Java 21** ([ADR-0012](../../docs/adr/0012-backend-modular-monolith.md)) as a Gradle *toolchain*, not as
@@ -67,11 +123,16 @@ Mutation-verified — each of these was applied, observed, and reverted:
 - **Gradle 9.7.0**, via the committed wrapper, pinned by `distributionSha256Sum`.
 - **Spring Boot 4.1.0**, stated once, in the `plugins` block; every Spring dependency takes its version from
   Boot's BOM. Boot's BOM does not manage Spring Modulith, so **2.1.0** is the one version pinned by hand.
+  Flyway (12.4.0) and Testcontainers (2.0.5) it does manage, so neither is stated here — and the Postgres
+  *image* is not a version either, since it is read from `infra/docker-compose.yml`.
+- Boot 4 splits auto-configuration into per-technology modules, which is why the Flyway dependency is
+  `spring-boot-starter-flyway` and not `flyway-core`: the latter would put Flyway on the classpath and leave
+  nothing to run it, and an application that quietly migrates nothing starts perfectly well.
 
 ## Not here yet
 
-Schema and Flyway ([#17](https://github.com/Shei254/marketplaats-extension/issues/17)), the OAuth2 resource
-server ([#19](https://github.com/Shei254/marketplaats-extension/issues/19)), and the endpoints of
+The OAuth2 resource server ([#19](https://github.com/Shei254/marketplaats-extension/issues/19)), the tier
+seed ([#18](https://github.com/Shei254/marketplaats-extension/issues/18)), and the endpoints of
 [`docs/enforcement-contract.md`](../../docs/enforcement-contract.md)
 ([#22](https://github.com/Shei254/marketplaats-extension/issues/22),
 [#23](https://github.com/Shei254/marketplaats-extension/issues/23),

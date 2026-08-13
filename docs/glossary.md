@@ -27,8 +27,9 @@ Domain terms for the Marktplaats relisting extension. Kept current as the design
 | **Subscription** | The User's plan, mirrored from Stripe via webhooks; carries tier/status/period. |
 | **Tier** | A named plan in **our** catalog (Postgres): quota-per-period, max MarktplaatsAccounts, feature flags, plus a `stripePriceId` linking it to the Stripe Price that carries amount/currency/interval. Admin-managed. _Avoid_: Plan, Package, Product. |
 | **Entitlement** | Limits/features derived from a Subscription's Tier (relists per period, max MP accounts, feature flags) — what quota checks read. Resolved from our Tier table, **never** from Stripe on the hot path. |
-| **RelistEvent (UsageRecord)** | A backend-recorded relist attempt; the authoritative usage count for billing/quota. |
-| **RelistAuthorization** | A short-lived signed backend OK the extension must obtain before a gated relist (ADR-0007). |
+| **RelistEvent (UsageRecord)** | The backend's record of what a relist it authorized turned out to be — one per settled reservation, refunds included, which is what makes it the breakage canary rather than the count. |
+| **Usage reservation** | The quota unit itself, held from `authorize` until `complete` settles or refunds it. Usage in a period is the reservations in it that were not refunded, so an in-flight relist already counts. |
+| **RelistAuthorization** | A short-lived signed backend OK the extension must obtain before a gated relist (ADR-0007). Its `jti` is the id of the reservation it was issued against. |
 | **SafetyPolicy** | Per-User rate limits, human-like pacing/jitter, and caps — harm-reduction for the user's own account (ADR-0008). |
 
 | **Default tier** | The Tier flagged `isDefault`, auto-assigned to every User on first login. Currently the free tier; removing free = unset the flag and migrate rows (ADR-0014). _Avoid_: Free plan as a special case. |

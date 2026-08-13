@@ -3,6 +3,22 @@
 > Status: ready-for-agent (pending issue-tracker setup — see Further Notes)
 > Implements: ADR-0001, ADR-0005, ADR-0006, ADR-0007, ADR-0008. Contract: `docs/enforcement-contract.md`. Terms: `docs/glossary.md`.
 
+> ## ⚠️ Partly superseded (2026-08-13)
+> `docs/enforcement-contract.md` is the authority where this spec disagrees with it. Changes:
+> - **`marktplaatsAccountId` is removed from `authorize`**, and with it the `403 NOT_YOUR_ACCOUNT` check —
+>   the extension cannot produce the value and the backend cannot verify it. Quota and pacing are per-User.
+>   **Voids user stories 9 and 17.**
+> - **Entitlements come from our own `Tier` table**, not from the Stripe tier (ADR-0014). Every User always
+>   has a Subscription — the free tier is an ordinary Tier row — so `SUBSCRIPTION_INACTIVE` now only ever
+>   means a lapsed payer, and free users are denied by `QUOTA_EXCEEDED`.
+> - **`GET /api/me` is added** for display state, and **`/complete` returns the updated quota** (satisfying
+>   user story 16 without a second call).
+> - **Login gates the whole extension**; subscription and quota gate the action (ADR-0007 refinement).
+> - Backend specifics settled: Gradle, Java 21, Flyway, Spring Modulith, package base `com.mprelist`
+>   (ADR-0012).
+> Everything else — reserve/refund, idempotency per `jti`, auto-reconciliation, fail-closed, the two test
+> seams — stands as written.
+
 ## Problem Statement
 
 Relisting is the paid value of the product, but the relist action runs client-side in the user's own browser and Marktplaats session (ADR-0001). Nothing today ties the ability to use the repost feature to whether the user is actually paying. A user whose Subscription has expired or been cancelled can currently keep using the repost icon indefinitely, and there is no reliable record of how many relists a user has consumed. The business needs the repost feature to be usable **only** by users with an active, in-quota Subscription, and needs trustworthy usage numbers for billing.

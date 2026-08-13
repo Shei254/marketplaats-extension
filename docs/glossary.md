@@ -25,9 +25,18 @@ Domain terms for the Marktplaats relisting extension. Kept current as the design
 | **User (App account)** | An identity in our product, issued by Keycloak. One human = one User. Separate from any Marktplaats account. |
 | **MarktplaatsAccount (association)** | A Marktplaats account associated with a User — label + MP id only, **never credentials/session**. Supports multi-account. |
 | **Subscription** | The User's plan, mirrored from Stripe via webhooks; carries tier/status/period. |
-| **Entitlement** | Limits/features derived from a Subscription tier (relists per period, max MP accounts, feature flags) — what quota checks read. |
+| **Tier** | A named plan in **our** catalog (Postgres): quota-per-period, max MarktplaatsAccounts, feature flags, plus a `stripePriceId` linking it to the Stripe Price that carries amount/currency/interval. Admin-managed. _Avoid_: Plan, Package, Product. |
+| **Entitlement** | Limits/features derived from a Subscription's Tier (relists per period, max MP accounts, feature flags) — what quota checks read. Resolved from our Tier table, **never** from Stripe on the hot path. |
 | **RelistEvent (UsageRecord)** | A backend-recorded relist attempt; the authoritative usage count for billing/quota. |
 | **RelistAuthorization** | A short-lived signed backend OK the extension must obtain before a gated relist (ADR-0007). |
-| **SafetyPolicy** | Per-account rate limits, human-like pacing/jitter, and caps — harm-reduction for the user's own account (ADR-0008). |
+| **SafetyPolicy** | Per-User rate limits, human-like pacing/jitter, and caps — harm-reduction for the user's own account (ADR-0008). |
+
+| **Default tier** | The Tier flagged `isDefault`, auto-assigned to every User on first login. Currently the free tier; removing free = unset the flag and migrate rows (ADR-0014). _Avoid_: Free plan as a special case. |
+| **Quota period** | The `[periodStart, periodEnd)` window on a Subscription that usage is counted within. Copied from Stripe for payers, rolled monthly from signup for free users. `resetAt` = `periodEnd`. |
+| **Display state** | The unsigned `GET /api/me` snapshot (status, tier, quota, resetAt, features) the UI renders from. Explicitly **not** an authorization — the relist path ignores it (ADR-0007). _Avoid_: cached grant, session state. |
+| **Golden payload** | A byte-exact snapshot of a request the internal-API layer emits (method, URL, headers, body including form field order), asserted with `fetch` stubbed. Freezes the working Marktplaats calls so the code around them can be refactored (ADR-0015). |
+| **Client config** | The backend-served document of endpoint paths, CSRF extraction rules and DOM anchors that overrides the extension's hardcoded defaults. Strictly data, never executable (ADR-0013). _Avoid_: remote code, feature flags. |
+| **Breakage canary** | The `/complete` outcome mix. A rising `FAILED_BEFORE_DELETE` rate means Marktplaats changed something and a client-config hotfix is needed. |
+| **Ownership detection** | Deciding, on an arbitrary marktplaats.nl page, that an ad belongs to the current user before injecting a Repost control. **Open spike** — to be pinned against the real DOM. |
 
 <!-- Add terms as they are defined during grilling. -->

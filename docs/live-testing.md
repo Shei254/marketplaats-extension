@@ -58,8 +58,27 @@ await __setEndpoints({
 ```
 
 ## 4. Run a relist
-Keep a marktplaats.nl tab open (the content script relays through it). Open the
-service-worker console (`chrome://extensions` → *Inspect views: service worker*):
+
+### From the popup (one click)
+Keep a marktplaats.nl tab open and click the extension icon. Each ad row has a
+**Repost** button: it asks the **background worker** to run the relist (never the
+popup itself — closing the popup mid-relist must not strand an ad between the
+delete and the re-create), and shows the outcome on the row:
+
+| Row shows | Meaning |
+|---|---|
+| *Reposting…* | in flight; the other rows are locked until it finishes |
+| **Reposted** | `relisted` — snapshot cleared, then the list reloads under a green banner |
+| *Nothing was reposted…* + **Try again** | `failed-before-delete` — the original ad is untouched |
+| *Your ad was removed but…* + **Retry** | `failed-recoverable` — snapshot kept; Retry re-creates from it |
+
+A create answers with 200/201/a redirect and no JSON, so `createAd` returns
+nothing: not throwing *is* the success signal, and there is no new-ad id anywhere
+in the relist contract. The reloaded list may not show the new ad immediately if
+Marktplaats hasn't indexed it yet — the banner says so.
+
+### From the console
+Open the service-worker console (`chrome://extensions` → *Inspect views: service worker*):
 ```js
 await __getEndpoints();          // sanity-check config
 await __relist("<throwaway-ad-id>");

@@ -1,13 +1,15 @@
 /**
  * The one definition of Marktplaats's internal endpoints + CSRF source.
  *
- * Runtime configuration, so a tester can paste discovered values (via the
- * Options page or the __setEndpoints console hook) and live-test WITHOUT editing
- * source or rebuilding. Persisted in chrome.storage.local; read by the content
- * script at call time, and by the background worker's dev hooks.
+ * Runtime configuration, so a tester can retune a path that Marktplaats moved
+ * (via the __setEndpoints console hook of a dev build) and live-test WITHOUT
+ * editing source or rebuilding. Persisted in chrome.storage.local; read by the
+ * content script at call time, and by the background worker's dev hooks. The
+ * POC Options page that also wrote it is gone — ADR-0013, whose backend-served
+ * replacement is #36.
  *
- * This module is imported by every layer that needs the config — content script,
- * background worker, options page. There is deliberately no second copy: a
+ * This module is imported by every layer that needs the config — content script
+ * and background worker. There is deliberately no second copy: a
  * duplicate drifted once already (it declared `getBucket` while the type said
  * `getBuckets`, so that endpoint was unreachable from a stored config), which is
  * what T02 removed. `DEFAULT_ENDPOINT_CONFIG` is typed as a *total* record over

@@ -2,6 +2,13 @@
 
 Each ADR captures one decision made during grilling: the context, the options weighed, the choice, and its consequences. Status is `Proposed` until you confirm, then `Accepted`.
 
+**The decision an ADR records is frozen; the file paths in it are not.** Context, options weighed, choice and
+consequences are a dated record and are never rewritten to match how things turned out — that history is the
+point. But path references are kept current, so every path in an ADR can be followed as written: ADR-0011's
+move to `apps/extension/` updated ADR-0013's reference to the POC Options page. A change that moves code
+updates the ADRs that name it, alongside the [root README](../../README.md),
+[../live-testing.md](../live-testing.md) and [../backlog.md](../backlog.md).
+
 | ADR | Title | Status |
 |---|---|---|
 | [0001](0001-execution-model.md) | Execution model — client-side browser extension | Accepted |

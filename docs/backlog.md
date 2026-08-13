@@ -36,7 +36,7 @@ Capture the exact request every operation emits, with `fetch` stubbed and no net
 - Refs: [ADR-0015](adr/0015-frozen-internal-api-golden-tests.md).
 
 ### T02 · Collapse the duplicated endpoint config · **S** · T01
-`EMPTY_ENDPOINT_CONFIG` exists in both `src/shared/endpoint-config.ts` and `src/content/marktplaats-api.ts`, and the shared copy declares `getBucket` where the type says `getBuckets` — so a stored config can't reach that endpoint.
+`EMPTY_ENDPOINT_CONFIG` exists in both `apps/extension/src/shared/endpoint-config.ts` and `apps/extension/src/content/marktplaats-api.ts`, and the shared copy declares `getBucket` where the type says `getBuckets` — so a stored config can't reach that endpoint.
 - One definition, one `EndpointName` union, no drift.
 - Golden tests unchanged and green.
 
@@ -47,7 +47,7 @@ Capture the exact request every operation emits, with `fetch` stubbed and no net
 - Refs: [ADR-0011](adr/0011-repository-layout.md).
 
 ### T04 · Remove the POC Options page and dev console hooks · **S** · T03
-- Delete `src/options/*` and its manifest entry.
+- Delete `apps/extension/src/options/*` and its manifest entry.
 - Decide per hook whether `__relist`/`__setEndpoints`/etc. survive behind a dev-build flag or go.
 - Refs: [ADR-0013](adr/0013-remote-client-configuration.md).
 

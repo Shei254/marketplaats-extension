@@ -67,9 +67,9 @@ function runRelist(request: BackgroundRequest): Promise<RelistOutcome> {
 }
 
 /**
- * Manual test hooks, present only in a `npm run build:dev` build — `__DEV__` is
- * a build-time constant, so the default build drops this block instead of
- * shipping globals that can delete a user's ad (scripts/build.mjs).
+ * Manual test hooks, present only in a `npm run build:dev` build. The default
+ * build drops this block rather than shipping globals that can delete a user's
+ * ad; how that elimination is achieved is scripts/build.mjs's docstring.
  *
  * Open the service-worker console (chrome://extensions → this extension →
  * "Inspect views: service worker") with a marktplaats.nl tab open:

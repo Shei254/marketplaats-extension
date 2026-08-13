@@ -5,6 +5,12 @@ import { parseArgs } from "node:util";
 /**
  * Two builds from one script.
  *
+ * **This docstring is where the `__DEV__` mechanism is explained.** The files
+ * that touch the flag — src/build-flags.d.ts, src/background/service-worker.ts,
+ * vitest.config.ts, scripts/build.test.ts — state their own stake in it and
+ * point here rather than re-deriving it, so there is one account to keep true
+ * instead of several that drift into disagreeing half-versions.
+ *
  * `--dev` defines `__DEV__` as true, which is what keeps the service worker's
  * manual test hooks (`__relist`, `__setEndpoints`, …) in the bundle. The default
  * build is the shippable one: `__DEV__` becomes false and the guarded block is

@@ -4,14 +4,14 @@ Derived from the 2026-08-13 grilling session. Decisions live in [`adr/`](adr/REA
 is [`enforcement-contract.md`](enforcement-contract.md). This file is the work breakdown, not a decision
 record — if it disagrees with an ADR, the ADR wins.
 
-**46 tickets.** GitHub issues #9–#54.
+**47 tickets.** GitHub issues #9–#55.
 
 **Sizes:** S ≈ under a day · M ≈ 1–3 days · L ≈ 3+ days.
 
 ## Critical path
 
 ```
-T01 golden tests ──▶ T03 monorepo ──┬──▶ T07 API skeleton ──▶ T08 schema ──▶ T12 entitlements ──▶ T13 authorize
+T47 typecheck ──▶ T01 golden tests ──▶ T03 monorepo ──┬──▶ T07 API skeleton ──▶ T08 schema ──▶ T12 entitlements ──▶ T13 authorize
                                     │                                                                │
                                     └──▶ T28 design system ──▶ T29 popup shell ──▶ T30 list ──▶ T26 gate wiring
                                                                                                      │
@@ -55,6 +55,13 @@ Capture the exact request every operation emits, with `fetch` stubbed and no net
 Write `docs/internal-api-findings.md`: endpoints and which are HTML-scraped, CSRF extraction and its retry path, the `createAd` form-order dependency, the category→bucket fan-out, and the **photo fidelity limit** (`downloadPhoto`'s canvas fallback re-encodes to JPEG q0.95 and rewrites the mime type).
 - Carried over from POC spikes #3/#4, whose documentation criterion was never met.
 - This is what someone needs to author a client-config fix (T27) under time pressure.
+
+### T47 · Fix `MarktplaatsClient` type drift so typecheck passes · **S** · blocks T01
+`npm run typecheck` fails with 9 errors; neither esbuild nor vitest typechecks, so it went unnoticed. **No runtime bugs** — the declared types just don't describe what the code does.
+- `MarktplaatsClient.captureAd` is declared `Promise<CapturedAd>`, but `CapturedAd` has no `draft`/`photos` (those are on `AdSnapshot`); the API really returns `{ draft, photos }`.
+- `FakeMarktplaatsClient` never implemented `searchAd`.
+- Also: `searchAd` is plumbed but dead — `content-script.ts` returns `undefined`, the orchestrator only logs. T31 depends on it.
+- Not here: `getBucket`→`getBuckets` is T02; `options.ts` errors vanish with T04.
 
 ### T44 · Pin the extension ID · **S** · runbook, do before any shared environment
 Create an **unpublished draft** Web Store item, copy its public key into `manifest.json` as `"key"`. Until then, register each developer's path-derived ID in the dev Keycloak client.

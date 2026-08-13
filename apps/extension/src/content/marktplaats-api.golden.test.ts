@@ -14,7 +14,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { installChromeStub } from "../testing/chrome-stub";
+import { installChromeStub, type ChromeStub } from "../testing/chrome-stub";
 import {
   encodePairs,
   installDom,
@@ -41,6 +41,7 @@ let api: Api;
 let errors: Errors;
 let http: FetchStub;
 let uninstallDom: () => void;
+let chromeStub: ChromeStub;
 
 /**
  * `vi.resetModules()` clears the module-scope caches (`cachedConfig`,
@@ -51,7 +52,7 @@ let uninstallDom: () => void;
 beforeEach(async () => {
   vi.resetModules();
   uninstallDom = installDom();
-  installChromeStub();
+  chromeStub = installChromeStub();
   vi.spyOn(console, "log").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -62,6 +63,10 @@ beforeEach(async () => {
 afterEach(() => {
   http?.restore();
   uninstallDom?.();
+  // Restores whatever `chrome` was before this file ran, even for the tests that
+  // re-install a seeded stub over the top and discard the handle: the outer stub
+  // saved the original, so unwinding it is what actually clears the global.
+  chromeStub?.restore();
   vi.restoreAllMocks();
 });
 

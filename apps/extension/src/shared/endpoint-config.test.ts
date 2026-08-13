@@ -154,27 +154,6 @@ describe("saveEndpointOverrides", () => {
     });
   });
 
-  // The stale-profile half of the same bug. A tester who used the Options page,
-  // or __setEndpoints before it stored overrides, has a *resolved* config under
-  // the old key: nine endpoints pinned at the defaults of whatever build wrote
-  // it. Read as overrides it would shadow every later default — indistinguishable
-  // from the bug that was just fixed, and permanent, since nothing would ever
-  // overwrite a key the tester does not know to clear.
-  it("never reads the resolved config left under the pre-override key", async () => {
-    area[LEGACY_STORAGE_KEY] = { ...DEFAULT_ENDPOINT_CONFIG, deleteAd: "/stale/delete" };
-
-    await expect(loadEndpointConfig()).resolves.toEqual(DEFAULT_ENDPOINT_CONFIG);
-  });
-
-  it("drops the pre-override key once overrides are written", async () => {
-    area[LEGACY_STORAGE_KEY] = { ...DEFAULT_ENDPOINT_CONFIG };
-
-    await saveEndpointOverrides({ deleteAd: "/custom/delete" });
-
-    expect(area).not.toHaveProperty(LEGACY_STORAGE_KEY);
-    expect(area[STORAGE_KEY]).toEqual({ deleteAd: "/custom/delete" });
-  });
-
   // The content script drops its cached config on this signal, so the key the
   // watcher matches has to be the key the writer writes.
   it("writes the key isEndpointConfigChange watches", async () => {
@@ -184,6 +163,32 @@ describe("saveEndpointOverrides", () => {
       Object.keys(area).map((key) => [key, { newValue: area[key] }]),
     );
     expect(isEndpointConfigChange(changes, "local")).toBe(true);
+  });
+});
+
+// The stale-profile half of the same bug, and it spans both functions — one test
+// only reads — so it is its own block rather than misfiled under the writer.
+//
+// A tester who used the Options page, or __setEndpoints before it stored
+// overrides, has a *resolved* config under the old key: nine endpoints pinned at
+// the defaults of whatever build wrote it. Read as overrides it would shadow
+// every later default — indistinguishable from the bug that was just fixed, and
+// permanent, since nothing would ever overwrite a key the tester does not know
+// to clear.
+describe("the pre-override storage key", () => {
+  it("is never read, so a stale resolved config cannot shadow a later default", async () => {
+    area[LEGACY_STORAGE_KEY] = { ...DEFAULT_ENDPOINT_CONFIG, deleteAd: "/stale/delete" };
+
+    await expect(loadEndpointConfig()).resolves.toEqual(DEFAULT_ENDPOINT_CONFIG);
+  });
+
+  it("is dropped once overrides are written", async () => {
+    area[LEGACY_STORAGE_KEY] = { ...DEFAULT_ENDPOINT_CONFIG };
+
+    await saveEndpointOverrides({ deleteAd: "/custom/delete" });
+
+    expect(area).not.toHaveProperty(LEGACY_STORAGE_KEY);
+    expect(area[STORAGE_KEY]).toEqual({ deleteAd: "/custom/delete" });
   });
 });
 

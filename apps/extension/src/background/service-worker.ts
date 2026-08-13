@@ -5,7 +5,7 @@ import { RelistOrchestrator, type RelistOutcome } from "../domain/relist-orchest
 import type { DevHook, DevHookName } from "./dev-hooks";
 import {
   loadEndpointConfig,
-  saveEndpointConfig,
+  saveEndpointOverrides,
   type EndpointConfig,
 } from "../shared/endpoint-config";
 import { toWireOutcome, type BackgroundRequest, type BackgroundResponse } from "./messages";
@@ -96,8 +96,7 @@ if (__DEV__) {
     __resume: () => orchestrator.resumeAll(),
     __searchAd: (adName: string) => orchestrator.searchAd(adName),
     __getEndpoints: () => loadEndpointConfig(),
-    __setEndpoints: (partial: Partial<EndpointConfig>) =>
-      loadEndpointConfig().then((current) => saveEndpointConfig({ ...current, ...partial })),
+    __setEndpoints: (partial: Partial<EndpointConfig>) => saveEndpointOverrides(partial),
   };
   Object.assign(globalThis, hooks);
 }

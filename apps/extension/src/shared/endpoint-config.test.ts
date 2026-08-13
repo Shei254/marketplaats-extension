@@ -17,7 +17,7 @@ import {
   DEFAULT_ENDPOINT_CONFIG,
   isEndpointConfigChange,
   loadEndpointConfig,
-  saveEndpointConfig,
+  saveEndpointOverrides,
   type EndpointConfig,
   type EndpointName,
 } from "./endpoint-config";
@@ -99,19 +99,73 @@ describe("loadEndpointConfig", () => {
   });
 });
 
-describe("saveEndpointConfig", () => {
+describe("saveEndpointOverrides", () => {
   it("round-trips through storage", async () => {
-    await saveEndpointConfig({ ...DEFAULT_ENDPOINT_CONFIG, deleteAd: "/custom/delete" });
+    await saveEndpointOverrides({ deleteAd: "/custom/delete" });
 
     const config = await loadEndpointConfig();
 
     expect(config.deleteAd).toBe("/custom/delete");
   });
 
+  // The bug this function replaced: __setEndpoints wrote the *resolved* config
+  // back, so overriding any one endpoint pinned all nine at the running build's
+  // defaults. Asserting on what reaches storage, not on what loads back out —
+  // a resolved write and an override write are indistinguishable through
+  // loadEndpointConfig until the defaults change, which is exactly when the old
+  // behaviour bit.
+  it("stores only the overridden keys, never the resolved config", async () => {
+    await saveEndpointOverrides({ deleteAd: "/custom/delete" });
+
+    expect(area[STORAGE_KEY]).toEqual({ deleteAd: "/custom/delete" });
+  });
+
+  it("leaves an untouched endpoint free to follow a later build's default", async () => {
+    await saveEndpointOverrides({ deleteAd: "/custom/delete" });
+
+    // Nothing is stored for createAd, so it resolves from whatever the build
+    // ships. That is what lets a corrected default reach an existing profile
+    // instead of being shadowed by a value frozen at first override.
+    expect(area[STORAGE_KEY]).not.toHaveProperty("createAd");
+    await expect(loadEndpointConfig()).resolves.toHaveProperty(
+      "createAd",
+      DEFAULT_ENDPOINT_CONFIG.createAd,
+    );
+  });
+
+  it("merges successive overrides rather than replacing them", async () => {
+    await saveEndpointOverrides({ deleteAd: "/custom/delete" });
+    await saveEndpointOverrides({ listMyAds: "/custom/listings" });
+
+    expect(area[STORAGE_KEY]).toEqual({
+      deleteAd: "/custom/delete",
+      listMyAds: "/custom/listings",
+    });
+  });
+
+  it("replaces a stored csrf block wholesale rather than merging variants", async () => {
+    await saveEndpointOverrides({ csrf: { mode: "meta", name: "t", header: "x-t" } });
+    await saveEndpointOverrides({ csrf: { mode: "none", header: "x-none" } });
+
+    expect((area[STORAGE_KEY] as Partial<EndpointConfig>).csrf).toEqual({
+      mode: "none",
+      header: "x-none",
+    });
+  });
+
+  it("returns the overrides now in effect", async () => {
+    await saveEndpointOverrides({ deleteAd: "/custom/delete" });
+
+    await expect(saveEndpointOverrides({ listMyAds: "/custom/listings" })).resolves.toEqual({
+      deleteAd: "/custom/delete",
+      listMyAds: "/custom/listings",
+    });
+  });
+
   // The content script drops its cached config on this signal, so the key the
   // watcher matches has to be the key the writer writes.
   it("writes the key isEndpointConfigChange watches", async () => {
-    await saveEndpointConfig(DEFAULT_ENDPOINT_CONFIG);
+    await saveEndpointOverrides({ deleteAd: "/custom/delete" });
 
     const changes = Object.fromEntries(
       Object.keys(area).map((key) => [key, { newValue: area[key] }]),

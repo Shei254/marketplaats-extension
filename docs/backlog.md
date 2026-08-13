@@ -185,7 +185,7 @@ Authorization Code + PKCE against Keycloak; sign-out clears tokens. Refs: [ADR-0
 Backend endpoint plus worker-side cache and hardcoded fallback.
 - Schema-versioned; an unknown version falls back to built-ins rather than failing.
 - **Data only** — assert nothing executable can be delivered.
-- **Fix the shadowing `__setEndpoints` creates** (found reviewing #12): it writes the *resolved* config back, so one override pins all nine endpoints at that build's defaults and a later corrected default never reaches that profile. `endpoint-config.ts`'s docstring claims a stored config "may carry only the keys the tester overrode" — it never does. Store the partial, or make a server value outrank a stored key; either way decide it here, because this is the fallback path T27 depends on.
+- **Decide what outranks what.** `__setEndpoints` now stores only the keys the tester passed, so an untouched endpoint follows the build (the shadowing bug found reviewing #12 is fixed). Once config is *served*, resolution has three sources rather than two — built-in defaults, the served config, and a tester's local override — and which wins is this ticket's call to make.
 - Refs: [ADR-0013](adr/0013-remote-client-configuration.md).
 
 ---

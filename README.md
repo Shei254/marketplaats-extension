@@ -8,7 +8,7 @@ Monorepo, one deployable per workspace ([ADR-0011](docs/adr/0011-repository-layo
 | Path | What | State |
 |---|---|---|
 | `apps/extension` | Chrome MV3 extension (esbuild, TypeScript) | the POC, working |
-| `apps/api` | Spring Boot, Gradle, Java 21, Flyway | reserved — #16 |
+| `apps/api` | Spring Boot, Gradle, Java 21, Flyway | skeleton: five modules and the boundary check; schema still #17 |
 | `apps/dashboard` | React SPA | reserved — #42 |
 | `packages/contracts` | API types shared by both clients | reserved — no owner; consumers #34/#36 |
 | `packages/ui` | design tokens + components (popup and dashboard) | reserved — #37 |
@@ -36,8 +36,15 @@ the Gradle `apps/api` — is skipped rather than a failure. To work in one place
 npm run build -w @mprelist/extension
 ```
 
-`apps/api` will be built with `./gradlew`, not npm, and CI will run it separately once either exists — this
-repo has no CI config yet. That mixed Gradle + npm toolchain is the cost ADR-0011 accepted.
+`apps/api` is built with `./gradlew`, not npm, so the root scripts above never touch it:
+
+```bash
+cd apps/api && ./gradlew test
+```
+
+The wrapper fetches Gradle, and a Java 21 toolchain if the machine has none, on first run. CI will run it
+separately from npm once this repo has CI — it has no CI config yet. That mixed Gradle + npm toolchain is the
+cost ADR-0011 accepted; [`apps/api/README.md`](apps/api/README.md) covers the build in full.
 
 ## The local stack
 

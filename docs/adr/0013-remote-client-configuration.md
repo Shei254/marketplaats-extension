@@ -30,4 +30,4 @@ remotely hosted code.
   extension's non-relist behaviour.
 - **Negative:** A bad config deploy can break the Marktplaats layer for all users at once — the same blast
   radius that makes it valuable. Config needs a schema version and should be treated as a production change.
-- **Supersedes:** the POC Options page (`src/options/*`), which is deleted.
+- **Supersedes:** the POC Options page (`apps/extension/src/options/*`), which is deleted.

@@ -9,10 +9,10 @@ which are unknown until discovered in a browser (spikes #2/#3/#4). Endpoints are
 
 ## 1. Build & load
 ```
-npm install
-npm run build           # emits dist/
+npm install             # from the repo root — npm workspaces
+npm run build           # emits apps/extension/dist/
 ```
-`chrome://extensions` → enable Developer mode → **Load unpacked** → pick `dist/`.
+`chrome://extensions` → enable Developer mode → **Load unpacked** → pick `apps/extension/dist/`.
 
 ## 2. Discover the endpoints (DevTools)
 Log in to marktplaats.nl, open **Mijn Advertenties**, DevTools → **Network** →
@@ -88,7 +88,7 @@ force the create to fail (e.g. temporarily break `createAd`), confirm the snapsh
 survives and `await __retry("<id>")` restores the ad — the ADR-0003 guarantee.
 
 ## Response-shape mapping
-The `TODO(spike …)` comments in `src/content/marktplaats-api.ts` mark where the
+The `TODO(spike …)` comments in `apps/extension/src/content/marktplaats-api.ts` mark where the
 real JSON field names go (ad id, price, photo URLs, media id, create payload).
 Fill those once from the captured responses.
 

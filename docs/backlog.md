@@ -62,7 +62,7 @@ Write `docs/internal-api-findings.md`: endpoints and which are HTML-scraped, CSR
 - `MarktplaatsClient.captureAd` is declared `Promise<CapturedAd>`, but `CapturedAd` has no `draft`/`photos` (those are on `AdSnapshot`); the API really returns `{ draft, photos }`.
 - `FakeMarktplaatsClient` never implemented `searchAd`.
 - Also: `searchAd` is plumbed but dead — `content-script.ts` returns `undefined`, the orchestrator only logs. T31 depends on it.
-- Not here: `getBucket`→`getBuckets` is T02; `options.ts` errors vanish with T04.
+- Not here: `getBucket`→`getBuckets` is T02; the `options.ts` errors went with T04, which deleted the file.
 
 ### T44 · Pin the extension ID · **S** · runbook, do before any shared environment
 Create an **unpublished draft** Web Store item, copy its public key into `manifest.json` as `"key"`. Until then, register each developer's path-derived ID in the dev Keycloak client.

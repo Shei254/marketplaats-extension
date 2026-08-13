@@ -2,6 +2,7 @@ import { ChromeSnapshotStore } from "../adapters/chrome-snapshot-store";
 import { RelayMarktplaatsClient } from "../adapters/relay-marktplaats-client";
 import { toWireError } from "../content/messages";
 import { RelistOrchestrator, type RelistOutcome } from "../domain/relist-orchestrator";
+import type { DevHook, DevHookName } from "./dev-hooks";
 import {
   loadEndpointConfig,
   saveEndpointConfig,
@@ -80,9 +81,14 @@ function runRelist(request: BackgroundRequest): Promise<RelistOutcome> {
  * without it a Marktplaats-side path change means editing source and rebuilding.
  * The rest are live-test drivers — docs/live-testing.md and the M7 spikes
  * (#46–#48) drive the real site through them.
+ *
+ * The map is total over `DevHookName` (./dev-hooks), so a hook added here without
+ * a name there does not compile — scripts/build.test.ts asserts against that same
+ * list, and a hook it does not know about is a hook it cannot prove absent from
+ * the shipped bundle.
  */
 if (__DEV__) {
-  Object.assign(globalThis, {
+  const hooks: Record<DevHookName, DevHook> = {
     __relist: (listingId: string) => orchestrator.relist(listingId),
     __captureAd: (listingId: string) => orchestrator.captureAd(listingId),
     __listAds: () => orchestrator.listAds(),
@@ -92,5 +98,6 @@ if (__DEV__) {
     __getEndpoints: () => loadEndpointConfig(),
     __setEndpoints: (partial: Partial<EndpointConfig>) =>
       loadEndpointConfig().then((current) => saveEndpointConfig({ ...current, ...partial })),
-  });
+  };
+  Object.assign(globalThis, hooks);
 }

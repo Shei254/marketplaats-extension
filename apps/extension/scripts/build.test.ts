@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { DEV_HOOK_NAMES } from "../src/background/dev-hooks";
+
 /**
  * The dev hooks are a build-time decision (T04, #12), so the only honest place
  * to assert it is the emitted bundle: `if (__DEV__)` has to fold away, not ship
@@ -17,20 +19,14 @@ import { fileURLToPath, pathToFileURL } from "node:url";
  *     a text search cannot tell `if (true)` from `if (false)`, since both leave
  *     the string "__relist" in the file).
  *
+ * The names come from `DEV_HOOK_NAMES` rather than a copy kept here, because a
+ * copy would make this suite pass by knowing less: a ninth hook added to the
+ * worker and not to a local list would ship unasserted. The worker's hook map is
+ * typed total over that same list, so the two cannot drift apart silently.
+ *
  * Both builds go to a temp directory so the real dist/ is left where it was.
  */
 const workspaceRoot = fileURLToPath(new URL("..", import.meta.url));
-
-const HOOKS = [
-  "__relist",
-  "__captureAd",
-  "__listAds",
-  "__retry",
-  "__resume",
-  "__searchAd",
-  "__getEndpoints",
-  "__setEndpoints",
-];
 
 interface BuiltExtension {
   dir: string;
@@ -69,7 +65,7 @@ function installChromeStub(): void {
 
 function installedHooks(): string[] {
   const global = globalThis as unknown as Record<string, unknown>;
-  return HOOKS.filter((hook) => typeof global[hook] === "function");
+  return DEV_HOOK_NAMES.filter((hook) => typeof global[hook] === "function");
 }
 
 describe("extension build", () => {
@@ -117,7 +113,7 @@ describe("extension build", () => {
   });
 
   it("leaves no trace of a manual test hook in the production bundle", () => {
-    for (const hook of HOOKS) {
+    for (const hook of DEV_HOOK_NAMES) {
       expect(production.background).not.toContain(hook);
     }
   });
@@ -127,6 +123,6 @@ describe("extension build", () => {
   });
 
   it("installs every manual test hook when the --dev worker runs", () => {
-    expect(hooksAfterDev).toEqual(HOOKS);
+    expect(hooksAfterDev).toEqual([...DEV_HOOK_NAMES]);
   });
 });

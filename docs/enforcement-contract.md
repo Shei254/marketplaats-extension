@@ -69,10 +69,14 @@ included, and is therefore not itself the count (#17).
 
 ### `POST /api/relist/complete`
 - **Body:** `{ "jti": "...", "outcome": "SUCCESS" | "FAILED_BEFORE_DELETE" | "FAILED_AFTER_DELETE" }`
-- Finalizes the reserved usage into an authoritative **RelistEvent**.
-  - `SUCCESS` / `FAILED_AFTER_DELETE` → usage stands (the destructive action happened).
-  - `FAILED_BEFORE_DELETE` → **refund** the reserved unit (nothing was consumed on Marktplaats).
-- Idempotent on `jti`; a never-completed reservation expires and auto-refunds after a grace window.
+- Resolves the reservation the `jti` names, and records a **RelistEvent** against it either way.
+  - `SUCCESS` / `FAILED_AFTER_DELETE` → the reservation **settles**; usage stands (the destructive action
+    happened).
+  - `FAILED_BEFORE_DELETE` → the reservation is **refunded**; nothing was consumed on Marktplaats, so the
+    unit returns to the period. The RelistEvent is still written — that is the canary below.
+- Idempotent on `jti`: the event's reservation id is unique, so a second report collides in the database, and
+  the endpoint answers that collision with the unchanged `{quotaRemaining, resetAt}` rather than an error.
+- A never-completed reservation expires and auto-refunds after a grace window.
 - **Returns the updated `{ quotaRemaining, resetAt }`**, so a relist needs no follow-up `/api/me` call.
 
 > **Outcome reporting is the breakage canary.** We drive private, unversioned endpoints that ADR-0004 says
@@ -115,7 +119,8 @@ Extension                         Backend                    Stripe
    │                                │ reserve 1 unit           │
    │  ◀───── 200 {authToken,jti} ───│                          │
    │  delete ad → create ad (internal-API, delete-first) …     │
-   │  complete(jti, outcome) ──────▶│ finalize/refund RelistEvent
+   │  complete(jti, outcome) ──────▶│ settle/refund the reservation│
+   │                                │ record the RelistEvent   │
    │  ◀── {quotaRemaining, resetAt}─│                          │
 ```
 

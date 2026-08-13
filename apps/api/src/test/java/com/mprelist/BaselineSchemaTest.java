@@ -27,7 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
  * abort rather than on the constraint it meant to prove.
  */
 @SpringBootTest
-@Import(LocalStackPostgres.class)
+@Import(PostgresFromCompose.class)
 @Transactional
 class BaselineSchemaTest {
 
@@ -69,26 +69,20 @@ class BaselineSchemaTest {
 	void butTheCatalogMayHoldAnyNumberOfTiersThatAreNotTheDefault() {
 		defaultTier();
 
-		assertThatCode(() -> {
-			tier();
-			tier();
-		}).doesNotThrowAnyException();
+		assertThatCode(this::twoTiersThatAreNotTheDefault).doesNotThrowAnyException();
 	}
 
 	/** ADR-0014: the free tier is an ordinary row that happens to have no Stripe Price. */
 	@Test
 	void aTierNeedsNoStripePriceAndMoreThanOneMayLackIt() {
-		assertThatCode(() -> {
-			tier();
-			tier();
-		}).doesNotThrowAnyException();
+		twoTiersThatAreNotTheDefault();
 
 		assertThat(db.queryForObject("select count(*) from tier where stripe_price_id is null", Integer.class))
 				.isEqualTo(2);
 	}
 
 	@Test
-	void butTwoTiersCannotShareOne() {
+	void butTwoTiersCannotShareOneStripePrice() {
 		db.update("update tier set stripe_price_id = 'price_123' where id = ?", tier());
 
 		assertThatThrownBy(() -> db.update("update tier set stripe_price_id = 'price_123' where id = ?", tier()))
@@ -118,7 +112,7 @@ class BaselineSchemaTest {
 	}
 
 	@Test
-	void andNothingElse() {
+	void andAStatusOutsideTheSevenIsRejected() {
 		UUID tier = tier();
 
 		// Stripe's own spelling of one of the seven. The mirror normalizes, it does not pass through.
@@ -162,21 +156,31 @@ class BaselineSchemaTest {
 	}
 
 	@Test
-	void aSettledReservationSaysWhenItWasSettled() {
+	void aResolvedReservationSaysWhenItWasResolved() {
 		UUID reservation = reservation(user());
 
 		assertThatThrownBy(() -> db.update("update usage_reservation set status = 'SETTLED' where id = ?", reservation))
 				.isInstanceOf(DataIntegrityViolationException.class)
-				.hasMessageContaining("usage_reservation_settled_at_matches_status");
+				.hasMessageContaining("usage_reservation_resolved_at_matches_status");
+	}
+
+	/** Including a refund, which resolves a reservation as surely as a settlement does. */
+	@Test
+	void aRefundedReservationSaysWhenItWasResolvedToo() {
+		UUID reservation = reservation(user());
+
+		assertThatThrownBy(() -> db.update("update usage_reservation set status = 'REFUNDED' where id = ?", reservation))
+				.isInstanceOf(DataIntegrityViolationException.class)
+				.hasMessageContaining("usage_reservation_resolved_at_matches_status");
 	}
 
 	@Test
-	void andOneStillHoldingItsUnitDoesNot() {
+	void aReservationStillHoldingItsUnitHasNoResolvedAt() {
 		UUID reservation = reservation(user());
 
-		assertThatThrownBy(() -> db.update("update usage_reservation set settled_at = now() where id = ?", reservation))
+		assertThatThrownBy(() -> db.update("update usage_reservation set resolved_at = now() where id = ?", reservation))
 				.isInstanceOf(DataIntegrityViolationException.class)
-				.hasMessageContaining("usage_reservation_settled_at_matches_status");
+				.hasMessageContaining("usage_reservation_resolved_at_matches_status");
 	}
 
 	/** Feature flags are an object so that a flag can later carry a value; an array or a scalar is not one. */
@@ -190,12 +194,18 @@ class BaselineSchemaTest {
 	// table, and a test that collided with one would fail on the collision rather than on its subject.
 
 	private UUID user() {
-		return db.queryForObject("insert into app_user (keycloak_subject) values (?) returning id", UUID.class,
+		return db.queryForObject("insert into app_user (idp_subject) values (?) returning id", UUID.class,
 				UUID.randomUUID().toString());
 	}
 
 	private UUID tier() {
 		return tier(false);
+	}
+
+	/** Two ordinary catalog rows: neither flagged default, neither carrying a Stripe Price. */
+	private void twoTiersThatAreNotTheDefault() {
+		tier();
+		tier();
 	}
 
 	private UUID defaultTier() {

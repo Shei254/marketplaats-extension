@@ -11,10 +11,11 @@
 -- An app account. One human, one row, created on first login (#20).
 create table app_user (
     id               uuid        primary key default gen_random_uuid(),
-    -- The `sub` claim of the Keycloak access token, and the only thing we hold about the human.
+    -- The `sub` claim of the access token — today Keycloak's — and the only thing we hold about the human.
     -- Kept beside our own id rather than used as it: ADR-0009 wants Keycloak replaceable, and making
-    -- every foreign key in this file an IdP identifier is the cheapest way to make it permanent.
-    keycloak_subject text        not null unique,
+    -- every foreign key in this file an IdP identifier is the cheapest way to make it permanent. Named for
+    -- the role rather than the vendor for the same reason: swapping the IdP should not need a rename.
+    idp_subject      text        not null unique,
     created_at       timestamptz not null default now()
 );
 
@@ -89,32 +90,33 @@ create table usage_reservation (
     -- #24 looks for RESERVED rows past this plus a grace window; a row is never refunded merely for
     -- being expired, since the relist it authorized may still be running.
     expires_at  timestamptz not null,
-    settled_at  timestamptz,
-    constraint usage_reservation_settled_at_matches_status
-        check ((status = 'RESERVED') = (settled_at is null))
+    -- When the row stopped holding its unit, whichever way it went. Not `settled_at`: a refund resolves a
+    -- reservation as surely as a settlement does, and both are terminal.
+    resolved_at timestamptz,
+    constraint usage_reservation_resolved_at_matches_status
+        check ((status = 'RESERVED') = (resolved_at is null))
 );
 
 -- Usage in a period: rows in [period_start, period_end) that still hold their unit.
 create index usage_reservation_holding_a_unit on usage_reservation (app_user_id, reserved_at)
     where status <> 'REFUNDED';
 
--- #24 scanning for abandoned reservations, which is a small set inside a table that only grows.
-create index usage_reservation_awaiting_completion on usage_reservation (expires_at)
-    where status = 'RESERVED';
-
-
 -- What the extension reported about a relist it was authorized for.
 --
--- One row per settled reservation, refunds included: a FAILED_BEFORE_DELETE costs no quota but is the
--- signal that Marktplaats moved something (enforcement-contract.md), and a table that dropped those
+-- At most one row per reservation, which is what the unique below holds. That there is *exactly* one for
+-- every reservation that settled or refunded is #23's to keep: a FAILED_BEFORE_DELETE costs no quota but is
+-- the signal that Marktplaats moved something (enforcement-contract.md), and a table that dropped those
 -- would be blind to exactly the failure it exists to reveal.
 --
 -- Which user and which ad are on the reservation and are not repeated here — the reservation is one row
 -- away through a not-null foreign key, and a second copy is a second thing that can disagree.
 create table relist_event (
     id             uuid        primary key default gen_random_uuid(),
-    -- Unique, and that is what makes `complete` idempotent per jti: a second report for a reservation
-    -- collides with the first in the database, rather than depending on the service to remember.
+    -- Unique, and the reservation id is the `jti`: a second report for one authorization collides here
+    -- rather than depending on the service to have remembered the first. That buys at-most-once, which is
+    -- the floor `complete`'s idempotency stands on and not the whole of it — the contract also wants the
+    -- second call to answer `{quotaRemaining, resetAt}` rather than fail, and translating this collision
+    -- into that answer is #23's job.
     reservation_id uuid        not null unique references usage_reservation (id) on delete cascade,
     outcome        text        not null
                                check (outcome in ('SUCCESS', 'FAILED_BEFORE_DELETE',

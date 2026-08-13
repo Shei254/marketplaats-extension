@@ -93,10 +93,12 @@ One command brings up a working local stack; documented in the README.
 - `subscription`: user, tier, normalized status, `period_start`, `period_end`, Stripe ids.
 - Exactly one tier may be `is_default` (enforced by a partial unique index).
 - **Decided in #17:** the quota unit lives on `usage_reservation`, held from `authorize` until `complete`
-  settles or refunds it, so usage in a period is its unrefunded rows. `relist_event` is one row per settled
-  reservation — refunds included, since those are the breakage canary — and its unique `reservation_id` is
-  what makes `complete` idempotent per `jti`. `enforcement-contract.md`, which had said the count was over
-  events, was corrected to match.
+  settles or refunds it, so usage in a period is its unrefunded rows. `relist_event` is then one row per
+  resolved reservation — refunds included, since those are the breakage canary — carrying only the outcome,
+  because the user and the ad are on the reservation one foreign key away and a second copy is a second thing
+  that can disagree. Its unique `reservation_id` gives `complete` at-most-once; turning that collision into
+  an idempotent answer is #23's. `enforcement-contract.md` and `specs/quota-enforcement.md`, which had said
+  the count was over events, were corrected to match, as were the domain model and the glossary.
 - Refs: [ADR-0014](adr/0014-tier-catalog-and-entitlements.md).
 
 ### T09 · Seed the tier catalog · **S** · T08

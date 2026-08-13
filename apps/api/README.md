@@ -5,7 +5,7 @@ endpoints and no security yet — those arrive with the tickets named below.
 
 ```bash
 cd apps/api
-./gradlew test      # 18 tests: the module boundary, and the schema against a real Postgres
+./gradlew test      # 19 tests: the module boundary, and the schema against a real Postgres
 ./gradlew build     # the above, plus the executable jar
 ./gradlew bootRun   # http://localhost:8080 — 404 on everything, there are no controllers yet
 ```
@@ -68,7 +68,7 @@ edit to `V1`.
 
 | Table | Holds | Filled by |
 |---|---|---|
-| `app_user` | one row per human, keyed to the Keycloak `sub` | [#20](https://github.com/Shei254/marketplaats-extension/issues/20) |
+| `app_user` | one row per human, keyed to the IdP `sub` (Keycloak's, today) | [#20](https://github.com/Shei254/marketplaats-extension/issues/20) |
 | `tier` | our catalog: quota, max MP accounts, feature flags, nullable `stripe_price_id` | [#18](https://github.com/Shei254/marketplaats-extension/issues/18), [#21](https://github.com/Shei254/marketplaats-extension/issues/21) |
 | `subscription` | the mirror: user, tier, normalized status, period, Stripe ids | [#20](https://github.com/Shei254/marketplaats-extension/issues/20), [#30](https://github.com/Shei254/marketplaats-extension/issues/30) |
 | `usage_reservation` | one quota unit, held from `authorize` until `complete` | [#22](https://github.com/Shei254/marketplaats-extension/issues/22), [#23](https://github.com/Shei254/marketplaats-extension/issues/23) |
@@ -79,22 +79,30 @@ extension is between the delete and the create and has reported nothing yet — 
 reservations in it that were not refunded, and a refund is a status change on one row. That also leaves
 `relist_event` free to record the `FAILED_BEFORE_DELETE` outcomes that cost no quota, which is precisely the
 breakage canary [`docs/enforcement-contract.md`](../../docs/enforcement-contract.md) says `/complete` exists
-for. That contract had said usage was `count(RelistEvent)`, written before the reservation existed; it, the
-domain model and the glossary were corrected to match.
+for. That contract had said usage was `count(RelistEvent)`, written before the reservation existed; it,
+[`docs/specs/quota-enforcement.md`](../../docs/specs/quota-enforcement.md), the domain model and the glossary
+were all corrected to match.
 
-Each invariant is in the schema rather than in a service, so no module can write around it by forgetting:
+These invariants are in the schema rather than in a service, so no module can write around one by forgetting:
 
 | Invariant | Held by | Asserted by |
 |---|---|---|
 | At most one tier is the default | partial unique index `tier_single_default` | `aSecondDefaultTierIsRejected`, and `butTheCatalogMayHoldAnyNumberOfTiersThatAreNotTheDefault` for the *partial* |
 | A user has at most one subscription | `subscription.app_user_id` unique | `aUserHasAtMostOneSubscription` |
-| Status is one of the seven the contract normalizes to | check constraint | `aSubscriptionCarriesOneOfTheSevenNormalizedStatuses`, `andNothingElse` |
+| Status is one of the seven the contract normalizes to | check constraint | `aSubscriptionCarriesOneOfTheSevenNormalizedStatuses`, `andAStatusOutsideTheSevenIsRejected` |
 | A tier with subscribers cannot be dropped | foreign key, no delete rule | `aTierWithSubscribersCannotBeDeleted` |
-| `complete` is idempotent per `jti` | `relist_event.reservation_id` unique | `aReservationIsReportedOnAtMostOnce` |
-| A settled reservation says when it settled | paired check constraint | `aSettledReservationSaysWhenItWasSettled`, `andOneStillHoldingItsUnitDoesNot` |
+| A reservation is reported on at most once | `relist_event.reservation_id` unique | `aReservationIsReportedOnAtMostOnce` |
+| A resolved reservation says when it resolved, and only a resolved one does | paired check constraint | `aResolvedReservationSaysWhenItWasResolved`, `aRefundedReservationSaysWhenItWasResolvedToo`, `aReservationStillHoldingItsUnitHasNoResolvedAt` |
+
+Two things the contract wants are deliberately *not* in that table, because the schema cannot hold them
+alone. `complete`'s **idempotency** is more than the unique above: the constraint refuses the second report,
+and answering it with the unchanged `{quotaRemaining, resetAt}` instead of an error is
+[#23](https://github.com/Shei254/marketplaats-extension/issues/23)'s to write. And while at most one event
+per reservation is enforced here, that there is *exactly* one for every reservation that resolved is a rule
+only the writing service can keep.
 
 `BaselineSchemaTest` runs them against a Postgres it starts itself (Testcontainers), on **the image
-`infra/docker-compose.yml` names** — `LocalStackPostgres` reads the tag out of that file rather than
+`infra/docker-compose.yml` names** — `PostgresFromCompose` reads the tag out of that file rather than
 restating it, because a schema proven on one major and served by another is a divergence nothing would
 report until deploy. Pointing that file at `postgres:16-alpine` moves the whole suite onto 16.14, which is
 the coupling working. An in-memory stand-in was never an option: partial indexes, `jsonb` and expression
@@ -107,7 +115,7 @@ Mutation-verified — each applied, observed, reverted:
 | `tier_single_default` becomes a plain `unique (is_default)` | `butTheCatalogMayHoldAnyNumberOfTiersThatAreNotTheDefault` (+2) |
 | `subscription.app_user_id` loses `unique` | `aUserHasAtMostOneSubscription` |
 | `relist_event.reservation_id` loses `unique` | `aReservationIsReportedOnAtMostOnce` |
-| the `status` check constraint is dropped | `andNothingElse` |
+| the `status` check constraint is dropped | `andAStatusOutsideTheSevenIsRejected` |
 | `relist_event` is left out of the migration | `theMigrationCreatesTheFiveTablesTheDomainModelOwns` (+1) |
 
 The fixtures name no tier `code` that [#18](https://github.com/Shei254/marketplaats-extension/issues/18)'s
@@ -123,7 +131,7 @@ temporary `V2` and running the suite green against it.
 - **Gradle 9.7.0**, via the committed wrapper, pinned by `distributionSha256Sum`.
 - **Spring Boot 4.1.0**, stated once, in the `plugins` block; every Spring dependency takes its version from
   Boot's BOM. Boot's BOM does not manage Spring Modulith, so **2.1.0** is the one version pinned by hand.
-  Flyway (12.4.0) and Testcontainers (2.0.5) it does manage, so neither is stated here — and the Postgres
+  Flyway and Testcontainers it does manage, so neither is stated here or anywhere else — and the Postgres
   *image* is not a version either, since it is read from `infra/docker-compose.yml`.
 - Boot 4 splits auto-configuration into per-technology modules, which is why the Flyway dependency is
   `spring-boot-starter-flyway` and not `flyway-core`: the latter would put Flyway on the classpath and leave

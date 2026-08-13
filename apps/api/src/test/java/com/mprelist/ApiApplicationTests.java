@@ -5,7 +5,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 
 @SpringBootTest
-@Import(LocalStackPostgres.class)
+@Import(PostgresFromCompose.class)
 class ApiApplicationTests {
 
 	/**

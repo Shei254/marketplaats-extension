@@ -49,6 +49,7 @@ Capture the exact request every operation emits, with `fetch` stubbed and no net
 ### T04 · Remove the POC Options page and dev console hooks · **S** · T03
 - Delete `apps/extension/src/options/*` and its manifest entry.
 - Decide per hook whether `__relist`/`__setEndpoints`/etc. survive behind a dev-build flag or go.
+  **Decided in #12:** all eight survive behind `__DEV__` — *eliminated* from the default build, not merely inert in it. `__setEndpoints` is the only endpoint-config surface until T27.
 - Refs: [ADR-0013](adr/0013-remote-client-configuration.md).
 
 ### T45 · Findings note for the internal-API spikes · **S** · T01
@@ -184,6 +185,7 @@ Authorization Code + PKCE against Keycloak; sign-out clears tokens. Refs: [ADR-0
 Backend endpoint plus worker-side cache and hardcoded fallback.
 - Schema-versioned; an unknown version falls back to built-ins rather than failing.
 - **Data only** — assert nothing executable can be delivered.
+- **Fix the shadowing `__setEndpoints` creates** (found reviewing #12): it writes the *resolved* config back, so one override pins all nine endpoints at that build's defaults and a later corrected default never reaches that profile. `endpoint-config.ts`'s docstring claims a stored config "may carry only the keys the tester overrode" — it never does. Store the partial, or make a server value outrank a stored key; either way decide it here, because this is the fallback path T27 depends on.
 - Refs: [ADR-0013](adr/0013-remote-client-configuration.md).
 
 ---

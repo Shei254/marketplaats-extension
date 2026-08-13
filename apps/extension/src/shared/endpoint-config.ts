@@ -124,8 +124,32 @@ export async function loadEndpointConfig(): Promise<EndpointConfig> {
     };
 }
 
-export async function saveEndpointConfig(config: EndpointConfig): Promise<void> {
-    await chrome.storage.local.set({ [STORAGE_KEY]: config });
+/**
+ * Merge `partial` into the tester's stored *overrides* — not into the resolved
+ * config. Returns the overrides now in effect, so a console caller can see what
+ * they are actually carrying; `loadEndpointConfig` is what shows the paths those
+ * overrides resolve to.
+ *
+ * The distinction is the whole point of this function. Writing the *resolved*
+ * config back — defaults merged in, which is what `loadEndpointConfig` hands you
+ * — pinned all nine endpoints at the running build's defaults the first time a
+ * tester overrode any one of them. A later build correcting a different path
+ * then never reached that profile, and the symptom was a 404 on a path they
+ * never touched, unrelated to the override they remembered making. Storing only
+ * what was overridden leaves every other endpoint free to follow the build.
+ *
+ * `csrf` is replaced wholesale here for the same reason `loadEndpointConfig`
+ * replaces it rather than merging: the four variants carry different fields.
+ */
+export async function saveEndpointOverrides(
+    partial: Partial<EndpointConfig>,
+): Promise<Partial<EndpointConfig>> {
+    const stored = await chrome.storage.local.get(STORAGE_KEY);
+    const current = (stored[STORAGE_KEY] as Partial<EndpointConfig> | undefined) ?? {};
+    const overrides = { ...current, ...partial };
+
+    await chrome.storage.local.set({ [STORAGE_KEY]: overrides });
+    return overrides;
 }
 
 export function isEndpointConfigChange(

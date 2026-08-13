@@ -65,14 +65,13 @@ await __getEndpoints();                        // what the layer will actually c
 await __setEndpoints({ deleteAd: "/seller/api/remove-ad" });
 await __setEndpoints({ csrf: { mode: "meta", name: "csrf-token", header: "x-csrf-token" } });
 ```
-**The first `__setEndpoints` pins all nine, not just the one you passed.** It merges
-your keys over the *resolved* config — defaults plus anything already stored — and
-writes that whole object to `chrome.storage.local`. So from then on the profile is
-frozen at the `DEFAULT_ENDPOINT_CONFIG` of the build you were running: a later build
-that corrects a *different* endpoint's default will not reach you, and the symptom is
-a 404 on a path you never touched. Clear the override to pick defaults up again:
+Only the keys you pass are stored, and successive calls accumulate. Everything you
+never overrode keeps following the build, so a later build that corrects a *different*
+endpoint's default still reaches you. `__setEndpoints` returns the overrides now in
+effect; `__getEndpoints` shows the paths they resolve to. Drop them all and go back to
+the built-in defaults with:
 ```js
-await chrome.storage.local.remove("endpointConfig");   // back to the built-in defaults
+await chrome.storage.local.remove("endpointConfig");
 ```
 The `csrf` object is replaced wholesale, never merged — the four modes carry
 different fields, so pass a complete one. The POC Options page that also wrote this

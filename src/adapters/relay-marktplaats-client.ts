@@ -1,5 +1,5 @@
 import type { MarktplaatsClient } from "../domain/marktplaats-client";
-import type { CapturedAd, ListingDraft, ListingSummary, Photo } from "../domain/types";
+import type { CapturedAd, CapturedListing, ListingDraft, ListingSummary, Photo } from "../domain/types";
 import {
   fromWireError,
   fromWirePhoto,
@@ -39,7 +39,7 @@ export class RelayMarktplaatsClient implements MarktplaatsClient {
     return this.send<ListingSummary[]>({kind: "listMyAds"});
   }
 
-  async captureAd(listingId: string): Promise<CapturedAd> {
+  async captureAd(listingId: string): Promise<CapturedListing> {
     const wire = await this.send<WireCapturedAd>({kind: "captureAd", listingId});
     return {draft: wire.draft, photos: wire.photos.map(fromWirePhoto)};
   }
@@ -48,7 +48,7 @@ export class RelayMarktplaatsClient implements MarktplaatsClient {
     await this.send<null>({kind: "deleteAd", listingId});
   }
 
-  async createAd(draft: ListingDraft, photos: Photo[]): Promise<void> {
+  async createAd(draft: CapturedAd, photos: Photo[]): Promise<void> {
     await this.send<null>({
       kind: "createAd",
       draft,

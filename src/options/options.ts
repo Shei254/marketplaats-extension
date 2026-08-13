@@ -1,6 +1,7 @@
 import {
   loadEndpointConfig,
   saveEndpointConfig,
+  type CsrfConfig,
   type CsrfMode,
   type EndpointConfig,
 } from "../shared/endpoint-config";
@@ -15,14 +16,36 @@ function select(id: string): HTMLSelectElement {
 
 async function init(): Promise<void> {
   const config = await loadEndpointConfig();
-  input("listMyAds").value = config.listMyAds;
-  input("captureAd").value = config.captureAd;
-  input("deleteAd").value = config.deleteAd;
-  input("createAd").value = config.createAd;
-  input("uploadPhoto").value = config.uploadPhoto;
+  // Endpoints are optional — an unset one renders as an empty field.
+  input("listMyAds").value = config.listMyAds ?? "";
+  input("captureAd").value = config.captureAd ?? "";
+  input("deleteAd").value = config.deleteAd ?? "";
+  input("createAd").value = config.createAd ?? "";
+  input("uploadPhoto").value = config.uploadPhoto ?? "";
   select("csrfMode").value = config.csrf.mode;
-  input("csrfName").value = config.csrf.name;
+  // Only the meta/cookie variants carry a name; "none" and "fetch" do not.
+  input("csrfName").value = "name" in config.csrf ? config.csrf.name : "";
   input("csrfHeader").value = config.csrf.header;
+}
+
+/**
+ * The form only expresses the none/meta/cookie modes. "fetch" — the mode actually
+ * in use — needs a URL and an extractor this page has no fields for, so it is not
+ * editable here. That gap is one reason this page is being replaced by
+ * backend-served client config (ADR-0013).
+ */
+function readCsrf(): CsrfConfig {
+  const mode = select("csrfMode").value as CsrfMode;
+  const header = input("csrfHeader").value.trim();
+  const name = input("csrfName").value.trim();
+  switch (mode) {
+    case "meta":
+      return { mode, name, header };
+    case "cookie":
+      return { mode, name, header };
+    default:
+      return { mode: "none", header };
+  }
 }
 
 function readForm(): EndpointConfig {
@@ -32,11 +55,7 @@ function readForm(): EndpointConfig {
     deleteAd: input("deleteAd").value.trim(),
     createAd: input("createAd").value.trim(),
     uploadPhoto: input("uploadPhoto").value.trim(),
-    csrf: {
-      mode: select("csrfMode").value as CsrfMode,
-      name: input("csrfName").value.trim(),
-      header: input("csrfHeader").value.trim(),
-    },
+    csrf: readCsrf(),
   };
 }
 

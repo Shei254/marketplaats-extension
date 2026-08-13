@@ -54,8 +54,13 @@ export type EndpointName =
   | "searchAd"
 
 
-// 1. Fix the type definition using an intersection
-export type EndpointConfig = Record<Partial<EndpointName>, string> & {
+/**
+ * Every endpoint is optional: an unset one surfaces as a SpikePendingError at
+ * call time rather than failing to construct. (`Record<Partial<EndpointName>, …>`
+ * did not mean this — Partial over a string union is not a no-op, and it made
+ * every key required.)
+ */
+export type EndpointConfig = Partial<Record<EndpointName, string>> & {
     csrf: CsrfConfig;
 };
 
@@ -66,7 +71,7 @@ export const EMPTY_ENDPOINT_CONFIG: EndpointConfig = {
     createAd: "/plaats/ads",
     createAdPage: "/plaats/1744/1745",
     uploadPhoto: "/plaats/api/image/upload",
-    getBucket: "/plaats/api/v1/category-aggregate/:parentCategoryId/buckets",
+    getBuckets: "/plaats/api/v1/category-aggregate/:parentCategoryId/buckets",
     getBucketCategories: "/plaats/api/v1/category-aggregate/:parentCategoryId/buckets/:bucketId/categories",
     searchAd: "/my-account/sell/api/listings",
     csrf: {

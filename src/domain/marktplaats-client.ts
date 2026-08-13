@@ -1,4 +1,4 @@
-import type { CapturedAd, ListingDraft, ListingSummary, Photo } from "./types";
+import type { CapturedAd, CapturedListing, ListingDraft, ListingSummary, Photo } from "./types";
 
 /** Raised when Marktplaats is not logged in — the popup shows a "log in first" state. */
 export class NotAuthenticatedError extends Error {
@@ -36,16 +36,16 @@ export class SpikePendingError extends Error {
 export interface MarktplaatsClient {
   /** The user's own ads. Throws NotAuthenticatedError if not logged in. */
   listMyAds(): Promise<ListingSummary[]>;
+  /** The user's own ads matching a query, filtered by Marktplaats, not locally. */
+  searchAd(query: string): Promise<ListingDraft[]>;
   /** Capture everything needed to re-create an ad (fields + full-res photos). */
-  captureAd(listingId: string): Promise<CapturedAd>;
+  captureAd(listingId: string): Promise<CapturedListing>;
   /** Delete an ad. Throws AdNotFoundError if it is already gone. */
   deleteAd(listingId: string): Promise<void>;
-
-  searchAd (adName: string): Promise<ListingDraft[]>
   /**
-   * Create a fresh ad from a draft + photos. Marktplaats answers a create with a
-   * 200/201/redirect and no JSON body, so there is no new listing id to hand back:
-   * resolving at all is the success signal, and a failure throws.
+   * Create a fresh ad from a captured ad + photos. Marktplaats answers a create
+   * with a 200/201/redirect and no JSON body, so there is no new listing id to
+   * hand back: resolving at all is the success signal, and a failure throws.
    */
-  createAd(draft: ListingDraft, photos: Photo[]): Promise<void>;
+  createAd(draft: CapturedAd, photos: Photo[]): Promise<void>;
 }

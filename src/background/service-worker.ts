@@ -79,7 +79,7 @@ Object.assign(globalThis, {
   __listAds: () => orchestrator.listAds(),
   __retry: (listingId: string) => orchestrator.retry(listingId),
   __resume: () => orchestrator.resumeAll(),
-  __searchAd: (adName) => orchestrator.searchAd(adName),
+  __searchAd: (adName: string) => orchestrator.searchAd(adName),
   __getEndpoints: () => loadEndpointConfig(),
   __setEndpoints: (partial: Partial<EndpointConfig>) =>
     loadEndpointConfig().then((current) => saveEndpointConfig({ ...current, ...partial })),

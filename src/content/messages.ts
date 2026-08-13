@@ -3,7 +3,7 @@ import {
   NotAuthenticatedError,
   SpikePendingError,
 } from "../domain/marktplaats-client";
-import type { ListingDraft, ListingSummary, Photo } from "../domain/types";
+import type { CapturedAd, ListingDraft, ListingSummary, Photo } from "../domain/types";
 import { base64ToBytes, bytesToBase64 } from "../shared/base64";
 import {ApiRequestError, NoMarktplaatsTabError} from "../adapters/relay-marktplaats-client";
 
@@ -21,7 +21,7 @@ export interface WirePhoto {
 }
 
 export interface WireCapturedAd {
-  draft: ListingDraft;
+  draft: CapturedAd;
   photos: WirePhoto[];
 }
 
@@ -31,12 +31,17 @@ export type RelayRequest =
   | { kind: "getBucketCategories"}
   | { kind: "captureAd"; listingId: string }
   | { kind: "deleteAd"; listingId: string }
-  | { kind: "createAd"; draft: ListingDraft; photos: WirePhoto[] }
+  | { kind: "createAd"; draft: CapturedAd; photos: WirePhoto[] }
   | { kind: "downloadPhoto"; urls: string[] }
   | { kind: "searchAd"; query: string }
 
 
-export type RelayResult = ListingSummary[] | WireCapturedAd | null;
+export type RelayResult =
+  | ListingSummary[]
+  | ListingDraft[]
+  | WireCapturedAd
+  | WirePhoto[]
+  | null;
 
 export type WireErrorCode =
   | "AD_NOT_FOUND"
@@ -82,11 +87,10 @@ export function toWireError(error: unknown): WireError {
   if (error instanceof ApiRequestError) {
     return {
       code: "API_ERROR",
-      name: error.name,
       message: error.message,
       status: error.status,
-      body: error.body
-    } as WireError;
+      body: error.body,
+    };
   }
 
   if (error instanceof SpikePendingError) {

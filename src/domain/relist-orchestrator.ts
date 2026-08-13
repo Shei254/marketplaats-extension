@@ -8,8 +8,7 @@ export type RelistOutcome =
   /** Nothing was removed from Marktplaats; the original ad is intact. */
   | { status: "failed-before-delete"; error: unknown }
   /** The original was deleted but re-create failed; snapshot retained for retry. */
-  | { status: "failed-recoverable"; listingId: string; error: unknown }
-  | null;
+  | { status: "failed-recoverable"; listingId: string; error: unknown };
 
 export class RelistOrchestrator {
   constructor(

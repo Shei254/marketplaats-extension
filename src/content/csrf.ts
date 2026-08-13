@@ -83,14 +83,17 @@ const extractors = {
         return metaMatch[1];
       }
 
-      // 3. (Optional) If they recently migrated back to SSR forms
-      const legacyElement = doc.querySelector(config.selector) as HTMLInputElement;
-      if (legacyElement && legacyElement.value) {
-        return legacyElement.value;
+      // 3. (Optional) If they recently migrated back to SSR forms.
+      // Reads config.extractor, not config.selector — the latter does not exist
+      // on FetchCsrfConfig, so this branch used to throw on a bad selector.
+      if (config.extractor.type === "dom") {
+        const legacyElement = doc.querySelector(config.extractor.selector);
+        const value = legacyElement?.getAttribute(config.extractor.attribute);
+        if (value) return value;
       }
 
       console.error("[CSRF] Failed to find token in pre-hydrated React HTML payload.");
-      return null;
+      return undefined;
     } catch (error) {
       console.error(`Failed to fetch CSRF token from ${config.url}:`, error);
       return undefined;

@@ -180,6 +180,18 @@ export interface CapturedAd {
 }
 
 /**
+ * The result of capturing an ad: the ad itself plus its downloaded photos.
+ *
+ * `CapturedAd` is Marktplaats's own ad representation and carries no photo bytes
+ * — the gallery holds URLs, which we fetch separately — so the pair travels
+ * together as its own type rather than being pushed into `CapturedAd`.
+ */
+export interface CapturedListing {
+  draft: CapturedAd;
+  photos: Photo[];
+}
+
+/**
  * How far a relist has progressed. Delete-first (ADR-0003):
  *  - "captured": snapshot saved, the original may or may not be deleted yet.
  *  - "deleted": the original is confirmed gone; only re-create remains.
@@ -190,7 +202,8 @@ export type SnapshotPhase = "captured" | "deleted";
 export interface AdSnapshot {
   /** id of the original listing being relisted. */
   listingId: string;
-  draft: ListingDraft;
+  /** The captured ad, re-submitted verbatim to createAd on restore. */
+  draft: CapturedAd;
   photos: Photo[];
   phase: SnapshotPhase;
   createdAt: number;

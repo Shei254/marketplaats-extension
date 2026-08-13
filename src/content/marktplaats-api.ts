@@ -239,7 +239,9 @@ export async function captureAd(listingId: string): Promise<{ draft: CapturedAd;
   const buckets = await getBuckets(draft.categoryInformation.parentCategoryId);
 
   const mappedBucket = await mapCategoryToBucket(cfg, draft.categoryInformation.categoryId, draft.categoryInformation.parentCategoryId, buckets);
-  if (!draft) throw new SpikePendingError("Could not resolve a mapped bucket");
+  // Guards mappedBucket, not draft: a null bucket used to fall through to
+  // `mappedBucket.id` and throw an opaque TypeError instead of this message.
+  if (!mappedBucket) throw new SpikePendingError("Could not resolve a mapped bucket");
 
   draft.bucketId = mappedBucket.id;
   console.log("mappedBucket", mappedBucket);

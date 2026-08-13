@@ -6,6 +6,7 @@ import type { SnapshotStore } from "../snapshot-store";
 import type {
   AdSnapshot,
   CapturedAd,
+  CapturedListing,
   ListingDraft,
   ListingSummary,
   Photo,
@@ -50,7 +51,7 @@ export class InMemorySnapshotStore implements SnapshotStore {
 }
 
 export interface FakeClientOptions {
-  ads?: Record<string, CapturedAd>;
+  ads?: Record<string, CapturedListing>;
   /** If set, deleteAd throws this instead of deleting. */
   deleteError?: Error;
   /** Number of times createAd throws before it succeeds. */
@@ -58,7 +59,7 @@ export interface FakeClientOptions {
 }
 
 export class FakeMarktplaatsClient implements MarktplaatsClient {
-  private readonly ads: Map<string, CapturedAd>;
+  private readonly ads: Map<string, CapturedListing>;
   private createFailuresLeft: number;
   private nextId = 1;
 
@@ -74,11 +75,19 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
     return [...this.ads.entries()].map(([id, ad]) => ({
       id,
       title: ad.draft.title,
-      priceCents: ad.draft.priceCents,
+      priceCents: ad.draft.price.priceCent,
     }));
   }
 
-  async captureAd(listingId: string): Promise<CapturedAd> {
+  /** Substring match on title — enough to stand in for Marktplaats's own filtering. */
+  async searchAd(query: string): Promise<ListingDraft[]> {
+    const needle = query.toLowerCase();
+    return [...this.ads.values()]
+      .filter((ad) => ad.draft.title.toLowerCase().includes(needle))
+      .map((ad) => ({ itemId: ad.draft.itemId, title: ad.draft.title }) as ListingDraft);
+  }
+
+  async captureAd(listingId: string): Promise<CapturedListing> {
     const ad = this.ads.get(listingId);
     if (!ad) throw new AdNotFoundError(listingId);
     return structuredClone(ad);
@@ -91,7 +100,7 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
     this.events.push({ type: "delete", listingId });
   }
 
-  async createAd(draft: ListingDraft, photos: Photo[]): Promise<void> {
+  async createAd(draft: CapturedAd, photos: Photo[]): Promise<void> {
     if (this.createFailuresLeft > 0) {
       this.createFailuresLeft -= 1;
       throw new Error("create failed");
@@ -109,23 +118,58 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
   }
 
   /** Test helper: the most recently created ad, or null if none was created. */
-  lastCreated(): CapturedAd | null {
+  lastCreated(): CapturedListing | null {
     const created = this.events.filter((e) => e.type === "create");
     const newId = created[created.length - 1]?.newId;
     return newId ? (this.ads.get(newId) ?? null) : null;
   }
 }
 
-/** Convenience: a minimal captured ad for tests. */
-export function sampleAd(title = "Vintage bike"): CapturedAd {
+/**
+ * Convenience: a captured ad for tests.
+ *
+ * `CapturedAd` is Marktplaats's own ad representation, so this fixture is
+ * necessarily wide. The orchestrator treats the draft as opaque — it captures it,
+ * persists it, and hands it back to createAd unchanged — so only `itemId`,
+ * `title` and `price.priceCent` are read by anything under test. The rest is
+ * filled in so the fixture stays a real `CapturedAd` and future field changes
+ * surface here rather than being hidden behind a cast.
+ */
+export function sampleAd(title = "Vintage bike"): CapturedListing {
   return {
     draft: {
+      itemId: "ad-1",
       title,
       description: "A nice bike",
-      priceCents: 12000,
-      categoryId: "bikes",
-      attributes: { color: "blue" },
-      location: "Amsterdam",
+      price: { biddingEnabled: false, priceCent: 12000, priceType: "FIXED" },
+      categoryInformation: {
+        categoryId: 1234,
+        categoryName: "Fietsen",
+        parentCategoryId: 12,
+        parentCategoryName: "Fietsen en Brommers",
+        verticals: [],
+      },
+      contactInformation: { name: "Test Seller", postcode: "1011AB" },
+      gallery: { imageUrls: ["https://example.test/bike.jpg"] },
+      attributes: [],
+      adFeatures: [],
+      shippingInformation: { augmentedLabels: [], selectedShippingOptions: [] },
+      shippingServices: [],
+      bucketId: 9,
+      adViews: 0,
+      buyItNowEnabled: false,
+      closeDate: 0,
+      startDate: 0,
+      deliveryMethod: "SHIPPING",
+      editable: true,
+      escrowAllowed: false,
+      isBuyerProtectionActiveOnListing: false,
+      isCarAd: false,
+      isMultiLingual: false,
+      phoneUpcallAllowed: false,
+      reserved: false,
+      showTAMSurvey: false,
+      suspended: false,
     },
     photos: [{ filename: "bike.jpg", mimeType: "image/jpeg", data: new Uint8Array([1, 2, 3]) }],
   };

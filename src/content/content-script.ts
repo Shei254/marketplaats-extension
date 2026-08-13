@@ -5,9 +5,9 @@ import {
     toWirePhoto,
     type RelayRequest,
     type RelayResponse,
-    type WirePhoto,
+    type RelayResult,
 } from "./messages";
-import type { CapturedAd, ListingDraft, ListingSummary } from "../domain/types";
+import type { ListingDraft, ListingSummary } from "../domain/types";
 
 chrome.runtime.onMessage.addListener(
     (request: RelayRequest, _sender, sendResponse: (response: RelayResponse) => void) => {
@@ -21,18 +21,18 @@ chrome.runtime.onMessage.addListener(
     }
 );
 
-async function handle(
-    request: RelayRequest
-): Promise<ListingSummary[] | { draft: CapturedAd; photos: WirePhoto[] } | WirePhoto[] | null> {
+async function handle(request: RelayRequest): Promise<RelayResult> {
     switch (request.kind) {
         case "listMyAds":
             return (await api.listMyAds()).map(toListingSummary);
+        case "searchAd":
+            return api.searchAd(request.query);
         case "captureAd": {
             const captured = await api.captureAd(request.listingId);
             return { draft: captured.draft, photos: captured.photos.map(toWirePhoto) };
         }
         case "downloadPhoto": {
-            const photos = await Promise.all(request.photoUrls.map((url) => api.downloadPhoto(url)));
+            const photos = await Promise.all(request.urls.map((url) => api.downloadPhoto(url)));
             return photos.map(toWirePhoto);
         }
         case "deleteAd":
@@ -43,12 +43,10 @@ async function handle(
             // never JSON. Not throwing is the success signal.
             await api.createAd(request.draft, request.photos.map(fromWirePhoto));
             return null;
-        case "searchAd":
-            console.log("SearchAd request", request);
-            await api.searchAd(request.query);
-            return
         default:
-            console.error("Request kind not implemented", request.kind)
+            // Exhaustiveness: adding a RelayRequest kind without handling it here
+            // becomes a compile error rather than a silent undefined at runtime.
+            throw new Error(`Relay request kind not implemented: ${(request as RelayRequest).kind}`);
     }
 }
 

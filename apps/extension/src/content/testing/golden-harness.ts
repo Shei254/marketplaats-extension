@@ -89,28 +89,6 @@ export function installDom(url = "https://www.marktplaats.nl/"): () => void {
   return () => Object.assign(g, saved);
 }
 
-/**
- * Minimal `chrome` stand-in. The API module registers a `storage.onChanged`
- * listener at import time, so this has to be installed before it is imported.
- *
- * @param stored value to serve as the persisted `endpointConfig`; omit for none,
- *   which is what makes the module fall back to `DEFAULT_ENDPOINT_CONFIG`.
- */
-export function installChromeStub(stored?: Record<string, unknown>): void {
-  const area = { ...stored };
-  (globalThis as unknown as { chrome: unknown }).chrome = {
-    storage: {
-      local: {
-        get: async (key: string) => (key in area ? { [key]: area[key] } : {}),
-        set: async (items: Record<string, unknown>) => {
-          Object.assign(area, items);
-        },
-      },
-      onChanged: { addListener: () => {} },
-    },
-  };
-}
-
 /** Replace `globalThis.fetch` with a recording router. */
 export function stubFetch(routes: Route[]): FetchStub {
   const calls: RecordedRequest[] = [];

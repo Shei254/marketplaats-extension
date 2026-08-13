@@ -13,6 +13,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { installChromeStub, type ChromeStub } from "../testing/chrome-stub";
 import {
   DEFAULT_ENDPOINT_CONFIG,
   isEndpointConfigChange,
@@ -22,34 +23,25 @@ import {
   type EndpointName,
 } from "./endpoint-config";
 
-const STORAGE_KEY = "endpointConfig";
+const STORAGE_KEY = "endpointOverrides";
+/** What the POC Options page and the pre-override `__setEndpoints` wrote. */
+const LEGACY_STORAGE_KEY = "endpointConfig";
 
 /** Every configurable operation, read off the defaults so the list cannot drift. */
 const ENDPOINT_NAMES = Object.keys(DEFAULT_ENDPOINT_CONFIG).filter(
   (key) => key !== "csrf",
 ) as EndpointName[];
 
+let chromeStub: ChromeStub;
 let area: Record<string, unknown>;
-let savedChrome: unknown;
 
 beforeEach(() => {
-  area = {};
-  savedChrome = (globalThis as Record<string, unknown>).chrome;
-  (globalThis as Record<string, unknown>).chrome = {
-    storage: {
-      local: {
-        get: async (key: string) => (key in area ? { [key]: area[key] } : {}),
-        set: async (items: Record<string, unknown>) => {
-          Object.assign(area, items);
-        },
-      },
-      onChanged: { addListener: () => {} },
-    },
-  };
+  chromeStub = installChromeStub();
+  area = chromeStub.area;
 });
 
 afterEach(() => {
-  (globalThis as Record<string, unknown>).chrome = savedChrome;
+  chromeStub.restore();
 });
 
 describe("loadEndpointConfig", () => {
@@ -160,6 +152,27 @@ describe("saveEndpointOverrides", () => {
       deleteAd: "/custom/delete",
       listMyAds: "/custom/listings",
     });
+  });
+
+  // The stale-profile half of the same bug. A tester who used the Options page,
+  // or __setEndpoints before it stored overrides, has a *resolved* config under
+  // the old key: nine endpoints pinned at the defaults of whatever build wrote
+  // it. Read as overrides it would shadow every later default — indistinguishable
+  // from the bug that was just fixed, and permanent, since nothing would ever
+  // overwrite a key the tester does not know to clear.
+  it("never reads the resolved config left under the pre-override key", async () => {
+    area[LEGACY_STORAGE_KEY] = { ...DEFAULT_ENDPOINT_CONFIG, deleteAd: "/stale/delete" };
+
+    await expect(loadEndpointConfig()).resolves.toEqual(DEFAULT_ENDPOINT_CONFIG);
+  });
+
+  it("drops the pre-override key once overrides are written", async () => {
+    area[LEGACY_STORAGE_KEY] = { ...DEFAULT_ENDPOINT_CONFIG };
+
+    await saveEndpointOverrides({ deleteAd: "/custom/delete" });
+
+    expect(area).not.toHaveProperty(LEGACY_STORAGE_KEY);
+    expect(area[STORAGE_KEY]).toEqual({ deleteAd: "/custom/delete" });
   });
 
   // The content script drops its cached config on this signal, so the key the

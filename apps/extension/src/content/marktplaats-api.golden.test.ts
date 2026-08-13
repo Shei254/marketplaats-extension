@@ -14,9 +14,9 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { installChromeStub } from "../testing/chrome-stub";
 import {
   encodePairs,
-  installChromeStub,
   installDom,
   stubFetch,
   type FetchStub,
@@ -598,7 +598,7 @@ describe("endpoint config", () => {
   it("routes through a stored override instead of the built-in path", async () => {
     vi.resetModules();
     installChromeStub({
-      endpointConfig: { listMyAds: "/some/other/listings" },
+      endpointOverrides: { listMyAds: "/some/other/listings" },
     });
     api = await import("./marktplaats-api");
     http = stubFetch(routes({ method: "GET", url: "/some/other/listings", reply: { json: { ads: [] } } }));
@@ -610,7 +610,7 @@ describe("endpoint config", () => {
 
   it("raises SpikePendingError when an endpoint is not configured", async () => {
     vi.resetModules();
-    installChromeStub({ endpointConfig: { listMyAds: "" } });
+    installChromeStub({ endpointOverrides: { listMyAds: "" } });
     api = await import("./marktplaats-api");
     http = stubFetch(routes());
 

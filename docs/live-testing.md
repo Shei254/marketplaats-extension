@@ -71,11 +71,18 @@ endpoint's default still reaches you. `__setEndpoints` returns the overrides now
 effect; `__getEndpoints` shows the paths they resolve to. Drop them all and go back to
 the built-in defaults with:
 ```js
-await chrome.storage.local.remove("endpointConfig");
+await chrome.storage.local.remove("endpointOverrides");
 ```
 The `csrf` object is replaced wholesale, never merged — the four modes carry
 different fields, so pass a complete one. The POC Options page that also wrote this
 config is gone (ADR-0013); `__setEndpoints` is the whole surface until #36 lands.
+
+**If you live-tested before this change**, your profile is under the old
+`endpointConfig` key, and it holds a *resolved* config — all nine endpoints frozen
+at the defaults of whatever build first wrote it, which is the bug overrides fixed.
+Nothing reads that key any more, so you are already back on the build's defaults and
+need do nothing; the first `__setEndpoints` call clears it. Re-apply by hand any
+override you still want.
 
 ## 4. Run a relist
 

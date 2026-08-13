@@ -108,24 +108,49 @@ export const DEFAULT_ENDPOINT_CONFIG: Record<EndpointName, string> & { csrf: Csr
     },
 };
 
-const STORAGE_KEY = "endpointConfig";
+/**
+ * What the tester overrode — not a config. The name matters, because the key it
+ * replaces holds something different.
+ *
+ * `endpointConfig` was written by the POC Options page and by `__setEndpoints`
+ * before it stored overrides, and what it holds is a *resolved* config: every
+ * endpoint pinned at the defaults of whichever build first wrote it. Reading that
+ * value as overrides would reintroduce the exact bug storing overrides fixed —
+ * a later build correcting a path could never reach the profile, and the symptom
+ * was a 404 on a path the tester never touched. There is no way to tell such a
+ * value apart from a tester who genuinely overrode all nine, so it is not
+ * migrated: a new key means the stale profile is simply never read again, and
+ * everything falls back to the build's defaults, which is the correct state.
+ */
+const STORAGE_KEY = "endpointOverrides";
+
+/** The pre-override key. Read by nothing; dropped when overrides are next written. */
+const LEGACY_STORAGE_KEY = "endpointConfig";
+
+/**
+ * The stored overrides, or `{}` when nothing has been overridden. One reader, so
+ * the unchecked cast across the storage boundary lives in one place.
+ */
+async function readOverrides(): Promise<Partial<EndpointConfig>> {
+    const stored = await chrome.storage.local.get(STORAGE_KEY);
+    return (stored[STORAGE_KEY] as Partial<EndpointConfig> | undefined) ?? {};
+}
 
 export async function loadEndpointConfig(): Promise<EndpointConfig> {
-    const stored = await chrome.storage.local.get(STORAGE_KEY);
-    const partial = stored[STORAGE_KEY] as Partial<EndpointConfig> | undefined;
+    const overrides = await readOverrides();
 
     return {
         ...DEFAULT_ENDPOINT_CONFIG,
-        ...partial,
+        ...overrides,
         // Replaced wholesale, never merged: the CSRF variants carry different
         // fields, so a shallow merge could produce e.g. mode "none" still
         // carrying a stale `url`.
-        csrf: partial?.csrf ?? DEFAULT_ENDPOINT_CONFIG.csrf,
+        csrf: overrides.csrf ?? DEFAULT_ENDPOINT_CONFIG.csrf,
     };
 }
 
 /**
- * Merge `partial` into the tester's stored *overrides* — not into the resolved
+ * Merge `overrides` into the tester's stored *overrides* — not into the resolved
  * config. Returns the overrides now in effect, so a console caller can see what
  * they are actually carrying; `loadEndpointConfig` is what shows the paths those
  * overrides resolve to.
@@ -142,14 +167,16 @@ export async function loadEndpointConfig(): Promise<EndpointConfig> {
  * replaces it rather than merging: the four variants carry different fields.
  */
 export async function saveEndpointOverrides(
-    partial: Partial<EndpointConfig>,
+    overrides: Partial<EndpointConfig>,
 ): Promise<Partial<EndpointConfig>> {
-    const stored = await chrome.storage.local.get(STORAGE_KEY);
-    const current = (stored[STORAGE_KEY] as Partial<EndpointConfig> | undefined) ?? {};
-    const overrides = { ...current, ...partial };
+    const merged = { ...(await readOverrides()), ...overrides };
 
-    await chrome.storage.local.set({ [STORAGE_KEY]: overrides });
-    return overrides;
+    await chrome.storage.local.set({ [STORAGE_KEY]: merged });
+    // Swept here rather than on read: this is the one writer, and a tester
+    // rewriting their profile is the moment the stale resolved config becomes
+    // dead weight. Harmless if absent.
+    await chrome.storage.local.remove(LEGACY_STORAGE_KEY);
+    return merged;
 }
 
 export function isEndpointConfigChange(

@@ -28,7 +28,11 @@ services:
       # Runs once, on an empty data directory only. See infra/README.md § Resetting.
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mprelist -d mprelist"]
+      # -h 127.0.0.1 on purpose: while the entrypoint runs ./postgres/init it holds a temporary
+      # server open on the Unix socket alone (listen_addresses=''), so a socket probe reports ready
+      # before `keycloak` exists. Over TCP that window is a refused connection, which is what makes
+      # `--wait` mean the init scripts have finished rather than merely started.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U mprelist -d mprelist"]
       interval: 5s
       timeout: 3s
       retries: 30
@@ -64,7 +68,7 @@ services:
       - "8081:8080"
     healthcheck:
       # The image ships no curl or wget — this is bash's own /dev/tcp, which is why it is CMD-SHELL.
-      # `started` is Keycloak's own readiness verdict; a listening port only means the JVM is up.
+      # /health/ready is Keycloak's own readiness verdict; a listening port only means the JVM is up.
       test:
         - CMD-SHELL
         - >-

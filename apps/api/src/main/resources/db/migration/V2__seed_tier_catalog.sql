@@ -27,7 +27,8 @@ values
     ('power', 'Power', 200, 1, false)
 on conflict (code) do nothing;
 
--- Three columns every row above leaves alone, each for its own reason:
+-- Three columns no tier differs on, each for its own reason. `features` and `stripe_price_id` are left to
+-- their defaults above; `max_marktplaats_accounts` has no default in V1 and so is written as 1 on every row:
 --
 -- `max_marktplaats_accounts` is 1 everywhere. It becomes a sellable entitlement only once #47 finds a
 -- stable Marktplaats account identifier — until then nothing can tell two of them apart, so a tier

@@ -5,7 +5,7 @@ tier catalog seeded into it. No endpoints and no security yet — those arrive w
 
 ```bash
 cd apps/api
-./gradlew test      # 27 tests: the module boundary, the schema against a real Postgres, and the catalog
+./gradlew test      # 28 tests: the module boundary, the schema against a real Postgres, and the catalog
 ./gradlew build     # the above, plus the executable jar
 ./gradlew bootRun   # http://localhost:8080 — 404 on everything, there are no controllers yet
 ```
@@ -130,9 +130,10 @@ them.
 
 ## The catalog
 
-`V2__seed_tier_catalog.sql` puts three tiers in that table: **Free** (3 relists a period, the `is_default`
-one), **Pro** (50) and **Power** (200). `TierCatalogSeedTest` reads them back — it inserts nothing, because
-the subject is the rows the migration left behind.
+`V2__seed_tier_catalog.sql` seeds three tiers: **Free** (3 relists a period, the `is_default` one), **Pro**
+(50) and **Power** (200). Those are the values the file inserts, not a description of the live catalog — it
+is admin-managed from then on (below), so what the table holds is the table's to say. `TierCatalogSeedTest`
+reads them back — it inserts nothing, because the subject is the rows the migration left behind.
 
 Quota is the whole ladder. The other two columns a tier could differ on are deliberately identical across
 all three, and the file says why beside each: `max_marktplaats_accounts` is 1 everywhere because it is
@@ -163,8 +164,9 @@ Mutation-verified — each applied, observed, reverted:
 | Mutation | Fails |
 |---|---|
 | `on conflict (code) do nothing` dropped | `applyingTheSeedAgainLeavesTheCatalogExactlyAsItWas`, on `tier_code_key` |
+| `do nothing` becomes `do update set relist_quota_per_period = excluded.…` | `andAQuotaAnOperatorHasEditedStaysEdited` — and *nothing else*, which is why it exists |
 | Free is seeded `is_default = false` | `freeIsTheTierEveryNewUserIsProvisionedOnto` |
-| Free is seeded with quota 0 | `andTheFreeRungHasSomethingToSpend` |
+| Free is seeded with quota 0, or with 4 | `andTheFreeRungIsTheThreeTheCopyPromises` |
 | the Power row is left out | `theCatalogHoldsFreeProAndPower`, `quotaRisesFromFreeToPower` |
 | Pro is seeded with a `stripe_price_id` | `andNoTierCarriesAStripePriceUntilOneExists` |
 | Pro is seeded `{"bulk": true}`, Power three MP accounts | `andNoTierPromisesAFeatureThatDoesNotExist`, `noTierSellsMoreThanOneMarktplaatsAccountYet` |

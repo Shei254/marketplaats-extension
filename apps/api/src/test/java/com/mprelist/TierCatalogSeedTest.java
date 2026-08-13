@@ -3,7 +3,6 @@ package com.mprelist;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.sql.Connection;
 import java.util.List;
 import java.util.Map;
 
@@ -24,13 +23,15 @@ import org.springframework.transaction.annotation.Transactional;
  * therefore arranges its own rows, the subject here is the rows themselves — every assertion below is
  * about data that exists because the migration ran, so nothing is inserted.
  *
- * <p>Each test runs in a transaction that is rolled back, which matters only for the last one: it applies
- * the seed a second time.
+ * <p>Each test runs in a transaction that is rolled back, which matters only for the last two: they apply
+ * the seed a second time, and one of them edits a row first.
  */
 @SpringBootTest
 @Import(PostgresFromCompose.class)
 @Transactional
 class TierCatalogSeedTest {
+
+	private static final String SEED = "db/migration/V2__seed_tier_catalog.sql";
 
 	@Autowired
 	private JdbcTemplate db;
@@ -54,12 +55,16 @@ class TierCatalogSeedTest {
 	}
 
 	/**
-	 * A free tier of zero would deny every relist with {@code QUOTA_EXCEEDED} before the product had shown
-	 * anyone what it does, which is not what ADR-0014 means by making free an ordinary row.
+	 * The one rung of the ladder that is not free configuration. Zero would deny every relist with
+	 * {@code QUOTA_EXCEEDED} before the product had shown anyone what it does, which is not what ADR-0014
+	 * means by making free an ordinary row — but any number other than three is wrong too, because ADR-0014's
+	 * example of the locked state is "you've used your 3 — upgrade" and docs/enforcement-contract.md says the
+	 * same. Pro and Power are deliberately not pinned: specs/quota-enforcement.md puts those outside its scope
+	 * as configuration, and {@link #quotaRisesFromFreeToPower} holds all this file asks of them.
 	 */
 	@Test
-	void andTheFreeRungHasSomethingToSpend() {
-		assertThat(quotaOf("free")).isPositive();
+	void andTheFreeRungIsTheThreeTheCopyPromises() {
+		assertThat(quotaOf("free")).isEqualTo(3);
 	}
 
 	/**
@@ -78,7 +83,7 @@ class TierCatalogSeedTest {
 	 */
 	@Test
 	void andNoTierPromisesAFeatureThatDoesNotExist() {
-		assertThat(db.queryForList("select distinct features::text from tier", String.class)).containsExactly("{}");
+		assertThat(db.queryForList("select code from tier where features <> '{}'::jsonb", String.class)).isEmpty();
 	}
 
 	/**
@@ -105,6 +110,22 @@ class TierCatalogSeedTest {
 		assertThat(catalog()).isEqualTo(before);
 	}
 
+	/**
+	 * And the half of that promise the test above cannot see. It re-applies the seed onto rows that still
+	 * hold the seeded values, so an {@code on conflict (code) do update} would leave the catalog identical
+	 * and pass it — overwriting and preserving are indistinguishable until something has been changed. This
+	 * changes one first: ADR-0014 makes the catalog admin-managed after seeding, so a quota an operator has
+	 * tuned must survive the restored dump or the hand-run that applies the file a second time.
+	 */
+	@Test
+	void andAQuotaAnOperatorHasEditedStaysEdited() {
+		db.update("update tier set relist_quota_per_period = 999 where code = 'pro'");
+
+		applyTheSeed();
+
+		assertThat(quotaOf("pro")).isEqualTo(999);
+	}
+
 	private Integer quotaOf(String code) {
 		return db.queryForObject("select relist_quota_per_period from tier where code = ?", Integer.class, code);
 	}
@@ -123,7 +144,5 @@ class TierCatalogSeedTest {
 			return null;
 		});
 	}
-
-	private static final String SEED = "db/migration/V2__seed_tier_catalog.sql";
 
 }

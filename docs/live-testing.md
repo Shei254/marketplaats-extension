@@ -29,9 +29,18 @@ filter **Fetch/XHR**, then do the action by hand and record method + URL + heade
 | Action | Fills |
 |---|---|
 | Load "Mijn Advertenties" | `listMyAds` (+ response → ListingSummary mapping) |
+| Search from that page's box | `searchAd` — same path as `listMyAds`, plus a `query` param |
 | Open an ad's edit view | `captureAd` (+ detail → draft, photo URLs) |
 | Delete a throwaway ad | `deleteAd` + the CSRF header/token source |
+| Open "Plaats je advertentie" | `createAdPage` — HTML, scraped for `signature`/`timestamp`/`tmsid` |
+| Pick a top-level category there | `getBuckets` (`:parentCategoryId`) |
+| Drill into one of its buckets | `getBucketCategories` (`:parentCategoryId`, `:bucketId`) |
 | Post a new ad (with photo) | `uploadPhoto` (multipart → media id) and `createAd` |
+
+That is all nine `EndpointName`s. The last three are not called by hand during a
+relist — `createAd` needs the scraped form attributes, and re-creating a captured ad
+fans out category → bucket to fill the `bucket` form field — so they break silently
+in the middle of a create rather than at the first call.
 
 Note the **host** (it may be an `api.` subdomain — see the CORS caveat below) and
 where the **CSRF token** lives (a `<meta>`, a readable cookie, or none).
@@ -50,13 +59,20 @@ where the **CSRF token** lives (a `<meta>`, a readable cookie, or none).
 >    perform the request. (Not wired yet — capture the real host first.)
 
 ## 3. Override what changed
-In the service-worker console (`chrome://extensions` → *Inspect views: service worker*).
-Only the keys you pass are overridden; the rest keep their defaults, and the override
-persists in `chrome.storage.local` until you clear it:
+In the service-worker console (`chrome://extensions` → *Inspect views: service worker*):
 ```js
 await __getEndpoints();                        // what the layer will actually call
 await __setEndpoints({ deleteAd: "/seller/api/remove-ad" });
 await __setEndpoints({ csrf: { mode: "meta", name: "csrf-token", header: "x-csrf-token" } });
+```
+**The first `__setEndpoints` pins all nine, not just the one you passed.** It merges
+your keys over the *resolved* config — defaults plus anything already stored — and
+writes that whole object to `chrome.storage.local`. So from then on the profile is
+frozen at the `DEFAULT_ENDPOINT_CONFIG` of the build you were running: a later build
+that corrects a *different* endpoint's default will not reach you, and the symptom is
+a 404 on a path you never touched. Clear the override to pick defaults up again:
+```js
+await chrome.storage.local.remove("endpointConfig");   // back to the built-in defaults
 ```
 The `csrf` object is replaced wholesale, never merged — the four modes carry
 different fields, so pass a complete one. The POC Options page that also wrote this

@@ -14,7 +14,7 @@ export async function csrfHeaders(csrf: CsrfConfig): Promise<Record<string, stri
 
   if (!token) {
     throw new SpikePendingError(
-        `CSRF token (mode: ${csrf.mode}) not found — check the Options config`,
+        `CSRF token (mode: ${csrf.mode}) not found — check the csrf block in the endpoint config.`,
     );
   }
   return { [csrf.header]: token };

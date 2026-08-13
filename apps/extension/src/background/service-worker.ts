@@ -3,11 +3,7 @@ import { RelayMarktplaatsClient } from "../adapters/relay-marktplaats-client";
 import { toWireError } from "../content/messages";
 import { RelistOrchestrator, type RelistOutcome } from "../domain/relist-orchestrator";
 import type { DevHook, DevHookName } from "./dev-hooks";
-import {
-  loadEndpointConfig,
-  saveEndpointOverrides,
-  type EndpointConfig,
-} from "../shared/endpoint-config";
+import { loadEndpointConfig, saveEndpointOverrides } from "../shared/endpoint-config";
 import { toWireOutcome, type BackgroundRequest, type BackgroundResponse } from "./messages";
 
 /**
@@ -95,8 +91,8 @@ if (__DEV__) {
     __retry: (listingId: string) => orchestrator.retry(listingId),
     __resume: () => orchestrator.resumeAll(),
     __searchAd: (adName: string) => orchestrator.searchAd(adName),
-    __getEndpoints: () => loadEndpointConfig(),
-    __setEndpoints: (partial: Partial<EndpointConfig>) => saveEndpointOverrides(partial),
+    __getEndpoints: loadEndpointConfig,
+    __setEndpoints: saveEndpointOverrides,
   };
   Object.assign(globalThis, hooks);
 }

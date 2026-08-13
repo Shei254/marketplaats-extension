@@ -12,7 +12,7 @@ Monorepo, one deployable per workspace ([ADR-0011](docs/adr/0011-repository-layo
 | `apps/dashboard` | React SPA | reserved — #42 |
 | `packages/contracts` | API types shared by both clients | reserved — no owner; consumers #34/#36 |
 | `packages/ui` | design tokens + components (popup and dashboard) | reserved — #37 |
-| `infra` | docker-compose: Postgres + Keycloak | reserved — #14, #15 |
+| `infra` | docker-compose: Postgres + Keycloak | working; realm export still #15 |
 | `docs` | ADRs, specs, glossary, backlog | — |
 
 Each reserved directory holds a README and nothing else, naming the ticket or tickets that fill it — or,
@@ -38,6 +38,17 @@ npm run build -w @mprelist/extension
 
 `apps/api` will be built with `./gradlew`, not npm, and CI will run it separately once either exists — this
 repo has no CI config yet. That mixed Gradle + npm toolchain is the cost ADR-0011 accepted.
+
+## The local stack
+
+Nothing in `apps/extension` needs it — the extension talks to Marktplaats, not to us. The backend does:
+
+```bash
+docker compose -f infra/docker-compose.yml up -d --wait   # Postgres on 5432, Keycloak on 8081
+docker compose -f infra/docker-compose.yml down           # -v to also drop the data
+```
+
+Development credentials, ports and how to reset are in [`infra/README.md`](infra/README.md).
 
 ## Loading the extension
 

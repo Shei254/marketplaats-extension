@@ -1,0 +1,80 @@
+# Local development stack — Postgres for the API, Keycloak for identity (ADR-0009, ADR-0011).
+#
+# Development only. Every credential below is a well-known default, committed on purpose so that
+# `docker compose up` needs no prior setup; nothing here is fit to deploy.
+#
+#   docker compose -f infra/docker-compose.yml up -d --wait
+#
+# See infra/README.md for ports, credentials and how to reset.
+
+name: mprelist
+
+services:
+  postgres:
+    # Pinned to the major: 18.x minors are drop-in, and an unpinned `postgres` would one day be
+    # a major, which does not read an older major's data directory.
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: mprelist
+      POSTGRES_PASSWORD: mprelist
+      POSTGRES_DB: mprelist
+    ports:
+      - "5432:5432"
+    volumes:
+      # postgres:18 declares its VOLUME at /var/lib/postgresql and puts PGDATA one level in,
+      # at /var/lib/postgresql/18/docker — mounting the pre-18 /var/lib/postgresql/data here
+      # would leave the real data directory inside the container, and every `down` would drop it.
+      - postgres-data:/var/lib/postgresql
+      # Runs once, on an empty data directory only. See infra/README.md § Resetting.
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mprelist -d mprelist"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  keycloak:
+    # Pinned to the minor: a Keycloak upgrade migrates its own database schema on first start,
+    # so a floating tag would silently migrate one developer's stack and not another's.
+    image: quay.io/keycloak/keycloak:26.7
+    # `start-dev`: no TLS, no hostname strictness, no optimised build step. Never in production.
+    command: ["start-dev"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Bootstrap admin for the console at http://localhost:8081/admin. Created on first start only.
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      # Its own database in the same instance, created by ./postgres/init. Not the app's database:
+      # Flyway (#17) owns `mprelist` and would collide with Keycloak's schema management.
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak
+      # Fixes the issuer at the host-side URL. Without it Keycloak derives the issuer from the
+      # request, so a token fetched via localhost:8081 and one fetched via keycloak:8080 disagree,
+      # and the resource server (#19) rejects one of them.
+      KC_HOSTNAME: http://localhost:8081
+      # Serves /health/* on the management port, 9000. Off by default; the healthcheck needs it.
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      # 8081, because 8080 is Spring Boot's default and apps/api (#16) runs on the host.
+      - "8081:8080"
+    healthcheck:
+      # The image ships no curl or wget — this is bash's own /dev/tcp, which is why it is CMD-SHELL.
+      # `started` is Keycloak's own readiness verdict; a listening port only means the JVM is up.
+      test:
+        - CMD-SHELL
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '"status": "UP"' <&3
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 15s
+
+volumes:
+  postgres-data:

@@ -6,7 +6,7 @@ and no security yet — those arrive with the tickets named below.
 
 ```bash
 cd apps/api
-./gradlew test      # 40 tests: the module boundary, the schema and catalog on a real Postgres, the realm
+./gradlew test      # 50 tests: the module boundary, the schema and catalog on a real Postgres, the realm
 ./gradlew build     # the above, plus the executable jar
 ./gradlew bootRun   # http://localhost:8080 — 404 on everything, there are no controllers yet
 ```
@@ -16,6 +16,14 @@ on startup and will not start without it. `test` does not — it starts a Postgr
 but it does need a Docker daemon, for the same reason. The application itself gains a Keycloak dependency
 with [#19](https://github.com/Shei254/marketplaats-extension/issues/19); until then the only thing here that
 knows the IdP exists is [the realm test](#the-realm).
+
+> On **Docker Desktop for Linux**, Testcontainers starts but every container fails with
+> `mounts denied: the path /socket_mnt/home/<you>/.docker/desktop/docker.sock is not shared from the host`.
+> Ryuk, the reaper Testcontainers starts first, mounts the Docker socket into itself, and Desktop's socket
+> lives on a path its VM will not share. Export
+> `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock`, which is where that same socket is inside the
+> VM. It is a property of the daemon, not of this project, so it belongs in your shell rather than in a file
+> here — where it would then be wrong for everyone running a plain Docker Engine.
 
 ## The modules
 
@@ -175,20 +183,21 @@ Mutation-verified — each applied, observed, reverted:
 
 ## The realm
 
-`KeycloakRealmTest` is the only place [`infra/keycloak/mprelist-realm.json`](../../infra/keycloak/mprelist-realm.json)
-is exercised. It belongs here rather than in `infra/` because `infra/` has no test runner, and it will not be
-made redundant by [#19](https://github.com/Shei254/marketplaats-extension/issues/19): that ticket validates
-tokens against test-minted ones and never starts an IdP, so without this nothing in the repository would
-notice the realm file breaking.
+`KeycloakRealmTest` and `KeycloakRealmWithoutAnExtensionIdTest` are the only places
+[`infra/keycloak/mprelist-realm.json`](../../infra/keycloak/mprelist-realm.json) is exercised. They belong
+here rather than in `infra/` because `infra/` has no test runner, and they will not be made redundant by
+[#19](https://github.com/Shei254/marketplaats-extension/issues/19): that ticket validates tokens against
+test-minted ones and never starts an IdP, so without this nothing in the repository would notice the realm
+file breaking.
 
 **Nothing here asserts a key of that JSON against itself.** Every test asks Keycloak — signs in, or is
 refused — because a protocol mapper named right and configured wrong imports without complaint, and so does
 an attribute Keycloak has since renamed. `KeycloakFromCompose` starts the image `infra/docker-compose.yml`
-names, mounts the realm with a known `MPRELIST_EXTENSION_ID`, and waits on the realm's own discovery document
-rather than on the container, so a failed import is a startup failure and not twelve confusing ones.
-`signIn` then drives the whole Authorization Code + PKCE flow — authorization request, Keycloak's login form,
-code exchanged with the verifier — because the shortcut around it, a password grant, is one of the things the
-realm is supposed to refuse.
+names, mounts the realm, and waits on the realm's own discovery document rather than on the container, so a
+failed import is a startup failure and not twenty confusing ones. `signIn` then drives the whole
+Authorization Code + PKCE flow — authorization request, Keycloak's login form, code exchanged with the
+verifier — because the shortcut around it, a password grant, is one of the things the realm is supposed to
+refuse.
 
 Half of them are about a refusal being a refusal — no challenge, a `plain` one, a password grant, somebody
 else's extension id, a login started as the API client. Two are about *how* Keycloak refuses, which is the
@@ -196,14 +205,53 @@ part a weaker assertion would miss: an unregistered redirect URI comes back as a
 redirect, because the whole point is that Keycloak will not bounce a browser to a URI it does not already
 trust, while a request it does trust is refused *through* that URI with an `error` parameter.
 
-The last test is the one that leaves this project: `andTheLocalStackImportsTheRealmThisSuiteProves` reads
-`docker-compose.yml` for the `--import-realm` flag and the `./keycloak` mount. Everything else is proven on a
-container this suite starts, which says nothing about the local stack ever reading the file.
+Three of the realm's promises are ones Keycloak does **not** default to, so each is a line in the file and a
+test that spends something to prove it:
+
+- **A redirect URI is registered exactly, not as a prefix.** ADR-0010 rules out the wildcard, and a
+  host-scoped `.../*` survives the obvious test — the exact URI is still accepted — so the assertion has to
+  ask for a path *beneath* the registered one and be refused. `post.logout.redirect.uris` is `"+"`, Keycloak's
+  "whatever `redirectUris` holds", so the way out cannot drift from the way in; that takes a real sign-in per
+  case, because a logout needs an `id_token_hint` and ends the session it was minted in.
+- **Refresh tokens rotate.** `revokeRefreshToken` is off by default, which leaves every refresh token a
+  session ever issued valid beside the one that replaced it — a copy read out of extension storage outliving
+  the refresh that should have retired it. Nothing but spending the same token twice can tell.
+- **A session outlives a sleeping MV3 worker.** Keycloak idles a session out after thirty minutes, which is
+  shorter than the worker sleeps between one relist and the next; the on-demand refresh ADR-0010 chose then
+  fails and [#32](https://github.com/Shei254/marketplaats-extension/issues/32) has to re-run
+  `launchWebAuthFlow`, interactively. The test reads the refresh token's own `exp - iat`, which is where a
+  realm setting is actually felt.
+
+The two dev users exist to cover the **two token shapes** a real user can produce, which one user cannot.
+`dev` holds no realm role, so Keycloak omits `realm_access` rather than sending it empty — the edge
+[#27](https://github.com/Shei254/marketplaats-extension/issues/27)'s role check has to survive. `dev-admin`
+holds `default-roles-mprelist` beside `ADMIN`, which every user made through the console or a registration
+form holds and an *imported* one otherwise does not: those default roles carry `account`'s client roles, so
+its `aud` is an **array** where `dev`'s is a bare string. A resource server that compares `aud` as one string
+passes against `dev` and fails against the first real user, so both shapes are in the realm on purpose.
+
+`KeycloakRealmWithoutAnExtensionIdTest` is the same realm imported with `MPRELIST_EXTENSION_ID` **unset**,
+which until [#13](https://github.com/Shei254/marketplaats-extension/issues/13) pins an id is what every
+developer gets. It is a second container rather than a second test because the suite above always sets the
+variable, and from there a realm that refused to import, one that registered the literal
+`${MPRELIST_EXTENSION_ID:unset-extension-id}` unsubstituted, and one that fell back correctly are
+indistinguishable. It asserts both halves of what [`infra/README.md`](../../infra/README.md) promises: the
+fallback URI is registered, and a real extension's is refused with `Invalid parameter: redirect_uri`.
+
+Two tests leave this project entirely, because everything else is proven on a container this suite starts and
+that says nothing about the local stack ever reading the file. `andTheLocalStackImportsTheRealmThisSuiteProves`
+reads `docker-compose.yml` for the `--import-realm` flag and the `./keycloak` mount.
+`andPassesTheExtensionIdThroughWithoutGivingItAValue` reads it for the subtler half of the fallback above: an
+unset shell has to arrive at the import as an *unset* variable, and `MPRELIST_EXTENSION_ID: ""` would define
+it empty — the realm's own default would not apply and the client would register `https://.chromiumapp.org/`,
+a URI with no host, which imports without complaint and refuses every sign-in.
 
 Both `infra/` files are declared as inputs of the `test` task in `build.gradle.kts`. Gradle cannot see a file
 that is read at test time rather than compiled in, so without that an edit to the realm leaves `test`
 `UP-TO-DATE` and the previous run's verdict standing — a green suite that never looked at the change. That
-was found the way it sounds: by editing the realm and being told it passed.
+was found the way it sounds: by editing the realm and being told it passed. `InfraFiles` is where the Java
+side names those paths; Gradle cannot read a Java constant and its `inputs.files` has to resolve at
+configuration time, so that list is the one copy which has to be kept in step by hand.
 
 Mutation-verified — each applied to the realm (or to compose), observed, reverted:
 
@@ -218,14 +266,27 @@ Mutation-verified — each applied to the realm (or to compose), observed, rever
 | `webOrigins` is emptied | `andTheWebOriginIsTheExtensionItself` |
 | the dashboard client is removed | `andTheDashboardIsHeldToTheSameRequirement`, `neitherClientAcceptsAPasswordGrant` |
 | `dev-admin` loses its `realmRoles` | `andCarriesTheAdminRoleForAnOperatorWhoHasIt` |
+| …or keeps `ADMIN` and loses only `default-roles-mprelist` | `andIsAListAsSoonAsItsUserHoldsTheRealmsDefaultRoles` |
 | `mprelist-api` gains the standard flow **and a redirect URI** | `noBrowserLoginCanBeStartedAsTheApiClient` |
+| the extension's redirect URI regrows a trailing `/*` | `andRegisteredExactlyRatherThanAsAPrefixOverEverythingBeneathIt`, and `andALogoutReturnsOnlyWhereASignInWouldHave` with it — which is `"+"` doing its job |
+| …or the dashboard's does | `asIsTheDashboardsOwn` |
+| `post.logout.redirect.uris` is the URI spelled a second time, wildcarded, instead of `"+"` | `andALogoutReturnsOnlyWhereASignInWouldHave` |
+| `revokeRefreshToken` is dropped, or `refreshTokenMaxReuse` becomes `1` | `aRefreshTokenIsSpentByTheRefreshThatUsesIt` |
+| the `ssoSession*` timeouts are dropped | `andOutlivesAnMv3WorkerThatSleptBetweenCalls` |
+| the realm file's `${MPRELIST_EXTENSION_ID:unset-extension-id}` **default** is dropped | `KeycloakRealmWithoutAnExtensionIdTest` never starts: with the variable unset the realm no longer imports at all |
 | `docker-compose.yml` loses `--import-realm` | `andTheLocalStackImportsTheRealmThisSuiteProves` |
+| …or gives `MPRELIST_EXTENSION_ID` an empty value | `andPassesTheExtensionIdThroughWithoutGivingItAValue` |
 
-One mutation survives and is left surviving: giving `mprelist-api` `standardFlowEnabled: true` while it still
-registers no redirect URI. Keycloak refuses every authorization request either way — with no URI registered
-there is none it will bounce a browser to — so the flag alone changes nothing observable, and the row above
-is the version of that mutation which does. A test that failed on it would be asserting the field rather
-than the promise.
+Two mutations survive and are left surviving:
+
+- Giving `mprelist-api` `standardFlowEnabled: true` while it still registers no redirect URI. Keycloak
+  refuses every authorization request either way — with no URI registered there is none it will bounce a
+  browser to — so the flag alone changes nothing observable, and the row above is the version of that
+  mutation which does. A test that failed on it would be asserting the field rather than the promise.
+- Deleting `accessTokenLifespan`, because five minutes is also Keycloak's default.
+  `whileTheAccessTokenStaysAsShortLivedAsRevocationNeeds` is kept anyway: the image tag comes from compose,
+  so the day that default moves under an upgrade, this suite runs on the new version and says so. Its
+  subject is the revocation window ADR-0010 agreed to live with, not the line in the file.
 
 ## Versions, and where they are stated
 

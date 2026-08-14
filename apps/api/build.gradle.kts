@@ -73,8 +73,13 @@ tasks.withType<Test>().configureEach {
     // the container images, and the realm KeycloakRealmTest imports. Gradle cannot see that on its own, so
     // without this an edit to either leaves `test` UP-TO-DATE and the previous run's verdict standing —
     // a green suite that never looked at the change. Found by editing the realm and being told it passed.
+    //
+    // The same two paths are spelled in InfraFiles.java, which finds them by walking up from the working
+    // directory instead — Gradle cannot read Java constants and this must resolve at configuration time.
+    // Keep the two in step: this list going stale is silent, and costs a green suite that read nothing.
+    val infra = rootProject.layout.projectDirectory.dir("../../infra")
     inputs.files(
-        rootProject.layout.projectDirectory.file("../../infra/docker-compose.yml"),
-        rootProject.layout.projectDirectory.file("../../infra/keycloak/mprelist-realm.json"),
+        infra.file("docker-compose.yml"),
+        infra.file("keycloak/mprelist-realm.json"),
     ).withPropertyName("infraFilesReadAtTestTime").withPathSensitivity(PathSensitivity.RELATIVE)
 }

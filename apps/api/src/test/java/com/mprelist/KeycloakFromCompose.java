@@ -40,8 +40,10 @@ import tools.jackson.databind.json.JsonMapper;
  * <p>{@code KC_HOSTNAME} is deliberately not set, unlike in compose: without it Keycloak derives the issuer
  * from the request, which is what lets this run on whatever port Docker maps rather than on a fixed 8081.
  *
- * <p>The realm is mounted with a known {@code MPRELIST_EXTENSION_ID}, so what starts here is the realm a
- * developer who set that variable gets, not the fallback one.
+ * <p>Which realm starts is a choice: {@link #withTheExtensionIdSet()} is what a developer who set
+ * {@code MPRELIST_EXTENSION_ID} gets, {@link #withNoExtensionIdSet()} what one who never did gets. Both are
+ * shipped states — until #13 pins an id, the second is every developer's — so both are proven, by
+ * {@link KeycloakRealmTest} and {@link KeycloakRealmWithoutAnExtensionIdTest} respectively.
  */
 final class KeycloakFromCompose implements AutoCloseable {
 
@@ -60,14 +62,48 @@ final class KeycloakFromCompose implements AutoCloseable {
 
 	static final String DASHBOARD_REDIRECT_URI = "http://localhost:5173/";
 
-	/** The 43 characters RFC 7636 asks for at minimum. Anything shorter Keycloak refuses for its length. */
+	/**
+	 * The literal the realm file falls back to — its own {@code ${MPRELIST_EXTENSION_ID:unset-extension-id}}
+	 * default, spelled here so that a test can tell the fallback applying from the import failing.
+	 */
+	static final String UNSET_EXTENSION_ID = "unset-extension-id";
+
+	static final String FALLBACK_REDIRECT_URI = "https://" + UNSET_EXTENSION_ID + ".chromiumapp.org/";
+
+	/**
+	 * A syntactically well-formed {@code code_challenge}: 43 base64url characters, which is the length
+	 * base64url-encoded SHA-256 always produces. It is the hash of nothing — no verifier here matches it —
+	 * which is all the requests that never reach a code exchange need.
+	 *
+	 * <p>Well formed on purpose: Keycloak refuses a short challenge for being short, so a sloppier one would
+	 * leave the PKCE tests green against a realm that requires no challenge at all.
+	 */
 	static final String WELL_FORMED_CHALLENGE = "a".repeat(43);
 
-	KeycloakFromCompose() {
+	/** A well-formed PKCE pair, for the requests whose subject is something other than PKCE. */
+	static Map<String, String> pkce() {
+		return s256(WELL_FORMED_CHALLENGE);
+	}
+
+	/** The realm a developer who set {@code MPRELIST_EXTENSION_ID} gets. */
+	static KeycloakFromCompose withTheExtensionIdSet() {
+		return new KeycloakFromCompose(Map.of("MPRELIST_EXTENSION_ID", EXTENSION_ID));
+	}
+
+	/**
+	 * The realm a developer who never set it gets, which until #13 pins an id is every developer.
+	 * {@code docker-compose.yml} declares the variable with no value of its own, so an unset shell reaches
+	 * the import as an unset variable and the realm file's own default is what applies.
+	 */
+	static KeycloakFromCompose withNoExtensionIdSet() {
+		return new KeycloakFromCompose(Map.of());
+	}
+
+	private KeycloakFromCompose(Map<String, String> environment) {
 		this.container = new GenericContainer<>(ComposeFile.image("quay.io/keycloak/keycloak"))
 				.withCommand("start-dev", "--import-realm")
-				.withEnv("MPRELIST_EXTENSION_ID", EXTENSION_ID)
-				.withCopyFileToContainer(MountableFile.forHostPath(ComposeFile.sibling(REALM_FILE)),
+				.withEnv(environment)
+				.withCopyFileToContainer(MountableFile.forHostPath(InfraFiles.keycloakRealm()),
 						"/opt/keycloak/data/import/mprelist-realm.json")
 				.withExposedPorts(8080)
 				// The realm's own discovery document: the import runs before the HTTP port opens, so this
@@ -94,6 +130,15 @@ final class KeycloakFromCompose implements AutoCloseable {
 	 * when it does not, and which of the two happens is itself the subject of some of these tests.
 	 */
 	HttpResponse<String> authorizationRequest(String clientId, String redirectUri, Map<String, String> parameters) {
+		return send(HttpRequest.newBuilder(URI.create(authorizationUrl(clientId, redirectUri, parameters)))
+				.GET().build());
+	}
+
+	/**
+	 * The URL of that same request, for the one caller that has to build the request itself rather than send
+	 * it as it stands — {@link #tokensFor} carries a cookie jar through the login form that follows.
+	 */
+	private String authorizationUrl(String clientId, String redirectUri, Map<String, String> parameters) {
 		Map<String, String> query = new LinkedHashMap<>();
 		query.put("client_id", clientId);
 		query.put("response_type", "code");
@@ -101,7 +146,16 @@ final class KeycloakFromCompose implements AutoCloseable {
 		query.put("redirect_uri", redirectUri);
 		query.put("state", "a-state");
 		query.putAll(parameters);
-		return send(HttpRequest.newBuilder(URI.create(realmUrl("/protocol/openid-connect/auth?" + encode(query))))
+		return realmUrl("/protocol/openid-connect/auth?" + encode(query));
+	}
+
+	/**
+	 * An RP-initiated logout, returned unfollowed: whether Keycloak bounces to {@code postLogoutRedirectUri}
+	 * or answers a 400 page is exactly what says which URIs the client will return a browser to.
+	 */
+	HttpResponse<String> logout(String idToken, String postLogoutRedirectUri) {
+		return send(HttpRequest.newBuilder(URI.create(realmUrl("/protocol/openid-connect/logout?"
+				+ encode(Map.of("id_token_hint", idToken, "post_logout_redirect_uri", postLogoutRedirectUri)))))
 				.GET().build());
 	}
 
@@ -112,27 +166,34 @@ final class KeycloakFromCompose implements AutoCloseable {
 		return send(request.build());
 	}
 
+	/** The claims of the access token a full sign-in mints. */
+	JsonNode signIn(String username, String password) {
+		return claimsOf(tokensFor(username, password).get("access_token").asString());
+	}
+
+	/**
+	 * A refresh as the extension performs it — on demand at call time, ADR-0010 having ruled out a timer.
+	 * Returned unchecked: that a spent token is refused is the subject of a test, not a failure of one.
+	 */
+	HttpResponse<String> refresh(String refreshToken) {
+		return tokenRequest(Map.of("grant_type", "refresh_token", "client_id", EXTENSION_CLIENT, "refresh_token",
+				refreshToken), Map.of());
+	}
+
 	/**
 	 * A full Authorization Code + PKCE sign-in, driven the way the extension will drive it: authorization
 	 * request, the login form Keycloak answers with, then the code exchanged with the verifier. Returns the
-	 * access token's claims.
+	 * token endpoint's whole answer — the access token, and the refresh token beside it.
 	 *
 	 * <p>Nothing here is a shortcut around the realm — a password grant would be, and the extension client
 	 * refuses it — so what this proves is what a token minted through the configured flow actually carries.
 	 */
-	JsonNode signIn(String username, String password) {
+	JsonNode tokensFor(String username, String password) {
 		String verifier = randomVerifier();
 		Cookies cookies = new Cookies();
 
-		HttpResponse<String> loginPage = send(cookies.on(HttpRequest.newBuilder(URI.create(realmUrl(
-				"/protocol/openid-connect/auth?" + encode(Map.of(
-						"client_id", EXTENSION_CLIENT,
-						"response_type", "code",
-						"scope", "openid",
-						"redirect_uri", EXTENSION_REDIRECT_URI,
-						"state", "a-state",
-						"code_challenge", challengeFor(verifier),
-						"code_challenge_method", "S256"))))).GET()).build());
+		HttpResponse<String> loginPage = send(cookies.on(HttpRequest.newBuilder(URI.create(authorizationUrl(
+				EXTENSION_CLIENT, EXTENSION_REDIRECT_URI, s256(challengeFor(verifier))))).GET()).build());
 		cookies.harvest(loginPage);
 
 		HttpResponse<String> submitted = send(cookies
@@ -152,7 +213,7 @@ final class KeycloakFromCompose implements AutoCloseable {
 			throw new IllegalStateException("Keycloak refused the code exchange with " + exchanged.statusCode() + ": "
 					+ exchanged.body());
 		}
-		return claimsOf(JSON.readTree(exchanged.body()).get("access_token").asString());
+		return JSON.readTree(exchanged.body());
 	}
 
 	/** The {@code error} of an OAuth error response, which is how the token endpoint states a refusal. */
@@ -161,7 +222,7 @@ final class KeycloakFromCompose implements AutoCloseable {
 	}
 
 	/** The middle segment of a JWT, which is where every claim these tests are about lives. */
-	private static JsonNode claimsOf(String jwt) {
+	static JsonNode claimsOf(String jwt) {
 		return JSON.readTree(Base64.getUrlDecoder().decode(jwt.split("\\.")[1]));
 	}
 
@@ -251,6 +312,11 @@ final class KeycloakFromCompose implements AutoCloseable {
 		return Base64.getUrlEncoder().withoutPadding().encodeToString(entropy);
 	}
 
+	/** A challenge and the method it was made by, which have no meaning apart and so never travel apart. */
+	private static Map<String, String> s256(String codeChallenge) {
+		return Map.of("code_challenge", codeChallenge, "code_challenge_method", "S256");
+	}
+
 	private static String challengeFor(String verifier) {
 		try {
 			return Base64.getUrlEncoder().withoutPadding()
@@ -280,7 +346,5 @@ final class KeycloakFromCompose implements AutoCloseable {
 	private static final HttpClient SHARED = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
 
 	private static final JsonMapper JSON = JsonMapper.builder().build();
-
-	private static final String REALM_FILE = "infra/keycloak/mprelist-realm.json";
 
 }

@@ -26,15 +26,15 @@ final class ComposeFile {
 		Matcher image = Pattern.compile("^\\s*image:\\s*(" + Pattern.quote(repository) + ":\\S+)\\s*$",
 				Pattern.MULTILINE).matcher(text());
 		if (!image.find()) {
-			throw new IllegalStateException(path() + " no longer names a " + repository + " image; the tests take "
-					+ "theirs from it so that what they prove is proved on the version the stack serves");
+			throw new IllegalStateException(InfraFiles.composeFile() + " no longer names a " + repository + " image; "
+					+ "the tests take theirs from it so that what they prove is proved on the version the stack serves");
 		}
 		return image.group(1);
 	}
 
 	/** The file's own text, for the few assertions whose subject is how the stack is wired rather than a tag. */
 	static String text() {
-		Path compose = path();
+		Path compose = InfraFiles.composeFile();
 		try {
 			return Files.readString(compose);
 		}
@@ -44,31 +44,7 @@ final class ComposeFile {
 		}
 	}
 
-	/** A path under the repository root, resolved the same way whatever directory the tests were started in. */
-	static Path sibling(String relativePath) {
-		return repositoryRoot().resolve(relativePath);
-	}
-
-	static Path path() {
-		return sibling(RELATIVE_PATH);
-	}
-
-	/**
-	 * Walks up from the working directory, which is this Gradle project under {@code ./gradlew} and can
-	 * be the repository root or an IDE's own choice otherwise.
-	 */
-	private static Path repositoryRoot() {
-		Path start = Path.of("").toAbsolutePath();
-		for (Path directory = start; directory != null; directory = directory.getParent()) {
-			if (Files.isRegularFile(directory.resolve(RELATIVE_PATH))) {
-				return directory;
-			}
-		}
-		throw new IllegalStateException("No " + RELATIVE_PATH + " in " + start + " or any directory above it");
-	}
-
 	private ComposeFile() {
 	}
 
-	private static final String RELATIVE_PATH = "infra/docker-compose.yml";
 }

@@ -81,15 +81,34 @@ One command brings up a working local stack; documented in the README.
 - `ADMIN` realm role defined.
 - **Decided in #15:** the extension id T44 has not pinned yet comes from `MPRELIST_EXTENSION_ID` at import
   time, defaulting to a literal that is a valid URI and matches no real flow — so an unset variable is a
-  refused sign-in rather than a code bounced somewhere, and never the wildcard ADR-0010 rules out. PKCE is
-  **required** of both user-facing clients (`S256`, not `plain`) and both refuse the password grant, which is
-  the second, weaker way in a public client should not offer. The realm sets **no `sslRequired`**: Keycloak's
+  refused sign-in rather than a code bounced somewhere, and never the wildcard ADR-0010 rules out. Both
+  public clients register their redirect URI **exactly**, no trailing `/*`, and take
+  `post.logout.redirect.uris: "+"` so the way out cannot drift from the way in: a host-scoped wildcard is not
+  an open redirect and survives the obvious test, but `launchWebAuthFlow` returns to one URI, so the extra
+  paths only widen where an intercepted code lands. PKCE is **required** of both user-facing clients
+  (`S256`, not `plain`) and both refuse the password grant, which is the second, weaker way in a public
+  client should not offer. The realm sets **no `sslRequired`**: Keycloak's
   `external` default already serves plain HTTP to the private address a request from the host arrives on, so
   the `none` a dev realm reaches for buys nothing and is the one line that would be wrong everywhere else.
-  Two dev users, `dev` and `dev-admin`; the former deliberately holds no role, because Keycloak then omits
-  `realm_access` altogether and T18's guard has to survive that.
+  Two dev users, `dev` and `dev-admin`, shaped to cover both token shapes: `dev` holds no realm role at all,
+  so Keycloak omits `realm_access` and T18's guard has to survive that; `dev-admin` is given
+  `default-roles-mprelist` beside `ADMIN`, which is what every user made through the console or a
+  registration form holds and an *imported* user otherwise does not. That second user is not decoration —
+  the default roles carry `account`'s client roles, so its token's `aud` is an **array** where `dev`'s is a
+  bare string, and T10's resource server has to read the list. A realm whose only users are imported ones
+  makes the string look like the rule.
+- **Rotation is a realm setting, and it is off by default.** ADR-0010 has the extension hold "a rotating
+  refresh token", but unset `revokeRefreshToken` leaves every refresh token a session issued valid beside
+  the one that replaced it. Set here with `refreshTokenMaxReuse: 0`. The session timeouts are set for the
+  same reason: ADR-0010 requires refresh "on demand at call time, never on a timer", and Keycloak's default
+  30-minute idle timeout is shorter than an MV3 worker sleeps — the default turns on-demand refresh back
+  into an interactive sign-in. 30 days idle and maximum; a dev realm's numbers, to revisit before a
+  deployed one.
 - Proven by use, not by reading the file back: `KeycloakRealmTest` imports it into a Keycloak of its own,
-  signs in through the full code + PKCE flow, and checks that the refusals refuse.
+  signs in through the full code + PKCE flow, spends a refresh token twice, and checks that the refusals
+  refuse. The **unset** `MPRELIST_EXTENSION_ID` path is the shipped default until T44, so it gets a second
+  container — `KeycloakRealmWithoutAnExtensionIdTest` — rather than a sentence: a suite that always sets the
+  variable cannot tell a fallback that applied from one that never did.
 - Refs: [ADR-0005](adr/0005-identity-and-auth.md), [ADR-0010](adr/0010-extension-authentication.md).
 
 ### T07 · Spring Boot skeleton with enforced module boundaries · **M** · T03

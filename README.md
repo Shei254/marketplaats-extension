@@ -12,7 +12,7 @@ Monorepo, one deployable per workspace ([ADR-0011](docs/adr/0011-repository-layo
 | `apps/dashboard` | React SPA | reserved — #42 |
 | `packages/contracts` | API types shared by both clients | reserved — no owner; consumers #34/#36 |
 | `packages/ui` | design tokens + components (popup and dashboard) | reserved — #37 |
-| `infra` | docker-compose: Postgres + Keycloak | working; realm export still #15 |
+| `infra` | docker-compose: Postgres + Keycloak | working, and the `mprelist` realm imports on first start |
 | `docs` | ADRs, specs, glossary, backlog | — |
 
 Each reserved directory holds a README and nothing else, naming the ticket or tickets that fill it — or,
@@ -57,7 +57,17 @@ docker compose -f infra/docker-compose.yml down           # -v to also drop the 
 ```
 
 `apps/api` will not start without it: Flyway migrates `mprelist` on startup and there is nowhere else to
-point. Development credentials, ports and how to reset are in [`infra/README.md`](infra/README.md).
+point. Keycloak brings up the `mprelist` realm with it — three clients, the `ADMIN` role and two development
+users — imported from [`infra/keycloak/`](infra/keycloak) on **first start only**, which is why the extension
+id the redirect URI is built from has to be in the environment of that first `up`:
+
+```bash
+MPRELIST_EXTENSION_ID=<your 32-character id> docker compose -f infra/docker-compose.yml up -d --wait
+```
+
+Unset, sign-in from a real extension is refused rather than misrouted, and changing it afterwards means
+`down -v`. Development credentials, ports, the realm and how to reset are in
+[`infra/README.md`](infra/README.md).
 
 ## Loading the extension
 

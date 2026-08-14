@@ -57,10 +57,29 @@ dependencies {
     // not — and this suite exists precisely to hold those constraints.
     testImplementation("org.springframework.boot:spring-boot-testcontainers")
     testImplementation("org.testcontainers:testcontainers-postgresql")
+    // GenericContainer, for the Keycloak the realm test imports into. There is no Keycloak module in
+    // Testcontainers' own repository — the community one is a third dependency to pin for a container
+    // that needs a command, an env var and a file, all of which GenericContainer already takes. Declared
+    // rather than left transitive through -postgresql: this suite uses it directly.
+    testImplementation("org.testcontainers:testcontainers")
     testImplementation(boundaryFixture.output)
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
+
+    // Two files outside this project are read at test time, not compiled in: the compose file that names
+    // the container images, and the realm KeycloakRealmTest imports. Gradle cannot see that on its own, so
+    // without this an edit to either leaves `test` UP-TO-DATE and the previous run's verdict standing —
+    // a green suite that never looked at the change. Found by editing the realm and being told it passed.
+    //
+    // The same two paths are spelled in InfraFiles.java, which finds them by walking up from the working
+    // directory instead — Gradle cannot read Java constants and this must resolve at configuration time.
+    // Keep the two in step: this list going stale is silent, and costs a green suite that read nothing.
+    val infra = rootProject.layout.projectDirectory.dir("../../infra")
+    inputs.files(
+        infra.file("docker-compose.yml"),
+        infra.file("keycloak/mprelist-realm.json"),
+    ).withPropertyName("infraFilesReadAtTestTime").withPathSensitivity(PathSensitivity.RELATIVE)
 }

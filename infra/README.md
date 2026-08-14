@@ -25,6 +25,7 @@ docker compose -f infra/docker-compose.yml down      # stop, keeping the data
 | App database | `postgres://localhost:5432/mprelist` | `mprelist` / `mprelist` |
 | Keycloak | http://localhost:8081 | admin console `admin` / `admin` |
 | Keycloak's database | `postgres://localhost:5432/keycloak` | `keycloak` / `keycloak` |
+| The `mprelist` realm | http://localhost:8081/realms/mprelist | `dev` / `dev`, `dev-admin` / `dev-admin` |
 
 **Development only.** Every credential is a well-known default, committed on purpose so that the stack needs
 no setup step before it runs. Nothing here is fit to deploy: `start-dev` turns off TLS and hostname
@@ -38,7 +39,7 @@ the tokens Keycloak mints, and the issuer the resource server
 validates all agree:
 
 ```bash
-curl -s http://localhost:8081/realms/master/.well-known/openid-configuration | jq .issuer
+curl -s http://localhost:8081/realms/mprelist/.well-known/openid-configuration | jq .issuer
 ```
 
 **Keycloak stores its state in Postgres**, in its own `keycloak` database — not the dev-mode embedded H2, and
@@ -53,15 +54,144 @@ volume to drop.
 docker compose -f infra/docker-compose.yml down -v   # -v also drops the data
 ```
 
-Keep `-v` in mind when editing [`postgres/init/`](postgres/init): the Postgres image runs those scripts
-exactly once, when it initialises an empty data directory. On an existing volume an edited script is not an
-error — it simply never runs, and the change appears not to have taken.
+Keep `-v` in mind when editing [`postgres/init/`](postgres/init) **or [`keycloak/`](keycloak)**: the Postgres
+image runs its init scripts exactly once, on an empty data directory, and Keycloak imports a realm exactly
+once, when that realm does not already exist. Neither is an error the second time — the file simply never
+applies, and the change appears not to have taken.
 
-## Not here yet
+## The realm
 
-The version-controlled Keycloak realm — clients for the extension, dashboard and API, and the `ADMIN` role —
-is [#15 (T06 · Keycloak realm, clients, and roles)](https://github.com/Shei254/marketplaats-extension/issues/15).
-It exports to this directory and is imported at startup, which is a `--import-realm` flag and a mount on the
-`keycloak` service; neither is here yet, because there is nothing to import. Until then the stack gives you
-Keycloak with only its `master` realm, which is enough to reach the admin console and enough for `apps/api`
-to have a database.
+[`keycloak/mprelist-realm.json`](keycloak/mprelist-realm.json) is imported on first start, and it is the only
+description of the realm there is: nothing here was clicked into the admin console, and anything clicked into
+it is gone at the next `down -v`. Three clients and one role
+([ADR-0005](../docs/adr/0005-identity-and-auth.md), [ADR-0010](../docs/adr/0010-extension-authentication.md)):
+
+| Client | What it is | Used by |
+|---|---|---|
+| `mprelist-extension` | public, Authorization Code + **PKCE required**, redirects to `https://<extension-id>.chromiumapp.org/` exactly | [#32 (T23 · PKCE sign-in)](https://github.com/Shei254/marketplaats-extension/issues/32) |
+| `mprelist-dashboard` | public, PKCE required, redirects to `http://localhost:5173/` exactly — Vite's default, [#42 (T33)](https://github.com/Shei254/marketplaats-extension/issues/42)'s to change if the tooling differs | [#42](https://github.com/Shei254/marketplaats-extension/issues/42) |
+| `mprelist-api` | starts no flow and holds no session; it exists to be the `aud` the other two put in their tokens | [#19 (T10 · resource server)](https://github.com/Shei254/marketplaats-extension/issues/19) |
+
+Both user-facing clients **refuse the password grant**: ADR-0010 chose code + PKCE, and a public client that
+also takes a password offers a second, weaker way in that neither client would ever use. Both carry an
+audience mapper naming `mprelist-api`, which is what gives the resource server something to check beyond the
+issuer — every client in the realm shares that.
+
+The `ADMIN` realm role is defined and held by `dev-admin`, for
+[#27 (T18 · `admin` module + role guard)](https://github.com/Shei254/marketplaats-extension/issues/27).
+
+The two dev users are shaped to cover both token shapes a real user can produce, which one user cannot:
+
+| | Realm roles | `realm_access` | `aud` |
+|---|---|---|---|
+| `dev` | none | **absent**, not empty | `"mprelist-api"` — a bare string |
+| `dev-admin` | `default-roles-mprelist`, `ADMIN` | present | `["mprelist-api", "account"]` — an array |
+
+Both rows matter to [#19 (T10 · resource server)](https://github.com/Shei254/marketplaats-extension/issues/19)
+and #27, and the difference between them is a Keycloak quirk worth knowing: **an imported user is not granted
+the realm's default roles**, though a user created through the admin console or a registration form is. So
+`dev`'s bare-string `aud` is the shape of an *import artifact*, not of an ordinary user — a resource server
+that compares `aud` as one string passes against `dev` and fails against the first real user. `dev-admin`
+holds `default-roles-mprelist` explicitly so that the array shape is present in the realm at all. Equally,
+`dev` having no `realm_access` is the edge #27 must survive rather than the case it will usually meet.
+
+### Refresh-token rotation and session lifetimes
+
+ADR-0010 has the extension hold "a rotating refresh token" and refresh it "on demand at call time, never on a
+timer". Neither is a default, so the realm sets both:
+
+| Setting | | Why not the default |
+|---|---|---|
+| `revokeRefreshToken` | `true` | Off by default: every refresh token a session issued stays valid beside the one that replaced it, so a copy read out of extension storage outlives the refresh meant to retire it |
+| `refreshTokenMaxReuse` | `0` | No grace reuse; the token is spent by the refresh that uses it |
+| `ssoSessionIdleTimeout` | 30 days | The default is **30 minutes** — shorter than an MV3 service worker sleeps between one relist and the next, so on-demand refresh fails and the extension has to re-run `launchWebAuthFlow`, which needs a user gesture. That is the failure the ADR chose on-demand refresh to avoid |
+| `ssoSessionMaxLifespan` | 30 days | An idle timeout is capped by it, so leaving the 10-hour default at 30-day idle would mean a daily interactive sign-in anyway |
+| `accessTokenLifespan` | 5 min | Already the default. Pinned because ADR-0010 accepted that "revocation is only as fast as the access-token TTL" — that window should move deliberately, not under an upgrade |
+
+**These are a dev realm's numbers.** A 30-day session is a laptop's convenience; a deployed realm should
+decide its own, and `revokeRefreshToken` is the only row here that is right everywhere.
+
+One consequence for [#33 (T24)](https://github.com/Shei254/marketplaats-extension/issues/33): with
+`refreshTokenMaxReuse: 0`, two of the extension's fetches waking and refreshing concurrently means the second
+presents a spent token and the session dies. Refresh has to be serialised in the worker.
+
+### Your extension id
+
+The redirect URI needs an extension id, and this repository does not know one:
+[ADR-0010 § Obtaining the extension ID](../docs/adr/0010-extension-authentication.md) leaves that to
+[#13 (T44 · Pin the extension ID)](https://github.com/Shei254/marketplaats-extension/issues/13), and until
+then an unpacked extension's id is derived from its absolute path and so differs per developer. So the realm
+takes it from the environment at import time:
+
+```bash
+MPRELIST_EXTENSION_ID=<your 32-character id> docker compose -f infra/docker-compose.yml up -d --wait
+```
+
+Unset, it falls back to the literal `unset-extension-id`, which is a valid URI and will never match a real
+flow — the realm imports, and sign-in from a real extension is refused with `Invalid parameter: redirect_uri`
+rather than silently bouncing a code somewhere. That is not prose: `KeycloakRealmWithoutAnExtensionIdTest`
+starts a Keycloak with the variable **unset**, and asserts both halves — the fallback URI is accepted, a real
+extension's is refused with that error. It is the shipped default until #13 pins an id, so it gets a
+container of its own rather than a paragraph.
+
+Two things have to hold for it, and each is proven where it lives: the realm file carries the
+`${MPRELIST_EXTENSION_ID:unset-extension-id}` default (delete it and the realm no longer imports at all when
+the variable is unset), and `docker-compose.yml` declares the variable **with no value**. The second is the
+subtle one — `MPRELIST_EXTENSION_ID: ""` would define it *empty*, the realm's default would not apply, and
+the client would register `https://.chromiumapp.org/`: a URI with no host, which imports without complaint
+and refuses every sign-in. No container those tests start uses compose's environment, so that line is
+asserted on the compose text instead.
+
+Because the import runs once, changing the variable means `down -v` first. A wildcard would avoid all of
+this; ADR-0010 says not to, and a realm file that grew one for convenience is the one that gets copied to a
+deployed realm.
+
+### Redirect URIs are exact, and so is the way back out
+
+Both public clients register the **exact** URI they return to — no trailing `/*`.
+[ADR-0010](../docs/adr/0010-extension-authentication.md): *"Do not solve this with a wildcard redirect URI in
+Keycloak — it works, but an open redirect target on a public OAuth client is not something to carry into
+production."*
+
+A host-scoped `https://<extension-id>.chromiumapp.org/*` is not an open redirect in the usual sense, which is
+why it survives the obvious test and is easy to leave in. It is still the wrong shape:
+`chrome.identity.launchWebAuthFlow` returns to `chrome.identity.getRedirectURL()` and nowhere else, so every
+path the wildcard additionally admits is one no honest flow uses — it widens where an intercepted code can be
+delivered and buys nothing back. The same holds for the dashboard; #42 owns *which* URI it redirects to (a
+router wanting `/callback` changes that line), not whether it is a prefix.
+
+`post.logout.redirect.uris` is `"+"` on both, which is Keycloak's "whatever `redirectUris` holds", rather
+than the same URI spelled a second time. The sign-in and sign-out sides then cannot drift, and neither can
+regrow a wildcard the other dropped. `KeycloakRealmTest` proves all of it the only way it can be proven: it
+asks for a path *beneath* the registered URI and is refused, and logs out to one and is refused.
+
+### No `sslRequired`, deliberately
+
+The file does not set it, so the realm keeps Keycloak's default of `external`: plain HTTP is served to a
+client address Keycloak considers local — which includes every private range — and refused to anything else.
+Through Docker's published port a request from the host arrives from exactly such an address, so the whole
+flow works over `http://localhost:8081` with the default left alone. That is not a guess: the realm as it
+stands was imported into the stack and signed into from the host, discovery through token.
+
+**`sslRequired: none` is what a dev realm reaches for here, and it is deliberately absent.** It is the one
+field that would be wrong everywhere except a laptop, and the file it is added to for convenience is the file
+that later gets copied to a deployed realm. If a machine ever does answer `HTTPS required` — reaching
+Keycloak across a network rather than from the host would do it, and there the refusal is *correct* — the
+answer is to serve it over TLS or to reach it from the host, not to edit this file.
+
+The `master` realm keeps the same default and needs nothing either: the admin console answers over plain HTTP
+from the host for the same reason.
+
+### What proves it
+
+`apps/api`'s `KeycloakRealmTest` imports this file into a Keycloak of its own and then *uses* it: it signs
+in through the full code + PKCE flow and reads the token, spends a refresh token twice to see the second
+refused, and checks that the refusals are refusals. It asserts no key of this JSON against itself, because a
+protocol mapper named right and configured wrong imports without complaint.
+`KeycloakRealmWithoutAnExtensionIdTest` does the same for the realm you get with `MPRELIST_EXTENSION_ID`
+unset, which the first suite cannot see because it always sets it.
+
+Everything either of them proves is proven on a container of their own, which says nothing about *this* stack
+ever reading the file. So `KeycloakRealmTest` also reads `docker-compose.yml` for the three lines that connect
+the two: the `--import-realm` command, the `./keycloak` mount, and `MPRELIST_EXTENSION_ID` passed through with
+no value of its own. Nothing else in the repository would notice one of them going missing.

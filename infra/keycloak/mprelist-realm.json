@@ -1,0 +1,144 @@
+{
+  "realm": "mprelist",
+  "displayName": "Marktplaats Relist (development)",
+  "enabled": true,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 2592000,
+  "ssoSessionMaxLifespan": 2592000,
+  "roles": {
+    "realm": [
+      {
+        "name": "ADMIN",
+        "description": "Operator of the tier catalog. Guards the admin module (T18); ADR-0014 deferred the CRUD screens, so this role currently opens endpoints and no UI."
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "mprelist-extension",
+      "name": "Chrome extension",
+      "description": "Public client, Authorization Code + PKCE through chrome.identity.launchWebAuthFlow (ADR-0010).",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": false,
+      "redirectUris": [
+        "https://${MPRELIST_EXTENSION_ID:unset-extension-id}.chromiumapp.org/"
+      ],
+      "webOrigins": [
+        "chrome-extension://${MPRELIST_EXTENSION_ID:unset-extension-id}"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+"
+      },
+      "protocolMappers": [
+        {
+          "name": "mprelist-api audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "mprelist-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "mprelist-dashboard",
+      "name": "Dashboard SPA",
+      "description": "Public client, Authorization Code + PKCE from the browser. Redirects at Vite's default dev port; T33 owns changing it if the tooling differs.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "rootUrl": "http://localhost:5173",
+      "redirectUris": [
+        "http://localhost:5173/"
+      ],
+      "webOrigins": [
+        "http://localhost:5173"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+"
+      },
+      "protocolMappers": [
+        {
+          "name": "mprelist-api audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "mprelist-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "mprelist-api",
+      "name": "Spring Boot resource server",
+      "description": "Mints no token and starts no flow: it exists to be the audience the other two put in theirs, and the client id apps/api validates against (T10).",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [],
+      "webOrigins": []
+    }
+  ],
+  "users": [
+    {
+      "username": "dev",
+      "email": "dev@example.invalid",
+      "firstName": "Dev",
+      "lastName": "User",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "dev-admin",
+      "email": "dev-admin@example.invalid",
+      "firstName": "Dev",
+      "lastName": "Admin",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev-admin",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-mprelist",
+        "ADMIN"
+      ]
+    }
+  ]
+}

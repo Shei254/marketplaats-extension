@@ -43,10 +43,15 @@ services:
     # so a floating tag would silently migrate one developer's stack and not another's.
     image: quay.io/keycloak/keycloak:26.7
     # `start-dev`: no TLS, no hostname strictness, no optimised build step. Never in production.
-    command: ["start-dev"]
+    # `--import-realm` reads every file in the mount below. The strategy is IGNORE_EXISTING, so this
+    # is a first-start action: once `mprelist` is in Keycloak's database an edited realm file is not
+    # an error, it simply never applies — the same trap as ./postgres/init, and the same fix, `down -v`.
+    command: ["start-dev", "--import-realm"]
     depends_on:
       postgres:
         condition: service_healthy
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import:ro
     environment:
       # Bootstrap admin for the console at http://localhost:8081/admin. Created on first start only.
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
@@ -63,6 +68,11 @@ services:
       KC_HOSTNAME: http://localhost:8081
       # Serves /health/* on the management port, 9000. Off by default; the healthcheck needs it.
       KC_HEALTH_ENABLED: "true"
+      # No value: passed through from the shell only when the shell has it, which is what lets
+      # ./keycloak/mprelist-realm.json fall back to its own `${MPRELIST_EXTENSION_ID:unset-extension-id}`
+      # default. Setting it here to "" would defeat that — the variable would be *defined and empty*,
+      # and the realm would register a redirect URI with no host in it. See infra/README.md.
+      MPRELIST_EXTENSION_ID:
     ports:
       # 8081, because 8080 is Spring Boot's default and apps/api (#16) runs on the host.
       - "8081:8080"

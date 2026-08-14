@@ -79,6 +79,17 @@ One command brings up a working local stack; documented in the README.
 - Realm exported to `infra/` as version-controlled config, not hand-clicked.
 - Three clients: extension (**public**, PKCE, `chromiumapp.org` redirect), dashboard, API (resource server).
 - `ADMIN` realm role defined.
+- **Decided in #15:** the extension id T44 has not pinned yet comes from `MPRELIST_EXTENSION_ID` at import
+  time, defaulting to a literal that is a valid URI and matches no real flow — so an unset variable is a
+  refused sign-in rather than a code bounced somewhere, and never the wildcard ADR-0010 rules out. PKCE is
+  **required** of both user-facing clients (`S256`, not `plain`) and both refuse the password grant, which is
+  the second, weaker way in a public client should not offer. The realm sets **no `sslRequired`**: Keycloak's
+  `external` default already serves plain HTTP to the private address a request from the host arrives on, so
+  the `none` a dev realm reaches for buys nothing and is the one line that would be wrong everywhere else.
+  Two dev users, `dev` and `dev-admin`; the former deliberately holds no role, because Keycloak then omits
+  `realm_access` altogether and T18's guard has to survive that.
+- Proven by use, not by reading the file back: `KeycloakRealmTest` imports it into a Keycloak of its own,
+  signs in through the full code + PKCE flow, and checks that the refusals refuse.
 - Refs: [ADR-0005](adr/0005-identity-and-auth.md), [ADR-0010](adr/0010-extension-authentication.md).
 
 ### T07 · Spring Boot skeleton with enforced module boundaries · **M** · T03

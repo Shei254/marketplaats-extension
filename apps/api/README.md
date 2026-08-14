@@ -1,19 +1,21 @@
 # `apps/api` — Spring Boot API
 
-Five empty modules, the build-time check that makes them mean something, the schema they will fill, and the
-tier catalog seeded into it. No endpoints and no security yet — those arrive with the tickets named below.
+Five empty modules, the build-time check that makes them mean something, the schema they will fill, the tier
+catalog seeded into it, and the tests that hold `infra/`'s Keycloak realm to what it promises. No endpoints
+and no security yet — those arrive with the tickets named below.
 
 ```bash
 cd apps/api
-./gradlew test      # 28 tests: the module boundary, the schema against a real Postgres, and the catalog
+./gradlew test      # 40 tests: the module boundary, the schema and catalog on a real Postgres, the realm
 ./gradlew build     # the above, plus the executable jar
 ./gradlew bootRun   # http://localhost:8080 — 404 on everything, there are no controllers yet
 ```
 
 `bootRun` needs [the local stack](../../infra/README.md) up: it migrates `postgres://localhost:5432/mprelist`
-on startup and will not start without it. `test` does not — it starts a Postgres of its own — but it does
-need a Docker daemon, for the same reason. Keycloak becomes a requirement with
-[#19](https://github.com/Shei254/marketplaats-extension/issues/19).
+on startup and will not start without it. `test` does not — it starts a Postgres and a Keycloak of its own —
+but it does need a Docker daemon, for the same reason. The application itself gains a Keycloak dependency
+with [#19](https://github.com/Shei254/marketplaats-extension/issues/19); until then the only thing here that
+knows the IdP exists is [the realm test](#the-realm).
 
 ## The modules
 
@@ -170,6 +172,60 @@ Mutation-verified — each applied, observed, reverted:
 | the Power row is left out | `theCatalogHoldsFreeProAndPower`, `quotaRisesFromFreeToPower` |
 | Pro is seeded with a `stripe_price_id` | `andNoTierCarriesAStripePriceUntilOneExists` |
 | Pro is seeded `{"bulk": true}`, Power three MP accounts | `andNoTierPromisesAFeatureThatDoesNotExist`, `noTierSellsMoreThanOneMarktplaatsAccountYet` |
+
+## The realm
+
+`KeycloakRealmTest` is the only place [`infra/keycloak/mprelist-realm.json`](../../infra/keycloak/mprelist-realm.json)
+is exercised. It belongs here rather than in `infra/` because `infra/` has no test runner, and it will not be
+made redundant by [#19](https://github.com/Shei254/marketplaats-extension/issues/19): that ticket validates
+tokens against test-minted ones and never starts an IdP, so without this nothing in the repository would
+notice the realm file breaking.
+
+**Nothing here asserts a key of that JSON against itself.** Every test asks Keycloak — signs in, or is
+refused — because a protocol mapper named right and configured wrong imports without complaint, and so does
+an attribute Keycloak has since renamed. `KeycloakFromCompose` starts the image `infra/docker-compose.yml`
+names, mounts the realm with a known `MPRELIST_EXTENSION_ID`, and waits on the realm's own discovery document
+rather than on the container, so a failed import is a startup failure and not twelve confusing ones.
+`signIn` then drives the whole Authorization Code + PKCE flow — authorization request, Keycloak's login form,
+code exchanged with the verifier — because the shortcut around it, a password grant, is one of the things the
+realm is supposed to refuse.
+
+Half of them are about a refusal being a refusal — no challenge, a `plain` one, a password grant, somebody
+else's extension id, a login started as the API client. Two are about *how* Keycloak refuses, which is the
+part a weaker assertion would miss: an unregistered redirect URI comes back as a 400 page and never as a
+redirect, because the whole point is that Keycloak will not bounce a browser to a URI it does not already
+trust, while a request it does trust is refused *through* that URI with an `error` parameter.
+
+The last test is the one that leaves this project: `andTheLocalStackImportsTheRealmThisSuiteProves` reads
+`docker-compose.yml` for the `--import-realm` flag and the `./keycloak` mount. Everything else is proven on a
+container this suite starts, which says nothing about the local stack ever reading the file.
+
+Both `infra/` files are declared as inputs of the `test` task in `build.gradle.kts`. Gradle cannot see a file
+that is read at test time rather than compiled in, so without that an edit to the realm leaves `test`
+`UP-TO-DATE` and the previous run's verdict standing — a green suite that never looked at the change. That
+was found the way it sounds: by editing the realm and being told it passed.
+
+Mutation-verified — each applied to the realm (or to compose), observed, reverted:
+
+| Mutation | Fails |
+|---|---|
+| the extension client loses `pkce.code.challenge.method` | `pkceIsRequiredOfTheExtensionRatherThanMerelyOfferedToIt`, `andPlainIsNotGoodEnoughForIt` |
+| …or keeps it as `plain` | `andPlainIsNotGoodEnoughForIt` (+5 — an `S256` sign-in is then refused outright) |
+| the audience mapper is deleted | `aTokenTheExtensionMintsNamesTheApiAsItsAudience` |
+| the extension is made a confidential client | `theRealmIsImportedUnderTheNameTheIssuerCarries` (+4) |
+| either user-facing client gains `directAccessGrantsEnabled` | `neitherClientAcceptsAPasswordGrant` |
+| the redirect URI is hardcoded to another extension's id | `theExtensionRedirectUriIsBuiltFromTheExtensionIdTheImportWasGiven` (+6) |
+| `webOrigins` is emptied | `andTheWebOriginIsTheExtensionItself` |
+| the dashboard client is removed | `andTheDashboardIsHeldToTheSameRequirement`, `neitherClientAcceptsAPasswordGrant` |
+| `dev-admin` loses its `realmRoles` | `andCarriesTheAdminRoleForAnOperatorWhoHasIt` |
+| `mprelist-api` gains the standard flow **and a redirect URI** | `noBrowserLoginCanBeStartedAsTheApiClient` |
+| `docker-compose.yml` loses `--import-realm` | `andTheLocalStackImportsTheRealmThisSuiteProves` |
+
+One mutation survives and is left surviving: giving `mprelist-api` `standardFlowEnabled: true` while it still
+registers no redirect URI. Keycloak refuses every authorization request either way — with no URI registered
+there is none it will bounce a browser to — so the flag alone changes nothing observable, and the row above
+is the version of that mutation which does. A test that failed on it would be asserting the field rather
+than the promise.
 
 ## Versions, and where they are stated
 

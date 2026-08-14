@@ -1,12 +1,5 @@
 package com.mprelist;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
@@ -27,45 +20,7 @@ class PostgresFromCompose {
 	@Bean
 	@ServiceConnection
 	PostgreSQLContainer postgres() {
-		return new PostgreSQLContainer(composePostgresImage());
+		return new PostgreSQLContainer(ComposeFile.image("postgres"));
 	}
 
-	/**
-	 * The image tag read out of the compose file rather than restated here. A schema proven on one
-	 * Postgres major and then served by another is a divergence nothing reports until deploy, and these
-	 * two files are edited months apart.
-	 */
-	private static String composePostgresImage() {
-		Path compose = repositoryRoot().resolve(COMPOSE_FILE);
-		String text;
-		try {
-			text = Files.readString(compose);
-		}
-		catch (IOException failed) {
-			throw new UncheckedIOException("Cannot read " + compose + ", which names the Postgres these tests run on",
-					failed);
-		}
-		Matcher image = Pattern.compile("^\\s*image:\\s*(postgres:\\S+)\\s*$", Pattern.MULTILINE).matcher(text);
-		if (!image.find()) {
-			throw new IllegalStateException(compose + " no longer names a postgres image; these tests take theirs "
-					+ "from it so that the schema is verified on the version the stack serves");
-		}
-		return image.group(1);
-	}
-
-	/**
-	 * Walks up from the working directory, which is this Gradle project under {@code ./gradlew} and can
-	 * be the repository root or an IDE's own choice otherwise.
-	 */
-	private static Path repositoryRoot() {
-		Path start = Path.of("").toAbsolutePath();
-		for (Path directory = start; directory != null; directory = directory.getParent()) {
-			if (Files.isRegularFile(directory.resolve(COMPOSE_FILE))) {
-				return directory;
-			}
-		}
-		throw new IllegalStateException("No " + COMPOSE_FILE + " in " + start + " or any directory above it");
-	}
-
-	private static final String COMPOSE_FILE = "infra/docker-compose.yml";
 }

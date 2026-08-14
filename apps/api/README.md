@@ -1,21 +1,23 @@
 # `apps/api` — Spring Boot API
 
-Five empty modules, the build-time check that makes them mean something, the schema they will fill, the tier
-catalog seeded into it, and the tests that hold `infra/`'s Keycloak realm to what it promises. No endpoints
-and no security yet — those arrive with the tickets named below.
+Five modules and the build-time check that makes them mean something, the schema they will fill, the tier
+catalog seeded into it, the resource server every route is now closed behind, and the tests that hold
+`infra/`'s Keycloak realm to what it promises. Still no endpoint of its own — those arrive with the tickets
+named below.
 
 ```bash
 cd apps/api
-./gradlew test      # 50 tests: the module boundary, the schema and catalog on a real Postgres, the realm
+./gradlew test      # 70 tests: the module boundary, the schema and catalog on a real Postgres, the realm,
+                    #           and which tokens get past the resource server
 ./gradlew build     # the above, plus the executable jar
-./gradlew bootRun   # http://localhost:8080 — 404 on everything, there are no controllers yet
+./gradlew bootRun   # http://localhost:8080 — 401 on everything without a token, 404 with one
 ```
 
 `bootRun` needs [the local stack](../../infra/README.md) up: it migrates `postgres://localhost:5432/mprelist`
-on startup and will not start without it. `test` does not — it starts a Postgres and a Keycloak of its own —
-but it does need a Docker daemon, for the same reason. The application itself gains a Keycloak dependency
-with [#19](https://github.com/Shei254/marketplaats-extension/issues/19); until then the only thing here that
-knows the IdP exists is [the realm test](#the-realm).
+on startup and will not start without it. Keycloak it does **not** need to start — discovery from
+`issuer-uri` is deferred until the first token arrives, so the stack has to be up for anyone to get *in*, not
+for the application to come up. `test` needs neither: it starts a Postgres and a Keycloak of its own, though
+it does need a Docker daemon for that.
 
 > On **Docker Desktop for Linux**, Testcontainers starts but every container fails with
 > `mounts denied: the path /socket_mnt/home/<you>/.docker/desktop/docker.sock is not shared from the host`.
@@ -25,6 +27,25 @@ knows the IdP exists is [the realm test](#the-realm).
 > VM. It is a property of the daemon, not of this project, so it belongs in your shell rather than in a file
 > here — where it would then be wrong for everyone running a plain Docker Engine.
 
+> On the same daemon, both realm suites can also fail to start with
+> `Timed out waiting for URL to be accessible … HTTP response code was: 403`, and every Keycloak URL answers
+> `{"error":"invalid_request","error_description":"HTTPS required"}` — the local stack's `8081` included.
+> Keycloak's `sslRequired` default is `external`, which means *plain HTTP is only allowed from a private
+> address*, and Docker Desktop forwards a published port from an address of its VM's choosing. When that
+> address is site-local (`172.17.x`, `192.168.x`) everything works; when it is not — observed here as
+> `172.66.152.246`, after nothing but a `compose up` and `down` in between — Keycloak refuses the lot.
+> Reproduce it in a minute without Gradle:
+>
+> ```bash
+> docker run --rm -p 18099:8080 quay.io/keycloak/keycloak:26.7 start-dev
+> curl -s http://localhost:18099/realms/master/.well-known/openid-configuration   # 200, or "HTTPS required"
+> ```
+>
+> Nothing in this repository can move that address, and the one change that would paper over it —
+> `sslRequired: none` in the realm — is the one
+> [#15](https://github.com/Shei254/marketplaats-extension/issues/15) deliberately did not make, because it
+> would be wrong in every environment except a laptop. It is the daemon that has to be put back.
+
 ## The modules
 
 Each is a direct sub-package of `com.mprelist`, which is what makes it an application module
@@ -32,15 +53,15 @@ Each is a direct sub-package of `com.mprelist`, which is what makes it an applic
 
 | Module | Owns | Fills with |
 |---|---|---|
-| `identity` | who the caller is; `UserRef`, `CurrentUser` | [#19](https://github.com/Shei254/marketplaats-extension/issues/19) |
+| `identity` | who the caller is; `CurrentUser` today, `UserRef` with [#20](https://github.com/Shei254/marketplaats-extension/issues/20) | [#19](https://github.com/Shei254/marketplaats-extension/issues/19) — [below](#the-resource-server) |
 | `catalog` | Tier → Entitlement, from our table, no Stripe | [#21](https://github.com/Shei254/marketplaats-extension/issues/21) |
 | `subscription` | the mirror of Stripe's status and period | [#20](https://github.com/Shei254/marketplaats-extension/issues/20), [#30](https://github.com/Shei254/marketplaats-extension/issues/30) |
 | `enforcement` | `authorize` / `complete`, the gate | [#22](https://github.com/Shei254/marketplaats-extension/issues/22), [#23](https://github.com/Shei254/marketplaats-extension/issues/23) |
 | `admin` | operator endpoints behind the `ADMIN` role | [#27](https://github.com/Shei254/marketplaats-extension/issues/27) |
 
-Every one holds a single `package-info.java` carrying `@ApplicationModule` and nothing else. The annotation is
-not decoration: an empty package compiles to no class file at all, and a module Spring Modulith cannot see is
-a module it does not check. `allFiveModulesAreVisibleToTheCheck` is the test that says so.
+Four of the five hold a single `package-info.java` carrying `@ApplicationModule` and nothing else. The
+annotation is not decoration: an empty package compiles to no class file at all, and a module Spring Modulith
+cannot see is a module it does not check. `allFiveModulesAreVisibleToTheCheck` is the test that says so.
 
 A module's **sub-packages are internal to it** — `enforcement.internal.jpa` is reachable from `enforcement`
 and from nowhere else. That is the rule below enforces, and it is why ADR-0012 can promise Stripe and JPA stay
@@ -49,8 +70,8 @@ replaceable adapters rather than becoming everyone's dependency.
 ## The boundary check
 
 `ModuleBoundaryTest.noModuleReachesIntoAnothersInternals` fails the build on a cross-module reach into an
-`internal` package. Today it cannot fail for the right reason — every module is empty — and a check that
-cannot fail is indistinguishable from one that has stopped working. So the same verification is also pointed
+`internal` package. Today it cannot fail for the right reason — no module references another at all — and a
+check that cannot fail is indistinguishable from one that has stopped working. So the same verification is also pointed
 at a fixture built to be caught: `src/boundaryFixture/java` holds two modules, `beta` reaching into
 `alpha.internal`, and `andTheCheckAboveIsWhatWouldCatchOneThatDid` asserts it is rejected by name.
 
@@ -181,6 +202,112 @@ Mutation-verified — each applied, observed, reverted:
 | Pro is seeded with a `stripe_price_id` | `andNoTierCarriesAStripePriceUntilOneExists` |
 | Pro is seeded `{"bulk": true}`, Power three MP accounts | `andNoTierPromisesAFeatureThatDoesNotExist`, `noTierSellsMoreThanOneMarktplaatsAccountYet` |
 
+## The resource server
+
+A Keycloak access token is the only way in (ADR-0005), and **every route is closed until one arrives** —
+`anyRequest().authenticated()`, deliberately not scoped to `/api/**`, so a route a later ticket adds is shut
+until that ticket opens it rather than open until somebody notices. This ticket adds no route of its own:
+`identity` answers no request, it decides who is asking.
+
+Two files hold it, both in `identity/internal` because everything that knows how Keycloak spells a claim is an
+adapter ADR-0012 wants replaceable:
+
+| Class | Holds |
+|---|---|
+| `ResourceServerSecurity` | the filter chain, the realm-role → authority conversion, and the `401` body |
+| `CurrentUserFromToken` | the argument resolver that makes `CurrentUser` a parameter any controller can declare |
+
+`CurrentUser` — the module's public API, and for now the whole of it — carries the token's `sub` and nothing
+else. `UserRef` waits for [#20](https://github.com/Shei254/marketplaats-extension/issues/20), which is what
+first provisions the `app_user` row such a reference would name. Roles are deliberately not a field on it:
+they become Spring Security authorities (`ADMIN` → `ROLE_ADMIN`), because the only thing that reads them is a
+declarative guard on a route ([#27](https://github.com/Shei254/marketplaats-extension/issues/27)'s
+`hasRole('ADMIN')`), and a second copy is a second thing that can disagree with the one the guard consults.
+
+A controller in any module therefore reads:
+
+```java
+@PostMapping("/api/relist/authorize")
+AuthorizationResponse authorize(CurrentUser caller, @RequestBody AuthorizeRequest request)
+```
+
+with no Spring Security type in the signature. Not `@AuthenticationPrincipal`, which binds `null` on an
+anonymous request and lets the handler run; this resolver refuses, and the refusal comes out as the same
+`401 UNAUTHENTICATED` as a missing token rather than as a 500.
+
+**The decoder is configuration, not code.** `issuer-uri` and `audiences` in `application.yml` are what Boot
+builds it from, so the signature, the issuer, the expiry and the audience are all checked by code that is not
+in this repository. That is the reason `ResourceServerTest` mints tokens rather than asserting settings: a
+property silently dropped and a validator never installed look identical from here.
+
+**The audience is the check that is not the issuer's.** Every client in the realm signs in against the same
+issuer and gets a token signed by the same key, so without it the dashboard's own token — or `account`'s,
+which Keycloak hands to anybody — would be one this API accepts. `mprelist-api` exists to be named there and
+nothing else.
+
+`ResourceServerTest` runs against a **real port**, not MockMvc. MockMvc installs Spring Security's filters
+only when `spring-security-test` happens to be on the classpath, and a suite that quietly stopped running them
+would pass every test in that file by never refusing anything — which is the one failure it exists to make
+impossible.
+
+Its tokens come from `MintedTokens`: an RSA key, a JWKS and a discovery document on a loopback port, and no
+Keycloak. Half of what has to be proven is a refusal, and an IdP will not mint the tokens that earn one —
+expired, for another audience, signed by a key it never published. What it is *not* free to differ on is
+shape: the issuer path is Keycloak's, the lifetime is the realm's own `accessTokenLifespan`, and one audience
+is written as a bare string where several are an array, exactly as Keycloak writes them. Both shapes are
+asserted, because the realm produces both — a resource server comparing `aud` as one string passes against
+`dev` and fails against the first user made through a registration form.
+
+The pairing a stub cannot cover is held by two tests that read files instead:
+`theIssuerThisApiTrustsIsTheRealmTheLocalStackServes` puts `application.yml`'s `issuer-uri` beside compose's
+`KC_HOSTNAME` and the realm's name, and `andTheAudienceItRequiresIsTheOneTheRealmsMappersWrite` puts its
+`audiences` beside every audience mapper in the realm file. A realm renamed or a port moved would otherwise
+leave this application behind silently, and the first anyone would know is a refused sign-in.
+
+Mutation-verified — each applied, observed, reverted:
+
+| Mutation | Fails |
+|---|---|
+| the resource server's `authenticationEntryPoint` is dropped | `aCallWithNoTokenIsRefusedWithTheReasonEveryDenialCarries` (+3) |
+| `audiences` is dropped from `application.yml` | `aTokenForSomebodyElsesAudienceIsRefusedThoughThisIssuerMintedIt`, `andTheAudienceItRequiresIsTheOneTheRealmsMappersWrite` |
+| `issuer-uri` names another port | `theIssuerThisApiTrustsIsTheRealmTheLocalStackServes` |
+| the realm-role converter stops being a `@Bean` | `aRealmRoleBecomesTheAuthorityAGuardWouldAskFor` |
+| …or keeps the bean and loses the `ROLE_` prefix | the same one |
+| the absent `realm_access` claim stops being a case and becomes a null dereference | `andAUserWhoseTokenCarriesNoRolesAtAllIsStillOne` (+5) |
+| `anyRequest().authenticated()` becomes `permitAll()` | `everyRouteIsClosedUntilItsOwnTicketOpensIt`, `aRouteThatPermitsAnonymousAccessCannotBeToldWhoTheCallerIs` |
+| the argument resolver returns `null` instead of refusing | `aRouteThatPermitsAnonymousAccessCannotBeToldWhoTheCallerIs` |
+
+That last one is the reason the test beside it counts handler entries rather than trusting the status code. A
+resolver returning null blows up *inside* the handler, and the container dispatches that to `/error` — which
+this application also protects, so it comes back as the very same 401. The status alone cannot tell "refused"
+from "ran and threw", and the first version of that test could not either.
+
+Two mutations survive and are left surviving, both because Spring Security already does the thing by another
+route:
+
+- **`.csrf(disable)` removed.** The resource-server configurer exempts any request carrying a bearer token,
+  which is every request the contract makes today. The line is what will still hold for the first POST that
+  does not carry one — [#30](https://github.com/Shei254/marketplaats-extension/issues/30)'s Stripe webhook,
+  which would otherwise be refused for want of a CSRF token this API has no way to hand Stripe.
+- **`.sessionManagement(STATELESS)` removed.** The bearer filter keeps the security context in a request
+  attribute rather than a session on its own, so no cookie appears either way and
+  `andNothingIsRememberedBetweenCalls` stays green. The promise is this application's to keep, not that
+  filter's default to change.
+
+**One route is open, and it is not ours.** Spring Security 7 publishes RFC 9728 protected-resource metadata at
+`/.well-known/oauth-protected-resource`, permits it, and points every `WWW-Authenticate` challenge at it. It
+was found by curling the running application rather than by reading the configuration, which is why
+`exceptForTheOneRouteSpringSecurityOpensForItself` now pins it: it discloses the base URL the caller has just
+used and names no authorization server, and an upgrade that started publishing the issuer there would be
+widening what an unauthenticated caller learns.
+
+Verified against the real stack too, which is the half `MintedTokens` cannot be:
+a full code + PKCE sign-in as `mprelist-dashboard` produced a token with `iss: http://localhost:8081/realms/mprelist`
+and `aud: mprelist-api`, and the running application answered it `404` — accepted, no such route. Without a
+token: `401 {"reason":"UNAUTHENTICATED"}`. With a **real** token from the same realm minted for another
+audience (`admin-cli`): `401`, `The aud claim is not valid`. With one byte of the signature changed: `401`,
+`Invalid signature`.
+
 ## The realm
 
 `KeycloakRealmTest` and `KeycloakRealmWithoutAnExtensionIdTest` are the only places
@@ -302,11 +429,16 @@ Two mutations survive and are left surviving:
 - Boot 4 splits auto-configuration into per-technology modules, which is why the Flyway dependency is
   `spring-boot-starter-flyway` and not `flyway-core`: the latter would put Flyway on the classpath and leave
   nothing to run it, and an application that quietly migrates nothing starts perfectly well.
+- Security is `spring-boot-starter-security-oauth2-resource-server`, not the shorter
+  `spring-boot-starter-oauth2-resource-server`: same jars, but the shorter name's own POM says it is
+  deprecated in favour of this one, so taking it would mean moving on the release that drops it. There is no
+  OAuth2 *client* starter beside it — this application only ever validates a token somebody else obtained,
+  and obtaining one is the extension's ([#32](https://github.com/Shei254/marketplaats-extension/issues/32))
+  and the dashboard's ([#42](https://github.com/Shei254/marketplaats-extension/issues/42)), both in a browser.
 
 ## Not here yet
 
-The OAuth2 resource server ([#19](https://github.com/Shei254/marketplaats-extension/issues/19)), the
-Tier → Entitlement resolution that reads the catalog above
+The Tier → Entitlement resolution that reads the catalog above
 ([#21](https://github.com/Shei254/marketplaats-extension/issues/21)), and the endpoints of
 [`docs/enforcement-contract.md`](../../docs/enforcement-contract.md)
 ([#22](https://github.com/Shei254/marketplaats-extension/issues/22),

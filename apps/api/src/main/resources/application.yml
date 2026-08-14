@@ -14,6 +14,24 @@ spring:
     username: mprelist
     password: mprelist
 
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # The `mprelist` realm of infra/docker-compose.yml: its KC_HOSTNAME and the realm name that
+          # infra/keycloak/mprelist-realm.json declares, which is a pairing
+          # `theIssuerThisApiTrustsIsTheRealmTheLocalStackServes` holds rather than a comment.
+          #
+          # Discovery from this URI is deferred until the first token arrives, so Keycloak does not have to
+          # be up for the application to start — only for anyone to get in. Overridden elsewhere by
+          # SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI.
+          issuer-uri: http://localhost:8081/realms/mprelist
+          # Every client in that realm shares the issuer above, so without this a token minted for the
+          # dashboard's own use — or for `account`, which Keycloak issues to anybody — would be one this API
+          # accepts. The audience mapper on both public clients puts this name in the tokens they mint, and
+          # `mprelist-api` exists to be it.
+          audiences: mprelist-api
+
 server:
   # Pinned, though it is also Boot's default: infra/docker-compose.yml gives Keycloak 8081 specifically to
   # keep 8080 free for this application, and that pairing should not rest on a default staying put.

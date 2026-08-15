@@ -61,8 +61,15 @@ class RelistGate {
 		Entitlement granted = this.tiers.entitlementOf(plan.tier());
 		// Usage is what is held in this period, so a relist still in flight already counts: the extension is
 		// between the delete and the create and the unit is spent until it says otherwise (#23).
-		if (this.reservations.unitsHeldIn(caller, plan.period()) >= granted.relistsPerPeriod()) {
-			return new Verdict.Refused(ReasonCode.QUOTA_EXCEEDED, plan.period().end());
+		//
+		// Refused on the same arithmetic /complete answers with, rather than on a comparison of its own: the
+		// number the popup renders as "1 left" and the number this refuses on are one subtraction, or they are
+		// two that can disagree — and the disagreement shows up as a locked button beside a quota that says
+		// there is something in it.
+		RemainingQuota left = RemainingQuota.of(granted, this.reservations.unitsHeldIn(caller, plan.period()),
+				plan.period());
+		if (left.isSpent()) {
+			return new Verdict.Refused(ReasonCode.QUOTA_EXCEEDED, left.resetAt());
 		}
 		// #25's SafetyPolicy check belongs here: after the quota, because a user who has nothing left to spend
 		// should be told so rather than told to wait, and before the reservation, because a refusal must not

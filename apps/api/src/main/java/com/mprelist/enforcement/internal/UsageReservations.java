@@ -71,6 +71,53 @@ class UsageReservations {
 				.single();
 	}
 
+	/**
+	 * Whether that reservation is this caller's to resolve — asked by {@code /complete} before it acts on a
+	 * {@code jti} a client sent (#23).
+	 *
+	 * <p>Both halves in one question rather than a lookup and a comparison, because the pair is the whole of
+	 * what is being asked: an id that is not there and one that is somebody else's are the same answer to this
+	 * caller, and reading the row first would leave the second check to a caller who could forget it.
+	 *
+	 * <p>Says nothing about whether the unit is still held. A reservation already settled, refunded or expired
+	 * is still the caller's, and what happens to a second report about one is the {@code relist_event} unique's
+	 * to decide rather than this predicate's.
+	 */
+	boolean belongsTo(UUID reservation, UserRef user) {
+		return this.db.sql("select count(*) from usage_reservation where id = ? and app_user_id = ?")
+				.params(reservation, user.id())
+				.query(Integer.class)
+				.single() == 1;
+	}
+
+	/**
+	 * Moves a reservation to the state its report resolved it into: the unit spent, or handed back.
+	 *
+	 * <p>{@code resolved_at} is passed rather than left to a default for {@link #reserve}'s reason, and it is
+	 * the same instant the {@code relist_event} beside it carries — the row and the report about it are stamped
+	 * by one clock.
+	 *
+	 * <p>Unconditional on the current status, and deliberately: at-most-once is the {@code relist_event}
+	 * unique's job (#23), so a second guard here would be a second thing that could disagree with it. What
+	 * that means for a reservation #24 has already refunded for want of a report is that a report finally
+	 * arriving still wins — it is the only account of what happened on Marktplaats, and reconciliation is the
+	 * guess made in its absence.
+	 *
+	 * @param into where it lands, which has to be terminal: a resolved row carries the instant it resolved at
+	 * ({@code usage_reservation_resolved_at_matches_status}), so putting one back to
+	 * {@link ReservationStatus#RESERVED} is a row the database would refuse, at the end of a relist the user
+	 * has already performed
+	 */
+	void resolve(UUID reservation, ReservationStatus into, OffsetDateTime at) {
+		if (!into.isTerminal()) {
+			throw new IllegalArgumentException("A report resolves a reservation, so it lands on a state one "
+					+ "stops moving from, and not on " + into);
+		}
+		this.db.sql("update usage_reservation set status = ?, resolved_at = ? where id = ?")
+				.params(into.name(), at, reservation)
+				.update();
+	}
+
 	private final JdbcClient db;
 
 }

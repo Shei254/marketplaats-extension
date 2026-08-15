@@ -8,9 +8,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
 import java.sql.SQLException;
-import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -40,6 +38,9 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+
+import com.mprelist.Subscribers.Subscriber;
+import com.mprelist.Subscribers.Window;
 
 import tools.jackson.databind.JsonNode;
 
@@ -78,11 +79,10 @@ class RelistAuthorizationTest {
 		IDP.close();
 	}
 
-	/** Accounts first, which takes their subscriptions and reservations with it, then this suite's own tiers. */
 	@BeforeEach
 	void nobodyHasRelistedYet() {
-		this.db.update("delete from app_user");
-		this.db.update("delete from tier where code like '" + TIERS_OF_THIS_SUITE + "%'");
+		this.rows = new Subscribers(this.db, IDP, "authorize-suite-");
+		this.rows.nobodyHasRelistedYet();
 	}
 
 	/** One instance per test, so the two callers below belong to the test that fired them. */
@@ -536,78 +536,44 @@ class RelistAuthorizationTest {
 	}
 
 	// --- arrangement ------------------------------------------------------------------------------------
+	//
+	// The rows themselves are Subscribers', which is where the SQL lives and where each of these says what it
+	// arranges. Named here as this suite's tests read them, since the names are half of what those tests say.
 
-	/**
-	 * An account on a tier of this suite's own, {@code active}, with a window that is open now — the ordinary
-	 * state of a subscriber, arranged directly because most of what is interesting here is a departure from it.
-	 *
-	 * <p>The tier is arranged rather than taken from the seeded catalog, for {@link TierEntitlementTest}'s
-	 * reason: those numbers are an operator's to edit (ADR-0014), so a suite that spent the free rung's three
-	 * would start failing the day somebody tuned it.
-	 */
 	private Subscriber aSubscriberEntitledTo(int relistsPerPeriod) {
-		UUID tier = this.db.queryForObject("""
-				insert into tier (code, name, relist_quota_per_period, max_marktplaats_accounts)
-				values (?, 'A tier of this suite''s own', ?, 1) returning id
-				""", UUID.class, TIERS_OF_THIS_SUITE + UUID.randomUUID(), relistsPerPeriod);
-		String idpSubject = UUID.randomUUID().toString();
-		UUID account = this.db.queryForObject("insert into app_user (idp_subject) values (?) returning id",
-				UUID.class, idpSubject);
-		OffsetDateTime provisioned = now().minusDays(1);
-		this.db.update("""
-				insert into subscription (app_user_id, tier_id, status, period_start, period_end)
-				values (?, ?, 'active', ?, ?)
-				""", account, tier, provisioned, provisioned.plusMonths(1));
-		return new Subscriber(idpSubject, account);
+		return this.rows.entitledTo(relistsPerPeriod);
 	}
 
 	private void itsStatusIs(Subscriber user, String status) {
-		this.db.update("update subscription set status = ? where app_user_id = ?", status, user.account());
+		this.rows.statusIs(user, status);
 	}
 
 	private void itsWindowIs(Subscriber user, OffsetDateTime start, OffsetDateTime end) {
-		this.db.update("update subscription set period_start = ?, period_end = ? where app_user_id = ?", start, end,
-				user.account());
+		this.rows.windowIs(user, start, end);
 	}
 
-	/** Signed up then, and never seen since: the created_at the roll anchors on, and the window #20 wrote. */
 	private void provisionedAt(Subscriber user, OffsetDateTime when) {
-		this.db.update("update subscription set created_at = ? where app_user_id = ?", when, user.account());
-		itsWindowIs(user, when, when.plusMonths(1));
+		this.rows.provisionedAt(user, when);
 	}
 
-	/** A subscription with a Stripe counterpart, whose window is Stripe's to move rather than ours. */
 	private void itIsMirroredFromStripe(Subscriber user) {
-		this.db.update("update subscription set stripe_subscription_id = ? where app_user_id = ?",
-				"sub_" + UUID.randomUUID(), user.account());
+		this.rows.mirroredFromStripe(user);
 	}
 
 	private UUID unitHeldBy(Subscriber user, OffsetDateTime when) {
-		return this.db.queryForObject("""
-				insert into usage_reservation (app_user_id, ad_id, reserved_at, expires_at)
-				values (?, 'an-earlier-ad', ?, ?) returning id
-				""", UUID.class, user.account(), when, when.plusSeconds(45));
+		return this.rows.unitHeldBy(user, when);
 	}
 
 	private void refunded(UUID reservation) {
-		resolved(reservation, "REFUNDED");
+		this.rows.refunded(reservation);
 	}
 
 	private void settled(UUID reservation) {
-		resolved(reservation, "SETTLED");
-	}
-
-	private void resolved(UUID reservation, String status) {
-		this.db.update("update usage_reservation set status = ?, resolved_at = now() where id = ?", status,
-				reservation);
+		this.rows.settled(reservation);
 	}
 
 	private void lockTheSubscriptionOf(Connection connection, Subscriber user) throws SQLException {
-		try (PreparedStatement lock = connection
-				.prepareStatement("select id from subscription where app_user_id = ? for update")) {
-			lock.setObject(1, user.account());
-			lock.executeQuery().close();
-		}
+		this.rows.lockTheSubscriptionOf(connection, user);
 	}
 
 	/**
@@ -622,34 +588,24 @@ class RelistAuthorizationTest {
 	// --- reading back -----------------------------------------------------------------------------------
 
 	private List<Map<String, Object>> reservationsOf(Subscriber user) {
-		return this.db.queryForList(
-				"select id, ad_id, status, reserved_at, expires_at from usage_reservation where app_user_id = ?",
-				user.account());
+		return this.rows.reservationsOf(user);
 	}
 
 	private UUID theOnlyReservationOf(Subscriber user) {
 		assertThat(reservationsOf(user)).hasSize(1);
-		return (UUID) reservationsOf(user).get(0).get("id");
+		return (UUID) this.rows.theOnlyReservationOf(user).get("id");
 	}
 
 	private List<Map<String, Object>> everyReservation() {
-		return this.db.queryForList("select id from usage_reservation");
+		return this.rows.everyReservation();
 	}
 
 	private Window windowOf(Subscriber user) {
-		Map<String, Object> period = this.db.queryForMap(
-				"select period_start, period_end from subscription where app_user_id = ?", user.account());
-		return new Window(utc(period, "period_start"), utc(period, "period_end"));
+		return this.rows.windowOf(user);
 	}
 
-	/**
-	 * A {@code timestamptz} out of a row read as a map, in UTC — which is the offset it was written in, and the
-	 * one every comparison here is about. {@link JdbcTemplate} hands these back as {@link Timestamp} rather than
-	 * as the {@code java.time} value the column holds, and a {@code Timestamp} carries an instant with no offset
-	 * of its own.
-	 */
 	private static OffsetDateTime utc(Map<String, Object> row, String column) {
-		return ((Timestamp) row.get(column)).toInstant().atOffset(ZoneOffset.UTC);
+		return Subscribers.utc(row, column);
 	}
 
 	private static OffsetDateTime expiryOf(JsonNode granted) {
@@ -662,18 +618,7 @@ class RelistAuthorizationTest {
 	}
 
 	private static OffsetDateTime now() {
-		return OffsetDateTime.now(ZoneOffset.UTC);
-	}
-
-	private record Subscriber(String idpSubject, UUID account) {
-
-		String token() {
-			return IDP.token(claims -> claims.subject(this.idpSubject));
-		}
-
-	}
-
-	private record Window(OffsetDateTime start, OffsetDateTime end) {
+		return Subscribers.now();
 	}
 
 	@Autowired
@@ -688,7 +633,11 @@ class RelistAuthorizationTest {
 
 	private final ExecutorService callers = Executors.newFixedThreadPool(2);
 
-	/** The prefix that tells this suite's tiers from the seeded catalog, which it must leave as it found it. */
-	private static final String TIERS_OF_THIS_SUITE = "authorize-suite-";
+	/**
+	 * The rows this suite arranges, under a tier prefix that tells them from the seeded catalog — which
+	 * {@code TierCatalogSeedTest} asserts, and this suite must leave as it found it. Built per test rather than
+	 * as a field initialiser, since the {@link JdbcTemplate} it writes through is injected into this instance.
+	 */
+	private Subscribers rows;
 
 }

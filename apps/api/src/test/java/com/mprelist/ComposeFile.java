@@ -32,6 +32,23 @@ final class ComposeFile {
 		return image.group(1);
 	}
 
+	/**
+	 * The value compose sets a key to, for the assertions that hold this application's own configuration against
+	 * the stack it will be run beside — {@code KC_HOSTNAME} against {@code issuer-uri} being the one that breaks
+	 * a developer's first sign-in when the two drift.
+	 *
+	 * @param key the setting exactly as compose spells it
+	 */
+	static String setting(String key) {
+		Matcher value = Pattern.compile("^\\s*" + Pattern.quote(key) + ":\\s*(\\S+)\\s*$", Pattern.MULTILINE)
+				.matcher(text());
+		if (!value.find()) {
+			throw new IllegalStateException(InfraFiles.composeFile() + " no longer sets " + key + ", which the "
+					+ "tests read to hold it and this application's configuration in step");
+		}
+		return value.group(1);
+	}
+
 	/** The file's own text, for the few assertions whose subject is how the stack is wired rather than a tag. */
 	static String text() {
 		Path compose = InfraFiles.composeFile();

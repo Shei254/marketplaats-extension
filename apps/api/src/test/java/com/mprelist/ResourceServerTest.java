@@ -98,7 +98,7 @@ class ResourceServerTest {
 	void andItsAudienceIsTheBareStringKeycloakWritesForOneAudience() {
 		String token = IDP.token();
 
-		assertThat(MintedTokens.payloadOf(token).get("aud").isString()).isTrue();
+		assertThat(KeycloakFromCompose.claimsOf(token).get("aud").isString()).isTrue();
 		assertThat(get(CALLER, token).statusCode()).isEqualTo(200);
 	}
 
@@ -112,7 +112,7 @@ class ResourceServerTest {
 	void andNamingThisApiAmongOtherAudiencesIsEnough() {
 		String token = IDP.token(claims -> claims.audience(List.of("account", MintedTokens.AUDIENCE)));
 
-		assertThat(MintedTokens.payloadOf(token).get("aud").isArray()).isTrue();
+		assertThat(KeycloakFromCompose.claimsOf(token).get("aud").isArray()).isTrue();
 		assertThat(get(CALLER, token).statusCode()).isEqualTo(200);
 	}
 
@@ -161,6 +161,10 @@ class ResourceServerTest {
 		assertThat(json(refused).get("reason").asString()).isEqualTo("UNAUTHENTICATED");
 		assertThat(refused.headers().firstValue("WWW-Authenticate")).hasValueSatisfying(
 				challenge -> assertThat(challenge).startsWith("Bearer"));
+		// Said rather than defaulted: a writer the container has not been told about is ISO-8859-1, which is a
+		// content type to be reading JSON as long before any denial carries a value that is not ASCII.
+		assertThat(refused.headers().firstValue("Content-Type"))
+				.hasValueSatisfying(type -> assertThat(type).isEqualToIgnoringCase("application/json;charset=UTF-8"));
 	}
 
 	@Test
@@ -191,9 +195,43 @@ class ResourceServerTest {
 	}
 
 	@Test
-	void andOneMintedByAnIssuerThisApiDoesNotKnow() {
+	void andOneMintedByAnIssuerThisApiDoesNotKnowIsRefusedToo() {
 		assertThat(get(CALLER, IDP.token(claims -> claims.issuer("http://localhost:1/realms/somewhere-else")))
 				.statusCode()).isEqualTo(401);
+	}
+
+	/**
+	 * And one that is right in every way the decoder checks and still names nobody. {@code sub} is not among the
+	 * claims {@code issuer-uri} and {@code audiences} buy — this token's signature, issuer, expiry and audience
+	 * all pass — so it is the application that has to refuse it, and this asserts it does so as a refusal rather
+	 * than as a 500 from a handler that was handed a caller it could not name.
+	 *
+	 * <p>No token the realm mints looks like this, which is the reason to pin it: Keycloak always writes
+	 * {@code sub}, so the day one arrives without it is a day something else has already gone wrong, and the
+	 * shape of the answer should not also be a surprise. Asserted on {@link #CALLER} — a route that does ask who
+	 * is calling — but refused before any route is reached, because the check is on the way in.
+	 */
+	@Test
+	void andOneThatNamesNoSubjectIsRefusedRatherThanHandedToAHandler() {
+		HttpResponse<String> refused = get(CALLER, IDP.token(claims -> claims.subject(null)));
+
+		assertThat(refused.statusCode()).isEqualTo(401);
+		assertThat(json(refused).get("reason").asString()).isEqualTo("UNAUTHENTICATED");
+	}
+
+	/**
+	 * And at a route that never asks who is calling, which is what makes this a check on the way in rather than
+	 * the argument resolver's business. The discriminator is the test two up: an authenticated caller at an
+	 * unknown route is told {@code 404}, so a {@code 401} here is the token being turned away before routing.
+	 * Were the check moved into {@code CurrentUserFromToken}, this call would be answered {@code 404} — a caller
+	 * the API could not name, admitted, because nothing on that route happened to ask for a name.
+	 */
+	@Test
+	void andAtARouteThatNeverAsksWhoIsCalling() {
+		HttpResponse<String> refused = get(NO_SUCH_ROUTE, IDP.token(claims -> claims.subject(null)));
+
+		assertThat(refused.statusCode()).isEqualTo(401);
+		assertThat(json(refused).get("reason").asString()).isEqualTo("UNAUTHENTICATED");
 	}
 
 	/**
@@ -324,7 +362,7 @@ class ResourceServerTest {
 	@Test
 	void theIssuerThisApiTrustsIsTheRealmTheLocalStackServes() {
 		assertThat(configured("issuer-uri"))
-				.isEqualTo(composeSetting("KC_HOSTNAME") + "/realms/" + KeycloakFromCompose.REALM);
+				.isEqualTo(ComposeFile.setting("KC_HOSTNAME") + "/realms/" + KeycloakFromCompose.REALM);
 	}
 
 	/**
@@ -370,8 +408,9 @@ class ResourceServerTest {
 			return Map.of("idpSubject", caller.idpSubject(), "authorities", authoritiesInContext());
 		}
 
+		/** The same answer on a POST, which is the method both endpoints of the enforcement contract use. */
 		@PostMapping(CALLER)
-		Map<String, Object> reported(CurrentUser caller) {
+		Map<String, Object> callerOnAPost(CurrentUser caller) {
 			return caller(caller);
 		}
 
@@ -435,19 +474,11 @@ class ResourceServerTest {
 
 	/** A value out of {@code application.yml}'s own text, which is the copy this suite does not override. */
 	private static String configured(String key) {
-		return matched(Pattern.compile("^\\s*" + Pattern.quote(key) + ":\\s*(\\S+)\\s*$", Pattern.MULTILINE),
-				applicationYaml(), key + " in application.yml");
-	}
-
-	private static String composeSetting(String key) {
-		return matched(Pattern.compile("^\\s*" + Pattern.quote(key) + ":\\s*(\\S+)\\s*$", Pattern.MULTILINE),
-				ComposeFile.text(), key + " in " + InfraFiles.composeFile());
-	}
-
-	private static String matched(Pattern pattern, String text, String what) {
-		Matcher found = pattern.matcher(text);
+		Matcher found = Pattern.compile("^\\s*" + Pattern.quote(key) + ":\\s*(\\S+)\\s*$", Pattern.MULTILINE)
+				.matcher(applicationYaml());
 		if (!found.find()) {
-			throw new IllegalStateException("No " + what + ", which this test reads to hold the two in step");
+			throw new IllegalStateException("No " + key + " in application.yml, which this test reads to hold it "
+					+ "and the local stack in step");
 		}
 		return found.group(1);
 	}

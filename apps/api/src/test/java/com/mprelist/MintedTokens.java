@@ -9,7 +9,6 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Base64;
 import java.util.Date;
 import java.util.function.UnaryOperator;
 
@@ -25,9 +24,6 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
-
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * An RSA key, the tokens it signs, and the two documents a resource server has to fetch to check one: a
@@ -85,11 +81,6 @@ final class MintedTokens implements AutoCloseable {
 	 */
 	String tokenSignedByAKeyThisIssuerNeverPublished() {
 		return signedWith(generateKey(this.key.getKeyID()), UnaryOperator.identity());
-	}
-
-	/** The claims as they went over the wire, for the assertions whose subject is the shape rather than the verdict. */
-	static JsonNode payloadOf(String token) {
-		return JSON.readTree(Base64.getUrlDecoder().decode(token.split("\\.")[1]));
 	}
 
 	@Override
@@ -188,7 +179,5 @@ final class MintedTokens implements AutoCloseable {
 	private static final String DISCOVERY_PATH = "/.well-known/openid-configuration";
 
 	private static final String JWKS_PATH = "/protocol/openid-connect/certs";
-
-	private static final JsonMapper JSON = JsonMapper.builder().build();
 
 }

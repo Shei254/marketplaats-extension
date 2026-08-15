@@ -43,13 +43,19 @@ included, and is therefore not itself the count (#17).
 
 ## Denial shape
 Every denial carries a typed `reason` code in a JSON body — `{ "reason": "<CODE>" }` — plus whatever that code
-adds (`resetAt`, `retryAfter`). The extension's gate reads the code, never the prose.
+adds (`resetAt`, `retryAfter`), served as `application/json;charset=UTF-8`. The extension's gate reads the
+code, never the prose.
 
 `401 UNAUTHENTICATED` is the one that exists today (#19) and is the shape the rest follow. It is answered for
-**every** route, including ones no ticket has written yet: the API is closed by default, so an unauthenticated
-call reaches no handler at all. It also carries the `WWW-Authenticate: Bearer` challenge RFC 6750 requires,
-which is where *how* a presented token was wrong is said — the body says only that the caller is not
-authenticated, because that is the whole of what a client acts on.
+every route this repository writes, including ones no ticket has written yet: the API is closed by default, so
+an unauthenticated call reaches no handler at all. It also carries the `WWW-Authenticate: Bearer` challenge
+RFC 6750 requires, which is where *how* a presented token was wrong is said — the body says only that the
+caller is not authenticated, because that is the whole of what a client acts on.
+
+One route is exempt and it is not ours: Spring Security publishes RFC 9728 protected-resource metadata at
+`/.well-known/oauth-protected-resource` and permits it, which is what the challenge above points a client at.
+It answers `200` to an unauthenticated caller, disclosing the base URL that caller has just used and naming no
+authorization server.
 
 ## Endpoints
 

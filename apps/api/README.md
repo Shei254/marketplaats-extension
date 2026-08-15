@@ -7,7 +7,7 @@ named below.
 
 ```bash
 cd apps/api
-./gradlew test      # 70 tests: the module boundary, the schema and catalog on a real Postgres, the realm,
+./gradlew test      # 72 tests: the module boundary, the schema and catalog on a real Postgres, the realm,
                     #           and which tokens get past the resource server
 ./gradlew build     # the above, plus the executable jar
 ./gradlew bootRun   # http://localhost:8080 — 401 on everything without a token, 404 with one
@@ -71,9 +71,9 @@ replaceable adapters rather than becoming everyone's dependency.
 
 `ModuleBoundaryTest.noModuleReachesIntoAnothersInternals` fails the build on a cross-module reach into an
 `internal` package. Today it cannot fail for the right reason — no module references another at all — and a
-check that cannot fail is indistinguishable from one that has stopped working. So the same verification is also pointed
-at a fixture built to be caught: `src/boundaryFixture/java` holds two modules, `beta` reaching into
-`alpha.internal`, and `andTheCheckAboveIsWhatWouldCatchOneThatDid` asserts it is rejected by name.
+check that cannot fail is indistinguishable from one that has stopped working. So the same verification is
+also pointed at a fixture built to be caught: `src/boundaryFixture/java` holds two modules, `beta` reaching
+into `alpha.internal`, and `andTheCheckAboveIsWhatWouldCatchOneThatDid` asserts it is rejected by name.
 
 The fixture is a **separate source set** rather than test code, for two reasons that both make it invisible or
 harmful anywhere else:
@@ -240,6 +240,24 @@ builds it from, so the signature, the issuer, the expiry and the audience are al
 in this repository. That is the reason `ResourceServerTest` mints tokens rather than asserting settings: a
 property silently dropped and a validator never installed look identical from here.
 
+`sub` is the one claim that configuration does not buy, and so the one this module checks itself. A token can
+pass all four checks above and still name nobody; `requireASubject` refuses it while it is still
+authentication, so it comes back as the same `401 UNAUTHENTICATED` on **every** route rather than as a 500
+from whichever handler first asked who was calling. Not in the resolver, which runs only for routes that take
+a `CurrentUser` — a check there would leave every other route admitting a caller the API cannot name,
+`hasRole('ADMIN')` included. Keycloak always writes `sub`, so nothing in the realm produces such a token: the
+point is that the answer is decided rather than discovered.
+
+That the check is on the way in rather than at the resolver is itself asserted, and the discriminator is the
+`404` beside it: `andAtARouteThatNeverAsksWhoIsCalling` drives a route no controller claims, where an
+authenticated caller is told `404`. A `401` there is the token being turned away before routing. Were the
+guard moved into `CurrentUserFromToken`, that same call would answer `404` — a caller this API cannot name,
+admitted, because nothing on that route happened to ask for a name.
+
+Wiring the converter into `.jwt(...)` rather than exposing a `JwtAuthenticationConverter` bean is what makes
+that placement available at all: the class declares `convert` final, so its only seams are the claim
+converters, and refusing a token is not what an authorities converter is for.
+
 **The audience is the check that is not the issuer's.** Every client in the realm signs in against the same
 issuer and gets a token signed by the same key, so without it the dashboard's own token — or `account`'s,
 which Keycloak hands to anybody — would be one this API accepts. `mprelist-api` exists to be named there and
@@ -271,8 +289,10 @@ Mutation-verified — each applied, observed, reverted:
 | the resource server's `authenticationEntryPoint` is dropped | `aCallWithNoTokenIsRefusedWithTheReasonEveryDenialCarries` (+3) |
 | `audiences` is dropped from `application.yml` | `aTokenForSomebodyElsesAudienceIsRefusedThoughThisIssuerMintedIt`, `andTheAudienceItRequiresIsTheOneTheRealmsMappersWrite` |
 | `issuer-uri` names another port | `theIssuerThisApiTrustsIsTheRealmTheLocalStackServes` |
-| the realm-role converter stops being a `@Bean` | `aRealmRoleBecomesTheAuthorityAGuardWouldAskFor` |
-| …or keeps the bean and loses the `ROLE_` prefix | the same one |
+| the converter stops being wired into `.jwt(...)` | `aRealmRoleBecomesTheAuthorityAGuardWouldAskFor` (+2) |
+| …or stays wired and loses the `ROLE_` prefix | the same one |
+| `requireASubject` is dropped from the converter | `andOneThatNamesNoSubjectIsRefusedRatherThanHandedToAHandler`, `andAtARouteThatNeverAsksWhoIsCalling` |
+| the refusal's `setCharacterEncoding` is dropped | `aCallWithNoTokenIsRefusedWithTheReasonEveryDenialCarries` |
 | the absent `realm_access` claim stops being a case and becomes a null dereference | `andAUserWhoseTokenCarriesNoRolesAtAllIsStillOne` (+5) |
 | `anyRequest().authenticated()` becomes `permitAll()` | `everyRouteIsClosedUntilItsOwnTicketOpensIt`, `aRouteThatPermitsAnonymousAccessCannotBeToldWhoTheCallerIs` |
 | the argument resolver returns `null` instead of refusing | `aRouteThatPermitsAnonymousAccessCannotBeToldWhoTheCallerIs` |

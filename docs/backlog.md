@@ -160,6 +160,11 @@ Flyway seed: Free (default, null price), Pro, Power. Stripe price ids filled fro
 - One route is open and it is **not ours**: Spring Security 7 publishes RFC 9728 protected-resource metadata
   at `/.well-known/oauth-protected-resource` and permits it. Found by curling the running application, now
   pinned by a test — it discloses the caller's own base URL and names no authorization server.
+- **`sub` is the one claim configuration does not buy**, so it is the one this module checks itself: a token
+  can pass signature, issuer, expiry and audience and still name nobody. It is refused while that is still
+  authentication, not in the argument resolver — which runs only for routes that ask who is calling, and would
+  therefore leave every other route admitting a caller the API cannot name, `hasRole('ADMIN')` included.
+  Keycloak always writes `sub`, so the point is that the answer is decided rather than discovered.
 
 ### T11 · Auto-provision a Subscription on first login · **M** · T08, T10
 Every User gets a Subscription on the `is_default` tier, status `active`, with a period.

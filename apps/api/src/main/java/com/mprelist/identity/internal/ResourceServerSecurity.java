@@ -1,14 +1,16 @@
 package com.mprelist.identity.internal;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.convert.converter.Converter;
 import org.springframework.http.MediaType;
-import org.springframework.security.config.Customizer;
+import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -16,6 +18,7 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.InvalidBearerTokenException;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenAuthenticationEntryPoint;
 import org.springframework.security.web.AuthenticationEntryPoint;
@@ -49,7 +52,7 @@ class ResourceServerSecurity {
 				// commonest 401 there is — is refused in the same shape as one whose token was rejected,
 				// rather than through Spring Security's default, which answers 403 with no body.
 				.oauth2ResourceServer(resourceServer -> resourceServer
-						.jwt(Customizer.withDefaults())
+						.jwt(jwt -> jwt.jwtAuthenticationConverter(aTokenBecomesTheCallerItNames()))
 						.authenticationEntryPoint(UNAUTHENTICATED))
 				// Nothing is remembered between calls: the token is the whole of the caller's identity and it
 				// arrives on every request. It matters at the other end, where an MV3 worker has no cookie
@@ -68,6 +71,51 @@ class ResourceServerSecurity {
 	}
 
 	/**
+	 * What a validated token becomes: the caller it names, holding the realm's roles as authorities.
+	 *
+	 * <p>Wired here rather than left to {@code Customizer.withDefaults()} and a {@link JwtAuthenticationConverter}
+	 * bean, because the subject check below has nowhere else to go — that class declares {@code convert} final,
+	 * so the only seams it offers are the claim converters, and refusing a token is not what an authorities
+	 * converter is for.
+	 */
+	private static Converter<Jwt, AbstractAuthenticationToken> aTokenBecomesTheCallerItNames() {
+		JwtAuthenticationConverter roles = new JwtAuthenticationConverter();
+		roles.setJwtGrantedAuthoritiesConverter(ResourceServerSecurity::realmRolesOf);
+		return token -> {
+			requireASubject(token);
+			return roles.convert(token);
+		};
+	}
+
+	/**
+	 * A token that is valid in every way the decoder checks and still names nobody is refused while this is
+	 * still authentication, rather than wherever it first turns out to matter.
+	 *
+	 * <p>{@code sub} is not among the claims {@code issuer-uri} and {@code audiences} buy: those check the
+	 * signature, the issuer, the expiry and the audience, and a token missing this one passes all four. Keycloak
+	 * always writes it, so nothing in the realm produces such a token today — which is the reason to decide what
+	 * happens rather than leave it to be discovered. Left to {@code CurrentUser}'s own guard it would be an
+	 * {@code IllegalArgumentException} raised inside the handler, and a handler that throws leaves as a 500
+	 * instead of as the refusal {@code docs/enforcement-contract.md} specifies.
+	 *
+	 * <p>Here and not in {@link CurrentUserFromToken}, because the resolver runs only for a route that asks who
+	 * is calling: a guard there would leave every other route admitting a caller this API cannot name —
+	 * including one carrying {@code realm_access}, which #27's {@code hasRole('ADMIN')} would then honour.
+	 *
+	 * <p>{@link InvalidBearerTokenException} rather than any other, because it is an
+	 * {@code AuthenticationException}: the bearer filter hands it to the same entry point every other refusal
+	 * passes through, so this comes back as the contract's {@code 401 UNAUTHENTICATED} with the
+	 * {@code WWW-Authenticate} challenge saying which way this particular token was wrong.
+	 */
+	private static void requireASubject(Jwt token) {
+		String subject = token.getSubject();
+		if (subject == null || subject.isBlank()) {
+			throw new InvalidBearerTokenException(
+					"The token names no subject, so there is no caller for it to authenticate");
+		}
+	}
+
+	/**
 	 * Keycloak's realm roles as Spring Security authorities, so #27's guard can be the ordinary
 	 * {@code hasRole('ADMIN')} rather than something that reads claims for itself.
 	 *
@@ -81,13 +129,6 @@ class ResourceServerSecurity {
 	 * <p>This is the one place that knows how the IdP spells a role, which is what ADR-0012 means by keeping
 	 * Keycloak an adapter: swapping it is a new converter here and nothing anywhere else.
 	 */
-	@Bean
-	JwtAuthenticationConverter realmRolesAreAuthorities() {
-		JwtAuthenticationConverter authentication = new JwtAuthenticationConverter();
-		authentication.setJwtGrantedAuthoritiesConverter(ResourceServerSecurity::realmRolesOf);
-		return authentication;
-	}
-
 	private static Collection<GrantedAuthority> realmRolesOf(Jwt token) {
 		Map<String, Object> realmAccess = token.getClaimAsMap(REALM_ACCESS_CLAIM);
 		if (realmAccess == null || !(realmAccess.get("roles") instanceof Collection<?> roles)) {
@@ -111,6 +152,10 @@ class ResourceServerSecurity {
 			AuthenticationException refused) throws IOException, ServletException {
 		CHALLENGE.commence(request, response, refused);
 		response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+		// Said rather than left to the container, which defaults a writer to ISO-8859-1 and would advertise
+		// `application/json;charset=ISO-8859-1` — a content type no reason code needs, and one that would start
+		// mattering the moment a denial carries a value that is not ASCII.
+		response.setCharacterEncoding(StandardCharsets.UTF_8.name());
 		response.getWriter().write("{\"reason\":\"UNAUTHENTICATED\"}");
 	}
 

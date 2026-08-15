@@ -1,14 +1,15 @@
 # `apps/api` — Spring Boot API
 
 Five modules and the build-time check that makes them mean something, the schema they will fill, the tier
-catalog seeded into it, the resource server every route is now closed behind, the account and subscription a
-first sign-in leaves behind, and the tests that hold `infra/`'s Keycloak realm to what it promises. Still no
-endpoint of its own — those arrive with the tickets named below.
+catalog seeded into it and what each of its tiers grants, the resource server every route is now closed
+behind, the account and subscription a first sign-in leaves behind, and the tests that hold `infra/`'s
+Keycloak realm to what it promises. Still no endpoint of its own — those arrive with the tickets named below.
 
 ```bash
 cd apps/api
-./gradlew test      # 83 tests: the module boundary, the schema and catalog on a real Postgres, the realm,
-                    #           which tokens get past the resource server, and what first login provisions
+./gradlew test      # 97 tests: the module boundary, the schema and catalog on a real Postgres, the realm,
+                    #           which tokens get past the resource server, what first login provisions, and
+                    #           what a tier grants whoever is on it
 ./gradlew build     # the above, plus the executable jar
 ./gradlew bootRun   # http://localhost:8080 — 401 without a token and 404 with one, bar the open route below
 ```
@@ -45,6 +46,15 @@ it does need a Docker daemon for that.
 > `sslRequired: none` in the realm — is the one
 > [#15](https://github.com/Shei254/marketplaats-extension/issues/15) deliberately did not make, because it
 > would be wrong in every environment except a laptop. It is the daemon that has to be put back.
+>
+> **The address is not the whole story**, observed while running #21: the reproduction above answered `403`,
+> and then `200` thirteen minutes later with nothing changed and no daemon restart, on a host where an
+> `nginx` container in between logged the host's own requests as arriving from `192.168.65.1` — site-local,
+> which by the paragraph above should always have worked. So treat "which address" as a symptom rather than
+> the cause, and **re-run before concluding anything**: what is known is that it flaps on one daemon within
+> minutes. The mechanism is still unexplained, and the harness fix #15's own notes propose —
+> `KC_PROXY_HEADERS=xforwarded` on the container plus `X-Forwarded-Proto: https` on the wait strategy and on
+> `KeycloakFromCompose`'s requests — would make the suites independent of it either way.
 
 ## The modules
 
@@ -54,7 +64,7 @@ Each is a direct sub-package of `com.mprelist`, which is what makes it an applic
 | Module | Owns | Fills with |
 |---|---|---|
 | `identity` | who the caller is: `CurrentUser`, and `UserRef` for the account behind them | [#19](https://github.com/Shei254/marketplaats-extension/issues/19) — [below](#the-resource-server) — and [#20](https://github.com/Shei254/marketplaats-extension/issues/20) — [below](#first-login) |
-| `catalog` | Tier → Entitlement, from our table, no Stripe | `TierId` and `defaultTier()` with [#20](https://github.com/Shei254/marketplaats-extension/issues/20); `Entitlement` with [#21](https://github.com/Shei254/marketplaats-extension/issues/21) |
+| `catalog` | Tier → Entitlement, from our table, no Stripe | `TierId` and `defaultTier()` with [#20](https://github.com/Shei254/marketplaats-extension/issues/20), `Entitlement` with [#21](https://github.com/Shei254/marketplaats-extension/issues/21) — [below](#what-a-tier-grants) |
 | `subscription` | the mirror of Stripe's status and period | [#20](https://github.com/Shei254/marketplaats-extension/issues/20) provisions the first one, [#30](https://github.com/Shei254/marketplaats-extension/issues/30) mirrors Stripe into it |
 | `enforcement` | `authorize` / `complete`, the gate | [#22](https://github.com/Shei254/marketplaats-extension/issues/22), [#23](https://github.com/Shei254/marketplaats-extension/issues/23) |
 | `admin` | operator endpoints behind the `ADMIN` role | [#27](https://github.com/Shei254/marketplaats-extension/issues/27) |
@@ -206,6 +216,82 @@ Mutation-verified — each applied, observed, reverted:
 | the Power row is left out | `theCatalogHoldsFreeProAndPower`, `quotaRisesFromFreeToPower` |
 | Pro is seeded with a `stripe_price_id` | `andNoTierCarriesAStripePriceUntilOneExists` |
 | Pro is seeded `{"bulk": true}`, Power three MP accounts | `andNoTierPromisesAFeatureThatDoesNotExist`, `noTierSellsMoreThanOneMarktplaatsAccountYet` |
+
+## What a tier grants
+
+`TierCatalog` answers two questions and no others: which tier a new account lands on
+([#20](https://github.com/Shei254/marketplaats-extension/issues/20)), and what a tier grants whoever is on it
+([#21](https://github.com/Shei254/marketplaats-extension/issues/21)). The second is an `Entitlement` —
+relists per period, max Marktplaats accounts, feature flags — resolved from the `tier` table and **never from
+Stripe** ([ADR-0014](../../docs/adr/0014-tier-catalog-and-entitlements.md)), which is what keeps a network hop
+to a payment provider off the path between a user and their own quota.
+
+```java
+Entitlement free = catalog.entitlementOf(catalog.defaultTier());   // 3 relists a period, 1 MP account, {}
+```
+
+**Neither question is about a user**, and that is the module seam. Which tier somebody is subscribed to is
+`subscription`'s to say — it holds the mirror of Stripe's status and period —
+so [#22](https://github.com/Shei254/marketplaats-extension/issues/22)'s gate is what puts the two together: it
+reads the subscriber's tier from there and brings it here to find out what it grants. A convenience
+`entitlementFor(UserRef)` would have made `catalog` read a `subscription` row, which is the coupling
+[ADR-0012](../../docs/adr/0012-backend-modular-monolith.md) draws the module boundary to prevent.
+
+**Limits, not a window and not a rate.** The period a quota is counted in is on the *subscription*, because it
+is Stripe's billing period for a payer and a monthly roll from provisioning for a free user — two tiers are not
+two windows. And a number per period is not a number per minute: a month's quota spent in one is what
+[#25](https://github.com/Shei254/marketplaats-extension/issues/25)'s SafetyPolicy refuses, and nothing here
+paces anything.
+
+**What a tier is called is not among these.** `name` is display text an operator may rewrite and `code` is the
+handle the seed upserts on; neither is something a caller is entitled *to*.
+[#26](https://github.com/Shei254/marketplaats-extension/issues/26)'s `/api/me` renders a tier to a human and
+[#43](https://github.com/Shei254/marketplaats-extension/issues/43)'s plans page lists the catalog, so "what is
+this tier called" — and `stripe_price_id`, which is
+[#29](https://github.com/Shei254/marketplaats-extension/issues/29)'s — arrive with the tickets that have
+somewhere to put them, on this same interface.
+
+**A tier that is not there throws**, like `defaultTier()` and for a sharper reason. A subscription references
+its tier behind a foreign key with no delete rule, so a row cannot go out from under a subscriber; an id that
+resolves to nothing came from somewhere this module never wrote it. The `Optional` that reported it would
+reach a gate whose job is to fail closed, which would deny that caller with `QUOTA_EXCEEDED` —
+**indistinguishable from an ordinary exhausted user**, which is how a catalog fault comes to look like the
+product working.
+
+**Flags arrive as data, values and all.** `features` is a JSON object rather than a set of names precisely so
+a flag can later carry one ("bulk, up to 20 at a time"), so resolution parses it into a `Map<String, Object>`
+and no reader is handed a string to parse for itself. Copied and unmodifiable, so an entitlement cannot change
+under a reader already holding it — and copied with a `LinkedHashMap` rather than `Map.copyOf`, which rejects
+a null value: `{"bulk": null}` is a thing an operator can write, and a catalog that threw on reading one would
+deny that tier's subscribers their quota over a flag nothing has been written to read yet. There is no
+`grants(flag)` helper, because what a non-boolean value means is the first reader's to decide rather than the
+record's to guess.
+
+`Entitlement`'s own guards restate `V1`'s check constraints — quota at or above zero, at least one Marktplaats
+account. Every entitlement resolved here comes off a row the database already held to them, so the reason to
+repeat them is the ones that do not: #22's tests will stand entitlements up with no catalog behind them, and a
+quota below zero denies every relist while reading as a gate that works. Zero is *allowed*: a paused plan is
+denied by `QUOTA_EXCEEDED` like any exhausted user, which is one code path rather than a case of its own.
+
+`TierEntitlementTest` drives all of it through the interface — never `TierRows`, since the interface is the
+whole of what another module may hold — and arranges its own tiers rather than asserting the seeded numbers a
+second time; `EntitlementTest` is the record's guards, with no Spring and no database.
+
+Mutation-verified — each applied, observed, reverted:
+
+| Mutation | Fails |
+|---|---|
+| the query stops naming the tier, and answers with whichever row came first | `andTheTierNamedIsTheOneResolvedRatherThanWhicheverRowCameFirst` (+4) |
+| the two limits are read into each other's component | `aTierGrantsTheLimitsItsRowCarries` (+2) |
+| the flags are dropped rather than parsed | `andTheFeatureFlagsItCarriesWithWhateverValuesTheyHold`, `andAFlagLeftWithNoValueArrivesAsTheNullItIsStoredAs` |
+| a tier that is not there resolves to a grant of nothing | `butATierIdNamingNoRowIsAnErrorRatherThanAnEmptyGrant` |
+| the flags are held as handed in rather than copied | `theFlagsAreCopiedRatherThanShared` |
+| …or copied with `Map.copyOf` | `andAFlagLeftWithNoValueArrivesAsTheNullItIsStoredAs` |
+| either guard on the record is dropped | `butNotFewerThanNone`, `andItGrantsAtLeastOneMarktplaatsAccount` |
+
+The first of those is why `andTheTierNamedIsTheOneResolvedRatherThanWhicheverRowCameFirst` arranges two tiers.
+A single arranged tier leaves a query that ignored its `where` clause answering from whichever row Postgres
+reached first, and the catalog is never a table of one — the seed leaves three in it.
 
 ## The resource server
 
@@ -591,12 +677,18 @@ Two mutations survive and are left surviving:
 
 ## Not here yet
 
-The Tier → Entitlement resolution that reads the catalog above
-([#21](https://github.com/Shei254/marketplaats-extension/issues/21)), and the endpoints of
-[`docs/enforcement-contract.md`](../../docs/enforcement-contract.md)
+The endpoints of [`docs/enforcement-contract.md`](../../docs/enforcement-contract.md)
 ([#22](https://github.com/Shei254/marketplaats-extension/issues/22),
 [#23](https://github.com/Shei254/marketplaats-extension/issues/23),
-[#26](https://github.com/Shei254/marketplaats-extension/issues/26)).
+[#26](https://github.com/Shei254/marketplaats-extension/issues/26)) — nothing yet *reads* the
+[entitlement](#what-a-tier-grants) resolved above, and #22's gate is what first will.
+
+**What a tier is called, and what it costs.** `TierCatalog` answers what a tier grants and nothing about how
+to show or sell it: the display name arrives with
+[#26](https://github.com/Shei254/marketplaats-extension/issues/26), which has a caller to render it to, and
+`stripe_price_id` with [#29](https://github.com/Shei254/marketplaats-extension/issues/29), which opens the
+Checkout session that needs it — no tier carries one until
+[#28](https://github.com/Shei254/marketplaats-extension/issues/28) creates the Prices by hand.
 
 **The roll that gives a free account its second quota period**, which
 [#22](https://github.com/Shei254/marketplaats-extension/issues/22) owns for the reason under

@@ -7,10 +7,13 @@ package com.mprelist.catalog;
  * the adapter half of ADR-0012's ports and adapters: {@code subscription} should be able to ask which tier a
  * new account starts on without also being able to see that the answer comes from JDBC.
  *
- * <p>One method today. {@code Entitlement} — what a tier <em>grants</em>, which is the rest of ADR-0012's
- * public API for this module — is #21's, and is the thing #22's gate reads. This is the part #20 needed
- * first: provisioning has to name a tier, and reading the {@code tier} table from another module would be
- * exactly the coupling the module layout exists to prevent.
+ * <p>Two questions, and they are the two ADR-0012 puts on this interface: which tier a new account starts on
+ * (#20), and what a tier grants whoever is on it (#21). Both exist so that no other module reads the
+ * {@code tier} table, which is exactly the coupling the module layout exists to prevent.
+ *
+ * <p><strong>Neither question is about a user.</strong> Which tier somebody is subscribed to is
+ * {@code subscription}'s to answer — it holds the mirror of Stripe's view — and #22's gate is what puts the
+ * two together: it reads the subscriber's tier from there and brings it here to find out what it grants.
  */
 public interface TierCatalog {
 
@@ -27,5 +30,20 @@ public interface TierCatalog {
 	 * @throws IllegalStateException if no tier carries the flag
 	 */
 	TierId defaultTier();
+
+	/**
+	 * What a tier grants whoever is on it: the {@link Entitlement} #22 checks a relist against and #26 renders.
+	 *
+	 * <p>Throws for a tier that is not there, for the same reason {@link #defaultTier()} does. A subscription
+	 * holds its tier behind a foreign key with no delete rule, so a row cannot go out from under a subscriber
+	 * — an id that resolves to nothing came from somewhere this module never wrote it, and the empty
+	 * {@link java.util.Optional} that reported it would most likely be read as "no quota" by a gate whose job
+	 * is to fail closed. That denial is indistinguishable from an ordinary exhausted user, which is how a
+	 * catalog fault would come to look like the product working.
+	 *
+	 * @param tier the tier to resolve, as named by a subscription or by {@link #defaultTier()}
+	 * @throws IllegalStateException if no tier carries that id
+	 */
+	Entitlement entitlementOf(TierId tier);
 
 }

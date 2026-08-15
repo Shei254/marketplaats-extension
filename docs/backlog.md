@@ -207,6 +207,17 @@ Resolve quota, max accounts and feature flags from our table. **No Stripe depend
 - The module is no longer empty: T11 added `TierId` and `TierCatalog.defaultTier()`, which is the one question
   provisioning had to ask. `Entitlement` — what a tier *grants*, and the thing T13's gate reads — is this
   ticket's, and goes on the same interface.
+- **Decided in #21:** the question is `entitlementOf(TierId)`, about a **tier and not a user**. Which tier
+  somebody is subscribed to is `subscription`'s to answer, so an `entitlementFor(UserRef)` convenience would
+  have made `catalog` read a `subscription` row — the coupling ADR-0012 draws the boundary to prevent — and
+  T13 is what puts the two together. A tier that is not there **throws**: an id resolving to nothing is one the
+  catalog never issued (a subscription holds its tier behind a foreign key with no delete rule), and the empty
+  `Optional` would reach a gate that fails closed and deny with `QUOTA_EXCEEDED`, indistinguishable from an
+  ordinary exhausted user. Feature flags resolve as a `Map<String, Object>` — the column is an object so a flag
+  can carry a value, and a copy with a `LinkedHashMap` rather than `Map.copyOf` so `{"bulk": null}`, which an
+  operator can write, is data rather than a catalog fault denying that tier's subscribers. **Not** on
+  `Entitlement`: what a tier is *called* and what it *costs*. Neither is a grant, so the display name arrives
+  with T17 and `stripePriceId` with T19, on the same interface.
 
 ### T13 · `POST /api/relist/authorize` · **L** · T11, T12
 - Checks in fixed order, first failure wins: token → status → quota → SafetyPolicy.

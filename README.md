@@ -8,7 +8,7 @@ Monorepo, one deployable per workspace ([ADR-0011](docs/adr/0011-repository-layo
 | Path | What | State |
 |---|---|---|
 | `apps/extension` | Chrome MV3 extension (esbuild, TypeScript) | the POC, working |
-| `apps/api` | Spring Boot, Gradle, Java 21, Flyway | five modules with the boundary check, the schema, the seeded tier catalog, the resource server every route is closed behind, and the account and free subscription a first sign-in provisions; no endpoints yet — #22, #26 |
+| `apps/api` | Spring Boot, Gradle, Java 21, Flyway | five modules with the boundary check, the schema, the seeded tier catalog and what each of its tiers grants, the resource server every route is closed behind, and the account and free subscription a first sign-in provisions; no endpoints yet — #22, #26 |
 | `apps/dashboard` | React SPA | reserved — #42 |
 | `packages/contracts` | API types shared by both clients | reserved — no owner; consumers #34/#36 |
 | `packages/ui` | design tokens + components (popup and dashboard) | reserved — #37 |

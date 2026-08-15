@@ -36,7 +36,11 @@ whoever happened to write the class. Amended in #20: `identity` publishes `UserP
 `subscription` can listen for a new account rather than `identity` calling it — the dependency would
 otherwise point from the module everything depends on towards one that depends on it — and `catalog` exposes
 `TierCatalog`, because `defaultTier()` is the one question provisioning has to ask of a table no other module
-may read. `Entitlement` is still #21's, and goes on that same interface.
+may read. Completed in #21: `Entitlement` — what a tier grants — is public, and `entitlementOf(TierId)` is on
+that same interface. It takes a tier rather than a user, so `catalog` still reads only the `tier` table:
+*which* tier somebody is on is `subscription`'s to answer, and #22's gate is what puts the two together. That
+leaves `catalog`'s list above complete as written; the next amendment to it is whichever of #26 and #29 first
+needs what a tier is *called* or what it *costs*, neither of which is a grant.
 
 Build tool **Gradle**, **Java 21**, migrations via **Flyway** — closing the corresponding open build
 question in `enforcement-contract.md`.

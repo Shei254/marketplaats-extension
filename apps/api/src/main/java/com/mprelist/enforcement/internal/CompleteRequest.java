@@ -17,9 +17,8 @@ import java.util.UUID;
  * like anything else is a request that could not be read rather than a reservation that could not be found —
  * the two are told apart before either reaches the database
  * @param outcome what happened, at {@link RelistOutcome} rather than as a string. An outcome the contract does
- * not name fails on the way in, for {@link com.mprelist.enforcement.internal.AdId}'s reason: a spelling nobody
- * checked would otherwise reach the {@code relist_event} check constraint as a {@code 500}, at the end of a
- * relist the user has already performed
+ * not name fails on the way in, for {@link AdId}'s reason: a spelling nobody checked would otherwise reach the
+ * {@code relist_event} check constraint as a {@code 500}, at the end of a relist the user has already performed
  */
 record CompleteRequest(UUID jti, RelistOutcome outcome) {
 

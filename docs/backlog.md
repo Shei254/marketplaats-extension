@@ -245,8 +245,9 @@ Resolve quota, max accounts and feature flags from our table. **No Stripe depend
     means a webhook has not arrived, and rolling it would invent a period Stripe did not grant. T20's.
   - **The signing key is generated per process and held in memory**, because nothing verifies one of these
     tokens yet — `/complete` takes a `jti` and resolves a row. It costs a restart invalidating at most 45
-    seconds of grants, and it means **a second instance signs with a second key**; the first verifier (T14) is
-    what has to turn it into configuration.
+    seconds of grants, and it means **a second instance signs with a second key**. T14 was named as the first
+    verifier and turned out not to be one (see below), and **no open ticket is**: the key becomes configuration
+    when a second instance is wanted, which is the thing that cannot be deployed until it does.
   - **No `enforcement/domain` package yet**, though ADR-0012 sketches one: the decision is a status and two
     numbers the same method has just read. T16's SafetyPolicy is the likeliest ticket to create it, and its
     place in the order — after the quota, before the reservation — is marked in `RelistGate`.
@@ -274,9 +275,14 @@ Resolve quota, max accounts and feature flags from our table. **No Stripe depend
   - **It does not verify the `authToken`**, so it is not the ticket that turns T13's per-process signing key
     into configuration and no open ticket is. Resolving the row answers everything verifying the token would,
     and the caller's own access token already says who they are.
-  - `quotaRemaining` and the gate's refusal are **one subtraction** (`RemainingQuota`), clamped at zero — an
-    operator lowering a tier's quota under a subscriber is reachable without anybody doing anything wrong, and
-    the popup showing a relist left beside a button that refuses is the bug the shared type prevents.
+  - **The ownership question is asked before the subscription is read.** Reading one takes a write lock on the
+    caller's row and rolls a free window that has closed, and the `jti` is the one input to this call an
+    adversary picks (ADR-0007) — so a value nobody was issued moves nothing. A reservation's owner never
+    changes, so nothing is bought by asking under the lock.
+  - `quotaRemaining` and the gate's refusal are **one subtraction** (`RemainingQuota`) over **one pair of
+    reads** (`Quotas`), clamped at zero — an operator lowering a tier's quota under a subscriber is reachable
+    without anybody doing anything wrong, and the popup showing a relist left beside a button that refuses is
+    the bug the shared type prevents.
 
 ### T15 · Reservation reconciliation job · **M** · T14
 Abandoned reservations auto-refund after a grace window; idempotent, safe to run concurrently.

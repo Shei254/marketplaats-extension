@@ -7,8 +7,6 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.mprelist.catalog.Entitlement;
-import com.mprelist.catalog.TierCatalog;
 import com.mprelist.identity.UserRef;
 import com.mprelist.subscription.Subscription;
 import com.mprelist.subscription.Subscriptions;
@@ -17,18 +15,19 @@ import com.mprelist.subscription.Subscriptions;
  * The gate of ADR-0007: whether this caller may relist this ad right now, and the unit of quota it costs them
  * if they may.
  *
- * <p>Three modules meet here and none of them can answer alone. {@code subscription} says which tier somebody
- * is on and when their period ends, {@code catalog} says what that tier grants, and the reservations are this
- * module's own — which is why the entitlement is resolved from a tier rather than from a user, and why nothing
- * in either of those modules knows what a quota check is.
+ * <p>Three modules meet on this path and none of them can answer alone. {@code subscription} says which tier
+ * somebody is on and when their period ends, {@code catalog} says what that tier grants, and the reservations
+ * are this module's own — which is why the entitlement is resolved from a tier rather than from a user, and why
+ * nothing in either of those modules knows what a quota check is. The last two meet in {@link Quotas}, which
+ * {@code /complete} asks the same question of.
  */
 @Service
 class RelistGate {
 
-	RelistGate(Subscriptions subscriptions, TierCatalog tiers, UsageReservations reservations,
+	RelistGate(Subscriptions subscriptions, Quotas quotas, UsageReservations reservations,
 			RelistAuthorizations authorizations) {
 		this.subscriptions = subscriptions;
-		this.tiers = tiers;
+		this.quotas = quotas;
 		this.reservations = reservations;
 		this.authorizations = authorizations;
 	}
@@ -58,16 +57,11 @@ class RelistGate {
 		if (!plan.status().allowsRelisting()) {
 			return Verdict.Refused.because(ReasonCode.SUBSCRIPTION_INACTIVE);
 		}
-		Entitlement granted = this.tiers.entitlementOf(plan.tier());
-		// Usage is what is held in this period, so a relist still in flight already counts: the extension is
-		// between the delete and the create and the unit is spent until it says otherwise (#23).
-		//
-		// Refused on the same arithmetic /complete answers with, rather than on a comparison of its own: the
-		// number the popup renders as "1 left" and the number this refuses on are one subtraction, or they are
-		// two that can disagree — and the disagreement shows up as a locked button beside a quota that says
-		// there is something in it.
-		RemainingQuota left = RemainingQuota.of(granted, this.reservations.unitsHeldIn(caller, plan.period()),
-				plan.period());
+		// Refused on the same arithmetic /complete answers with, and taken from the same place: the number the
+		// popup renders as "1 left" and the number this refuses on are one subtraction over one pair of reads,
+		// or they are two that can disagree — and the disagreement shows up as a locked button beside a quota
+		// that says there is something in it.
+		RemainingQuota left = this.quotas.leftFor(caller, plan);
 		if (left.isSpent()) {
 			return new Verdict.Refused(ReasonCode.QUOTA_EXCEEDED, left.resetAt());
 		}
@@ -86,7 +80,7 @@ class RelistGate {
 
 	private final Subscriptions subscriptions;
 
-	private final TierCatalog tiers;
+	private final Quotas quotas;
 
 	private final UsageReservations reservations;
 

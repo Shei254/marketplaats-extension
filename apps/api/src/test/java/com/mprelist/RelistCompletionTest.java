@@ -9,8 +9,6 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.time.Duration;
 import java.time.OffsetDateTime;
-import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -32,6 +30,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 import com.mprelist.Subscribers.Subscriber;
+import com.mprelist.Subscribers.Window;
 
 import tools.jackson.databind.JsonNode;
 
@@ -96,7 +95,7 @@ class RelistCompletionTest {
 		assertThat(left.get("quotaRemaining").asInt()).isEqualTo(2);
 		assertThat(OffsetDateTime.parse(left.get("resetAt").asString())).isEqualTo(this.rows.windowOf(user).end());
 		assertThat(left.size()).isEqualTo(2);
-		assertThat(theReservation(user)).satisfies(spent -> {
+		assertThat(this.rows.theOnlyReservationOf(user)).satisfies(spent -> {
 			assertThat(spent.get("status")).isEqualTo("SETTLED");
 			assertThat(Subscribers.utc(spent, "resolved_at")).isNotNull();
 		});
@@ -118,7 +117,7 @@ class RelistCompletionTest {
 		HttpResponse<String> reported = complete(user, authorized, "FAILED_AFTER_DELETE");
 
 		assertThat(Json.of(reported).get("quotaRemaining").asInt()).isEqualTo(2);
-		assertThat(theReservation(user).get("status")).isEqualTo("SETTLED");
+		assertThat(this.rows.theOnlyReservationOf(user).get("status")).isEqualTo("SETTLED");
 	}
 
 	/**
@@ -135,7 +134,7 @@ class RelistCompletionTest {
 		HttpResponse<String> reported = complete(user, authorized, "FAILED_BEFORE_DELETE");
 
 		assertThat(Json.of(reported).get("quotaRemaining").asInt()).isEqualTo(3);
-		assertThat(theReservation(user).get("status")).isEqualTo("REFUNDED");
+		assertThat(this.rows.theOnlyReservationOf(user).get("status")).isEqualTo("REFUNDED");
 	}
 
 	/**
@@ -227,7 +226,7 @@ class RelistCompletionTest {
 		HttpResponse<String> revised = complete(user, authorized, "FAILED_BEFORE_DELETE");
 
 		assertThat(Json.of(revised).get("quotaRemaining").asInt()).isEqualTo(2);
-		assertThat(theReservation(user).get("status")).isEqualTo("SETTLED");
+		assertThat(this.rows.theOnlyReservationOf(user).get("status")).isEqualTo("SETTLED");
 		assertThat(this.rows.eventsOf(user)).singleElement()
 				.satisfies(event -> assertThat(event.get("outcome")).isEqualTo("SUCCESS"));
 	}
@@ -242,7 +241,7 @@ class RelistCompletionTest {
 		HttpResponse<String> revised = complete(user, authorized, "SUCCESS");
 
 		assertThat(Json.of(revised).get("quotaRemaining").asInt()).isEqualTo(3);
-		assertThat(theReservation(user).get("status")).isEqualTo("REFUNDED");
+		assertThat(this.rows.theOnlyReservationOf(user).get("status")).isEqualTo("REFUNDED");
 		assertThat(this.rows.eventsOf(user)).singleElement()
 				.satisfies(event -> assertThat(event.get("outcome")).isEqualTo("FAILED_BEFORE_DELETE"));
 	}
@@ -265,7 +264,7 @@ class RelistCompletionTest {
 
 		assertThat(refused.statusCode()).isEqualTo(404);
 		assertThat(refused.body()).doesNotContain("reason");
-		assertThat(theReservation(owner).get("status")).isEqualTo("RESERVED");
+		assertThat(this.rows.theOnlyReservationOf(owner).get("status")).isEqualTo("RESERVED");
 		assertThat(this.rows.eventsOf(owner)).isEmpty();
 	}
 
@@ -284,6 +283,29 @@ class RelistCompletionTest {
 		assertThat(refused.body()).doesNotContain("reason");
 	}
 
+	/**
+	 * And it leaves the subscription alone on the way to saying so. The {@code jti} is the one input to this
+	 * call an adversary picks (ADR-0007), and reading a subscription is not free of consequence: {@code
+	 * currentFor} takes a write lock on the caller's row and rolls a free window that has closed. Asking whose
+	 * the reservation is first means a value nobody issued moves nothing at all — the window this arranges as
+	 * three months stale is still stale afterwards.
+	 *
+	 * <p>The owner of a reservation never changes, so nothing is lost by asking before the lock rather than
+	 * under it.
+	 */
+	@Test
+	void andAJtiThatIsNobodysRollsNoWindowOnTheWayToSayingSo() {
+		Subscriber user = this.rows.entitledTo(3);
+		this.rows.provisionedAt(user, Subscribers.now().minusMonths(3));
+		Window stale = this.rows.windowOf(user);
+
+		HttpResponse<String> refused = complete(user, UUID.randomUUID(), "SUCCESS");
+
+		assertThat(refused.statusCode()).isEqualTo(404);
+		assertThat(this.rows.windowOf(user)).isEqualTo(stale);
+		assertThat(stale.end()).isBefore(Subscribers.now());
+	}
+
 	/** A call carrying no token resolves nothing, because it reaches no handler at all (#19). */
 	@Test
 	void aReportWithNoTokenResolvesNothingAndIsToldToSignIn() {
@@ -294,7 +316,7 @@ class RelistCompletionTest {
 
 		assertThat(refused.statusCode()).isEqualTo(401);
 		assertThat(Json.of(refused).get("reason").asString()).isEqualTo("UNAUTHENTICATED");
-		assertThat(theReservation(user).get("status")).isEqualTo("RESERVED");
+		assertThat(this.rows.theOnlyReservationOf(user).get("status")).isEqualTo("RESERVED");
 	}
 
 	/**
@@ -311,7 +333,7 @@ class RelistCompletionTest {
 
 		assertThat(unread.statusCode()).isEqualTo(400);
 		assertThat(unread.body()).doesNotContain("reason");
-		assertThat(theReservation(user).get("status")).isEqualTo("RESERVED");
+		assertThat(this.rows.theOnlyReservationOf(user).get("status")).isEqualTo("RESERVED");
 	}
 
 	/**
@@ -328,7 +350,7 @@ class RelistCompletionTest {
 
 		assertThat(unread.statusCode()).isEqualTo(400);
 		assertThat(unread.body()).doesNotContain("reason");
-		assertThat(theReservation(user).get("status")).isEqualTo("RESERVED");
+		assertThat(this.rows.theOnlyReservationOf(user).get("status")).isEqualTo("RESERVED");
 	}
 
 	/**
@@ -345,7 +367,7 @@ class RelistCompletionTest {
 
 		assertThat(unread.statusCode()).isEqualTo(400);
 		assertThat(unread.body()).doesNotContain("reason");
-		assertThat(theReservation(user).get("status")).isEqualTo("RESERVED");
+		assertThat(this.rows.theOnlyReservationOf(user).get("status")).isEqualTo("RESERVED");
 	}
 
 	/**
@@ -380,7 +402,7 @@ class RelistCompletionTest {
 		HttpResponse<String> reported = complete(user, authorized, "FAILED_BEFORE_DELETE");
 
 		assertThat(reported.statusCode()).isEqualTo(200);
-		assertThat(theReservation(user).get("status")).isEqualTo("REFUNDED");
+		assertThat(this.rows.theOnlyReservationOf(user).get("status")).isEqualTo("REFUNDED");
 	}
 
 	/**
@@ -397,7 +419,7 @@ class RelistCompletionTest {
 		HttpResponse<String> reported = complete(user, authorized, "SUCCESS");
 
 		assertThat(reported.statusCode()).isEqualTo(200);
-		assertThat(theReservation(user).get("status")).isEqualTo("SETTLED");
+		assertThat(this.rows.theOnlyReservationOf(user).get("status")).isEqualTo("SETTLED");
 	}
 
 	/**
@@ -417,7 +439,7 @@ class RelistCompletionTest {
 		OffsetDateTime resetAt = OffsetDateTime.parse(Json.of(reported).get("resetAt").asString());
 		assertThat(resetAt).isAfter(Subscribers.now()).isEqualTo(this.rows.windowOf(user).end());
 		assertThat(Json.of(reported).get("quotaRemaining").asInt()).isEqualTo(3);
-		assertThat(theReservation(user).get("status")).isEqualTo("SETTLED");
+		assertThat(this.rows.theOnlyReservationOf(user).get("status")).isEqualTo("SETTLED");
 	}
 
 	/**
@@ -439,7 +461,7 @@ class RelistCompletionTest {
 
 		assertThat(reported.statusCode()).isEqualTo(200);
 		assertThat(Json.of(reported).get("quotaRemaining").asInt()).isEqualTo(2);
-		assertThat(theReservation(user).get("status")).isEqualTo("SETTLED");
+		assertThat(this.rows.theOnlyReservationOf(user).get("status")).isEqualTo("SETTLED");
 	}
 
 	/**
@@ -507,16 +529,6 @@ class RelistCompletionTest {
 	private void expired(UUID reservation) {
 		this.db.update("update usage_reservation set expires_at = ? where id = ?",
 				Subscribers.now().minusMinutes(10), reservation);
-	}
-
-	/**
-	 * The one reservation the account holds. Every test here authorizes once, so a second row would mean the
-	 * call under test took a unit of its own — which {@code /complete} never does.
-	 */
-	private Map<String, Object> theReservation(Subscriber user) {
-		List<Map<String, Object>> held = this.rows.reservationsOf(user);
-		assertThat(held).hasSize(1);
-		return held.get(0);
 	}
 
 	@Autowired

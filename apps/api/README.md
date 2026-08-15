@@ -8,7 +8,7 @@ two ends of the gate — with the rest arriving on the tickets named below.
 
 ```bash
 cd apps/api
-./gradlew test      # 146 tests: the module boundary, the schema and catalog on a real Postgres, the realm,
+./gradlew test      # 147 tests: the module boundary, the schema and catalog on a real Postgres, the realm,
                     #            which tokens get past the resource server, what first login provisions, what
                     #            a tier grants whoever is on it, who may relist and what it costs them, and
                     #            what the extension reporting back settles or gives them back
@@ -576,6 +576,7 @@ place that knows both halves.
 |---|---|---|
 | `AuthorizeRelist` | `enforcement/internal` | the route, and the verdict → status mapping |
 | `RelistGate` | `enforcement/internal` | the checks, in order, and the transaction that makes them one decision |
+| `Quotas` | `enforcement/internal` | the tier's grant less what the window holds — the walk both ends of the gate take |
 | `UsageReservations` | `enforcement/internal` | the `usage_reservation` table: what a period holds, and taking one |
 | `RelistAuthorizations` | `enforcement/internal` | the signed, ~45-second grant a `200` comes with |
 | `SubscriptionRows` | `subscription/internal` | the `subscription` table, the row lock, and the roll below |
@@ -731,20 +732,28 @@ that could tell those apart would have been handed a way to ask whether a given 
 shaped like anything other than a reservation id is a `400` instead, because "we cannot read this" and "this
 is not yours" are different things for an extension to do about.
 
+**It is asked before the subscription is read**, because reading one is not free of consequence: `currentFor`
+takes a write lock on the caller's row and rolls a free window that has closed. The `jti` is the one input to
+this call an adversary picks (ADR-0007), so a value nobody was ever issued should move nothing at all — and a
+reservation's owner never changes, so nothing is bought by asking under the lock instead.
+
 **What the caller is told it has left is what the gate will enforce.** `RemainingQuota` is one subtraction
 with two readers — the refusal in `RelistGate` and the answer here, with #26's `/api/me` to come — because two
-written a day apart are two chances for the popup to show a relist left beside a button that refuses. It is
-**clamped at zero**: a tier's quota is an operator's to edit at any time (ADR-0014), so a subscriber holding
-more than their tier now grants is reachable without anybody doing anything wrong, and a negative number
-rendered in the popup is not a smaller quota but a bug on screen. The clamp is also what keeps "nothing left"
-and "refused" the same condition.
+written a day apart are two chances for the popup to show a relist left beside a button that refuses. `Quotas`
+is the pair of reads that feeds it, in one place for the same reason: a subtraction shared over two callers
+that each fetched their own entitlement and counted their own window is still two answers waiting to differ.
+It is **clamped at zero**: a tier's quota is an operator's to edit at any time (ADR-0014), so a subscriber
+holding more than their tier now grants is reachable without anybody doing anything wrong, and a negative
+number rendered in the popup is not a smaller quota but a bug on screen. The clamp is also what keeps
+"nothing left" and "refused" the same condition.
 
 | Class | Module | Holds |
 |---|---|---|
 | `CompleteRelist` | `enforcement/internal` | the route, and the `200`/`404` |
-| `RelistReports` | `enforcement/internal` | the transaction: the lock, the ownership check, the report, the answer |
+| `RelistReports` | `enforcement/internal` | the transaction: the ownership check, the lock, the report, the answer |
 | `RelistEvents` | `enforcement/internal` | the `relist_event` table, and the conflict that makes this idempotent |
 | `RelistOutcome` | `enforcement/internal` | the three outcomes, and which of them spend the unit |
+| `Quotas` | `enforcement/internal` | the same walk the gate takes, so both answer from one pair of reads |
 | `RemainingQuota` | `enforcement/internal` | what is left of a period, for the gate and for this |
 
 Mutation-verified — each applied, observed, reverted:
@@ -755,14 +764,15 @@ Mutation-verified — each applied, observed, reverted:
 | `FAILED_BEFORE_DELETE` settles rather than refunding | `butOneThatFailedBeforeTheAdWasTouchedGivesTheUnitBack` (+2) |
 | the `on conflict` is dropped from the event insert | `theSameReportTwiceCostsWhatTheFirstOneCost` (+2) |
 | the reservation is resolved whether or not this report is the first | `andASecondReportCannotReviseWhatTheFirstOneSaid`, `andNorTheOtherWayRound` |
-| the ownership check is dropped | `aReservationSomebodyElseHoldsIsNotThisCallersToResolve`, `andNorIsOneThisApiNeverIssued` |
-| …or no longer names the caller | the first of those two, alone — which is what it is for |
+| the ownership check is dropped | all three `404` tests |
+| …or no longer names the caller | `aReservationSomebodyElseHoldsIsNotThisCallersToResolve` alone — which is what it is for |
 | what is left is not clamped at nothing | `aQuotaLoweredUnderASubscriberLeavesThemWithNothingRatherThanLessThanNothing` |
 | spent means *fewer than* none left rather than none | that one and 6 in the authorize suite — the two readers of one subtraction |
-| `@Transactional` is dropped from the report | 16 of the 21 — `currentFor` is `MANDATORY`, so it refuses rather than running without one |
+| `@Transactional` is dropped from the report | 14 of the 22 — `currentFor` is `MANDATORY`, so it refuses rather than running without one. Not the three `404`s: they answer before the subscription is read, which is the point of the order |
 | the quota is counted before the report resolves the unit | `butOneThatFailedBeforeTheAdWasTouchedGivesTheUnitBack` (+1) |
 | a resolved reservation is not stamped with when it resolved | 13 — `usage_reservation_resolved_at_matches_status` refuses the row |
-| a `jti` that is nobody's answers `200` | both `404` tests |
+| a `jti` that is nobody's answers `200` | all three `404` tests |
+| the ownership check runs after the subscription is read | `andAJtiThatIsNobodysRollsNoWindowOnTheWayToSayingSo` |
 | the body's `jti` may be absent | `aBodyNamingNoAuthorizationIsARequestThisApiCouldNotRead` |
 | …or its `outcome` may | `andSoIsOneSayingNothingAboutWhatHappened` |
 

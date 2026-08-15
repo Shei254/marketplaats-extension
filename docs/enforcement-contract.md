@@ -38,8 +38,10 @@ conversion surface available. The login gate is a product decision, not a securi
 subscriptions, rolled monthly from the provisioning date for free ones. `resetAt = periodEnd`, always
 answerable.
 
-A free window is rolled **when it is next read** — by `authorize`, which is the only call that reads one
-(#22) — in whole calendar months **anchored on the subscription's creation** rather than on the window being
+A free window is rolled **when it is next read** — by either end of the gate: `authorize` before it counts
+against one (#22), `complete` before it answers with one (#23), and `complete` only once it knows the `jti` is
+the caller's, so a value nobody was issued rolls nothing — in whole calendar months **anchored on the
+subscription's creation** rather than on the window being
 replaced, so that an account provisioned on the 31st does not spend every month after February on the 28th. A
 window Stripe owns is never rolled here: a closed one means a webhook has not arrived yet, and moving it would
 grant a period Stripe did not (#30 is what moves it). Usage is the reservations in `[periodStart, periodEnd)` that were not refunded — the
@@ -64,10 +66,13 @@ an unauthenticated call reaches no handler at all. It also carries the `WWW-Auth
 RFC 6750 requires, which is where *how* a presented token was wrong is said — the body says only that the
 caller is not authenticated, because that is the whole of what a client acts on.
 
-A `4xx` that is *not* a denial carries no `reason` at all. A request the API could not parse is answered with
-the challenge header and an empty body rather than with a reason code its status contradicts, so a client can
-read the presence of `reason` as meaning it was turned away. Nothing in the shipped configuration produces
-one today; it is stated because the status is Spring Security's to choose and not this repository's.
+A `4xx` that is *not* a denial carries no `reason` at all, rather than a reason code its status contradicts, so
+a client can read the presence of `reason` as meaning it was turned away. `/complete` ships the first two
+(#23): a body this API could not read is a `400`, and a `jti` naming no reservation of the caller's is a `404`
+with an empty body. **What else such a response carries is not this contract's to fix** — the `400` is Spring
+Boot's default error representation, which names no reason code and is the framework's to change. The
+`WWW-Authenticate` challenge belongs to the `401` and to nothing else: these callers were authenticated, they
+named something this API could not read or could not find.
 
 One route is exempt and it is not ours: Spring Security publishes RFC 9728 protected-resource metadata at
 `/.well-known/oauth-protected-resource` and permits it, which is what the challenge above points a client at.
@@ -128,7 +133,10 @@ authorization server.
   `4xx` that is not a denial. Deliberately the same answer for one that never existed and one belonging to
   somebody else, so that it cannot be used to ask whether an id is anybody's. A `jti` that is not shaped like a
   reservation id is a `400` instead: "we could not read this" and "this is not yours" are different things for
-  a client to do about.
+  a client to do about. **The ownership question is asked first**, before the subscription is read: reading one
+  takes a write lock on the caller's row and may roll a closed window, and the `jti` is the one input to this
+  call an adversary chooses (ADR-0007). A reservation's owner never changes, so nothing is lost by asking
+  outside the lock.
 - No `authToken` in the body, and **nothing here verifies one**: the `jti` is the reservation's own id, so this
   resolves a row in our own table, and who the caller is comes from their access token. That is why the signing
   key of the authorization is still generated per process — see the build question below.

@@ -131,6 +131,14 @@ final class Subscribers {
 				""", user.account());
 	}
 
+	/**
+	 * The one reservation an account holds — where a second row would mean the call under test took a unit of
+	 * its own, which is what {@link RelistCompletionTest} asserts of {@code /complete} throughout.
+	 *
+	 * <p>Throws rather than asserting, because "this account holds exactly one" is what the arrangement says
+	 * about itself: a suite that reached here with two has not failed a claim about the application, it has
+	 * stopped meaning what it says.
+	 */
 	Map<String, Object> theOnlyReservationOf(Subscriber user) {
 		List<Map<String, Object>> held = reservationsOf(user);
 		if (held.size() != 1) {

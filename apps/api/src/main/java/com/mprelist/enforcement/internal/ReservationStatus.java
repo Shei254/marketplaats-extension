@@ -22,19 +22,6 @@ enum ReservationStatus {
 	SETTLED,
 
 	/** Nothing happened on Marktplaats, so the unit returned to the period. */
-	REFUNDED;
-
-	/**
-	 * Whether this is a state a reservation stops moving from — which both of the two below are, since the
-	 * report that resolves one is also the last word on it.
-	 *
-	 * <p>Restates the {@code usage_reservation_resolved_at_matches_status} half that says a resolved row
-	 * carries the instant it was resolved at: putting a reservation <em>back</em> to {@link #RESERVED} with a
-	 * {@code resolved_at} is a row the constraint would refuse, and it should be refused before a relist that
-	 * has already happened is rolled back by a failing statement.
-	 */
-	boolean isTerminal() {
-		return this != RESERVED;
-	}
+	REFUNDED
 
 }

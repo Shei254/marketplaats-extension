@@ -38,7 +38,7 @@ class CompleteRelist {
 	 */
 	@PostMapping(path = "/api/relist/complete", consumes = MediaType.APPLICATION_JSON_VALUE)
 	ResponseEntity<RemainingQuota> complete(UserRef caller, @RequestBody CompleteRequest report) {
-		return this.reports.record(caller, report.jti(), report.outcome())
+		return this.reports.record(caller, report)
 				.map(ResponseEntity::ok)
 				.orElseGet(() -> ResponseEntity.notFound().build());
 	}

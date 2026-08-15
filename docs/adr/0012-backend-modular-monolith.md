@@ -21,7 +21,7 @@ preserving ADR-0009's no-lock-in goal.
 com.mprelist
 ├── identity/       public: UserRef, CurrentUser, UserProvisioned
 ├── catalog/        public: TierId, TierCatalog, Entitlement
-├── subscription/   public: SubscriptionStatus
+├── subscription/   public: SubscriptionStatus, Subscription, Subscriptions
 │   └── internal/stripe/          ◀ adapter
 ├── enforcement/    public: /authorize, /complete
 │   ├── domain/                   ◀ pure decision logic, no Spring
@@ -41,6 +41,22 @@ that same interface. It takes a tier rather than a user, so `catalog` still read
 *which* tier somebody is on is `subscription`'s to answer, and #22's gate is what puts the two together. That
 leaves `catalog`'s list above complete as written; the next amendment to it is whichever of #26 and #29 first
 needs what a tier is *called* or what it *costs*, neither of which is a grant.
+
+Amended again in #22, which is the first module to *read* two others. `subscription` publishes
+`SubscriptionStatus` (Stripe's seven, normalized, with the contract's "allowed" set answered once on the enum),
+`Subscription` (tier, status and the quota window — and deliberately not the Stripe ids, so that nothing outside
+the module can come to branch on whether a user is paying) and the `Subscriptions` port that answers one. That
+port also **locks the row for the caller's transaction and rolls a free window that has closed**, because both
+belong to the module that owns the table: a gate that had to remember to take the lock, or to notice a closed
+window, is a gate that can forget to.
+
+Two things the sketch above promises and #22 did not build, recorded so that the gap is a decision rather than
+an omission. There is **no `enforcement/domain` package**: the decision is a status and two numbers the same
+method has just read, and a package holding one function with one caller is structure ahead of its reason —
+whichever ticket gives that decision a second reader creates it, #25's SafetyPolicy being the likeliest. And
+`internal/jpa` is **`internal`, not JPA**: every module reads its own tables through `JdbcClient`, because
+nothing yet loads a row, mutates it and writes it back, and Hibernate would arrive with `ddl-auto` — a second
+schema author beside the migrations.
 
 Build tool **Gradle**, **Java 21**, migrations via **Flyway** — closing the corresponding open build
 question in `enforcement-contract.md`.

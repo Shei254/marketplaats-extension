@@ -36,15 +36,27 @@ conversion surface available. The login gate is a product decision, not a securi
 ## Quota period
 `periodStart`/`periodEnd` are stored on the `Subscription`: copied from Stripe's current period for paid
 subscriptions, rolled monthly from the provisioning date for free ones. `resetAt = periodEnd`, always
-answerable. Usage is the reservations in `[periodStart, periodEnd)` that were not refunded — the
+answerable.
+
+A free window is rolled **when it is next read** — by `authorize`, which is the only call that reads one
+(#22) — in whole calendar months **anchored on the subscription's creation** rather than on the window being
+replaced, so that an account provisioned on the 31st does not spend every month after February on the 28th. A
+window Stripe owns is never rolled here: a closed one means a webhook has not arrived yet, and moving it would
+grant a period Stripe did not (#30 is what moves it). Usage is the reservations in `[periodStart, periodEnd)` that were not refunded — the
 **reservation holds the unit**, from `authorize` until `complete` settles or refunds it, so a relist still
 in flight already counts against quota. A RelistEvent records what the extension reported, refunds
 included, and is therefore not itself the count (#17).
 
 ## Denial shape
 Every denial carries a typed `reason` code in a JSON body — `{ "reason": "<CODE>" }` — plus whatever that code
-adds (`resetAt`, `retryAfter`), served as `application/json;charset=UTF-8`. The extension's gate reads the
-code, never the prose.
+adds (`resetAt`, `retryAfter`), and nothing else: a code that adds nothing sends nothing, rather than a null
+field inviting a client to render a value it does not have. The extension's gate reads the code, never the
+prose.
+
+It is UTF-8, in two spellings the client can treat as one. The `401` is written by hand and says
+`application/json;charset=UTF-8`, because a servlet writer that has not been told otherwise is ISO-8859-1; the
+denials a handler returns are written by the JSON converter and say `application/json`, which is UTF-8 by
+definition of the media type.
 
 `401 UNAUTHENTICATED` is the one that exists today (#19) and is the shape the rest follow. It is answered for
 every route this repository writes, including ones no ticket has written yet: the API is closed by default, so
@@ -85,8 +97,16 @@ authorization server.
   | Entitlement quota remaining this period | `429 QUOTA_EXCEEDED` (+ `resetAt`) |
   | SafetyPolicy rate/pacing OK | `429 RATE_LIMITED` (+ `retryAfter`) |
 - **Success `200`:** reserve one usage unit, then return
-  `{ "authToken": "<JWT>", "expiresAt": "<~45s out>", "jti": "..." }`.
-  The `authToken` is a backend-signed JWT embedding `{ sub, adId, jti, exp }`.
+  `{ "authToken": "<JWT>", "expiresAt": "<~45s out>", "jti": "..." }`, with `expiresAt` an ISO-8601 instant.
+  The `authToken` is a backend-signed JWT embedding `{ sub, adId, jti, exp }` — where `sub` is our own
+  `app_user` id rather than the IdP subject the caller's own token carries, and `jti` is the reservation, which
+  is what `complete` settles.
+- A body carrying fields this contract does not name — an older extension build still sending
+  `marktplaatsAccountId` — is **not refused for them**: they are ignored. A body naming no `adId` is a request
+  that could not be read, so it is a `400` with no reason code, per the denial shape above.
+- **Checked, and spent, as one decision.** The check reads the caller's subscription row under a lock held for
+  the length of the call, so two of the same user's requests in flight cannot both pass a quota that has one
+  unit left in it. Nobody else waits: the lock is that user's own row.
 
 ### `POST /api/relist/complete`
 - **Body:** `{ "jti": "...", "outcome": "SUCCESS" | "FAILED_BEFORE_DELETE" | "FAILED_AFTER_DELETE" }`
@@ -150,7 +170,11 @@ Extension                         Backend                    Stripe
 - **`complete` required?** Yes — reserve/complete with refund, for the telemetry reason above as much as for
   quota accuracy. Counting at authorize alone would charge users for relists that never touched Marktplaats,
   which is punishing on a 3-relist free tier.
-- **JWT signing key management:** backend-held asymmetric key, rotated.
+- **JWT signing key management:** backend-held asymmetric key, rotated. **Not yet true, and knowingly so:**
+  #22 signs with an RSA key generated per process and held in memory, because nothing verifies one of these
+  tokens — `complete` takes a `jti` and resolves the reservation it names in our own table. A restart therefore
+  invalidates at most 45 seconds of grants, and a second instance of the API would sign with a second key. The
+  first code that *verifies* an `authToken` is what has to make the key configuration.
 
 ## Open spikes
 - **Stable Marktplaats account identifier** — blocks `maxMpAccounts` as a sellable entitlement and the return

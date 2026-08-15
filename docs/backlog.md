@@ -190,10 +190,10 @@ Every User gets a Subscription on the `is_default` tier, status `active`, with a
 - The period is a **calendar month from provisioning**, computed once in UTC in Java rather than as Postgres's
   `interval '1 month'`, which is evaluated in the session's time zone. Thirty days would walk the reset date a
   day earlier every month, and `resetAt` is a thing a user plans around.
-- **Only the first period, though — the roll is deferred to T13.** This ticket writes one window and nothing
-  advances it, so from a free account's second month on its `period_end` sits in the past. Nothing reads
-  `period_start`/`period_end` yet, and a roll with no reader is a mechanism whose first real exercise would be
-  in production; T13 is the first code to read the window and is where it is now owned.
+- **Only the first period, though — the roll was deferred to T13**, and is done there. This ticket writes one
+  window and nothing advanced it, so from a free account's second month on its `period_end` sat in the past.
+  Nothing read `period_start`/`period_end` yet, and a roll with no reader is a mechanism whose first real
+  exercise would be in production; T13 is the first code to read the window and is where it landed.
 - Two of the same person's first requests can be in flight at once, so the insert is
   `on conflict (idp_subject) do nothing` followed by a select: the loser waits and joins the winner's account
   rather than failing on the unique index on its very first call.
@@ -224,24 +224,52 @@ Resolve quota, max accounts and feature flags from our table. **No Stripe depend
 - Reserves one usage unit; returns a ~45s single-use signed JWT `{ sub, adId, jti, exp }`.
 - Body is `{ adId }` — **no `marktplaatsAccountId`, no `NOT_YOUR_ACCOUNT`**.
 - Verdict → HTTP mapping and typed reason codes per the contract.
-- Tested at the HTTP boundary (`@SpringBootTest` + MockMvc), state arranged as data.
-- **Rolling a free subscription's quota period is this ticket's**, deferred here by T11. T11 provisions the
-  first window and nothing advances it. This is the first code to read `[periodStart, periodEnd)`, so it is
-  where a window that has closed has to be rolled forward — in whole calendar months from the provisioning
-  date, so the reset day does not walk — before usage is counted against it. Until it is, `resetAt` stops
-  being answerable for free users the month after they sign up, which the contract says it always is.
+- Tested at the HTTP boundary, state arranged as data — over a real port rather than through MockMvc, for
+  T10's reason: the first check in the order is the token, and MockMvc installs the filter chain that enforces
+  it only when `spring-security-test` happens to be on the classpath.
+- **Rolling a free subscription's quota period is this ticket's**, deferred here by T11, and done: a window
+  that has closed is rolled forward in whole calendar months **anchored on the subscription's creation**, not
+  on the window being replaced — rolling from the stored start re-anchors on February's clamped 28th and walks
+  the reset day earlier for anyone who signed up on the 29th, 30th or 31st. Rolled in `subscription`, whose
+  window it is, rather than in the gate, which would then be a caller that can forget to.
+- **Decided in #22:**
+  - `subscription` gains the public API the gate needs: `SubscriptionStatus` (the seven, with
+    `allowsRelisting()` answering the contract's *Allowed* set once), `Subscription` (tier, status, window —
+    the Stripe ids stay inside the module, so nothing can come to branch on whether somebody is paying), and
+    the `Subscriptions` port that answers one.
+  - **Check-then-reserve is one decision.** `currentFor` reads the subscription row `for update`, so a second
+    concurrent call from the same user waits there and then counts the reservation the first one wrote —
+    otherwise two callers holding one unit between them are both authorized. The port is
+    `@Transactional(MANDATORY)`, which makes the gate's own transaction load-bearing rather than decorative.
+  - **A window Stripe owns is not rolled** (`stripe_subscription_id` is the discriminator). A closed one there
+    means a webhook has not arrived, and rolling it would invent a period Stripe did not grant. T20's.
+  - **The signing key is generated per process and held in memory**, because nothing verifies one of these
+    tokens yet — `/complete` takes a `jti` and resolves a row. It costs a restart invalidating at most 45
+    seconds of grants, and it means **a second instance signs with a second key**; the first verifier (T14) is
+    what has to turn it into configuration.
+  - **No `enforcement/domain` package yet**, though ADR-0012 sketches one: the decision is a status and two
+    numbers the same method has just read. T16's SafetyPolicy is the likeliest ticket to create it, and its
+    place in the order — after the quota, before the reservation — is marked in `RelistGate`.
 - Refs: [enforcement-contract.md](enforcement-contract.md), [ADR-0007](adr/0007-quota-enforcement.md).
 
 ### T14 · `POST /api/relist/complete` · **M** · T13
 - `SUCCESS`/`FAILED_AFTER_DELETE` → usage stands. `FAILED_BEFORE_DELETE` → refund.
 - Idempotent per `jti`; burns the `jti`.
 - **Returns updated `{ quotaRemaining, resetAt }`.**
+- **Nothing resolves a reservation until this exists**, so every unit T13 takes stays taken for the rest of the
+  period — which is also why T15 matters sooner rather than later.
+- **If it verifies the `authToken`** rather than trusting the `jti` alone, it is the first code to do so, and
+  the ticket that has to turn T13's per-process signing key into configuration.
 
 ### T15 · Reservation reconciliation job · **M** · T14
 Abandoned reservations auto-refund after a grace window; idempotent, safe to run concurrently.
 
 ### T16 · SafetyPolicy rate and pacing check · **M** · T13
 Per-User rate limits and pacing; `429 RATE_LIMITED` with `retryAfter`. Refs: [ADR-0008](adr/0008-safety-and-consent.md).
+- Its place in the order is already marked in `RelistGate`: **after** the quota check, so a user with nothing
+  left to spend is told that rather than told to wait, and **before** the reservation, so a refusal does not
+  cost the unit it refused. It is also the ticket most likely to want ADR-0012's `enforcement/domain` package,
+  which T13 did not create for want of a second reader.
 
 ### T17 · `GET /api/me` · **S** · T12
 Returns `{ subscriptionStatus, tier, quotaRemaining, resetAt, features }`. Unsigned, carries no authorization.

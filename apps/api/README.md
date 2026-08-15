@@ -1,17 +1,18 @@
 # `apps/api` — Spring Boot API
 
-Five modules and the build-time check that makes them mean something, the schema they will fill, the tier
-catalog seeded into it and what each of its tiers grants, the resource server every route is now closed
-behind, the account and subscription a first sign-in leaves behind, and the tests that hold `infra/`'s
-Keycloak realm to what it promises. Still no endpoint of its own — those arrive with the tickets named below.
+Five modules and the build-time check that makes them mean something, the schema they fill, the tier catalog
+seeded into it and what each of its tiers grants, the resource server every route is closed behind, the
+account and subscription a first sign-in leaves behind, and the tests that hold `infra/`'s Keycloak realm to
+what it promises. One endpoint so far — `POST /api/relist/authorize`, the gate — with the rest arriving on the
+tickets named below.
 
 ```bash
 cd apps/api
-./gradlew test      # 97 tests: the module boundary, the schema and catalog on a real Postgres, the realm,
-                    #           which tokens get past the resource server, what first login provisions, and
-                    #           what a tier grants whoever is on it
+./gradlew test      # 124 tests: the module boundary, the schema and catalog on a real Postgres, the realm,
+                    #            which tokens get past the resource server, what first login provisions, what
+                    #            a tier grants whoever is on it, and who may relist and what it costs them
 ./gradlew build     # the above, plus the executable jar
-./gradlew bootRun   # http://localhost:8080 — 401 without a token and 404 with one, bar the open route below
+./gradlew bootRun   # http://localhost:8080 — 401 without a token, and the gate below with one
 ```
 
 `bootRun` needs [the local stack](../../infra/README.md) up: it migrates `postgres://localhost:5432/mprelist`
@@ -65,14 +66,13 @@ Each is a direct sub-package of `com.mprelist`, which is what makes it an applic
 |---|---|---|
 | `identity` | who the caller is: `CurrentUser`, and `UserRef` for the account behind them | [#19](https://github.com/Shei254/marketplaats-extension/issues/19) — [below](#the-resource-server) — and [#20](https://github.com/Shei254/marketplaats-extension/issues/20) — [below](#first-login) |
 | `catalog` | Tier → Entitlement, from our table, no Stripe | `TierId` and `defaultTier()` with [#20](https://github.com/Shei254/marketplaats-extension/issues/20), `Entitlement` with [#21](https://github.com/Shei254/marketplaats-extension/issues/21) — [below](#what-a-tier-grants) |
-| `subscription` | the mirror of Stripe's status and period | [#20](https://github.com/Shei254/marketplaats-extension/issues/20) provisions the first one, [#30](https://github.com/Shei254/marketplaats-extension/issues/30) mirrors Stripe into it |
-| `enforcement` | `authorize` / `complete`, the gate | [#22](https://github.com/Shei254/marketplaats-extension/issues/22), [#23](https://github.com/Shei254/marketplaats-extension/issues/23) |
+| `subscription` | the mirror of Stripe's status and period | [#20](https://github.com/Shei254/marketplaats-extension/issues/20) provisions the first one, [#22](https://github.com/Shei254/marketplaats-extension/issues/22) reads and rolls its window — [below](#the-gate) — and [#30](https://github.com/Shei254/marketplaats-extension/issues/30) mirrors Stripe into it |
+| `enforcement` | `authorize` / `complete`, the gate | [#22](https://github.com/Shei254/marketplaats-extension/issues/22) — [below](#the-gate) — and [#23](https://github.com/Shei254/marketplaats-extension/issues/23) |
 | `admin` | operator endpoints behind the `ADMIN` role | [#27](https://github.com/Shei254/marketplaats-extension/issues/27) |
 
-`enforcement` and `admin` hold a single `package-info.java` carrying `@ApplicationModule` and nothing else.
-The annotation is not decoration: an empty package compiles to no class file at all, and a module Spring
-Modulith cannot see is a module it does not check. `allFiveModulesAreVisibleToTheCheck` is the test that says
-so.
+`admin` still holds a single `package-info.java` carrying `@ApplicationModule` and nothing else. The annotation
+is not decoration: an empty package compiles to no class file at all, and a module Spring Modulith cannot see
+is a module it does not check. `allFiveModulesAreVisibleToTheCheck` is the test that says so.
 
 A module's **sub-packages are internal to it** — `enforcement.internal.jpa` is reachable from `enforcement`
 and from nowhere else. That is the rule below enforces, and it is why ADR-0012 can promise Stripe and JPA stay
@@ -121,8 +121,8 @@ edit to `V1`.
 |---|---|---|
 | `app_user` | one row per human, keyed to the IdP `sub` (Keycloak's, today) | [#20](https://github.com/Shei254/marketplaats-extension/issues/20) — [below](#first-login) |
 | `tier` | our catalog: quota, max MP accounts, feature flags, nullable `stripe_price_id` | seeded by [#18](https://github.com/Shei254/marketplaats-extension/issues/18), read by [#20](https://github.com/Shei254/marketplaats-extension/issues/20) and [#21](https://github.com/Shei254/marketplaats-extension/issues/21) |
-| `subscription` | the mirror: user, tier, normalized status, period, Stripe ids | [#20](https://github.com/Shei254/marketplaats-extension/issues/20) writes the first row, [#30](https://github.com/Shei254/marketplaats-extension/issues/30) keeps it in step with Stripe |
-| `usage_reservation` | one quota unit, held from `authorize` until `complete` | [#22](https://github.com/Shei254/marketplaats-extension/issues/22), [#23](https://github.com/Shei254/marketplaats-extension/issues/23) |
+| `subscription` | the mirror: user, tier, normalized status, period, Stripe ids | [#20](https://github.com/Shei254/marketplaats-extension/issues/20) writes the first row, [#22](https://github.com/Shei254/marketplaats-extension/issues/22) rolls a free window that has closed, [#30](https://github.com/Shei254/marketplaats-extension/issues/30) keeps it in step with Stripe |
+| `usage_reservation` | one quota unit, held from `authorize` until `complete` | [#22](https://github.com/Shei254/marketplaats-extension/issues/22) takes one, [#23](https://github.com/Shei254/marketplaats-extension/issues/23) settles or refunds it |
 | `relist_event` | what the extension reported about a relist | [#23](https://github.com/Shei254/marketplaats-extension/issues/23) |
 
 **The reservation holds the quota unit, and the event does not.** An in-flight relist has to hold one — the
@@ -505,16 +505,11 @@ Thirty days would pass a test written as "about a month" while walking the reset
 month, and Postgres's own `interval '1 month'` is evaluated in the session's time zone, so two deployments
 would give the same account periods an hour apart across a DST boundary.
 
-**What is not here is the second period.** The row is written once and nothing advances it, so a free
-account's `period_end` is a month after provisioning and then stays in the past. ADR-0014 and the
-[contract](../../docs/enforcement-contract.md#quota-period) both say that window is *rolled* monthly, and
-this ticket provides the first one only. Deliberately: nothing reads `period_start`/`period_end` yet, and a
-roll with no reader is a mechanism whose first real exercise would be in production. It belongs to the first
-code that reads the window — [#22](https://github.com/Shei254/marketplaats-extension/issues/22)'s
-`authorize`, which counts usage in `[periodStart, periodEnd)` and is therefore the call that has to notice
-the window has closed rather than count against a closed one. Written down as that ticket's in
-[`docs/backlog.md`](../../docs/backlog.md), because a gap named in one file and owned by nobody is a gap
-found by a user.
+**The second period is not written here**, and for a while it was written nowhere. #20 provisions one window
+and nothing advanced it, so a free account's `period_end` sat in the past from its second month on. That was
+deferred on purpose — nothing read `period_start`/`period_end` yet, and a roll with no reader is a mechanism
+whose first real exercise would be in production — and it is now [the gate](#the-gate)'s, which is the first
+code to read the window and so the first that can notice it has closed.
 
 **Two first requests can be in flight at once** — the popup and the dashboard both waking after a sign-in —
 and the loser must join the winner's account rather than fail on `app_user_idp_subject_key`. `on conflict
@@ -546,6 +541,135 @@ refuses such a call before any resolver runs and the fixture brings an open one 
 One mutation is left surviving and said so: **narrowing `accountFor` to package-private**, for the reason two
 paragraphs up. It is left in the source rather than reverted, because the narrower method is the better one
 and the Spring behaviour it depends on is held by a test rather than by a convention.
+
+## The gate
+
+`POST /api/relist/authorize` is the first route this application ships, and the one thing between a user and a
+relist ([ADR-0007](../../docs/adr/0007-quota-enforcement.md),
+[the contract](../../docs/enforcement-contract.md)). The body is `{ "adId": "..." }` — no
+`marktplaatsAccountId`, which ADR-0007's 2026-08-13 refinement removed along with the `NOT_YOUR_ACCOUNT`
+denial it fed, because nothing in the extension can produce one and this backend could not verify it if it
+did. Quota is per user.
+
+```
+200  { "authToken": "<JWT>", "expiresAt": "…", "jti": "…" }   and one unit of quota is gone
+402  { "reason": "SUBSCRIPTION_INACTIVE" }                    a payer whose subscription stopped
+429  { "reason": "QUOTA_EXCEEDED", "resetAt": "…" }           the period's relists are spent
+401  { "reason": "UNAUTHENTICATED" }                          answered by the filter chain, never reached (#19)
+```
+
+**The checks run in the contract's order and the first failure wins**, which is a product decision rather than
+an implementation detail: a lapsed payer who is *also* out of quota is told their subscription lapsed, because
+that is the one of the two they can act on. The other way round they would be shown an upgrade prompt for a
+plan they are no longer paying for. `aLapsedPayerIsToldTheirSubscriptionStoppedRatherThanThatTheyAreOutOfQuota`
+arranges exactly that user, which is why it gives them a tier granting nothing.
+
+**Three modules meet here, and each answers only what it owns.** `subscription` says which tier the caller is
+on and when their window ends, `catalog` says what that tier grants, and the reservations are `enforcement`'s
+own. That is why the entitlement is resolved from a *tier* rather than from a user (#21): the gate is the one
+place that knows both halves.
+
+| Class | Module | Holds |
+|---|---|---|
+| `AuthorizeRelist` | `enforcement/internal` | the route, and the verdict → status mapping |
+| `RelistGate` | `enforcement/internal` | the checks, in order, and the transaction that makes them one decision |
+| `UsageReservations` | `enforcement/internal` | the `usage_reservation` table: what a period holds, and taking one |
+| `RelistAuthorizations` | `enforcement/internal` | the signed, ~45-second grant a `200` comes with |
+| `SubscriptionRows` | `subscription/internal` | the `subscription` table, the row lock, and the roll below |
+
+**Reading a quota and spending against it is one decision.** `Subscriptions.currentFor` reads the
+subscription `for update`, so the same user's second concurrent call — the popup and an injected button, or an
+impatient double-click — waits there and then counts the reservation the first one wrote. Two callers holding
+one unit between them cannot both be authorized. The lock is one row per user, so it costs nobody else
+anything. That promise is only kept inside a transaction, so `currentFor` is `@Transactional(MANDATORY)`: the
+gate's own `@Transactional` is then load-bearing rather than decorative, and dropping it fails 24 of the
+suite's 27 tests instead of quietly leaving the lock to be released one statement later.
+
+`theSubscriptionIsHeldForTheLengthOfTheCallSpendingAgainstIt` asserts the mechanism and
+`andTwoCallersHoldingOneUnitBetweenThemDoNotBothSpendIt` the property, both arranged rather than raced — this
+suite holds the row itself and waits until Postgres reports a backend blocked on a lock, which is #20's
+technique and for its reason: firing N callers and hoping proves nothing on the run where they do not overlap.
+
+**The unit is held, not recorded.** `authorize` inserts a `RESERVED` row before the extension has done
+anything, because the relist is about to become a *delete* on Marktplaats: a unit counted on the way back would
+leave an in-flight relist costing nothing and a crashed one costing nothing either. Usage in a period is
+therefore the reservations in it that were not refunded — `status <> 'REFUNDED'`, which is also the predicate
+of `usage_reservation_holding_a_unit`, so this read is what that index exists for. A refusal reserves nothing:
+a user out of quota would otherwise sink deeper into it by asking.
+
+**The window a free account is counted in is rolled here**, which is the half of ADR-0014's monthly roll #20
+deferred: it writes the first window and nothing advanced it, so from a free account's second month every
+relist would have been counted against a window that closed — permanently exhausting the account — and
+`resetAt` would have been a date in the past, which the popup would render as a cooldown that is already over.
+Rolled in `subscription` rather than in the gate, because it is that module's window and a caller that had to
+notice a closed one is a caller that can forget to.
+
+Two things about the roll are decisions:
+
+- **It anchors on the subscription's creation, not on the window it replaces.** Rolling from the stored start
+  re-anchors on whatever the last roll clamped to — an account provisioned on the 31st spends February on the
+  28th, and every month after that on the 28th — so the reset date walks earlier and never comes back. From the
+  anchor, February clamps and March returns to the 31st.
+- **A window Stripe owns is left alone.** A payer's period is copied from Stripe's own (#30), so a closed one
+  means a webhook has not arrived yet; rolling it would invent a period Stripe did not grant — a month's quota
+  to an annual plan every month, and a fresh one to a subscriber whose next webhook says `past_due`. Nothing is
+  purchasable until [#28](https://github.com/Shei254/marketplaats-extension/issues/28) and
+  [#29](https://github.com/Shei254/marketplaats-extension/issues/29), so no row can carry a Stripe subscription
+  today. The branch is asserted anyway, because the answer is a decision rather than a thing to discover the
+  first time somebody pays.
+
+**The authorization is signed, and the key is not yet configuration.** The token carries the four claims the
+contract names — `sub`, `adId`, `jti`, `exp` — where `sub` is our own `app_user` id rather than the IdP subject
+(we are its only reader, and every row in the schema is keyed by our id) and `jti` is the reservation, which is
+what makes it single-use without a table to burn it in: #23 settles the reservation the `jti` names, and
+`relist_event.reservation_id` is unique. The RSA key is generated per process and held in memory. **Nothing
+verifies one of these yet** — `/complete` takes a `jti` and resolves a row — so a configured key would be a
+secret to distribute and rotate in every environment before anything read it, and a development default would
+be the one that eventually shipped. What that costs is stated rather than discovered: a restart invalidates
+every grant still in flight, which is at most 45 seconds of them, and **a second instance would sign with a
+second key**. The first verifier is what turns this into configuration, and it is
+[#23](https://github.com/Shei254/marketplaats-extension/issues/23)'s to notice.
+
+Mutation-verified — each applied, observed, reverted:
+
+| Mutation | Fails |
+|---|---|
+| the subscription is read without `for update` | `theSubscriptionIsHeldForTheLengthOfTheCallSpendingAgainstIt`, `andTwoCallersHoldingOneUnitBetweenThemDoNotBothSpendIt` |
+| `@Transactional` is dropped from the gate | 24 of the 27 — `currentFor` is `MANDATORY`, so it refuses rather than running without one |
+| the status check is dropped | `aLapsedPayerIsToldTheirSubscriptionStoppedRatherThanThatTheyAreOutOfQuota` (+5) |
+| …or moved after the quota check | that same one, alone — which is what it is for |
+| `trialing` stops entitling its holder | `butATrialIsASubscriptionThatEntitlesItsHolder` |
+| the quota comparison is `>` rather than `>=` | `aSubscriberWhoHasSpentThePeriodsQuotaIsRefusedWithTheDateItComesBack` (+4) |
+| usage counts every reservation, refunds included | `aRefundedReservationIsNotOneTheyAreStillHolding` |
+| …or only the ones still open | `butASettledOneIs` |
+| usage is not bounded below by the period start | `andAUnitSpentBeforeThisPeriodBeganIsNotCountedInIt`, `aFreeWindowThatHasClosedIsRolledForwardBeforeUsageIsCountedInIt` |
+| …or is counted across every user | `andNorIsSomebodyElsesRelist` |
+| the unit is reserved before the checks rather than after them | 13, including both denials asserting they cost nothing |
+| a closed window is never rolled | `aFreeWindowThatHasClosedIsRolledForwardBeforeUsageIsCountedInIt` (+2) |
+| the roll anchors on the window it replaces | `andTheWindowItRollsIntoStartsOnTheDayTheAccountWasProvisioned` |
+| a window Stripe owns is rolled too | `butAWindowStripeOwnsIsLeftForItsWebhookToMove` |
+| the two denials swap statuses | `aLapsedPayerIsToldTheirSubscriptionStopped…` (+5) |
+| `@JsonInclude(NON_NULL)` is dropped from the refusal | that same one, on the `resetAt` a `402` must not carry |
+| a quota refusal carries no `resetAt` | `aSubscriberWhoHasSpentThePeriodsQuota…`, `andSoTheDateAQuotaComesBackIsNeverOneThatHasPassed` |
+| a request naming no ad is accepted | `aBodyNamingNoAdIsARequestThisApiCouldNotReadRatherThanADenial` |
+| the token's `jti` is a nonce of its own rather than the reservation | `andTheAuthorizationNamesTheCallerTheAdAndTheReservationItSpent` |
+| …or the token does not name the ad it authorizes | the same one |
+| the authorization lasts 45 minutes rather than 45 seconds | `andExpiresSoonEnoughThatOneCannotBeSavedForLater` |
+
+One mutation survives and is left surviving: **the reservation's `reserved_at` left to the column's `now()`
+default** rather than passed from the gate. The two clocks — this application's and the database's — are the
+same machine in every environment this has ever run in, so nothing here can tell them apart. It is passed
+anyway because the instant a row is counted at should be the instant the gate compared against the period it
+counted in, and the row that falls outside the window it was authorized against is the one nobody would find.
+
+**Not here, and each named where it goes.** #25's SafetyPolicy check has its place in `RelistGate` marked, in
+the one position that is right: after the quota, so a user with nothing left is told so rather than told to
+wait, and before the reservation, so a refusal does not cost the unit it refused. #23's `/complete` is what
+resolves the reservations this takes — until it exists, every unit spent here stays spent, and #24's
+reconciliation of abandoned ones is what makes that survivable in the meantime. ADR-0012 also sketches an
+`enforcement/domain` package for pure decision logic; there is none, because the decision is a status and two
+numbers the same method has just read, and the ticket that gives it a second reader is the one that should
+create it.
 
 ## The realm
 
@@ -677,11 +801,20 @@ Two mutations survive and are left surviving:
 
 ## Not here yet
 
-The endpoints of [`docs/enforcement-contract.md`](../../docs/enforcement-contract.md)
-([#22](https://github.com/Shei254/marketplaats-extension/issues/22),
-[#23](https://github.com/Shei254/marketplaats-extension/issues/23),
-[#26](https://github.com/Shei254/marketplaats-extension/issues/26)) — nothing yet *reads* the
-[entitlement](#what-a-tier-grants) resolved above, and #22's gate is what first will.
+**The rest of the endpoints** of [`docs/enforcement-contract.md`](../../docs/enforcement-contract.md):
+`POST /api/relist/complete` ([#23](https://github.com/Shei254/marketplaats-extension/issues/23)), which
+settles or refunds the reservations [the gate](#the-gate) takes and is the breakage canary that contract
+exists for; `GET /api/me` ([#26](https://github.com/Shei254/marketplaats-extension/issues/26)), the display
+state both clients read after signing in; and `GET /api/client-config`
+([#36](https://github.com/Shei254/marketplaats-extension/issues/36)).
+
+**The SafetyPolicy check** ([#25](https://github.com/Shei254/marketplaats-extension/issues/25)), whose place
+in the order the gate marks. A quota is a number per period and not a number per minute, so a month's worth
+spent in one is refused by nothing here today.
+
+**Reconciliation of abandoned reservations**
+([#24](https://github.com/Shei254/marketplaats-extension/issues/24)). Until #23 exists nothing resolves a
+reservation at all, so every unit the gate takes stays taken for the rest of the period.
 
 **What a tier is called, and what it costs.** `TierCatalog` answers what a tier grants and nothing about how
 to show or sell it: the display name arrives with
@@ -689,11 +822,6 @@ to show or sell it: the display name arrives with
 `stripe_price_id` with [#29](https://github.com/Shei254/marketplaats-extension/issues/29), which opens the
 Checkout session that needs it — no tier carries one until
 [#28](https://github.com/Shei254/marketplaats-extension/issues/28) creates the Prices by hand.
-
-**The roll that gives a free account its second quota period**, which
-[#22](https://github.com/Shei254/marketplaats-extension/issues/22) owns for the reason under
-[First login](#first-login): the first subscription is provisioned with a one-month window and nothing here
-advances it.
 
 Gradle, not npm, and so deliberately **not** an npm workspace — the root scripts skip a directory with no
 `package.json`, and CI will run `./gradlew` here separately once this repo has CI. Both are covered in

@@ -6,10 +6,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
-import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.file.Files;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
@@ -18,8 +16,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
@@ -68,6 +64,13 @@ import tools.jackson.databind.json.JsonMapper;
 @Import({ PostgresFromCompose.class, ResourceServerTest.ProbeRoutes.class })
 class ResourceServerTest {
 
+	/**
+	 * Started in a field initialiser rather than in a {@code @BeforeAll}, which is how every other fixture in
+	 * this suite starts what it needs: {@link DynamicPropertySource} runs while the context is being built,
+	 * which is before any lifecycle callback, and the issuer has to be serving by then or the property it
+	 * registers names a port nothing answers on. Stopped in {@link #stopServingKeys()}, where the pairing is
+	 * ordinary again.
+	 */
 	private static final MintedTokens IDP = MintedTokens.servingItsKeys();
 
 	@DynamicPropertySource
@@ -439,29 +442,17 @@ class ResourceServerTest {
 	// --- the calls themselves ---------------------------------------------------------------------------
 
 	private HttpResponse<String> get(String path, String token) {
-		return send(request(path, token).GET());
+		return Http.send(request(path, token).GET().build());
 	}
 
 	private HttpResponse<String> post(String path, String token) {
-		return send(request(path, token).POST(HttpRequest.BodyPublishers.noBody()));
+		return Http.send(request(path, token).POST(HttpRequest.BodyPublishers.noBody()).build());
 	}
 
 	private HttpRequest.Builder request(String path, String token) {
-		HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("http://localhost:" + this.port + path));
+		HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("http://localhost:" + this.port + path))
+				.timeout(Duration.ofSeconds(20));
 		return token == null ? request : request.header("Authorization", "Bearer " + token);
-	}
-
-	private static HttpResponse<String> send(HttpRequest.Builder request) {
-		try {
-			return HTTP.send(request.timeout(Duration.ofSeconds(20)).build(), HttpResponse.BodyHandlers.ofString());
-		}
-		catch (IOException unreachable) {
-			throw new UncheckedIOException("The application under test did not answer", unreachable);
-		}
-		catch (InterruptedException interrupted) {
-			Thread.currentThread().interrupt();
-			throw new IllegalStateException(interrupted);
-		}
 	}
 
 	private static JsonNode json(HttpResponse<String> response) {
@@ -474,13 +465,7 @@ class ResourceServerTest {
 
 	/** A value out of {@code application.yml}'s own text, which is the copy this suite does not override. */
 	private static String configured(String key) {
-		Matcher found = Pattern.compile("^\\s*" + Pattern.quote(key) + ":\\s*(\\S+)\\s*$", Pattern.MULTILINE)
-				.matcher(applicationYaml());
-		if (!found.find()) {
-			throw new IllegalStateException("No " + key + " in application.yml, which this test reads to hold it "
-					+ "and the local stack in step");
-		}
-		return found.group(1);
+		return YamlSetting.in(applicationYaml(), key, "application.yml");
 	}
 
 	private static String applicationYaml() {
@@ -494,7 +479,7 @@ class ResourceServerTest {
 
 	/** Every {@code aud} the realm file's audience mappers put into a token. */
 	private static Set<String> audiencesTheRealmsMappersWrite() {
-		JsonNode realm = JSON.readTree(realmFile());
+		JsonNode realm = JSON.readTree(InfraFiles.textOf(InfraFiles.keycloakRealm()));
 		return realm.get("clients").valueStream()
 				.flatMap(client -> client.path("protocolMappers").valueStream())
 				.filter(mapper -> "oidc-audience-mapper".equals(mapper.path("protocolMapper").asString()))
@@ -502,32 +487,21 @@ class ResourceServerTest {
 				.collect(toCollection(LinkedHashSet::new));
 	}
 
-	private static String realmFile() {
-		try {
-			return Files.readString(InfraFiles.keycloakRealm());
-		}
-		catch (IOException unreadable) {
-			throw new UncheckedIOException("Cannot read " + InfraFiles.keycloakRealm(), unreadable);
-		}
-	}
-
 	@LocalServerPort
 	private int port;
 
-	static final String CALLER = "/probe/caller";
+	private static final String CALLER = "/probe/caller";
 
-	static final String ANONYMOUS = "/probe/anonymous";
+	private static final String ANONYMOUS = "/probe/anonymous";
 
-	static final String ANONYMOUS_CALLER = ANONYMOUS + "/caller";
+	private static final String ANONYMOUS_CALLER = ANONYMOUS + "/caller";
 
-	static final String ANONYMOUS_SERVED = ANONYMOUS + "/served";
+	private static final String ANONYMOUS_SERVED = ANONYMOUS + "/served";
 
 	private static final String NO_SUCH_ROUTE = "/no-ticket-has-written-this-one";
 
 	/** Spring Security 7's record of how the caller authenticated; no guard in this repository asks for it. */
 	private static final String BEARER_FACTOR = "FACTOR_BEARER";
-
-	private static final HttpClient HTTP = HttpClient.newHttpClient();
 
 	private static final JsonMapper JSON = JsonMapper.builder().build();
 

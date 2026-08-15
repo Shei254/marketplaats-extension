@@ -1,9 +1,5 @@
 package com.mprelist;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -40,25 +36,12 @@ final class ComposeFile {
 	 * @param key the setting exactly as compose spells it
 	 */
 	static String setting(String key) {
-		Matcher value = Pattern.compile("^\\s*" + Pattern.quote(key) + ":\\s*(\\S+)\\s*$", Pattern.MULTILINE)
-				.matcher(text());
-		if (!value.find()) {
-			throw new IllegalStateException(InfraFiles.composeFile() + " no longer sets " + key + ", which the "
-					+ "tests read to hold it and this application's configuration in step");
-		}
-		return value.group(1);
+		return YamlSetting.in(text(), key, InfraFiles.composeFile().toString());
 	}
 
 	/** The file's own text, for the few assertions whose subject is how the stack is wired rather than a tag. */
 	static String text() {
-		Path compose = InfraFiles.composeFile();
-		try {
-			return Files.readString(compose);
-		}
-		catch (IOException failed) {
-			throw new UncheckedIOException("Cannot read " + compose + ", which names the containers these tests run",
-					failed);
-		}
+		return InfraFiles.textOf(InfraFiles.composeFile());
 	}
 
 	private ComposeFile() {

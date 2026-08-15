@@ -1,5 +1,7 @@
 package com.mprelist;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -22,6 +24,21 @@ final class InfraFiles {
 	/** The realm {@link KeycloakFromCompose} imports, mounted into a container rather than read here. */
 	static Path keycloakRealm() {
 		return repositoryRoot().resolve("infra/keycloak/mprelist-realm.json");
+	}
+
+	/**
+	 * The text of one of the files above. Here rather than at each caller because the failure is the part
+	 * worth writing once: these are read out of the working tree, so a file that moved has to say which one
+	 * it was rather than arrive as a bare {@code NoSuchFileException} from somewhere inside a test.
+	 */
+	static String textOf(Path file) {
+		try {
+			return Files.readString(file);
+		}
+		catch (IOException unreadable) {
+			throw new UncheckedIOException("Cannot read " + file + ", which this suite reads out of the working tree "
+					+ "rather than off the classpath", unreadable);
+		}
 	}
 
 	/**

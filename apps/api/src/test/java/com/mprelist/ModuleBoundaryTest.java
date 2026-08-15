@@ -20,10 +20,15 @@ class ModuleBoundaryTest {
 	}
 
 	/**
-	 * No module references another at all today, so the check above cannot fail for the right reason yet — and
-	 * a check that cannot fail is indistinguishable from one that has stopped working. This points the same
-	 * verification at a fixture built to be caught: a failure above means the layout is broken, a failure
-	 * here means the check is.
+	 * The check above passes, and a check that passes is indistinguishable from one that has stopped working
+	 * until something is written for it to catch — which is not a thing to write on purpose in {@code main}.
+	 * This points the same verification at a fixture built to be caught instead: a failure above means the
+	 * layout is broken, a failure here means the check is.
+	 *
+	 * <p>Worth more since #20, not less. There are real inter-module references now — {@code subscription}
+	 * reads {@code identity}'s {@code UserProvisioned} and {@code catalog}'s {@code TierCatalog} — so the
+	 * check above has something to be right about, and this is what says it would notice one of them reaching
+	 * a package deeper.
 	 */
 	@Test
 	void andTheCheckAboveIsWhatWouldCatchOneThatDid() {

@@ -7,9 +7,9 @@ package com.mprelist.identity;
  *
  * <p>It carries the IdP's subject rather than a row of ours, and it is named for the role rather than for
  * Keycloak, for the reason {@code app_user.idp_subject} is (ADR-0009 wants the IdP replaceable, and the
- * cheapest way to make it permanent is to spell the vendor into everything that touches it). {@code UserRef}
- * — the other half of this module's public API in ADR-0012 — is #20's: it references an {@code app_user} row,
- * and until first login provisions one there is no row for it to name.
+ * cheapest way to make it permanent is to spell the vendor into everything that touches it). {@link UserRef}
+ * — the other half of this module's public API in ADR-0012 — is the account behind that subject, and a
+ * handler that has to store something asks for it instead. Declaring this one touches no database at all.
  *
  * <p>The token's realm roles are deliberately <em>not</em> a field here. They become Spring Security
  * authorities instead, because the only thing that reads them is a declarative guard on a route

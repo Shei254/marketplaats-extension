@@ -2,12 +2,9 @@ package com.mprelist;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
-import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.security.MessageDigest;
@@ -130,7 +127,7 @@ final class KeycloakFromCompose implements AutoCloseable {
 	 * when it does not, and which of the two happens is itself the subject of some of these tests.
 	 */
 	HttpResponse<String> authorizationRequest(String clientId, String redirectUri, Map<String, String> parameters) {
-		return send(HttpRequest.newBuilder(URI.create(authorizationUrl(clientId, redirectUri, parameters)))
+		return Http.send(HttpRequest.newBuilder(URI.create(authorizationUrl(clientId, redirectUri, parameters)))
 				.GET().build());
 	}
 
@@ -154,7 +151,7 @@ final class KeycloakFromCompose implements AutoCloseable {
 	 * or answers a 400 page is exactly what says which URIs the client will return a browser to.
 	 */
 	HttpResponse<String> logout(String idToken, String postLogoutRedirectUri) {
-		return send(HttpRequest.newBuilder(URI.create(realmUrl("/protocol/openid-connect/logout?"
+		return Http.send(HttpRequest.newBuilder(URI.create(realmUrl("/protocol/openid-connect/logout?"
 				+ encode(Map.of("id_token_hint", idToken, "post_logout_redirect_uri", postLogoutRedirectUri)))))
 				.GET().build());
 	}
@@ -163,7 +160,7 @@ final class KeycloakFromCompose implements AutoCloseable {
 	HttpResponse<String> tokenRequest(Map<String, String> fields, Map<String, String> headers) {
 		HttpRequest.Builder request = formRequest(realmUrl("/protocol/openid-connect/token"), fields);
 		headers.forEach(request::header);
-		return send(request.build());
+		return Http.send(request.build());
 	}
 
 	/** The claims of the access token a full sign-in mints. */
@@ -192,11 +189,11 @@ final class KeycloakFromCompose implements AutoCloseable {
 		String verifier = randomVerifier();
 		Cookies cookies = new Cookies();
 
-		HttpResponse<String> loginPage = send(cookies.on(HttpRequest.newBuilder(URI.create(authorizationUrl(
+		HttpResponse<String> loginPage = Http.send(cookies.on(HttpRequest.newBuilder(URI.create(authorizationUrl(
 				EXTENSION_CLIENT, EXTENSION_REDIRECT_URI, s256(challengeFor(verifier))))).GET()).build());
 		cookies.harvest(loginPage);
 
-		HttpResponse<String> submitted = send(cookies
+		HttpResponse<String> submitted = Http.send(cookies
 				.on(formRequest(loginFormAction(loginPage.body()), Map.of("username", username, "password", password)))
 				.build());
 		String location = submitted.headers().firstValue("location")
@@ -327,23 +324,7 @@ final class KeycloakFromCompose implements AutoCloseable {
 		}
 	}
 
-	private static HttpResponse<String> send(HttpRequest request) {
-		try {
-			return SHARED.send(request, HttpResponse.BodyHandlers.ofString());
-		}
-		catch (IOException failed) {
-			throw new UncheckedIOException("Cannot reach " + request.uri(), failed);
-		}
-		catch (InterruptedException interrupted) {
-			Thread.currentThread().interrupt();
-			throw new IllegalStateException("Interrupted waiting for " + request.uri(), interrupted);
-		}
-	}
-
 	private final GenericContainer<?> container;
-
-	/** Redirects are never followed: a redirect is the answer these tests read, not a step on the way to it. */
-	private static final HttpClient SHARED = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
 
 	private static final JsonMapper JSON = JsonMapper.builder().build();
 

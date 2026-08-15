@@ -72,6 +72,12 @@ dependencies {
     // that needs a command, an env var and a file, all of which GenericContainer already takes. Declared
     // rather than left transitive through -postgresql: this suite uses it directly.
     testImplementation("org.testcontainers:testcontainers")
+    // Awaitility, for the one test that arranges a race rather than running one: it waits until Postgres
+    // reports a backend blocked on a lock before committing the row that backend is blocked on. Declared
+    // for the same reason as the line above — FirstLoginProvisioningTest imports `Awaitility.await`
+    // directly, and it arrives only transitively through -starter-test today. Boot's BOM manages the
+    // version, so there is none to state here.
+    testImplementation("org.awaitility:awaitility")
     testImplementation(boundaryFixture.output)
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

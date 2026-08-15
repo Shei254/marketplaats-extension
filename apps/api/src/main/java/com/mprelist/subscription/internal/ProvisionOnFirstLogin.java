@@ -8,7 +8,9 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 
 import com.mprelist.catalog.TierCatalog;
+import com.mprelist.catalog.TierId;
 import com.mprelist.identity.UserProvisioned;
+import com.mprelist.identity.UserRef;
 
 /**
  * The half of first login that makes ADR-0014's "no subscription is unreachable" true: an account is created
@@ -38,7 +40,11 @@ class ProvisionOnFirstLogin {
 	 * fired twice for one account — a bug in provisioning, which should be loud.
 	 */
 	@EventListener
-	void onlyEverOnce(UserProvisioned account) {
+	void subscribeOnTheDefaultTier(UserProvisioned provisioned) {
+		// Both named at their own type before the insert takes them, because from `params` on they are two
+		// positional uuids and a pair of those swapped is a subscription belonging to a tier.
+		UserRef account = provisioned.user();
+		TierId defaultTier = this.tiers.defaultTier();
 		// The clock is read once, so period_start is when the account was provisioned and period_end is a
 		// month after that same instant rather than after a second reading of `now()`.
 		OffsetDateTime provisionedAt = OffsetDateTime.now(ZoneOffset.UTC);
@@ -46,7 +52,7 @@ class ProvisionOnFirstLogin {
 				insert into subscription (app_user_id, tier_id, status, period_start, period_end)
 				values (?, ?, 'active', ?, ?)
 				""")
-				.params(account.user().id(), this.tiers.defaultTier().id(), provisionedAt,
+				.params(account.id(), defaultTier.id(), provisionedAt,
 						// A calendar month, not thirty days: `resetAt` is what the popup shows and a window
 						// that drifts a day earlier every month is a window nobody can plan around. In UTC and
 						// in Java rather than as Postgres's `interval '1 month'`, which is evaluated in the

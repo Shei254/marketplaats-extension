@@ -19,8 +19,8 @@ preserving ADR-0009's no-lock-in goal.
 
 ```
 com.mprelist
-├── identity/       public: UserRef, CurrentUser
-├── catalog/        public: TierId, Entitlement
+├── identity/       public: UserRef, CurrentUser, UserProvisioned
+├── catalog/        public: TierId, TierCatalog, Entitlement
 ├── subscription/   public: SubscriptionStatus
 │   └── internal/stripe/          ◀ adapter
 ├── enforcement/    public: /authorize, /complete
@@ -28,6 +28,15 @@ com.mprelist
 │   └── internal/jpa/             ◀ adapter
 └── admin/
 ```
+
+Those lists are the whole of what each module lets another see, so **a ticket that adds to one amends them
+here**. The boundary check enforces that `internal/` stays private; what it cannot enforce is whether a type
+*should* have been made public, and a list kept only in the code is one where that decision is taken by
+whoever happened to write the class. Amended in #20: `identity` publishes `UserProvisioned` so that
+`subscription` can listen for a new account rather than `identity` calling it — the dependency would
+otherwise point from the module everything depends on towards one that depends on it — and `catalog` exposes
+`TierCatalog`, because `defaultTier()` is the one question provisioning has to ask of a table no other module
+may read. `Entitlement` is still #21's, and goes on that same interface.
 
 Build tool **Gradle**, **Java 21**, migrations via **Flyway** — closing the corresponding open build
 question in `enforcement-contract.md`.

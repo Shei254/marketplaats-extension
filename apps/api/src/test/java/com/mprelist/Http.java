@@ -10,9 +10,10 @@ import java.net.http.HttpResponse;
  * The client this suite calls out with, and the one place the checked exceptions of {@code HttpClient.send}
  * become unchecked ones.
  *
- * <p>Two fixtures drive HTTP directly — {@link KeycloakFromCompose} against a container it started,
- * {@link ResourceServerTest} against the application on a real port — and the arm worth having once is the
- * {@link InterruptedException} one, which has to put the flag back rather than swallow it.
+ * <p>Three fixtures drive HTTP directly — {@link KeycloakFromCompose} against a container it started,
+ * {@link ResourceServerTest} and {@link FirstLoginProvisioningTest} against the application on a real port —
+ * and the arm worth having once is the {@link InterruptedException} one, which has to put the flag back
+ * rather than swallow it.
  *
  * <p>Redirects are never followed. A redirect is an answer these tests read rather than a step on the way to
  * one: Keycloak states half of its refusals through the redirect URI, and which of the two ways it refuses is

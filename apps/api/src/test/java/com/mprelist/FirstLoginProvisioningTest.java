@@ -157,6 +157,34 @@ class FirstLoginProvisioningTest {
 	}
 
 	/**
+	 * And the invariant as a property of the table rather than of one row at a time: whichever path a request
+	 * took — a subject seen for the first time, one coming back, a second person — {@code app_user} is left
+	 * holding nobody without a subscription.
+	 *
+	 * <p>The tests above each assert what one call left behind, which is the weaker thing: they would all
+	 * still pass if some later path through {@link UserRef} resolution handed back an account it had not
+	 * subscribed, because none of them looks at the accounts it did not create. This is the shape of assertion
+	 * that would not. The count beside it is what stops it passing vacuously — an empty table also holds no
+	 * account without a subscription, and a {@code signIn} that had quietly stopped provisioning anything at
+	 * all would otherwise read as green.
+	 *
+	 * <p>Not an {@code @AfterEach} over the whole file, though it reads like one:
+	 * {@link #andASubjectClaimedWhileTheCallWasInFlightJoinsThatAccount} claims a row on a connection of this
+	 * suite's own, standing in for another request that would have subscribed it — so the state this forbids
+	 * is exactly what that fixture exists to leave behind.
+	 */
+	@Test
+	void andNoAccountIsLeftWithoutOneWhicheverWayItWasReached() {
+		String comingBack = somebodyNew();
+		signIn(comingBack);
+		signIn(comingBack);
+		signIn(somebodyNew());
+
+		assertThat(accountsWithNoSubscription()).isEmpty();
+		assertThat(accounts()).isEqualTo(2);
+	}
+
+	/**
 	 * Two of the same person's first requests can be in flight at once — the popup and the dashboard waking
 	 * together after a sign-in — and the one that reaches the insert second has to join the account the first
 	 * created rather than fail on {@code app_user_idp_subject_key} on its very first call.
@@ -356,6 +384,15 @@ class FirstLoginProvisioningTest {
 
 	private List<Map<String, Object>> subscriptions() {
 		return this.db.queryForList("select app_user_id, tier_id, status from subscription");
+	}
+
+	/** The state ADR-0014 rules out, asked for directly rather than inferred from a row that is there. */
+	private List<UserRef> accountsWithNoSubscription() {
+		return this.db.queryForList("""
+				select account.id from app_user account
+				left join subscription on subscription.app_user_id = account.id
+				where subscription.id is null
+				""", UUID.class).stream().map(UserRef::new).toList();
 	}
 
 	private Map<String, Object> theOnlySubscription() {

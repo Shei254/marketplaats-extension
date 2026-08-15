@@ -190,6 +190,10 @@ Every User gets a Subscription on the `is_default` tier, status `active`, with a
 - The period is a **calendar month from provisioning**, computed once in UTC in Java rather than as Postgres's
   `interval '1 month'`, which is evaluated in the session's time zone. Thirty days would walk the reset date a
   day earlier every month, and `resetAt` is a thing a user plans around.
+- **Only the first period, though — the roll is deferred to T13.** This ticket writes one window and nothing
+  advances it, so from a free account's second month on its `period_end` sits in the past. Nothing reads
+  `period_start`/`period_end` yet, and a roll with no reader is a mechanism whose first real exercise would be
+  in production; T13 is the first code to read the window and is where it is now owned.
 - Two of the same person's first requests can be in flight at once, so the insert is
   `on conflict (idp_subject) do nothing` followed by a select: the loser waits and joins the winner's account
   rather than failing on the unique index on its very first call.
@@ -210,6 +214,11 @@ Resolve quota, max accounts and feature flags from our table. **No Stripe depend
 - Body is `{ adId }` — **no `marktplaatsAccountId`, no `NOT_YOUR_ACCOUNT`**.
 - Verdict → HTTP mapping and typed reason codes per the contract.
 - Tested at the HTTP boundary (`@SpringBootTest` + MockMvc), state arranged as data.
+- **Rolling a free subscription's quota period is this ticket's**, deferred here by T11. T11 provisions the
+  first window and nothing advances it. This is the first code to read `[periodStart, periodEnd)`, so it is
+  where a window that has closed has to be rolled forward — in whole calendar months from the provisioning
+  date, so the reset day does not walk — before usage is counted against it. Until it is, `resetAt` stops
+  being answerable for free users the month after they sign up, which the contract says it always is.
 - Refs: [enforcement-contract.md](enforcement-contract.md), [ADR-0007](adr/0007-quota-enforcement.md).
 
 ### T14 · `POST /api/relist/complete` · **M** · T13

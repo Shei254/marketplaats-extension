@@ -21,9 +21,9 @@ import com.mprelist.identity.UserRef;
 @Service
 class AppUsers {
 
-	AppUsers(JdbcClient db, ApplicationEventPublisher provisioned) {
+	AppUsers(JdbcClient db, ApplicationEventPublisher events) {
 		this.db = db;
-		this.provisioned = provisioned;
+		this.events = events;
 	}
 
 	/**
@@ -68,7 +68,7 @@ class AppUsers {
 							+ "flight")));
 		}
 		UserRef account = new UserRef(claimed.get());
-		this.provisioned.publishEvent(new UserProvisioned(account));
+		this.events.publishEvent(new UserProvisioned(account));
 		return account;
 	}
 
@@ -81,6 +81,6 @@ class AppUsers {
 
 	private final JdbcClient db;
 
-	private final ApplicationEventPublisher provisioned;
+	private final ApplicationEventPublisher events;
 
 }

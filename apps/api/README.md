@@ -214,20 +214,24 @@ A Keycloak access token is the only way in (ADR-0005), and **every route is clos
 until that ticket opens it rather than open until somebody notices. This ticket adds no route of its own:
 `identity` answers no request, it decides who is asking.
 
-Two files hold it, both in `identity/internal` because everything that knows how Keycloak spells a claim is an
+Four files hold it, all in `identity/internal` because everything that knows how Keycloak spells a claim is an
 adapter ADR-0012 wants replaceable:
 
 | Class | Holds |
 |---|---|
 | `ResourceServerSecurity` | the filter chain, the realm-role → authority conversion, and the `401` body |
+| `TokenOnThisRequest` | the validated token this request arrived with, or the refusal — the one guard both resolvers below fail closed through |
 | `CurrentUserFromToken` | the argument resolver that makes `CurrentUser` a parameter any controller can declare |
+| `UserRefFromToken` | the resolver beside it for `UserRef`, and so the moment [first login](#first-login) provisions an account |
 
-`CurrentUser` — the module's public API, and for now the whole of it — carries the token's `sub` and nothing
-else. `UserRef` waits for [#20](https://github.com/Shei254/marketplaats-extension/issues/20), which is what
-first provisions the `app_user` row such a reference would name. Roles are deliberately not a field on it:
-they become Spring Security authorities (`ADMIN` → `ROLE_ADMIN`), because the only thing that reads them is a
-declarative guard on a route ([#27](https://github.com/Shei254/marketplaats-extension/issues/27)'s
-`hasRole('ADMIN')`), and a second copy is a second thing that can disagree with the one the guard consults.
+The last of those arrived with [#20](https://github.com/Shei254/marketplaats-extension/issues/20); the first
+three are this ticket's. `CurrentUser` carries the token's `sub` and nothing else, which is the whole of what
+a handler needs when it only has to know who is calling — `UserRef` beside it names our own `app_user` row,
+and the table under [First login](#first-login) is where the choice between them is set out. Roles are
+deliberately not a field on either: they become Spring Security authorities (`ADMIN` → `ROLE_ADMIN`), because
+the only thing that reads them is a declarative guard on a route
+([#27](https://github.com/Shei254/marketplaats-extension/issues/27)'s `hasRole('ADMIN')`), and a second copy
+is a second thing that can disagree with the one the guard consults.
 
 A controller in any module therefore reads:
 
@@ -349,7 +353,11 @@ audience (`admin-cli`): `401`, `The aud claim is not valid`. With one byte of th
 
 ADR-0014 requires that **every user always has a Subscription** — the free tier is an ordinary `tier` row, a
 new account lands on it `active`, and no code anywhere asks "is this user free?". `FirstLoginProvisioningTest`
-is where that is held.
+is where that is held — twice over, and the pair is the point:
+`aCatalogWithNoDefaultTierProvisionsNobodyAtAll` takes the one path where it could break, and
+`andNoAccountIsLeftWithoutOneWhicheverWayItWasReached` asserts the property itself, that no `app_user` is
+left without a `subscription` whichever way the row was reached. A test per path only ever covers the paths
+that existed when it was written.
 
 **There is no login to hang it off.** This application is a resource server; nobody signs in *to* it. So
 "first login" is the first request carrying a `sub` that `app_user` has never seen, and provisioning happens
@@ -410,6 +418,17 @@ period to copy, so this is what makes `resetAt` answerable for everybody (ADR-00
 Thirty days would pass a test written as "about a month" while walking the reset date a day earlier every
 month, and Postgres's own `interval '1 month'` is evaluated in the session's time zone, so two deployments
 would give the same account periods an hour apart across a DST boundary.
+
+**What is not here is the second period.** The row is written once and nothing advances it, so a free
+account's `period_end` is a month after provisioning and then stays in the past. ADR-0014 and the
+[contract](../../docs/enforcement-contract.md#quota-period) both say that window is *rolled* monthly, and
+this ticket provides the first one only. Deliberately: nothing reads `period_start`/`period_end` yet, and a
+roll with no reader is a mechanism whose first real exercise would be in production. It belongs to the first
+code that reads the window — [#22](https://github.com/Shei254/marketplaats-extension/issues/22)'s
+`authorize`, which counts usage in `[periodStart, periodEnd)` and is therefore the call that has to notice
+the window has closed rather than count against a closed one. Written down as that ticket's in
+[`docs/backlog.md`](../../docs/backlog.md), because a gap named in one file and owned by nobody is a gap
+found by a user.
 
 **Two first requests can be in flight at once** — the popup and the dashboard both waking after a sign-in —
 and the loser must join the winner's account rather than fail on `app_user_idp_subject_key`. `on conflict
@@ -578,6 +597,11 @@ The Tier → Entitlement resolution that reads the catalog above
 ([#22](https://github.com/Shei254/marketplaats-extension/issues/22),
 [#23](https://github.com/Shei254/marketplaats-extension/issues/23),
 [#26](https://github.com/Shei254/marketplaats-extension/issues/26)).
+
+**The roll that gives a free account its second quota period**, which
+[#22](https://github.com/Shei254/marketplaats-extension/issues/22) owns for the reason under
+[First login](#first-login): the first subscription is provisioned with a one-month window and nothing here
+advances it.
 
 Gradle, not npm, and so deliberately **not** an npm workspace — the root scripts skip a directory with no
 `package.json`, and CI will run `./gradlew` here separately once this repo has CI. Both are covered in

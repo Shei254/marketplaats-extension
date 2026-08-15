@@ -146,6 +146,25 @@ Flyway seed: Free (default, null price), Pro, Power. Stripe price ids filled fro
 - Keycloak JWT validation; `CurrentUser` resolved from the token.
 - Test tokens for the test suite; no live IdP in tests.
 - `401 UNAUTHENTICATED` shape matches the contract.
+- **Decided in #19:** the decoder is *configuration* — `issuer-uri` and `audiences` in `application.yml` —
+  so what checks the signature, issuer, expiry and audience is code that is not in this repository, and the
+  tests mint tokens rather than reading settings back. The **audience is the check the issuer is not**: every
+  client in the realm shares an issuer and a signing key, so without it the dashboard's own token, or
+  `account`'s, would be one this API accepts. Every route is closed by default and not merely `/api/**`, so
+  a route a later ticket writes is shut until that ticket opens it. `CurrentUser` carries the token's `sub`
+  and nothing else: `UserRef` waits for T11, which provisions the row it would name, and roles become
+  Spring Security authorities rather than a field, because the only reader is T18's declarative
+  `hasRole('ADMIN')`. It is delivered by an argument resolver rather than `@AuthenticationPrincipal`, so no
+  other module imports Spring Security to learn who is calling — and so that an anonymous request is refused
+  instead of binding null and running the handler.
+- One route is open and it is **not ours**: Spring Security 7 publishes RFC 9728 protected-resource metadata
+  at `/.well-known/oauth-protected-resource` and permits it. Found by curling the running application, now
+  pinned by a test — it discloses the caller's own base URL and names no authorization server.
+- **`sub` is the one claim configuration does not buy**, so it is the one this module checks itself: a token
+  can pass signature, issuer, expiry and audience and still name nobody. It is refused while that is still
+  authentication, not in the argument resolver — which runs only for routes that ask who is calling, and would
+  therefore leave every other route admitting a caller the API cannot name, `hasRole('ADMIN')` included.
+  Keycloak always writes `sub`, so the point is that the answer is decided rather than discovered.
 
 ### T11 · Auto-provision a Subscription on first login · **M** · T08, T10
 Every User gets a Subscription on the `is_default` tier, status `active`, with a period.

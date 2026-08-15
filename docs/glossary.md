@@ -23,6 +23,7 @@ Domain terms for the Marktplaats relisting extension. Kept current as the design
 | **CSRF/session token** | A token Marktplaats may require on internal write calls; replaying it correctly is an open POC spike. |
 
 | **User (App account)** | An identity in our product, issued by Keycloak. One human = one User. Separate from any Marktplaats account. |
+| **CurrentUser** | The caller of the request being handled, resolved from the validated access token: the IdP subject and nothing else. Distinct from **User (App account)**, which is a row — a CurrentUser exists on the first authenticated request, before any row does, and `UserRef` is what will name the row once T11 provisions one. _Avoid_: principal, session user. |
 | **MarktplaatsAccount (association)** | A Marktplaats account associated with a User — label + MP id only, **never credentials/session**. Supports multi-account. |
 | **Subscription** | The User's plan, mirrored from Stripe via webhooks; carries tier/status/period. |
 | **Tier** | A named plan in **our** catalog (Postgres): quota-per-period, max MarktplaatsAccounts, feature flags, plus a `stripePriceId` linking it to the Stripe Price that carries amount/currency/interval. Admin-managed. _Avoid_: Plan, Package, Product. |

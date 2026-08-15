@@ -20,8 +20,8 @@ class ModuleBoundaryTest {
 	}
 
 	/**
-	 * Every module is empty today, so the check above cannot fail for the right reason yet — and a check
-	 * that cannot fail is indistinguishable from one that has stopped working. This points the same
+	 * No module references another at all today, so the check above cannot fail for the right reason yet — and
+	 * a check that cannot fail is indistinguishable from one that has stopped working. This points the same
 	 * verification at a fixture built to be caught: a failure above means the layout is broken, a failure
 	 * here means the check is.
 	 */

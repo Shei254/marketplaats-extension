@@ -35,6 +35,16 @@ dependencies {
     implementation(platform("org.springframework.modulith:spring-modulith-bom:2.1.0"))
 
     implementation("org.springframework.boot:spring-boot-starter-web")
+
+    // Spring Security as an OAuth2 resource server: the Keycloak-issued access token is the only way in
+    // (ADR-0005). The starter without `security-` in its name is the same set of jars and is deprecated in
+    // Boot 4 — its own POM says so — so a build that took it would have to be moved again on the release
+    // that drops it.
+    //
+    // No `spring-boot-starter-security-oauth2-client` beside it: this application never obtains a token,
+    // it only ever validates one somebody else obtained. The client half is the extension's (#32) and the
+    // dashboard's (#42), both of which run in a browser.
+    implementation("org.springframework.boot:spring-boot-starter-security-oauth2-resource-server")
     // Only the @ApplicationModule annotation the package-info files carry. The analyzer that reads it
     // (spring-modulith-core) is a test dependency: nothing verifies boundaries at runtime.
     implementation("org.springframework.modulith:spring-modulith-api")

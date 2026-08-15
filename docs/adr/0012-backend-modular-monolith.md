@@ -21,11 +21,11 @@ preserving ADR-0009's no-lock-in goal.
 com.mprelist
 ├── identity/       public: UserRef, CurrentUser, UserProvisioned
 ├── catalog/        public: TierId, TierCatalog, Entitlement
-├── subscription/   public: SubscriptionStatus, Subscription, Subscriptions
-│   └── internal/stripe/          ◀ adapter
+├── subscription/   public: SubscriptionStatus, Subscription, QuotaPeriod, Subscriptions
+│   ├── internal/                 ◀ the table, through JdbcClient
+│   └── internal/stripe/          ◀ adapter, at #30
 ├── enforcement/    public: /authorize, /complete
-│   ├── domain/                   ◀ pure decision logic, no Spring
-│   └── internal/jpa/             ◀ adapter
+│   └── internal/                 ◀ the tables, and the decision itself
 └── admin/
 ```
 
@@ -50,21 +50,27 @@ port also **locks the row for the caller's transaction and rolls a free window t
 belong to the module that owns the table: a gate that had to remember to take the lock, or to notice a closed
 window, is a gate that can forget to.
 
-Two things the sketch above promises and #22 did not build, recorded so that the gap is a decision rather than
-an omission. There is **no `enforcement/domain` package**: the decision is a status and two numbers the same
-method has just read, and a package holding one function with one caller is structure ahead of its reason —
-whichever ticket gives that decision a second reader creates it, #25's SafetyPolicy being the likeliest. And
-`internal/jpa` is **`internal`, not JPA**: every module reads its own tables through `JdbcClient`, because
-nothing yet loads a row, mutates it and writes it back, and Hibernate would arrive with `ddl-auto` — a second
-schema author beside the migrations.
+The tree above is amended in #22 rather than annotated, because it is what a reader consults for where a
+class goes; two things an earlier draft of it promised are recorded here so that their absence is a decision
+rather than an omission. There is **no `enforcement/domain` package**: the decision is a status and two
+numbers the same method has just read, and a package holding one function with one caller is structure ahead
+of its reason — whichever ticket gives that decision a second reader creates it, #25's SafetyPolicy being the
+likeliest. And what was drawn as `internal/jpa` is **`internal`, and not JPA**: every module reads its own
+tables through `JdbcClient`, because nothing yet loads a row, mutates it and writes it back, and Hibernate
+would arrive with `ddl-auto` — a second schema author beside the migrations.
+
+`subscription` also publishes **`QuotaPeriod`** as of #22: `[periodStart, periodEnd)` is one concept in the
+glossary and travelled as two parameters, which is a pair the compiler cannot tell apart and an invariant
+("it runs forward") with no single home. The gate hands the window whole to the count that reads it.
 
 Build tool **Gradle**, **Java 21**, migrations via **Flyway** — closing the corresponding open build
 question in `enforcement-contract.md`.
 
 ## Consequences
 - **Positive:** "Maintainable" is enforced by CI rather than by discipline — a module reaching into another's
-  `internal/` fails the build. The pure `enforcement/domain/` decision logic is directly unit-testable with no
-  Spring context. If `enforcement` ever needs its own deployable, the seam already exists.
+  `internal/` fails the build. Each module's published types carry their own invariants and so are directly
+  unit-testable with no Spring context, which is what `EntitlementTest` and `QuotaPeriod`'s own rules are.
+  If `enforcement` ever needs its own deployable, the seam already exists.
 - **Negative:** More upfront ceremony than a plain layered Spring app, and one more build-time dependency.
 
 ## Rejected, and why it stays rejected

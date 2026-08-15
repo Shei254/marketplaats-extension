@@ -22,7 +22,6 @@ import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.MountableFile;
 
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * A Keycloak that has just imported {@code infra/keycloak/mprelist-realm.json}, on the image
@@ -210,17 +209,17 @@ final class KeycloakFromCompose implements AutoCloseable {
 			throw new IllegalStateException("Keycloak refused the code exchange with " + exchanged.statusCode() + ": "
 					+ exchanged.body());
 		}
-		return JSON.readTree(exchanged.body());
+		return Json.of(exchanged);
 	}
 
 	/** The {@code error} of an OAuth error response, which is how the token endpoint states a refusal. */
 	static String errorOf(HttpResponse<String> response) {
-		return JSON.readTree(response.body()).get("error").asString();
+		return Json.of(response).get("error").asString();
 	}
 
 	/** The middle segment of a JWT, which is where every claim these tests are about lives. */
 	static JsonNode claimsOf(String jwt) {
-		return JSON.readTree(Base64.getUrlDecoder().decode(jwt.split("\\.")[1]));
+		return Json.of(Base64.getUrlDecoder().decode(jwt.split("\\.")[1]));
 	}
 
 	/** A query parameter of a redirect target, which is how Keycloak returns both a code and a refusal. */
@@ -325,7 +324,5 @@ final class KeycloakFromCompose implements AutoCloseable {
 	}
 
 	private final GenericContainer<?> container;
-
-	private static final JsonMapper JSON = JsonMapper.builder().build();
 
 }

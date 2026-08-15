@@ -49,8 +49,8 @@ class ProvisionOnFirstLogin {
 		// month after that same instant rather than after a second reading of `now()`.
 		OffsetDateTime provisionedAt = OffsetDateTime.now(ZoneOffset.UTC);
 		this.db.sql("""
-				insert into subscription (app_user_id, tier_id, status, period_start, period_end)
-				values (?, ?, 'active', ?, ?)
+				insert into subscription (app_user_id, tier_id, status, period_start, period_end, created_at)
+				values (?, ?, 'active', ?, ?, ?)
 				""")
 				.params(account.id(), defaultTier.id(), provisionedAt,
 						// A calendar month, not thirty days: `resetAt` is what the popup shows and a window
@@ -58,7 +58,15 @@ class ProvisionOnFirstLogin {
 						// in Java rather than as Postgres's `interval '1 month'`, which is evaluated in the
 						// session's own time zone — the same account provisioned by two deployments would then
 						// get periods an hour apart across a DST boundary.
-						provisionedAt.plusMonths(1))
+						provisionedAt.plusMonths(1),
+						// `created_at` is passed rather than left to the column's `default now()`, for the
+						// reason `UsageReservations.reserve` passes `reserved_at`: that default is the
+						// database's clock and this row's window is the application's, and the two differ by
+						// however far apart the machines are. It matters here because `created_at` is the
+						// anchor every later roll counts months from — a skew of a few seconds between the
+						// anchor and the window it is supposed to have started would move a free user's every
+						// subsequent `resetAt` by that much, in a direction nobody chose.
+						provisionedAt)
 				.update();
 	}
 

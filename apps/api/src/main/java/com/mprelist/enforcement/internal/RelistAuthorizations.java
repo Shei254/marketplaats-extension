@@ -60,10 +60,10 @@ class RelistAuthorizations {
 	 * {@code relist_event.reservation_id} is unique, so a second report for one authorization collides in the
 	 * database rather than depending on this service to have remembered it.
 	 */
-	Verdict.RelistAuthorization issue(UserRef caller, String adId, UUID reservation, OffsetDateTime expiresAt) {
+	Verdict.RelistAuthorization issue(UserRef caller, AdId adId, UUID reservation, OffsetDateTime expiresAt) {
 		JwtClaimsSet claims = JwtClaimsSet.builder()
 				.subject(caller.id().toString())
-				.claim("adId", adId)
+				.claim("adId", adId.value())
 				.id(reservation.toString())
 				.expiresAt(expiresAt.toInstant())
 				.build();

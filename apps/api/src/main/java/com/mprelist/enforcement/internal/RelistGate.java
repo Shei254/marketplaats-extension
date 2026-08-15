@@ -53,7 +53,7 @@ class RelistGate {
 	 * @return a signed authorization, or the refusal the extension renders
 	 */
 	@Transactional
-	Verdict authorize(UserRef caller, String adId) {
+	Verdict authorize(UserRef caller, AdId adId) {
 		Subscription plan = this.subscriptions.currentFor(caller);
 		if (!plan.status().allowsRelisting()) {
 			return Verdict.Refused.because(ReasonCode.SUBSCRIPTION_INACTIVE);
@@ -61,9 +61,8 @@ class RelistGate {
 		Entitlement granted = this.tiers.entitlementOf(plan.tier());
 		// Usage is what is held in this period, so a relist still in flight already counts: the extension is
 		// between the delete and the create and the unit is spent until it says otherwise (#23).
-		if (this.reservations.unitsHeldIn(caller, plan.periodStart(), plan.periodEnd()) >= granted
-				.relistsPerPeriod()) {
-			return new Verdict.Refused(ReasonCode.QUOTA_EXCEEDED, plan.periodEnd());
+		if (this.reservations.unitsHeldIn(caller, plan.period()) >= granted.relistsPerPeriod()) {
+			return new Verdict.Refused(ReasonCode.QUOTA_EXCEEDED, plan.period().end());
 		}
 		// #25's SafetyPolicy check belongs here: after the quota, because a user who has nothing left to spend
 		// should be told so rather than told to wait, and before the reservation, because a refusal must not

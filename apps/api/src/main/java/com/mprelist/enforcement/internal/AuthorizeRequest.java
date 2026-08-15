@@ -10,21 +10,19 @@ package com.mprelist.enforcement.internal;
  * are per user. An older extension build that still sends the field is not refused for it: unknown properties
  * are ignored, so the field it no longer needs to send is simply not read.
  *
- * @param adId the ad this authorization would be for. It reaches the reservation and the signed token and is
- * otherwise opaque to us — an identifier the extension already holds, and the whole of what the backend learns
- * about a listing (ADR-0001's boundary rule: no Marktplaats session or credential ever crosses to us)
+ * @param adId the ad this authorization would be for, at {@link AdId} rather than as a bare string — which is
+ * also where "an ad has to be named" is enforced, since that rule holds wherever one is built and not only on
+ * the path in through here
  */
-record AuthorizeRequest(String adId) {
+record AuthorizeRequest(AdId adId) {
 
 	/**
-	 * A missing or empty {@code adId} makes this a request that could not be read rather than a caller to turn
+	 * A body naming no {@code adId} at all is a request that could not be read rather than a caller to turn
 	 * away, so it fails here and comes back as a {@code 400} carrying no reason code — the shape the contract
-	 * reserves for a {@code 4xx} that is not a denial. Guarded rather than left to the column: {@code ad_id} is
-	 * {@code not null} but not {@code not blank}, and an authorization for an ad nobody named is one #23 could
-	 * never match a report to.
+	 * reserves for a {@code 4xx} that is not a denial. A blank one fails the same way, one type further in.
 	 */
 	AuthorizeRequest {
-		if (adId == null || adId.isBlank()) {
+		if (adId == null) {
 			throw new IllegalArgumentException("An authorization is for one ad, so a request has to name it");
 		}
 	}

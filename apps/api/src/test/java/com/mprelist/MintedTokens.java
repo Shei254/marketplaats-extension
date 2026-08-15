@@ -12,6 +12,8 @@ import java.time.Instant;
 import java.util.Date;
 import java.util.function.UnaryOperator;
 
+import org.springframework.test.context.DynamicPropertyRegistry;
+
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
@@ -59,6 +61,20 @@ final class MintedTokens implements AutoCloseable {
 	String issuerUri() {
 		return "http://" + this.server.getAddress().getHostString() + ":" + this.server.getAddress().getPort()
 				+ REALM_PATH;
+	}
+
+	/**
+	 * Points the application's resource-server configuration at this issuer, for a suite's own
+	 * {@code @DynamicPropertySource} to call.
+	 *
+	 * <p>The property name is here rather than spelled out in each of the three suites that mint tokens.
+	 * It is the one string in that wiring which can go wrong silently: a misspelling does not fail, it leaves
+	 * {@code application.yml}'s real Keycloak configured instead, and the suite then fails at every assertion
+	 * with a connection error to a stack that may well be running. Registered lazily, as a supplier, because
+	 * this is called while the context is being built and the port is the operating system's to choose.
+	 */
+	void trustedAsTheIssuer(DynamicPropertyRegistry properties) {
+		properties.add("spring.security.oauth2.resourceserver.jwt.issuer-uri", this::issuerUri);
 	}
 
 	/** A token with nothing wrong with it: this issuer, this API's audience, in date, signed and published. */

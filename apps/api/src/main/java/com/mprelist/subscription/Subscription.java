@@ -1,7 +1,5 @@
 package com.mprelist.subscription;
 
-import java.time.OffsetDateTime;
-
 import com.mprelist.catalog.TierId;
 
 /**
@@ -22,19 +20,16 @@ import com.mprelist.catalog.TierId;
  * @param status Stripe's status, normalized. {@link SubscriptionStatus#allowsRelisting()} is what the gate asks
  * of it; every user always has a subscription (ADR-0014), so a free user is {@link SubscriptionStatus#ACTIVE}
  * here and is denied — if at all — by quota
- * @param periodStart the start of the quota window, inclusive. Copied from Stripe for a payer and rolled
- * monthly from provisioning for a free user, which is what makes the window answerable for everybody
- * @param periodEnd the end of it, exclusive, and so the {@code resetAt} every quota denial and
- * {@code GET /api/me} carries
+ * @param period the quota window this subscription's usage is counted in. Copied from Stripe for a payer and
+ * rolled monthly from provisioning for a free user, which is what makes it answerable for everybody
  */
-public record Subscription(TierId tier, SubscriptionStatus status, OffsetDateTime periodStart,
-		OffsetDateTime periodEnd) {
+public record Subscription(TierId tier, SubscriptionStatus status, QuotaPeriod period) {
 
 	/**
 	 * The check constraints of {@code V1__baseline_schema.sql}, restated where a subscription is built rather
 	 * than only where a row is written — for {@link com.mprelist.catalog.Entitlement}'s reason: #22's tests
-	 * stand these up with no database behind them, and a window that runs backwards counts usage in an empty
-	 * interval, which reads as a quota nobody can spend rather than as a fault.
+	 * stand these up with no database behind them. The window's own invariant is {@link QuotaPeriod}'s, so it
+	 * holds wherever a period is assembled rather than only on the path through here.
 	 */
 	public Subscription {
 		if (tier == null) {
@@ -43,13 +38,9 @@ public record Subscription(TierId tier, SubscriptionStatus status, OffsetDateTim
 		if (status == null) {
 			throw new IllegalArgumentException("A subscription carries one of the seven normalized statuses");
 		}
-		if (periodStart == null || periodEnd == null) {
+		if (period == null) {
 			throw new IllegalArgumentException("A subscription carries the window its usage is counted in, so "
 					+ "that resetAt is answerable for every user rather than only for payers");
-		}
-		if (!periodEnd.isAfter(periodStart)) {
-			throw new IllegalArgumentException("A quota period that does not run forward is one no usage can "
-					+ "fall inside: " + periodStart + " to " + periodEnd);
 		}
 	}
 

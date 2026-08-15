@@ -1,7 +1,6 @@
 package com.mprelist;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.awaitility.Awaitility.await;
 
 import java.net.URI;
 import java.net.http.HttpRequest;
@@ -45,7 +44,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.mprelist.identity.UserRef;
 
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * First login: the first request carrying a subject this API has never seen leaves behind an
@@ -71,7 +69,7 @@ class FirstLoginProvisioningTest {
 
 	@DynamicPropertySource
 	static void trustTheTokensThisSuiteMints(DynamicPropertyRegistry properties) {
-		properties.add("spring.security.oauth2.resourceserver.jwt.issuer-uri", IDP::issuerUri);
+		IDP.trustedAsTheIssuer(properties);
 	}
 
 	@AfterAll
@@ -122,9 +120,25 @@ class FirstLoginProvisioningTest {
 
 		signIn(somebodyNew());
 
-		OffsetDateTime start = periodBound("period_start");
+		OffsetDateTime start = storedInstant("period_start");
 		assertThat(start).isBetween(beforeTheCall, OffsetDateTime.now(ZoneOffset.UTC));
-		assertThat(periodBound("period_end")).isEqualTo(start.plusMonths(1));
+		assertThat(storedInstant("period_end")).isEqualTo(start.plusMonths(1));
+	}
+
+	/**
+	 * And the anchor the roll will count months from is that same instant.
+	 *
+	 * <p>{@code created_at} is written here rather than left to the column's {@code default now()}, which is
+	 * the database's clock where this window is the application's. It matters because
+	 * {@code SubscriptionRows.rolledForward} counts whole months from the anchor rather than from the window
+	 * it replaces: were the two written by clocks a few seconds apart, every {@code resetAt} a free user ever
+	 * saw would sit that far off the period it belongs to, in a direction nobody chose and nothing reports.
+	 */
+	@Test
+	void andAnAnchorTheMonthlyRollCountsFromThatIsThatSameInstantAgain() {
+		signIn(somebodyNew());
+
+		assertThat(storedInstant("created_at")).isEqualTo(storedInstant("period_start"));
 	}
 
 	/**
@@ -334,7 +348,7 @@ class FirstLoginProvisioningTest {
 	}
 
 	private static UserRef userRefIn(HttpResponse<String> answered) {
-		return new UserRef(UUID.fromString(JSON.readTree(answered.body()).get("id").asString()));
+		return new UserRef(UUID.fromString(Json.of(answered).get("id").asString()));
 	}
 
 	private HttpResponse<String> get(String path, String token) {
@@ -366,10 +380,9 @@ class FirstLoginProvisioningTest {
 		try {
 			Future<HttpResponse<String>> inFlight = caller.submit(call);
 			// The application's insert waits on the claiming transaction's id, which Postgres reports as a
-			// backend blocked on a Lock. Asking the database rather than sleeping is what makes this an
-			// arrangement rather than a race with a longer fuse.
-			await().atMost(Duration.ofSeconds(30)).until(() -> this.db.queryForObject(
-					"select count(*) from pg_stat_activity where wait_event_type = 'Lock'", Integer.class) > 0);
+			// backend blocked on a Lock. Thirty seconds, because reaching that insert means going through a
+			// whole first login first.
+			BlockedBackends.awaitAtLeast(1, this.db, Duration.ofSeconds(30));
 			return inFlight;
 		}
 		finally {
@@ -410,7 +423,7 @@ class FirstLoginProvisioningTest {
 	}
 
 	/** Read in UTC, because that is the offset the row was written in and a comparison is not about offsets. */
-	private OffsetDateTime periodBound(String column) {
+	private OffsetDateTime storedInstant(String column) {
 		return this.db.queryForObject("select " + column + " from subscription", OffsetDateTime.class)
 				.withOffsetSameInstant(ZoneOffset.UTC);
 	}
@@ -428,7 +441,5 @@ class FirstLoginProvisioningTest {
 	private static final String ACCOUNT = "/probe/account";
 
 	private static final String ANONYMOUS_ACCOUNT = "/probe/anonymous/account";
-
-	private static final JsonMapper JSON = JsonMapper.builder().build();
 
 }

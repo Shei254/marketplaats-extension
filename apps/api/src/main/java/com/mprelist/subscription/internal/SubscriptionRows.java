@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.mprelist.catalog.TierId;
 import com.mprelist.identity.UserRef;
+import com.mprelist.subscription.QuotaPeriod;
 import com.mprelist.subscription.Subscription;
 import com.mprelist.subscription.SubscriptionStatus;
 import com.mprelist.subscription.Subscriptions;
@@ -54,8 +55,8 @@ class SubscriptionRows implements Subscriptions {
 				.param(user.id())
 				.query((values, number) -> new Row(values.getObject("id", UUID.class),
 						new TierId(values.getObject("tier_id", UUID.class)), statusIn(values.getString("status")),
-						utc(values.getObject("period_start", OffsetDateTime.class)),
-						utc(values.getObject("period_end", OffsetDateTime.class)),
+						new QuotaPeriod(utc(values.getObject("period_start", OffsetDateTime.class)),
+								utc(values.getObject("period_end", OffsetDateTime.class))),
 						utc(values.getObject("created_at", OffsetDateTime.class)), values.getBoolean("stripes")))
 				.optional()
 				.orElseThrow(() -> new IllegalStateException("The account " + user.id() + " holds no subscription, "
@@ -66,7 +67,8 @@ class SubscriptionRows implements Subscriptions {
 		// start after a `now` the caller already holds — the reservation it goes on to write would then be
 		// stamped before its own period and counted against nobody's quota.
 		OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
-		return row.windowIsOursToRoll() && !row.periodEnd().isAfter(now) ? rolledForward(row, now) : row.asSeenByOthers();
+		return row.windowIsOursToRoll() && row.period().hasClosedBy(now) ? rolledForward(row, now)
+				: row.asSeenByOthers();
 	}
 
 	/**
@@ -87,12 +89,12 @@ class SubscriptionRows implements Subscriptions {
 	 */
 	private Subscription rolledForward(Row row, OffsetDateTime now) {
 		long wholeMonths = ChronoUnit.MONTHS.between(row.createdAt(), now);
-		OffsetDateTime start = row.createdAt().plusMonths(wholeMonths);
-		OffsetDateTime end = row.createdAt().plusMonths(wholeMonths + 1);
+		QuotaPeriod rolled = new QuotaPeriod(row.createdAt().plusMonths(wholeMonths),
+				row.createdAt().plusMonths(wholeMonths + 1));
 		this.db.sql("update subscription set period_start = ?, period_end = ? where id = ?")
-				.params(start, end, row.id())
+				.params(rolled.start(), rolled.end(), row.id())
 				.update();
-		return new Subscription(row.tier(), row.status(), start, end);
+		return new Subscription(row.tier(), row.status(), rolled);
 	}
 
 	/**
@@ -102,8 +104,8 @@ class SubscriptionRows implements Subscriptions {
 	 * @param stripes whether a Stripe subscription is mirrored here, which is what makes the window Stripe's to
 	 * move. Free subscriptions have no Stripe counterpart at all, so theirs is ours to roll
 	 */
-	private record Row(UUID id, TierId tier, SubscriptionStatus status, OffsetDateTime periodStart,
-			OffsetDateTime periodEnd, OffsetDateTime createdAt, boolean stripes) {
+	private record Row(UUID id, TierId tier, SubscriptionStatus status, QuotaPeriod period,
+			OffsetDateTime createdAt, boolean stripes) {
 
 		/**
 		 * Whether a closed window here is ours to advance. A free subscription's is, and is the case #20 left
@@ -119,7 +121,7 @@ class SubscriptionRows implements Subscriptions {
 		}
 
 		Subscription asSeenByOthers() {
-			return new Subscription(this.tier, this.status, this.periodStart, this.periodEnd);
+			return new Subscription(this.tier, this.status, this.period);
 		}
 
 	}

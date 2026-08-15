@@ -2,7 +2,6 @@ package com.mprelist;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
-import static org.awaitility.Awaitility.await;
 
 import java.net.URI;
 import java.net.http.HttpRequest;
@@ -43,7 +42,6 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * {@code POST /api/relist/authorize}: who may relist, what it costs them, and what a refusal says (#22,
@@ -72,7 +70,7 @@ class RelistAuthorizationTest {
 
 	@DynamicPropertySource
 	static void trustTheTokensThisSuiteMints(DynamicPropertyRegistry properties) {
-		properties.add("spring.security.oauth2.resourceserver.jwt.issuer-uri", IDP::issuerUri);
+		IDP.trustedAsTheIssuer(properties);
 	}
 
 	@AfterAll
@@ -100,8 +98,8 @@ class RelistAuthorizationTest {
 		HttpResponse<String> authorized = authorize(user, "ad-1");
 
 		assertThat(authorized.statusCode()).isEqualTo(200);
-		assertThat(json(authorized).get("jti").asString()).isEqualTo(theOnlyReservationOf(user).toString());
-		assertThat(json(authorized).get("authToken").asString()).isNotBlank();
+		assertThat(Json.of(authorized).get("jti").asString()).isEqualTo(theOnlyReservationOf(user).toString());
+		assertThat(Json.of(authorized).get("authToken").asString()).isNotBlank();
 	}
 
 	/**
@@ -123,7 +121,7 @@ class RelistAuthorizationTest {
 
 		HttpResponse<String> authorized = authorize(user, "ad-42");
 
-		JsonNode granted = json(authorized);
+		JsonNode granted = Json.of(authorized);
 		JsonNode claims = KeycloakFromCompose.claimsOf(granted.get("authToken").asString());
 		assertThat(claims.get("sub").asString()).isEqualTo(user.account().toString());
 		assertThat(claims.get("adId").asString()).isEqualTo("ad-42");
@@ -147,7 +145,7 @@ class RelistAuthorizationTest {
 		OffsetDateTime beforeTheCall = now();
 
 		Subscriber user = aSubscriberEntitledTo(3);
-		JsonNode granted = json(authorize(user, "ad-1"));
+		JsonNode granted = Json.of(authorize(user, "ad-1"));
 
 		assertThat(granted.get("expiresAt").isString()).isTrue();
 		assertThat(expiryOf(granted)).isBetween(beforeTheCall.plusSeconds(40), now().plusSeconds(45));
@@ -191,8 +189,8 @@ class RelistAuthorizationTest {
 		HttpResponse<String> refused = authorize(user, "ad-3");
 
 		assertThat(refused.statusCode()).isEqualTo(429);
-		assertThat(json(refused).get("reason").asString()).isEqualTo("QUOTA_EXCEEDED");
-		assertThat(OffsetDateTime.parse(json(refused).get("resetAt").asString())).isEqualTo(windowOf(user).end());
+		assertThat(Json.of(refused).get("reason").asString()).isEqualTo("QUOTA_EXCEEDED");
+		assertThat(OffsetDateTime.parse(Json.of(refused).get("resetAt").asString())).isEqualTo(windowOf(user).end());
 		assertThat(reservationsOf(user)).hasSize(2);
 		// The shape the contract fixes for every denial, pinned here because this one is written by a message
 		// converter rather than by the entry point #19 wrote by hand — two paths to one promise.
@@ -212,7 +210,7 @@ class RelistAuthorizationTest {
 		HttpResponse<String> refused = authorize(user, "ad-1");
 
 		assertThat(refused.statusCode()).isEqualTo(429);
-		assertThat(json(refused).get("reason").asString()).isEqualTo("QUOTA_EXCEEDED");
+		assertThat(Json.of(refused).get("reason").asString()).isEqualTo("QUOTA_EXCEEDED");
 		assertThat(reservationsOf(user)).isEmpty();
 	}
 
@@ -277,8 +275,8 @@ class RelistAuthorizationTest {
 		HttpResponse<String> refused = authorize(user, "ad-1");
 
 		assertThat(refused.statusCode()).isEqualTo(402);
-		assertThat(json(refused).get("reason").asString()).isEqualTo("SUBSCRIPTION_INACTIVE");
-		assertThat(json(refused).has("resetAt")).isFalse();
+		assertThat(Json.of(refused).get("reason").asString()).isEqualTo("SUBSCRIPTION_INACTIVE");
+		assertThat(Json.of(refused).has("resetAt")).isFalse();
 		assertThat(reservationsOf(user)).isEmpty();
 	}
 
@@ -297,7 +295,7 @@ class RelistAuthorizationTest {
 		HttpResponse<String> refused = authorize(user, "ad-1");
 
 		assertThat(refused.statusCode()).isEqualTo(402);
-		assertThat(json(refused).get("reason").asString()).isEqualTo("SUBSCRIPTION_INACTIVE");
+		assertThat(Json.of(refused).get("reason").asString()).isEqualTo("SUBSCRIPTION_INACTIVE");
 	}
 
 	/**
@@ -343,7 +341,7 @@ class RelistAuthorizationTest {
 				{"adId": "ad-1"}""");
 
 		assertThat(refused.statusCode()).isEqualTo(401);
-		assertThat(json(refused).get("reason").asString()).isEqualTo("UNAUTHENTICATED");
+		assertThat(Json.of(refused).get("reason").asString()).isEqualTo("UNAUTHENTICATED");
 		assertThat(everyReservation()).isEmpty();
 	}
 
@@ -442,7 +440,7 @@ class RelistAuthorizationTest {
 		HttpResponse<String> refused = authorize(user, "ad-1");
 
 		assertThat(refused.statusCode()).isEqualTo(429);
-		assertThat(OffsetDateTime.parse(json(refused).get("resetAt").asString())).isAfter(now());
+		assertThat(OffsetDateTime.parse(Json.of(refused).get("resetAt").asString())).isAfter(now());
 	}
 
 	/**
@@ -613,13 +611,12 @@ class RelistAuthorizationTest {
 	}
 
 	/**
-	 * Waits until Postgres reports that many backends blocked on a lock, which is the application's own read of
-	 * the subscription row stopped on the row this suite is holding. Asking the database rather than sleeping is
-	 * what makes the two tests above an arrangement rather than a race with a longer fuse.
+	 * Waits until that many of this suite's callers are provably stopped on the row it is holding — the
+	 * application's own read of the subscription, blocked. Fifteen seconds, because the lock is taken inside a
+	 * transaction the caller has already entered.
 	 */
 	private void waitUntilBlockedOnALock(int callers) {
-		await().atMost(Duration.ofSeconds(15)).until(() -> this.db.queryForObject(
-				"select count(*) from pg_stat_activity where wait_event_type = 'Lock'", Integer.class) >= callers);
+		BlockedBackends.awaitAtLeast(callers, this.db, Duration.ofSeconds(15));
 	}
 
 	// --- reading back -----------------------------------------------------------------------------------
@@ -659,13 +656,9 @@ class RelistAuthorizationTest {
 		return OffsetDateTime.parse(granted.get("expiresAt").asString()).withOffsetSameInstant(ZoneOffset.UTC);
 	}
 
-	private static JsonNode json(HttpResponse<String> response) {
-		return JSON.readTree(response.body());
-	}
-
 	/** The half of a JWT {@link KeycloakFromCompose#claimsOf} does not read: what it was signed with. */
 	private static JsonNode headerOf(String jwt) {
-		return JSON.readTree(Base64.getUrlDecoder().decode(jwt.split("\\.")[0]));
+		return Json.of(Base64.getUrlDecoder().decode(jwt.split("\\.")[0]));
 	}
 
 	private static OffsetDateTime now() {
@@ -697,7 +690,5 @@ class RelistAuthorizationTest {
 
 	/** The prefix that tells this suite's tiers from the seeded catalog, which it must leave as it found it. */
 	private static final String TIERS_OF_THIS_SUITE = "authorize-suite-";
-
-	private static final JsonMapper JSON = JsonMapper.builder().build();
 
 }

@@ -38,7 +38,6 @@ import org.springframework.web.bind.annotation.RestController;
 import com.mprelist.identity.CurrentUser;
 
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The API as an OAuth2 resource server: which tokens get in, which are refused and in what shape, and who
@@ -75,7 +74,7 @@ class ResourceServerTest {
 
 	@DynamicPropertySource
 	static void trustTheTokensThisSuiteMints(DynamicPropertyRegistry properties) {
-		properties.add("spring.security.oauth2.resourceserver.jwt.issuer-uri", IDP::issuerUri);
+		IDP.trustedAsTheIssuer(properties);
 	}
 
 	@AfterAll
@@ -88,7 +87,7 @@ class ResourceServerTest {
 		HttpResponse<String> answered = get(CALLER, IDP.token());
 
 		assertThat(answered.statusCode()).isEqualTo(200);
-		assertThat(json(answered).get("idpSubject").asString()).isEqualTo(MintedTokens.SUBJECT);
+		assertThat(Json.of(answered).get("idpSubject").asString()).isEqualTo(MintedTokens.SUBJECT);
 	}
 
 	/**
@@ -161,7 +160,7 @@ class ResourceServerTest {
 		HttpResponse<String> refused = get(CALLER, null);
 
 		assertThat(refused.statusCode()).isEqualTo(401);
-		assertThat(json(refused).get("reason").asString()).isEqualTo("UNAUTHENTICATED");
+		assertThat(Json.of(refused).get("reason").asString()).isEqualTo("UNAUTHENTICATED");
 		assertThat(refused.headers().firstValue("WWW-Authenticate")).hasValueSatisfying(
 				challenge -> assertThat(challenge).startsWith("Bearer"));
 		// Said rather than defaulted: a writer the container has not been told about is ISO-8859-1, which is a
@@ -175,7 +174,7 @@ class ResourceServerTest {
 		HttpResponse<String> refused = get(CALLER, "not-a-token");
 
 		assertThat(refused.statusCode()).isEqualTo(401);
-		assertThat(json(refused).get("reason").asString()).isEqualTo("UNAUTHENTICATED");
+		assertThat(Json.of(refused).get("reason").asString()).isEqualTo("UNAUTHENTICATED");
 	}
 
 	@Test
@@ -219,7 +218,7 @@ class ResourceServerTest {
 		HttpResponse<String> refused = get(CALLER, IDP.token(claims -> claims.subject(null)));
 
 		assertThat(refused.statusCode()).isEqualTo(401);
-		assertThat(json(refused).get("reason").asString()).isEqualTo("UNAUTHENTICATED");
+		assertThat(Json.of(refused).get("reason").asString()).isEqualTo("UNAUTHENTICATED");
 	}
 
 	/**
@@ -234,7 +233,7 @@ class ResourceServerTest {
 		HttpResponse<String> refused = get(NO_SUCH_ROUTE, IDP.token(claims -> claims.subject(null)));
 
 		assertThat(refused.statusCode()).isEqualTo(401);
-		assertThat(json(refused).get("reason").asString()).isEqualTo("UNAUTHENTICATED");
+		assertThat(Json.of(refused).get("reason").asString()).isEqualTo("UNAUTHENTICATED");
 	}
 
 	/**
@@ -259,7 +258,7 @@ class ResourceServerTest {
 		HttpResponse<String> refused = get(NO_SUCH_ROUTE, null);
 
 		assertThat(refused.statusCode()).isEqualTo(401);
-		assertThat(json(refused).get("reason").asString()).isEqualTo("UNAUTHENTICATED");
+		assertThat(Json.of(refused).get("reason").asString()).isEqualTo("UNAUTHENTICATED");
 	}
 
 	/**
@@ -289,7 +288,7 @@ class ResourceServerTest {
 		HttpResponse<String> metadata = get("/.well-known/oauth-protected-resource", null);
 
 		assertThat(metadata.statusCode()).isEqualTo(200);
-		assertThat(json(metadata).get("resource").asString()).isEqualTo("http://localhost:" + this.port);
+		assertThat(Json.of(metadata).get("resource").asString()).isEqualTo("http://localhost:" + this.port);
 		assertThat(metadata.body()).doesNotContain(IDP.issuerUri());
 	}
 
@@ -304,7 +303,7 @@ class ResourceServerTest {
 		HttpResponse<String> answered = post(CALLER, IDP.token());
 
 		assertThat(answered.statusCode()).isEqualTo(200);
-		assertThat(json(answered).get("idpSubject").asString()).isEqualTo(MintedTokens.SUBJECT);
+		assertThat(Json.of(answered).get("idpSubject").asString()).isEqualTo(MintedTokens.SUBJECT);
 	}
 
 	/**
@@ -336,7 +335,7 @@ class ResourceServerTest {
 		HttpResponse<String> refused = get(ANONYMOUS_CALLER, null);
 
 		assertThat(refused.statusCode()).isEqualTo(401);
-		assertThat(json(refused).get("reason").asString()).isEqualTo("UNAUTHENTICATED");
+		assertThat(Json.of(refused).get("reason").asString()).isEqualTo("UNAUTHENTICATED");
 		assertThat(Probe.ENTERED).hasValue(entered);
 	}
 
@@ -455,12 +454,8 @@ class ResourceServerTest {
 		return token == null ? request : request.header("Authorization", "Bearer " + token);
 	}
 
-	private static JsonNode json(HttpResponse<String> response) {
-		return JSON.readTree(response.body());
-	}
-
 	private static List<String> authorities(HttpResponse<String> response) {
-		return json(response).get("authorities").valueStream().map(JsonNode::asString).toList();
+		return Json.of(response).get("authorities").valueStream().map(JsonNode::asString).toList();
 	}
 
 	/** A value out of {@code application.yml}'s own text, which is the copy this suite does not override. */
@@ -479,7 +474,7 @@ class ResourceServerTest {
 
 	/** Every {@code aud} the realm file's audience mappers put into a token. */
 	private static Set<String> audiencesTheRealmsMappersWrite() {
-		JsonNode realm = JSON.readTree(InfraFiles.textOf(InfraFiles.keycloakRealm()));
+		JsonNode realm = Json.of(InfraFiles.textOf(InfraFiles.keycloakRealm()));
 		return realm.get("clients").valueStream()
 				.flatMap(client -> client.path("protocolMappers").valueStream())
 				.filter(mapper -> "oidc-audience-mapper".equals(mapper.path("protocolMapper").asString()))
@@ -502,7 +497,5 @@ class ResourceServerTest {
 
 	/** Spring Security 7's record of how the caller authenticated; no guard in this repository asks for it. */
 	private static final String BEARER_FACTOR = "FACTOR_BEARER";
-
-	private static final JsonMapper JSON = JsonMapper.builder().build();
 
 }

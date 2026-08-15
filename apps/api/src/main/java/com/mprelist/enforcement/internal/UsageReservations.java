@@ -7,6 +7,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 
 import com.mprelist.identity.UserRef;
+import com.mprelist.subscription.QuotaPeriod;
 
 /**
  * The {@code usage_reservation} table: the quota unit itself, from the moment {@code authorize} hands one out
@@ -31,18 +32,19 @@ class UsageReservations {
 	 * open ones would refund every relist the moment it was reported. It is also the index's own predicate
 	 * ({@code usage_reservation_holding_a_unit}), so this is the read that index exists for.
 	 *
-	 * <p>Half-open, {@code [from, until)}, which is the interval every other statement about a quota period in
-	 * this repository uses. A reservation written at the exact instant a window rolls belongs to the new one.
+	 * <p>Half-open, {@code [start, end)}, which is {@link QuotaPeriod}'s own convention and the interval every
+	 * other statement about a quota period in this repository uses. A reservation written at the exact instant
+	 * a window rolls belongs to the new one.
 	 *
-	 * @param from the period start, inclusive
-	 * @param until the period end, exclusive
+	 * @param period the window to count in, taken whole rather than as two bounds a caller could hand over the
+	 * wrong way round
 	 */
-	int unitsHeldIn(UserRef user, OffsetDateTime from, OffsetDateTime until) {
+	int unitsHeldIn(UserRef user, QuotaPeriod period) {
 		return this.db.sql("""
 				select count(*) from usage_reservation
 				where app_user_id = ? and status <> 'REFUNDED' and reserved_at >= ? and reserved_at < ?
 				""")
-				.params(user.id(), from, until)
+				.params(user.id(), period.start(), period.end())
 				.query(Integer.class)
 				.single();
 	}
@@ -58,13 +60,13 @@ class UsageReservations {
 	 * @param expiresAt the authorization's own expiry, which #24 reads to find reservations nothing ever
 	 * reported on
 	 */
-	UUID reserve(UserRef user, String adId, OffsetDateTime at, OffsetDateTime expiresAt) {
+	UUID reserve(UserRef user, AdId adId, OffsetDateTime at, OffsetDateTime expiresAt) {
 		return this.db.sql("""
 				insert into usage_reservation (app_user_id, ad_id, reserved_at, expires_at)
 				values (?, ?, ?, ?)
 				returning id
 				""")
-				.params(user.id(), adId, at, expiresAt)
+				.params(user.id(), adId.value(), at, expiresAt)
 				.query(UUID.class)
 				.single();
 	}

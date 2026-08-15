@@ -1,4 +1,4 @@
-package com.mprelist.catalog;
+package com.mprelist;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -8,6 +8,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
+
+import com.mprelist.catalog.Entitlement;
 
 /**
  * The guards on the type itself, which are the schema's check constraints stated a second time — and the

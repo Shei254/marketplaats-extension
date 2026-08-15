@@ -103,16 +103,14 @@ class UsageReservations {
 	 * arriving still wins — it is the only account of what happened on Marktplaats, and reconciliation is the
 	 * guess made in its absence.
 	 *
-	 * @param into where it lands, which has to be terminal: a resolved row carries the instant it resolved at
+	 * @param into where it lands, which is always terminal because {@link RelistOutcome#resolvesTo()} is where
+	 * that is decided and it names only the two: a resolved row carries the instant it resolved at
 	 * ({@code usage_reservation_resolved_at_matches_status}), so putting one back to
-	 * {@link ReservationStatus#RESERVED} is a row the database would refuse, at the end of a relist the user
-	 * has already performed
+	 * {@link ReservationStatus#RESERVED} is a row the database would refuse anyway. No guard here for it — a
+	 * fourth outcome has to answer the question where the mapping is declared, and a check that no caller can
+	 * fail is one no test can hold to its message
 	 */
 	void resolve(UUID reservation, ReservationStatus into, OffsetDateTime at) {
-		if (!into.isTerminal()) {
-			throw new IllegalArgumentException("A report resolves a reservation, so it lands on a state one "
-					+ "stops moving from, and not on " + into);
-		}
 		this.db.sql("update usage_reservation set status = ?, resolved_at = ? where id = ?")
 				.params(into.name(), at, reservation)
 				.update();

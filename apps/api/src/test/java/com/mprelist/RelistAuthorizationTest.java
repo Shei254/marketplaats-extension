@@ -8,7 +8,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
-import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -16,7 +15,6 @@ import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -98,7 +96,8 @@ class RelistAuthorizationTest {
 		HttpResponse<String> authorized = authorize(user, "ad-1");
 
 		assertThat(authorized.statusCode()).isEqualTo(200);
-		assertThat(Json.of(authorized).get("jti").asString()).isEqualTo(theOnlyReservationOf(user).toString());
+		assertThat(Json.of(authorized).get("jti").asString())
+				.isEqualTo(this.rows.theOnlyReservationOf(user).get("id").toString());
 		assertThat(Json.of(authorized).get("authToken").asString()).isNotBlank();
 	}
 
@@ -142,17 +141,18 @@ class RelistAuthorizationTest {
 	 */
 	@Test
 	void andExpiresSoonEnoughThatOneCannotBeSavedForLater() {
-		OffsetDateTime beforeTheCall = now();
+		OffsetDateTime beforeTheCall = Subscribers.now();
 
 		Subscriber user = aSubscriberEntitledTo(3);
 		JsonNode granted = Json.of(authorize(user, "ad-1"));
 
 		assertThat(granted.get("expiresAt").isString()).isTrue();
-		assertThat(expiryOf(granted)).isBetween(beforeTheCall.plusSeconds(40), now().plusSeconds(45));
+		assertThat(expiryOf(granted)).isBetween(beforeTheCall.plusSeconds(40), Subscribers.now().plusSeconds(45));
 		// Within a millisecond rather than to the nanosecond: Postgres keeps microseconds and the JVM clock
 		// may offer more, so an exact comparison would be asserting how the driver rounds.
-		assertThat(reservationsOf(user)).singleElement().satisfies(held -> assertThat(utc(held, "expires_at"))
-				.isCloseTo(expiryOf(granted), within(1, ChronoUnit.MILLIS)));
+		assertThat(this.rows.reservationsOf(user)).singleElement()
+				.satisfies(held -> assertThat(Subscribers.utc(held, "expires_at"))
+						.isCloseTo(expiryOf(granted), within(1, ChronoUnit.MILLIS)));
 	}
 
 	/**
@@ -167,10 +167,11 @@ class RelistAuthorizationTest {
 
 		authorize(user, "ad-1");
 
-		assertThat(reservationsOf(user)).singleElement().satisfies(held -> {
+		assertThat(this.rows.reservationsOf(user)).singleElement().satisfies(held -> {
 			assertThat(held.get("status")).isEqualTo("RESERVED");
 			assertThat(held.get("ad_id")).isEqualTo("ad-1");
-			assertThat(utc(held, "reserved_at")).isBetween(windowOf(user).start(), windowOf(user).end());
+			Window window = this.rows.windowOf(user);
+			assertThat(Subscribers.utc(held, "reserved_at")).isBetween(window.start(), window.end());
 		});
 	}
 
@@ -190,8 +191,9 @@ class RelistAuthorizationTest {
 
 		assertThat(refused.statusCode()).isEqualTo(429);
 		assertThat(Json.of(refused).get("reason").asString()).isEqualTo("QUOTA_EXCEEDED");
-		assertThat(OffsetDateTime.parse(Json.of(refused).get("resetAt").asString())).isEqualTo(windowOf(user).end());
-		assertThat(reservationsOf(user)).hasSize(2);
+		assertThat(OffsetDateTime.parse(Json.of(refused).get("resetAt").asString()))
+				.isEqualTo(this.rows.windowOf(user).end());
+		assertThat(this.rows.reservationsOf(user)).hasSize(2);
 		// The shape the contract fixes for every denial, pinned here because this one is written by a message
 		// converter rather than by the entry point #19 wrote by hand — two paths to one promise.
 		assertThat(refused.headers().firstValue("Content-Type"))
@@ -211,7 +213,7 @@ class RelistAuthorizationTest {
 
 		assertThat(refused.statusCode()).isEqualTo(429);
 		assertThat(Json.of(refused).get("reason").asString()).isEqualTo("QUOTA_EXCEEDED");
-		assertThat(reservationsOf(user)).isEmpty();
+		assertThat(this.rows.reservationsOf(user)).isEmpty();
 	}
 
 	/**
@@ -222,7 +224,7 @@ class RelistAuthorizationTest {
 	@Test
 	void aRefundedReservationIsNotOneTheyAreStillHolding() {
 		Subscriber user = aSubscriberEntitledTo(1);
-		refunded(unitHeldBy(user, now().minusHours(1)));
+		this.rows.refunded(this.rows.unitHeldBy(user, Subscribers.now().minusHours(1)));
 
 		assertThat(authorize(user, "ad-1").statusCode()).isEqualTo(200);
 	}
@@ -231,7 +233,7 @@ class RelistAuthorizationTest {
 	@Test
 	void butASettledOneIs() {
 		Subscriber user = aSubscriberEntitledTo(1);
-		settled(unitHeldBy(user, now().minusHours(1)));
+		this.rows.settled(this.rows.unitHeldBy(user, Subscribers.now().minusHours(1)));
 
 		assertThat(authorize(user, "ad-1").statusCode()).isEqualTo(429);
 	}
@@ -243,7 +245,7 @@ class RelistAuthorizationTest {
 	@Test
 	void andAUnitSpentBeforeThisPeriodBeganIsNotCountedInIt() {
 		Subscriber user = aSubscriberEntitledTo(1);
-		unitHeldBy(user, windowOf(user).start().minusSeconds(1));
+		this.rows.unitHeldBy(user, this.rows.windowOf(user).start().minusSeconds(1));
 
 		assertThat(authorize(user, "ad-1").statusCode()).isEqualTo(200);
 	}
@@ -252,7 +254,7 @@ class RelistAuthorizationTest {
 	@Test
 	void andNorIsSomebodyElsesRelist() {
 		Subscriber user = aSubscriberEntitledTo(1);
-		unitHeldBy(aSubscriberEntitledTo(1), now());
+		this.rows.unitHeldBy(aSubscriberEntitledTo(1), Subscribers.now());
 
 		assertThat(authorize(user, "ad-1").statusCode()).isEqualTo(200);
 	}
@@ -277,7 +279,7 @@ class RelistAuthorizationTest {
 		assertThat(refused.statusCode()).isEqualTo(402);
 		assertThat(Json.of(refused).get("reason").asString()).isEqualTo("SUBSCRIPTION_INACTIVE");
 		assertThat(Json.of(refused).has("resetAt")).isFalse();
-		assertThat(reservationsOf(user)).isEmpty();
+		assertThat(this.rows.reservationsOf(user)).isEmpty();
 	}
 
 	/**
@@ -342,7 +344,7 @@ class RelistAuthorizationTest {
 
 		assertThat(refused.statusCode()).isEqualTo(401);
 		assertThat(Json.of(refused).get("reason").asString()).isEqualTo("UNAUTHENTICATED");
-		assertThat(everyReservation()).isEmpty();
+		assertThat(this.rows.everyReservation()).isEmpty();
 	}
 
 	/**
@@ -359,7 +361,7 @@ class RelistAuthorizationTest {
 
 		assertThat(unread.statusCode()).isEqualTo(400);
 		assertThat(unread.body()).doesNotContain("reason");
-		assertThat(reservationsOf(user)).isEmpty();
+		assertThat(this.rows.reservationsOf(user)).isEmpty();
 	}
 
 	/**
@@ -390,16 +392,16 @@ class RelistAuthorizationTest {
 	@Test
 	void aFreeWindowThatHasClosedIsRolledForwardBeforeUsageIsCountedInIt() {
 		Subscriber user = aSubscriberEntitledTo(1);
-		OffsetDateTime signedUpFiveMonthsAgo = now().minusMonths(5);
-		provisionedAt(user, signedUpFiveMonthsAgo);
-		unitHeldBy(user, signedUpFiveMonthsAgo.plusDays(3));
+		OffsetDateTime signedUpFiveMonthsAgo = Subscribers.now().minusMonths(5);
+		this.rows.provisionedAt(user, signedUpFiveMonthsAgo);
+		this.rows.unitHeldBy(user, signedUpFiveMonthsAgo.plusDays(3));
 
 		HttpResponse<String> authorized = authorize(user, "ad-1");
 
 		assertThat(authorized.statusCode()).isEqualTo(200);
-		Window rolled = windowOf(user);
-		assertThat(rolled.start()).isBeforeOrEqualTo(now());
-		assertThat(rolled.end()).isAfter(now()).isEqualTo(rolled.start().plusMonths(1));
+		Window rolled = this.rows.windowOf(user);
+		assertThat(rolled.start()).isBeforeOrEqualTo(Subscribers.now());
+		assertThat(rolled.end()).isAfter(Subscribers.now()).isEqualTo(rolled.start().plusMonths(1));
 	}
 
 	/**
@@ -417,12 +419,12 @@ class RelistAuthorizationTest {
 	void andTheWindowItRollsIntoStartsOnTheDayTheAccountWasProvisioned() {
 		Subscriber user = aSubscriberEntitledTo(1);
 		OffsetDateTime signedUpOnAThirtyFirst = OffsetDateTime.of(2024, 1, 31, 9, 15, 0, 0, ZoneOffset.UTC);
-		provisionedAt(user, signedUpOnAThirtyFirst);
+		this.rows.provisionedAt(user, signedUpOnAThirtyFirst);
 		itsWindowIs(user, signedUpOnAThirtyFirst.plusMonths(1), signedUpOnAThirtyFirst.plusMonths(2));
 
 		authorize(user, "ad-1");
 
-		OffsetDateTime rolled = windowOf(user).start();
+		OffsetDateTime rolled = this.rows.windowOf(user).start();
 		assertThat(signedUpOnAThirtyFirst.plusMonths(ChronoUnit.MONTHS.between(signedUpOnAThirtyFirst, rolled)))
 				.isEqualTo(rolled);
 	}
@@ -435,12 +437,12 @@ class RelistAuthorizationTest {
 	@Test
 	void andSoTheDateAQuotaComesBackIsNeverOneThatHasPassed() {
 		Subscriber user = aSubscriberEntitledTo(0);
-		provisionedAt(user, now().minusMonths(3));
+		this.rows.provisionedAt(user, Subscribers.now().minusMonths(3));
 
 		HttpResponse<String> refused = authorize(user, "ad-1");
 
 		assertThat(refused.statusCode()).isEqualTo(429);
-		assertThat(OffsetDateTime.parse(Json.of(refused).get("resetAt").asString())).isAfter(now());
+		assertThat(OffsetDateTime.parse(Json.of(refused).get("resetAt").asString())).isAfter(Subscribers.now());
 	}
 
 	/**
@@ -455,12 +457,12 @@ class RelistAuthorizationTest {
 	@Test
 	void butAWindowStripeOwnsIsLeftForItsWebhookToMove() {
 		Subscriber user = aSubscriberEntitledTo(3);
-		provisionedAt(user, now().minusMonths(3));
+		this.rows.provisionedAt(user, Subscribers.now().minusMonths(3));
 		itIsMirroredFromStripe(user);
-		Window closed = windowOf(user);
+		Window closed = this.rows.windowOf(user);
 
 		assertThat(authorize(user, "ad-1").statusCode()).isEqualTo(200);
-		assertThat(windowOf(user)).isEqualTo(closed);
+		assertThat(this.rows.windowOf(user)).isEqualTo(closed);
 	}
 
 	/**
@@ -477,7 +479,7 @@ class RelistAuthorizationTest {
 		Subscriber user = aSubscriberEntitledTo(1);
 		try (Connection somebodyElse = this.database.getConnection()) {
 			somebodyElse.setAutoCommit(false);
-			lockTheSubscriptionOf(somebodyElse, user);
+			this.rows.lockTheSubscriptionOf(somebodyElse, user);
 
 			Future<HttpResponse<String>> inFlight = fire(user, "ad-1");
 			waitUntilBlockedOnALock(1);
@@ -502,7 +504,7 @@ class RelistAuthorizationTest {
 		Subscriber user = aSubscriberEntitledTo(1);
 		try (Connection somebodyElse = this.database.getConnection()) {
 			somebodyElse.setAutoCommit(false);
-			lockTheSubscriptionOf(somebodyElse, user);
+			this.rows.lockTheSubscriptionOf(somebodyElse, user);
 
 			Future<HttpResponse<String>> first = fire(user, "ad-1");
 			Future<HttpResponse<String>> second = fire(user, "ad-2");
@@ -511,7 +513,7 @@ class RelistAuthorizationTest {
 
 			assertThat(List.of(first.get(30, TimeUnit.SECONDS).statusCode(),
 					second.get(30, TimeUnit.SECONDS).statusCode())).containsExactlyInAnyOrder(200, 429);
-			assertThat(reservationsOf(user)).hasSize(1);
+			assertThat(this.rows.reservationsOf(user)).hasSize(1);
 		}
 	}
 
@@ -538,7 +540,9 @@ class RelistAuthorizationTest {
 	// --- arrangement ------------------------------------------------------------------------------------
 	//
 	// The rows themselves are Subscribers', which is where the SQL lives and where each of these says what it
-	// arranges. Named here as this suite's tests read them, since the names are half of what those tests say.
+	// arranges. Only the four that read differently in a test than they do on the fixture are named again here
+	// — a pass-through under the same name is a second name for one thing, and RelistCompletionTest calls the
+	// fixture direct.
 
 	private Subscriber aSubscriberEntitledTo(int relistsPerPeriod) {
 		return this.rows.entitledTo(relistsPerPeriod);
@@ -552,28 +556,8 @@ class RelistAuthorizationTest {
 		this.rows.windowIs(user, start, end);
 	}
 
-	private void provisionedAt(Subscriber user, OffsetDateTime when) {
-		this.rows.provisionedAt(user, when);
-	}
-
 	private void itIsMirroredFromStripe(Subscriber user) {
 		this.rows.mirroredFromStripe(user);
-	}
-
-	private UUID unitHeldBy(Subscriber user, OffsetDateTime when) {
-		return this.rows.unitHeldBy(user, when);
-	}
-
-	private void refunded(UUID reservation) {
-		this.rows.refunded(reservation);
-	}
-
-	private void settled(UUID reservation) {
-		this.rows.settled(reservation);
-	}
-
-	private void lockTheSubscriptionOf(Connection connection, Subscriber user) throws SQLException {
-		this.rows.lockTheSubscriptionOf(connection, user);
 	}
 
 	/**
@@ -587,27 +571,6 @@ class RelistAuthorizationTest {
 
 	// --- reading back -----------------------------------------------------------------------------------
 
-	private List<Map<String, Object>> reservationsOf(Subscriber user) {
-		return this.rows.reservationsOf(user);
-	}
-
-	private UUID theOnlyReservationOf(Subscriber user) {
-		assertThat(reservationsOf(user)).hasSize(1);
-		return (UUID) this.rows.theOnlyReservationOf(user).get("id");
-	}
-
-	private List<Map<String, Object>> everyReservation() {
-		return this.rows.everyReservation();
-	}
-
-	private Window windowOf(Subscriber user) {
-		return this.rows.windowOf(user);
-	}
-
-	private static OffsetDateTime utc(Map<String, Object> row, String column) {
-		return Subscribers.utc(row, column);
-	}
-
 	private static OffsetDateTime expiryOf(JsonNode granted) {
 		return OffsetDateTime.parse(granted.get("expiresAt").asString()).withOffsetSameInstant(ZoneOffset.UTC);
 	}
@@ -615,10 +578,6 @@ class RelistAuthorizationTest {
 	/** The half of a JWT {@link KeycloakFromCompose#claimsOf} does not read: what it was signed with. */
 	private static JsonNode headerOf(String jwt) {
 		return Json.of(Base64.getUrlDecoder().decode(jwt.split("\\.")[0]));
-	}
-
-	private static OffsetDateTime now() {
-		return Subscribers.now();
 	}
 
 	@Autowired

@@ -7,10 +7,10 @@ named below.
 
 ```bash
 cd apps/api
-./gradlew test      # 72 tests: the module boundary, the schema and catalog on a real Postgres, the realm,
+./gradlew test      # 74 tests: the module boundary, the schema and catalog on a real Postgres, the realm,
                     #           and which tokens get past the resource server
 ./gradlew build     # the above, plus the executable jar
-./gradlew bootRun   # http://localhost:8080 — 401 on everything without a token, 404 with one
+./gradlew bootRun   # http://localhost:8080 — 401 without a token and 404 with one, bar the open route below
 ```
 
 `bootRun` needs [the local stack](../../infra/README.md) up: it migrates `postgres://localhost:5432/mprelist`
@@ -235,6 +235,17 @@ with no Spring Security type in the signature. Not `@AuthenticationPrincipal`, w
 anonymous request and lets the handler run; this resolver refuses, and the refusal comes out as the same
 `401 UNAUTHENTICATED` as a missing token rather than as a 500.
 
+**The refusal's body follows its status.** `BearerTokenAuthenticationEntryPoint` sets the status and the
+`WWW-Authenticate` challenge, and `ResourceServerSecurity` writes `{"reason":"UNAUTHENTICATED"}` after it only
+if that status is a `401`. It is not always: the entry point takes its status from the `BearerTokenError` it
+was handed, and `invalid_request` is a `400` — a status the
+[contract](../../docs/enforcement-contract.md#denial-shape) describes no denial for, because a request this
+API could not parse is not a caller it turned away. Nothing configured here reaches that today, both places
+`DefaultBearerTokenResolver` raises it being behind the form-encoded and query-parameter options this
+application leaves off. That is also why `ResourceServerSecurityTest` is the one test of this security
+configuration not driven over a real port: the pairing cannot be arranged by a request without turning on a
+setting the application does not ship.
+
 **The decoder is configuration, not code.** `issuer-uri` and `audiences` in `application.yml` are what Boot
 builds it from, so the signature, the issuer, the expiry and the audience are all checked by code that is not
 in this repository. That is the reason `ResourceServerTest` mints tokens rather than asserting settings: a
@@ -293,6 +304,7 @@ Mutation-verified — each applied, observed, reverted:
 | …or stays wired and loses the `ROLE_` prefix | the same one |
 | `requireASubject` is dropped from the converter | `andOneThatNamesNoSubjectIsRefusedRatherThanHandedToAHandler`, `andAtARouteThatNeverAsksWhoIsCalling` |
 | the refusal's `setCharacterEncoding` is dropped | `aCallWithNoTokenIsRefusedWithTheReasonEveryDenialCarries` |
+| the refusal's body is written whatever status the challenge set | `butAMalformedRequestIsNotOne` |
 | the absent `realm_access` claim stops being a case and becomes a null dereference | `andAUserWhoseTokenCarriesNoRolesAtAllIsStillOne` (+5) |
 | `anyRequest().authenticated()` becomes `permitAll()` | `everyRouteIsClosedUntilItsOwnTicketOpensIt`, `aRouteThatPermitsAnonymousAccessCannotBeToldWhoTheCallerIs` |
 | the argument resolver returns `null` instead of refusing | `aRouteThatPermitsAnonymousAccessCannotBeToldWhoTheCallerIs` |

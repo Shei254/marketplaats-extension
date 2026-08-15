@@ -52,6 +52,11 @@ an unauthenticated call reaches no handler at all. It also carries the `WWW-Auth
 RFC 6750 requires, which is where *how* a presented token was wrong is said — the body says only that the
 caller is not authenticated, because that is the whole of what a client acts on.
 
+A `4xx` that is *not* a denial carries no `reason` at all. A request the API could not parse is answered with
+the challenge header and an empty body rather than with a reason code its status contradicts, so a client can
+read the presence of `reason` as meaning it was turned away. Nothing in the shipped configuration produces
+one today; it is stated because the status is Spring Security's to choose and not this repository's.
+
 One route is exempt and it is not ours: Spring Security publishes RFC 9728 protected-resource metadata at
 `/.well-known/oauth-protected-resource` and permits it, which is what the challenge above points a client at.
 It answers `200` to an unauthenticated caller, disclosing the base URL that caller has just used and naming no

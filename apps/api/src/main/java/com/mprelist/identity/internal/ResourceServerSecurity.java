@@ -147,10 +147,22 @@ class ResourceServerSecurity {
 	 * the {@code WWW-Authenticate} challenge RFC 6750 requires — including, for a token that was presented
 	 * and rejected, which way it was wrong. That belongs in a header rather than in the body: the body is
 	 * read by our own client, and telling an expired token from a malformed one is not something it acts on.
+	 *
+	 * <p>Which is why the body then follows the status rather than being written regardless. That entry point
+	 * takes its status from the {@code BearerTokenError} it was handed, and {@code invalid_request} is a
+	 * {@code 400} — a status {@code docs/enforcement-contract.md} describes no denial for, because a request
+	 * this API could not parse is not a caller it turned away. Nothing configured here reaches that today:
+	 * both places {@code DefaultBearerTokenResolver} raises it are behind the form-encoded and query-parameter
+	 * options, and both stay off. Written this way so that turning one on, or a release that raises a third
+	 * such error, cannot quietly produce a {@code 400} carrying {@code UNAUTHENTICATED} — a pair no client
+	 * reading that contract would know what to do with.
 	 */
 	private static void unauthenticated(HttpServletRequest request, HttpServletResponse response,
 			AuthenticationException refused) throws IOException, ServletException {
 		CHALLENGE.commence(request, response, refused);
+		if (response.getStatus() != HttpServletResponse.SC_UNAUTHORIZED) {
+			return;
+		}
 		response.setContentType(MediaType.APPLICATION_JSON_VALUE);
 		// Said rather than left to the container, which defaults a writer to ISO-8859-1 and would advertise
 		// `application/json;charset=ISO-8859-1` — a content type no reason code needs, and one that would start
@@ -159,7 +171,11 @@ class ResourceServerSecurity {
 		response.getWriter().write("{\"reason\":\"UNAUTHENTICATED\"}");
 	}
 
-	private static final AuthenticationEntryPoint UNAUTHENTICATED = ResourceServerSecurity::unauthenticated;
+	/**
+	 * Package-private rather than private for {@code ResourceServerSecurityTest}, which drives it with the one
+	 * refusal no request over a real port can arrange — see the second paragraph of {@link #unauthenticated}.
+	 */
+	static final AuthenticationEntryPoint UNAUTHENTICATED = ResourceServerSecurity::unauthenticated;
 
 	private static final AuthenticationEntryPoint CHALLENGE = new BearerTokenAuthenticationEntryPoint();
 

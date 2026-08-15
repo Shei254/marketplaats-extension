@@ -66,6 +66,14 @@ the outcomes, the event table, what is left of a period — is read by this modu
 `usage_reservation` and nowhere else, so `RemainingQuota` is the type that leaves `internal` on that ticket,
 and it is the first time another module asks `enforcement` anything at all.
 
+**Not amended in #24** either, and for a smaller reason than #23's: reconciliation reads and writes
+`usage_reservation`, which is this module's own table, so the job and the statement it runs are both
+`internal`. What that ticket did put outside every module is `@EnableScheduling`, on `ApiApplication`. A
+scheduler is an application-wide capability rather than one module's, and a module switching one on for every
+other module from inside its own `internal` package is a dependency nothing declares and the check below
+cannot see — so the annotation goes where the application is configured, and the module keeps only the
+`@Scheduled` method that says how often its own job runs.
+
 `subscription` also publishes **`QuotaPeriod`** as of #22: `[periodStart, periodEnd)` is one concept in the
 glossary and travelled as two parameters, which is a pair the compiler cannot tell apart and an invariant
 ("it runs forward") with no single home. The gate hands the window whole to the count that reads it.

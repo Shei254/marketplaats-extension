@@ -116,6 +116,45 @@ class UsageReservations {
 				.update();
 	}
 
+	/**
+	 * Hands back every unit still held by a grant that ran out before {@code cutoff} — the relists nothing ever
+	 * reported on, which {@link ReservationReconciliation} is what decides to stop waiting for.
+	 *
+	 * <p><strong>{@code status = 'RESERVED'} is the whole of the safety, and it is the database that enforces
+	 * it.</strong> A reservation {@code /complete} has already resolved is not {@code RESERVED} any more and so
+	 * is not matched — and under {@code read committed} a row settled by a report <em>while this statement is
+	 * scanning</em> is re-checked before it is written: the update blocks on that row's lock, and when the
+	 * report commits it finds the predicate no longer holds and leaves the row alone. So a report that landed
+	 * first is never overwritten by a guess made in its absence, which is the rule #23 fixed from its own side.
+	 *
+	 * <p>That is also what makes this idempotent and safe to run twice over, whether the second run is the next
+	 * tick or a second instance: the rows the first one moved are {@code REFUNDED}, and the predicate has
+	 * stopped matching them. Nothing is remembered between runs, so there is nothing that could disagree with
+	 * the rows.
+	 *
+	 * <p>One statement, and so one transaction of its own — there is nothing here to make atomic with anything
+	 * else. It takes no lock on the subscription, unlike both ends of the gate: this changes what a period
+	 * holds without reading a plan, so it never waits on the hot path and cannot deadlock against a call that
+	 * takes the subscription first and this row second.
+	 *
+	 * @param cutoff the instant a grant must have run out before, which is now less the grace window. Judged on
+	 * {@code expires_at} rather than on {@code reserved_at}, so that what a relist is measured against is the
+	 * authorization it was actually given ({@link RelistAuthorizations#LIFETIME}) rather than a second rule
+	 * that could drift from it
+	 * @param at when this refund was decided, stamped on every row it moves for {@link #resolve}'s reason and
+	 * taken from the same clock as {@code cutoff} — an interval measured between two clocks is the drift
+	 * between two machines
+	 * @return how many units went back, which is the abandonment rate an operator has to read this from
+	 */
+	int refundAbandonedBefore(OffsetDateTime cutoff, OffsetDateTime at) {
+		return this.db.sql("""
+				update usage_reservation set status = 'REFUNDED', resolved_at = ?
+				where status = 'RESERVED' and expires_at < ?
+				""")
+				.params(at, cutoff)
+				.update();
+	}
+
 	private final JdbcClient db;
 
 }

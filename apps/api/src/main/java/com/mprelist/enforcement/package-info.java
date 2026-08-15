@@ -7,7 +7,8 @@
  * {@code usage_reservation} and {@code relist_event} tables, and the signing of the short-lived authorization
  * a verdict of {@code 200} comes with. {@code authorize} takes a unit before anything is deleted (#22) and
  * {@code complete} settles or refunds it against what the extension says happened (#23); a reservation
- * nothing ever reports on is #24's to reconcile.
+ * nothing ever reports on is handed back by the scheduled reconciliation this module also owns (#24), which
+ * is the one thing in here that runs without a caller and the one answer in here that is a guess.
  *
  * <p>#26's {@code /api/me} is what will first ask this module something from outside it — {@code
  * quotaRemaining} is counted from the {@code usage_reservation} table and nowhere else — so {@code

@@ -1,5 +1,7 @@
 package com.mprelist;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -19,6 +21,20 @@ import java.util.regex.Pattern;
 final class YamlSetting {
 
 	/**
+	 * The value {@code application.yml} gives {@code key}, read out of the file's own text off the test
+	 * classpath.
+	 *
+	 * <p>Two suites now ask this and neither can ask the running configuration instead:
+	 * {@link ResourceServerTest} overrides the {@code issuer-uri} it is about, and
+	 * {@link ReservationReconciliationTest} overrides the interval it is about. Both are asking what the
+	 * application <em>ships</em> with, which is the one copy of a setting a test that overrides it can still
+	 * be wrong about.
+	 */
+	static String inApplicationYaml(String key) {
+		return in(applicationYaml(), key, "application.yml");
+	}
+
+	/**
 	 * The value {@code yaml} gives {@code key}, as it is written.
 	 *
 	 * @param yaml the file's own text
@@ -33,6 +49,15 @@ final class YamlSetting {
 					+ "this application's configuration and the local stack in step");
 		}
 		return value.group(1);
+	}
+
+	private static String applicationYaml() {
+		try (var yaml = YamlSetting.class.getResourceAsStream("/application.yml")) {
+			return new String(yaml.readAllBytes());
+		}
+		catch (IOException unreadable) {
+			throw new UncheckedIOException("Cannot read application.yml off the classpath", unreadable);
+		}
 	}
 
 	private YamlSetting() {

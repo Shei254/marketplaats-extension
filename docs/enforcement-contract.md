@@ -140,9 +140,15 @@ authorization server.
 - No `authToken` in the body, and **nothing here verifies one**: the `jti` is the reservation's own id, so this
   resolves a row in our own table, and who the caller is comes from their access token. That is why the signing
   key of the authorization is still generated per process — see the build question below.
-- A never-completed reservation expires and auto-refunds after a grace window (#24). A report arriving after
-  that refund still wins: it is the only account of what actually happened on Marktplaats, and reconciliation
-  is the guess made in its absence.
+- A never-completed reservation expires and auto-refunds after a grace window (#24, shipped: a fixed-delay job
+  every `5m`, refunding reservations still held `30m` past the `expiresAt` of the grant they were taken for —
+  both configurable, neither defaulted in code). A report arriving after that refund still wins: it is the only
+  account of what actually happened on Marktplaats, and reconciliation is the guess made in its absence. The
+  job writes **no** RelistEvent, because all three outcomes are things the extension observed and it observed
+  only that nothing was said — a row there would put an invention into the canary below. It is measured from
+  `expiresAt` rather than from when the unit was taken, so a relist is judged against the authorization it was
+  actually given, and the window is generous because the two mistakes are not symmetric: guessing early costs
+  a unit the eventual report settles back, guessing late holds a free user's month a third short.
 - **Returns the updated `{ quotaRemaining, resetAt }`**, so a relist needs no follow-up `/api/me` call.
   `quotaRemaining` is **never negative**: a tier's quota is an operator's to edit (ADR-0014), so a subscriber
   can hold more units than their tier now grants, and that state reads as nothing left rather than as less than

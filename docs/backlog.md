@@ -291,6 +291,26 @@ Abandoned reservations auto-refund after a grace window; idempotent, safe to run
   Marktplaats; this job's refund is the guess made in its absence. Asserted in `RelistCompletionTest` so this
   ticket inherits the decision rather than taking it again — and note that the job writes no `relist_event`,
   since the three outcomes are all things the extension observed.
+- **Decided in #24:**
+  - **The safety is the statement, not the schedule.** One `update … set status = 'REFUNDED' where status =
+    'RESERVED' and expires_at < ?`, so a second run — the next tick, or a second instance — matches nothing the
+    first one moved, and a reservation a report already resolved is never matched at all. The case in between
+    is a report committing *while the statement is scanning*, and `read committed` covers it: the update blocks
+    on that row, re-checks the predicate when the report commits, and leaves it alone. A read-then-write would
+    pass every other test and refund a relist that happened.
+  - **No lock on the subscription**, unlike both ends of the gate. This changes what a period holds without
+    reading a plan, so it never waits on the hot path and cannot deadlock against a call that takes the
+    subscription first and this row second.
+  - **Measured from `expires_at`, with a generous grace** (`30m`, beside a `5m` fixed delay; both
+    configuration, neither defaulted in code, so a missing one fails startup rather than running with a window
+    nobody chose). The two mistakes are not symmetric: guessing early costs a unit the eventual report settles
+    back, guessing late holds a third of a free user's month over a browser closed at the wrong moment.
+  - **`@EnableScheduling` is on the application**, not inside the module that wanted it: a scheduler is an
+    application-wide capability, and a module switching one on for every other module from inside its own
+    `internal` package is a dependency nothing declares and the boundary check cannot see.
+  - **The suite runs the job rather than waiting for it**, reaching the task through `ScheduledTaskHolder` —
+    so nothing in `enforcement/internal` had to be made public for a test, the negative assertions are about a
+    run that provably happened, and a job that stopped being scheduled is one the suite cannot find to run.
 
 ### T16 · SafetyPolicy rate and pacing check · **M** · T13
 Per-User rate limits and pacing; `429 RATE_LIMITED` with `retryAfter`. Refs: [ADR-0008](adr/0008-safety-and-consent.md).

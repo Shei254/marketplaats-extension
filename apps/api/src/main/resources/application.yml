@@ -36,3 +36,25 @@ server:
   # Pinned, though it is also Boot's default: infra/docker-compose.yml gives Keycloak 8081 specifically to
   # keep 8080 free for this application, and that pairing should not rest on a default staying put.
   port: 8080
+
+mprelist:
+  # #24: what to do about a relist that was authorized and never reported on. Both settings are here rather
+  # than defaulted in code, and neither has a fallback — a missing one fails startup instead of running with
+  # a window nobody chose, because the wrong value here is silent in both directions.
+  reconciliation:
+    # How long past a grant running out a reservation is left alone before its unit is handed back.
+    #
+    # Not "how long a relist takes". The grant itself is ~45s (enforcement-contract.md), and a relist is a
+    # capture, a photo download, a delete and a create with uploads — but the extension may also be asleep,
+    # throttled, or waiting on a user, and the contract deliberately puts no deadline on reporting. This is
+    # how long we wait before concluding that no report is coming at all.
+    #
+    # Generous, because the two mistakes are not symmetric. Guessing too early costs almost nothing: the
+    # relist that was still running reports in the end, and that report settles the unit back (#23). Guessing
+    # too late is what the ticket exists to stop — a free user is three relists a month, so one browser closed
+    # at the wrong moment is a third of their quota held until this runs.
+    grace: 30m
+    # How often the guess is made, and so — with the grace above — the longest a user waits for a unit their
+    # browser took with it. A fixed delay, and it fires once at startup too, which is what reconciles whatever
+    # accumulated while nothing was running.
+    interval: 5m

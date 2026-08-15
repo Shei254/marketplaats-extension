@@ -1,14 +1,14 @@
 # `apps/api` — Spring Boot API
 
 Five modules and the build-time check that makes them mean something, the schema they will fill, the tier
-catalog seeded into it, the resource server every route is now closed behind, and the tests that hold
-`infra/`'s Keycloak realm to what it promises. Still no endpoint of its own — those arrive with the tickets
-named below.
+catalog seeded into it, the resource server every route is now closed behind, the account and subscription a
+first sign-in leaves behind, and the tests that hold `infra/`'s Keycloak realm to what it promises. Still no
+endpoint of its own — those arrive with the tickets named below.
 
 ```bash
 cd apps/api
-./gradlew test      # 74 tests: the module boundary, the schema and catalog on a real Postgres, the realm,
-                    #           and which tokens get past the resource server
+./gradlew test      # 83 tests: the module boundary, the schema and catalog on a real Postgres, the realm,
+                    #           which tokens get past the resource server, and what first login provisions
 ./gradlew build     # the above, plus the executable jar
 ./gradlew bootRun   # http://localhost:8080 — 401 without a token and 404 with one, bar the open route below
 ```
@@ -53,15 +53,16 @@ Each is a direct sub-package of `com.mprelist`, which is what makes it an applic
 
 | Module | Owns | Fills with |
 |---|---|---|
-| `identity` | who the caller is; `CurrentUser` today, `UserRef` with [#20](https://github.com/Shei254/marketplaats-extension/issues/20) | [#19](https://github.com/Shei254/marketplaats-extension/issues/19) — [below](#the-resource-server) |
-| `catalog` | Tier → Entitlement, from our table, no Stripe | [#21](https://github.com/Shei254/marketplaats-extension/issues/21) |
-| `subscription` | the mirror of Stripe's status and period | [#20](https://github.com/Shei254/marketplaats-extension/issues/20), [#30](https://github.com/Shei254/marketplaats-extension/issues/30) |
+| `identity` | who the caller is: `CurrentUser`, and `UserRef` for the account behind them | [#19](https://github.com/Shei254/marketplaats-extension/issues/19) — [below](#the-resource-server) — and [#20](https://github.com/Shei254/marketplaats-extension/issues/20) — [below](#first-login) |
+| `catalog` | Tier → Entitlement, from our table, no Stripe | `TierId` and `defaultTier()` with [#20](https://github.com/Shei254/marketplaats-extension/issues/20); `Entitlement` with [#21](https://github.com/Shei254/marketplaats-extension/issues/21) |
+| `subscription` | the mirror of Stripe's status and period | [#20](https://github.com/Shei254/marketplaats-extension/issues/20) provisions the first one, [#30](https://github.com/Shei254/marketplaats-extension/issues/30) mirrors Stripe into it |
 | `enforcement` | `authorize` / `complete`, the gate | [#22](https://github.com/Shei254/marketplaats-extension/issues/22), [#23](https://github.com/Shei254/marketplaats-extension/issues/23) |
 | `admin` | operator endpoints behind the `ADMIN` role | [#27](https://github.com/Shei254/marketplaats-extension/issues/27) |
 
-Four of the five hold a single `package-info.java` carrying `@ApplicationModule` and nothing else. The
-annotation is not decoration: an empty package compiles to no class file at all, and a module Spring Modulith
-cannot see is a module it does not check. `allFiveModulesAreVisibleToTheCheck` is the test that says so.
+`enforcement` and `admin` hold a single `package-info.java` carrying `@ApplicationModule` and nothing else.
+The annotation is not decoration: an empty package compiles to no class file at all, and a module Spring
+Modulith cannot see is a module it does not check. `allFiveModulesAreVisibleToTheCheck` is the test that says
+so.
 
 A module's **sub-packages are internal to it** — `enforcement.internal.jpa` is reachable from `enforcement`
 and from nowhere else. That is the rule below enforces, and it is why ADR-0012 can promise Stripe and JPA stay
@@ -70,10 +71,13 @@ replaceable adapters rather than becoming everyone's dependency.
 ## The boundary check
 
 `ModuleBoundaryTest.noModuleReachesIntoAnothersInternals` fails the build on a cross-module reach into an
-`internal` package. Today it cannot fail for the right reason — no module references another at all — and a
-check that cannot fail is indistinguishable from one that has stopped working. So the same verification is
-also pointed at a fixture built to be caught: `src/boundaryFixture/java` holds two modules, `beta` reaching
-into `alpha.internal`, and `andTheCheckAboveIsWhatWouldCatchOneThatDid` asserts it is rejected by name.
+`internal` package. There are real references for it to be right about since
+[#20](https://github.com/Shei254/marketplaats-extension/issues/20) — `subscription` reads `identity`'s
+`UserProvisioned` and `catalog`'s `TierCatalog`, both public API — but a check that passes is still
+indistinguishable from one that has stopped working, and a violation is not a thing to write into `main` on
+purpose. So the same verification is also pointed at a fixture built to be caught: `src/boundaryFixture/java`
+holds two modules, `beta` reaching into `alpha.internal`, and `andTheCheckAboveIsWhatWouldCatchOneThatDid`
+asserts it is rejected by name.
 
 The fixture is a **separate source set** rather than test code, for two reasons that both make it invisible or
 harmful anywhere else:
@@ -105,9 +109,9 @@ edit to `V1`.
 
 | Table | Holds | Filled by |
 |---|---|---|
-| `app_user` | one row per human, keyed to the IdP `sub` (Keycloak's, today) | [#20](https://github.com/Shei254/marketplaats-extension/issues/20) |
-| `tier` | our catalog: quota, max MP accounts, feature flags, nullable `stripe_price_id` | seeded by [#18](https://github.com/Shei254/marketplaats-extension/issues/18), read by [#21](https://github.com/Shei254/marketplaats-extension/issues/21) |
-| `subscription` | the mirror: user, tier, normalized status, period, Stripe ids | [#20](https://github.com/Shei254/marketplaats-extension/issues/20), [#30](https://github.com/Shei254/marketplaats-extension/issues/30) |
+| `app_user` | one row per human, keyed to the IdP `sub` (Keycloak's, today) | [#20](https://github.com/Shei254/marketplaats-extension/issues/20) — [below](#first-login) |
+| `tier` | our catalog: quota, max MP accounts, feature flags, nullable `stripe_price_id` | seeded by [#18](https://github.com/Shei254/marketplaats-extension/issues/18), read by [#20](https://github.com/Shei254/marketplaats-extension/issues/20) and [#21](https://github.com/Shei254/marketplaats-extension/issues/21) |
+| `subscription` | the mirror: user, tier, normalized status, period, Stripe ids | [#20](https://github.com/Shei254/marketplaats-extension/issues/20) writes the first row, [#30](https://github.com/Shei254/marketplaats-extension/issues/30) keeps it in step with Stripe |
 | `usage_reservation` | one quota unit, held from `authorize` until `complete` | [#22](https://github.com/Shei254/marketplaats-extension/issues/22), [#23](https://github.com/Shei254/marketplaats-extension/issues/23) |
 | `relist_event` | what the extension reported about a relist | [#23](https://github.com/Shei254/marketplaats-extension/issues/23) |
 
@@ -126,6 +130,7 @@ These invariants are in the schema rather than in a service, so no module can wr
 |---|---|---|
 | At most one tier is the default | partial unique index `tier_single_default` | `aSecondDefaultTierIsRejected`, and `butTheCatalogMayHoldAnyNumberOfTiersThatAreNotTheDefault` for the *partial* |
 | A user has at most one subscription | `subscription.app_user_id` unique | `aUserHasAtMostOneSubscription` |
+| …and at least one | not the schema's to hold — [first login](#first-login) provisions it in the transaction that creates the user | `aCatalogWithNoDefaultTierProvisionsNobodyAtAll` |
 | Status is one of the seven the contract normalizes to | check constraint | `aSubscriptionCarriesOneOfTheSevenNormalizedStatuses`, `andAStatusOutsideTheSevenIsRejected` |
 | A tier with subscribers cannot be dropped | foreign key, no delete rule | `aTierWithSubscribersCannotBeDeleted` |
 | A reservation is reported on at most once | `relist_event.reservation_id` unique | `aReservationIsReportedOnAtMostOnce` |
@@ -339,6 +344,103 @@ and `aud: mprelist-api`, and the running application answered it `404` — accep
 token: `401 {"reason":"UNAUTHENTICATED"}`. With a **real** token from the same realm minted for another
 audience (`admin-cli`): `401`, `The aud claim is not valid`. With one byte of the signature changed: `401`,
 `Invalid signature`.
+
+## First login
+
+ADR-0014 requires that **every user always has a Subscription** — the free tier is an ordinary `tier` row, a
+new account lands on it `active`, and no code anywhere asks "is this user free?". `FirstLoginProvisioningTest`
+is where that is held.
+
+**There is no login to hang it off.** This application is a resource server; nobody signs in *to* it. So
+"first login" is the first request carrying a `sub` that `app_user` has never seen, and provisioning happens
+on the way into a handler — when one declares a `UserRef` parameter:
+
+```java
+@GetMapping("/api/me")
+Me me(UserRef caller)          // the account exists by the time this body runs
+```
+
+That is the difference between the module's two public types, and a handler chooses by which it declares:
+
+| Parameter | Answers | Costs |
+|---|---|---|
+| `CurrentUser` | the token's `sub`, and nothing else | no database at all |
+| `UserRef` | our `app_user` row | the query that finds it, and on first sight the one that creates it |
+
+A filter provisioning on every authenticated request was the alternative, and would make "first login" literal
+at the price of a query on every call that never looks at an account. What both have that a service method
+would not is that **neither leaves it to a handler to remember**: a route declaring `UserRef` cannot be reached
+without the row existing. #26's `/api/me` is the first such route, and it is the call both clients make
+immediately after signing in.
+
+**One transaction, three modules.** `identity` creates the `app_user` and publishes `UserProvisioned`;
+`subscription` listens and writes the row; `catalog` says which tier it goes on:
+
+| Class | Module | Holds |
+|---|---|---|
+| `UserRefFromToken` | `identity/internal` | the resolver, and so the moment provisioning happens |
+| `AppUsers` | `identity/internal` | the `app_user` table, the insert that claims a subject, and the transaction |
+| `ProvisionOnFirstLogin` | `subscription/internal` | the subscription: default tier, `active`, and the period |
+| `TierRows` | `catalog/internal` | the `tier` table, and the only code that reads it |
+
+An **event, listened to synchronously**, and both halves of that are decisions:
+
+- **An event**, because a subscription references a user and everything references identity. Had `identity`
+  called `subscription` directly, the dependency would point the wrong way and the module everything else
+  depends on would grow one of its own for every ticket that hangs something off a new account.
+- **Synchronously**, which is why it is a plain `@EventListener` and *not* Spring Modulith's
+  `@ApplicationModuleListener`. That one is asynchronous and after-commit, so the account would exist for a
+  moment with no subscription against it — and "no subscription is unreachable" is an invariant, not an
+  eventual state. Here the listener runs inside the transaction that created the row, so a listener that
+  throws takes the account down with it. `aCatalogWithNoDefaultTierProvisionsNobodyAtAll` is that test: with
+  no tier carrying `is_default` the call fails **and leaves no `app_user` behind**, so the caller retries
+  rather than becoming a signed-up user with nothing to spend.
+
+**`accountFor` is package-private, and for most of Spring's history it could not have been.**
+`@Transactional` on a non-public method used to be ignored rather than rejected — no error, no transaction —
+and every guarantee in the paragraph above would quietly not have existed. It was written `public` here for
+that reason, and the mutation that narrowed it back **survived**: as of Spring 7,
+`AbstractTransactionManagementConfiguration` builds its `AnnotationTransactionAttributeSource` with
+`publicMethodsOnly = false`, so it applies either way. The rule is real and out of date, and the reason it is
+not a thing to remember is that `aCatalogWithNoDefaultTierProvisionsNobodyAtAll` fails the moment the
+transaction is not there, whichever way it stopped being.
+
+**The period is a calendar month from provisioning**, computed once in UTC in Java. Free users have no Stripe
+period to copy, so this is what makes `resetAt` answerable for everybody (ADR-0014, and #26 renders it).
+Thirty days would pass a test written as "about a month" while walking the reset date a day earlier every
+month, and Postgres's own `interval '1 month'` is evaluated in the session's time zone, so two deployments
+would give the same account periods an hour apart across a DST boundary.
+
+**Two first requests can be in flight at once** — the popup and the dashboard both waking after a sign-in —
+and the loser must join the winner's account rather than fail on `app_user_idp_subject_key`. `on conflict
+(idp_subject) do nothing` makes its insert *wait* on the other transaction instead of raising, and the select
+after it turns the nothing it then returns into the answer. Eight callers at once provoke that only when the
+scheduler cooperates, so the test arranges it instead: the competing account is claimed on a connection of the
+suite's own and left uncommitted, the call is fired, and the commit waits until Postgres reports a backend
+blocked on a lock — which is the application's insert, stopped on exactly that row.
+
+Mutation-verified — each applied, observed, reverted:
+
+| Mutation | Fails |
+|---|---|
+| `@Transactional` is dropped from `accountFor` | `aCatalogWithNoDefaultTierProvisionsNobodyAtAll` |
+| the `@EventListener` becomes a `@TransactionalEventListener` | the same one |
+| `UserProvisioned` is not published | `andASubscriptionOnTheDefaultTierRatherThanNoneAtAll` (+5) |
+| `defaultTier()` stops asking for `is_default` | `andASubscriptionOnTheDefaultTierRatherThanNoneAtAll`, `aCatalogWithNoDefaultTierProvisionsNobodyAtAll` |
+| the subscription is seeded `incomplete` rather than `active` | `andASubscriptionOnTheDefaultTierRatherThanNoneAtAll` |
+| the period runs `plusDays(30)` instead of `plusMonths(1)` | `andAPeriodThatRunsAMonthFromTheMomentItWasProvisioned` |
+| `on conflict (idp_subject) do nothing` is dropped from the insert | `andASubjectClaimedWhileTheCallWasInFlightJoinsThatAccount` |
+| …or kept, and the select that follows it removed | the same one |
+| the resolver takes the caller's name instead of refusing an anonymous one | `andNorDoesOneAtARouteThatWouldHaveLetItThrough` |
+
+That last one is why the test beside it counts handler entries. Asking for an account is a **write**, so the
+failure that matters is not that the caller saw an error — it is a row created for somebody who never signed
+in, at whatever open route a later ticket adds. Every route in this application is closed today, so the chain
+refuses such a call before any resolver runs and the fixture brings an open one of its own.
+
+One mutation is left surviving and said so: **narrowing `accountFor` to package-private**, for the reason two
+paragraphs up. It is left in the source rather than reverted, because the narrower method is the better one
+and the Spring behaviour it depends on is held by a test rather than by a convention.
 
 ## The realm
 

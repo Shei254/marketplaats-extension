@@ -171,6 +171,28 @@ Every User gets a Subscription on the `is_default` tier, status `active`, with a
 - **"No subscription" is unreachable** — assert it.
 - Free-user `period_end` rolls monthly from provisioning.
 - Refs: [ADR-0014](adr/0014-tier-catalog-and-entitlements.md).
+- **Decided in #20:** there is no login to hang this off — the API is a resource server and nobody signs in
+  *to* it — so **first login is the first request carrying a `sub` `app_user` has never seen**, and
+  provisioning happens when a handler declares the `UserRef` parameter T10 deferred to here. That is the
+  choice between the module's two public types: `CurrentUser` answers who the caller is and touches no
+  database, `UserRef` names their row and creates it if this is the first sight of them. Neither leaves it to
+  a handler to remember, which a service method would; T17's `/api/me` is the first route to declare one and
+  is the call both clients make straight after signing in.
+- **One transaction across three modules**, which is what makes "no subscription" unreachable rather than
+  merely unlikely. `identity` creates the `app_user` and publishes `UserProvisioned`; `subscription` listens
+  and writes the row; `catalog` gains `TierId` and `defaultTier()` — the smallest part of its ADR-0012 API,
+  since reading the `tier` table from another module is exactly the coupling the layout exists to prevent, and
+  `Entitlement` is still T12's. An **event** because a subscription references a user and everything
+  references identity, so a direct call would point the dependency the wrong way. **Synchronous**, and
+  deliberately not Spring Modulith's async after-commit `@ApplicationModuleListener`: a listener that throws
+  has to take the account down with it, so a catalog with no default tier provisions *nobody* instead of
+  leaving a signed-up user with nothing to spend.
+- The period is a **calendar month from provisioning**, computed once in UTC in Java rather than as Postgres's
+  `interval '1 month'`, which is evaluated in the session's time zone. Thirty days would walk the reset date a
+  day earlier every month, and `resetAt` is a thing a user plans around.
+- Two of the same person's first requests can be in flight at once, so the insert is
+  `on conflict (idp_subject) do nothing` followed by a select: the loser waits and joins the winner's account
+  rather than failing on the unique index on its very first call.
 
 ---
 
@@ -178,6 +200,9 @@ Every User gets a Subscription on the `is_default` tier, status `active`, with a
 
 ### T12 · `catalog` module: Tier → Entitlement resolution · **M** · T09
 Resolve quota, max accounts and feature flags from our table. **No Stripe dependency in this module.**
+- The module is no longer empty: T11 added `TierId` and `TierCatalog.defaultTier()`, which is the one question
+  provisioning had to ask. `Entitlement` — what a tier *grants*, and the thing T13's gate reads — is this
+  ticket's, and goes on the same interface.
 
 ### T13 · `POST /api/relist/authorize` · **L** · T11, T12
 - Checks in fixed order, first failure wins: token → status → quota → SafetyPolicy.

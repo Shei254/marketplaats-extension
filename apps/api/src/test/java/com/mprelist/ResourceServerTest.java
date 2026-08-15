@@ -3,8 +3,6 @@ package com.mprelist;
 import static java.util.stream.Collectors.toCollection;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -460,16 +458,7 @@ class ResourceServerTest {
 
 	/** A value out of {@code application.yml}'s own text, which is the copy this suite does not override. */
 	private static String configured(String key) {
-		return YamlSetting.in(applicationYaml(), key, "application.yml");
-	}
-
-	private static String applicationYaml() {
-		try (var yaml = ResourceServerTest.class.getResourceAsStream("/application.yml")) {
-			return new String(yaml.readAllBytes());
-		}
-		catch (IOException unreadable) {
-			throw new UncheckedIOException("Cannot read application.yml off the classpath", unreadable);
-		}
+		return YamlSetting.inApplicationYaml(key);
 	}
 
 	/** Every {@code aud} the realm file's audience mappers put into a token. */

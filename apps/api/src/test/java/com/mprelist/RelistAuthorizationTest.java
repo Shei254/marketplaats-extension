@@ -59,8 +59,14 @@ import tools.jackson.databind.JsonNode;
  * <p>Not {@code @Transactional}: the application answers on its own connection, so a rollback here would
  * neither see nor undo what it wrote. Each test empties {@code app_user} instead, which takes the subscriptions
  * and reservations with it, and drops the tiers this suite arranged.
+ *
+ * <p><strong>#24's reconciliation is out of reach here</strong>, which is what the interval buys. Several tests
+ * below arrange units held an hour or a month ago in order to say what the gate counts, and those are exactly
+ * the rows a reconciliation hands back: one firing mid-test would leave a test that still passes while having
+ * arranged something else. What it does with them is {@link ReservationReconciliationTest}'s subject.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+		properties = "mprelist.reconciliation.interval=24h")
 @Import(PostgresFromCompose.class)
 class RelistAuthorizationTest {
 

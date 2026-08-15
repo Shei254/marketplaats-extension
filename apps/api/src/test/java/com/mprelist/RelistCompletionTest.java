@@ -45,8 +45,15 @@ import tools.jackson.databind.JsonNode;
  * a state no sequence of calls can produce.
  *
  * <p>Over a real port and not {@code @Transactional}, both for that suite's reasons.
+ *
+ * <p><strong>#24's reconciliation is out of reach here</strong>, which is what the interval buys: this suite
+ * arranges reservations whose grants ran out in order to assert that a late report is still answered, and a
+ * job refunding one of them mid-test would leave the test asserting something it did not arrange. What
+ * reconciliation does with those rows is {@link ReservationReconciliationTest}'s subject, and the rule they
+ * share — a report arriving after a refund still settles the unit — is asserted below.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+		properties = "mprelist.reconciliation.interval=24h")
 @Import(PostgresFromCompose.class)
 class RelistCompletionTest {
 
@@ -527,8 +534,7 @@ class RelistCompletionTest {
 
 	/** A grant that has run out, as one has by the time a slow relist reports on it. */
 	private void expired(UUID reservation) {
-		this.db.update("update usage_reservation set expires_at = ? where id = ?",
-				Subscribers.now().minusMinutes(10), reservation);
+		this.rows.grantRanOutAt(reservation, Subscribers.now().minusMinutes(10));
 	}
 
 	@Autowired

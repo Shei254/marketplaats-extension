@@ -100,6 +100,18 @@ final class Subscribers {
 				""", UUID.class, user.account(), when, when.plusSeconds(45));
 	}
 
+	/**
+	 * A grant that ran out then — which is the column {@link ReservationReconciliation} judges an abandoned
+	 * relist by, and the one thing about a reservation these suites move rather than arrange.
+	 *
+	 * <p>Set after the fact rather than by arranging the reservation itself, because both suites that need it
+	 * are reporting on an authorization this API actually issued: a row written here would be a {@code jti}
+	 * nobody was given, and the 45 seconds it was given for cannot be waited out in a test.
+	 */
+	void grantRanOutAt(UUID reservation, OffsetDateTime when) {
+		this.db.update("update usage_reservation set expires_at = ? where id = ?", when, reservation);
+	}
+
 	void refunded(UUID reservation) {
 		resolved(reservation, "REFUNDED");
 	}
@@ -119,6 +131,20 @@ final class Subscribers {
 				.prepareStatement("select id from subscription where app_user_id = ? for update")) {
 			lock.setObject(1, user.account());
 			lock.executeQuery().close();
+		}
+	}
+
+	/**
+	 * A report settling the reservation, written on a connection the caller holds open — which is what
+	 * {@code /complete}'s own transaction does to the row, and holding it open is how
+	 * {@link ReservationReconciliationTest} arranges a reconciliation that arrives while one is in progress.
+	 */
+	void settledOn(Connection connection, UUID reservation, OffsetDateTime at) throws SQLException {
+		try (PreparedStatement settle = connection
+				.prepareStatement("update usage_reservation set status = 'SETTLED', resolved_at = ? where id = ?")) {
+			settle.setObject(1, at);
+			settle.setObject(2, reservation);
+			settle.executeUpdate();
 		}
 	}
 
@@ -145,6 +171,17 @@ final class Subscribers {
 			throw new IllegalStateException("Expected one reservation for " + user.account() + ", found " + held);
 		}
 		return held.get(0);
+	}
+
+	/**
+	 * One reservation named by its own id, for a suite holding several accounts' at once — where
+	 * {@link #theOnlyReservationOf} cannot say which is meant.
+	 */
+	Map<String, Object> reservation(UUID id) {
+		return this.db.queryForMap("""
+				select id, ad_id, status, reserved_at, expires_at, resolved_at
+				from usage_reservation where id = ?
+				""", id);
 	}
 
 	List<Map<String, Object>> everyReservation() {

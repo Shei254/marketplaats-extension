@@ -256,13 +256,35 @@ Resolve quota, max accounts and feature flags from our table. **No Stripe depend
 - `SUCCESS`/`FAILED_AFTER_DELETE` → usage stands. `FAILED_BEFORE_DELETE` → refund.
 - Idempotent per `jti`; burns the `jti`.
 - **Returns updated `{ quotaRemaining, resetAt }`.**
-- **Nothing resolves a reservation until this exists**, so every unit T13 takes stays taken for the rest of the
-  period — which is also why T15 matters sooner rather than later.
-- **If it verifies the `authToken`** rather than trusting the `jti` alone, it is the first code to do so, and
-  the ticket that has to turn T13's per-process signing key into configuration.
+- **Decided in #23:**
+  - **The database is what makes it idempotent**, not a check the service runs first: the insert into
+    `relist_event` is `on conflict (reservation_id) do nothing`, and the reservation is resolved only when that
+    insert was the one that landed. So the **first report decides and a later one cannot revise it** — a
+    `FAILED_BEFORE_DELETE` after a `SUCCESS` does not hand back the unit for a relist that happened, which
+    last-writer-wins would, and under ADR-0007 the client sending it is the adversary. A second report is
+    ordinarily an extension retrying because our answer never arrived, so it is answered with the unchanged
+    quota rather than with an error it would have to tell apart from a real failure.
+  - **No check runs on this path.** A lapsed payer, an exhausted quota, an expired grant: all still reported
+    on. The call grants nothing, and refusing one would hold the unit for the rest of the period and lose
+    exactly the outcome the canary exists to watch. The 45 seconds bound how long an *authorization* is good
+    for, not how long the extension has to say what it did with one.
+  - **The reservation has to be the caller's own**, and a `jti` that is not is a `404` with no reason code —
+    the same answer as one that never existed, so it cannot be used to ask whether an id is anybody's. A `jti`
+    not shaped like a reservation id is a `400`: unreadable and unfindable are different things to act on.
+  - **It does not verify the `authToken`**, so it is not the ticket that turns T13's per-process signing key
+    into configuration and no open ticket is. Resolving the row answers everything verifying the token would,
+    and the caller's own access token already says who they are.
+  - `quotaRemaining` and the gate's refusal are **one subtraction** (`RemainingQuota`), clamped at zero — an
+    operator lowering a tier's quota under a subscriber is reachable without anybody doing anything wrong, and
+    the popup showing a relist left beside a button that refuses is the bug the shared type prevents.
 
 ### T15 · Reservation reconciliation job · **M** · T14
 Abandoned reservations auto-refund after a grace window; idempotent, safe to run concurrently.
+- **Decided in #23, since it is the other half of that rule:** a report arriving *after* this job has refunded
+  a reservation still wins and settles it. The report is the only account of what actually happened on
+  Marktplaats; this job's refund is the guess made in its absence. Asserted in `RelistCompletionTest` so this
+  ticket inherits the decision rather than taking it again — and note that the job writes no `relist_event`,
+  since the three outcomes are all things the extension observed.
 
 ### T16 · SafetyPolicy rate and pacing check · **M** · T13
 Per-User rate limits and pacing; `429 RATE_LIMITED` with `retryAfter`. Refs: [ADR-0008](adr/0008-safety-and-consent.md).

@@ -59,6 +59,13 @@ likeliest. And what was drawn as `internal/jpa` is **`internal`, and not JPA**: 
 tables through `JdbcClient`, because nothing yet loads a row, mutates it and writes it back, and Hibernate
 would arrive with `ddl-auto` — a second schema author beside the migrations.
 
+**Not amended in #23**, which is worth saying because that ticket added seven types and shipped a second route.
+`enforcement`'s published list is the routes, and it already named `/complete`; everything the report needs —
+the outcomes, the event table, what is left of a period — is read by this module alone, so all of it is
+`internal`. The next amendment here is #26's: `/api/me` renders a `quotaRemaining` counted from
+`usage_reservation` and nowhere else, so `RemainingQuota` is the type that leaves `internal` on that ticket,
+and it is the first time another module asks `enforcement` anything at all.
+
 `subscription` also publishes **`QuotaPeriod`** as of #22: `[periodStart, periodEnd)` is one concept in the
 glossary and travelled as two parameters, which is a pair the compiler cannot tell apart and an invariant
 ("it runs forward") with no single home. The gate hands the window whole to the count that reads it.

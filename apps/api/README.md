@@ -3,14 +3,15 @@
 Five modules and the build-time check that makes them mean something, the schema they fill, the tier catalog
 seeded into it and what each of its tiers grants, the resource server every route is closed behind, the
 account and subscription a first sign-in leaves behind, and the tests that hold `infra/`'s Keycloak realm to
-what it promises. One endpoint so far — `POST /api/relist/authorize`, the gate — with the rest arriving on the
-tickets named below.
+what it promises. Two endpoints so far — `POST /api/relist/authorize` and `POST /api/relist/complete`, the
+two ends of the gate — with the rest arriving on the tickets named below.
 
 ```bash
 cd apps/api
-./gradlew test      # 124 tests: the module boundary, the schema and catalog on a real Postgres, the realm,
+./gradlew test      # 146 tests: the module boundary, the schema and catalog on a real Postgres, the realm,
                     #            which tokens get past the resource server, what first login provisions, what
-                    #            a tier grants whoever is on it, and who may relist and what it costs them
+                    #            a tier grants whoever is on it, who may relist and what it costs them, and
+                    #            what the extension reporting back settles or gives them back
 ./gradlew build     # the above, plus the executable jar
 ./gradlew bootRun   # http://localhost:8080 — 401 without a token, and the gate below with one
 ```
@@ -67,7 +68,7 @@ Each is a direct sub-package of `com.mprelist`, which is what makes it an applic
 | `identity` | who the caller is: `CurrentUser`, and `UserRef` for the account behind them | [#19](https://github.com/Shei254/marketplaats-extension/issues/19) — [below](#the-resource-server) — and [#20](https://github.com/Shei254/marketplaats-extension/issues/20) — [below](#first-login) |
 | `catalog` | Tier → Entitlement, from our table, no Stripe | `TierId` and `defaultTier()` with [#20](https://github.com/Shei254/marketplaats-extension/issues/20), `Entitlement` with [#21](https://github.com/Shei254/marketplaats-extension/issues/21) — [below](#what-a-tier-grants) |
 | `subscription` | the mirror of Stripe's status and period | [#20](https://github.com/Shei254/marketplaats-extension/issues/20) provisions the first one, [#22](https://github.com/Shei254/marketplaats-extension/issues/22) reads and rolls its window — [below](#the-gate) — and [#30](https://github.com/Shei254/marketplaats-extension/issues/30) mirrors Stripe into it |
-| `enforcement` | `authorize` / `complete`, the gate | [#22](https://github.com/Shei254/marketplaats-extension/issues/22) — [below](#the-gate) — and [#23](https://github.com/Shei254/marketplaats-extension/issues/23) |
+| `enforcement` | `authorize` / `complete`, the gate | [#22](https://github.com/Shei254/marketplaats-extension/issues/22) — [below](#the-gate) — and [#23](https://github.com/Shei254/marketplaats-extension/issues/23) — [below](#what-the-extension-reports-back) |
 | `admin` | operator endpoints behind the `ADMIN` role | [#27](https://github.com/Shei254/marketplaats-extension/issues/27) |
 
 `admin` still holds a single `package-info.java` carrying `@ApplicationModule` and nothing else. The annotation
@@ -123,7 +124,7 @@ edit to `V1`.
 | `tier` | our catalog: quota, max MP accounts, feature flags, nullable `stripe_price_id` | seeded by [#18](https://github.com/Shei254/marketplaats-extension/issues/18), read by [#20](https://github.com/Shei254/marketplaats-extension/issues/20) and [#21](https://github.com/Shei254/marketplaats-extension/issues/21) |
 | `subscription` | the mirror: user, tier, normalized status, period, Stripe ids | [#20](https://github.com/Shei254/marketplaats-extension/issues/20) writes the first row, [#22](https://github.com/Shei254/marketplaats-extension/issues/22) rolls a free window that has closed, [#30](https://github.com/Shei254/marketplaats-extension/issues/30) keeps it in step with Stripe |
 | `usage_reservation` | one quota unit, held from `authorize` until `complete` | [#22](https://github.com/Shei254/marketplaats-extension/issues/22) takes one, [#23](https://github.com/Shei254/marketplaats-extension/issues/23) settles or refunds it |
-| `relist_event` | what the extension reported about a relist | [#23](https://github.com/Shei254/marketplaats-extension/issues/23) |
+| `relist_event` | what the extension reported about a relist | [#23](https://github.com/Shei254/marketplaats-extension/issues/23) — [below](#what-the-extension-reports-back) |
 
 **The reservation holds the quota unit, and the event does not.** An in-flight relist has to hold one — the
 extension is between the delete and the create and has reported nothing yet — so usage in a period is the
@@ -148,10 +149,12 @@ These invariants are in the schema rather than in a service, so no module can wr
 
 Two things the contract wants are deliberately *not* in that table, because the schema cannot hold them
 alone. `complete`'s **idempotency** is more than the unique above: the constraint refuses the second report,
-and answering it with the unchanged `{quotaRemaining, resetAt}` instead of an error is
-[#23](https://github.com/Shei254/marketplaats-extension/issues/23)'s to write. And while at most one event
-per reservation is enforced here, that there is *exactly* one for every reservation that resolved is a rule
-only the writing service can keep.
+and answering it with the unchanged `{quotaRemaining, resetAt}` instead of an error is what
+[#23](https://github.com/Shei254/marketplaats-extension/issues/23) wrote around it — `on conflict do nothing`,
+and the reservation resolved only when that insert was the one that landed. And while at most one event per
+reservation is enforced here, that there is *exactly* one for every reservation that resolved is a rule only
+the writing service can keep — kept for the ones a report resolves, and #24's to keep for the ones nothing
+ever reports on.
 
 `BaselineSchemaTest` runs them against a Postgres it starts itself (Testcontainers), on **the image
 `infra/docker-compose.yml` names** — `PostgresFromCompose` reads the tag out of that file rather than
@@ -627,8 +630,12 @@ verifies one of these yet** — `/complete` takes a `jti` and resolves a row —
 secret to distribute and rotate in every environment before anything read it, and a development default would
 be the one that eventually shipped. What that costs is stated rather than discovered: a restart invalidates
 every grant still in flight, which is at most 45 seconds of them, and **a second instance would sign with a
-second key**. The first verifier is what turns this into configuration, and it is
-[#23](https://github.com/Shei254/marketplaats-extension/issues/23)'s to notice.
+second key**. The first verifier is what turns this into configuration — and
+[#23](https://github.com/Shei254/marketplaats-extension/issues/23), which was named as it, turned out not to
+be one: `/complete` takes the `jti` and resolves the row, so the token is still something only we read and
+never something we check. **Nothing verifies one of these yet remains true**, and the ticket that changes it is
+whichever first has a reason to trust the token rather than the row — none is open today, so it is stated here
+and in the contract rather than assigned.
 
 Mutation-verified — each applied, observed, reverted:
 
@@ -664,12 +671,107 @@ counted in, and the row that falls outside the window it was authorized against 
 
 **Not here, and each named where it goes.** #25's SafetyPolicy check has its place in `RelistGate` marked, in
 the one position that is right: after the quota, so a user with nothing left is told so rather than told to
-wait, and before the reservation, so a refusal does not cost the unit it refused. #23's `/complete` is what
-resolves the reservations this takes — until it exists, every unit spent here stays spent, and #24's
-reconciliation of abandoned ones is what makes that survivable in the meantime. ADR-0012 also sketches an
+wait, and before the reservation, so a refusal does not cost the unit it refused. ADR-0012 also sketches an
 `enforcement/domain` package for pure decision logic; there is none, because the decision is a status and two
 numbers the same method has just read, and the ticket that gives it a second reader is the one that should
 create it.
+
+## What the extension reports back
+
+`POST /api/relist/complete` is the other end of the gate: what happened to the relist an authorization was
+issued for, and what that costs. Every `authorize` takes a unit before anything is deleted, so **every one of
+them has to come back here** or the unit stays taken for the rest of the period.
+
+```
+200  { "quotaRemaining": 2, "resetAt": "…" }   whether it settled the unit or gave it back
+404                                            a jti naming no reservation of this caller's — no reason code
+400                                            a body this API could not read — no reason code
+```
+
+The body is `{ "jti": "…", "outcome": "SUCCESS" | "FAILED_BEFORE_DELETE" | "FAILED_AFTER_DELETE" }`. The `jti`
+is the reservation's own id, so this resolves a row in our own table rather than reading a claim out of the
+token — which is why **nothing here verifies a signature**, and why `RelistAuthorizations`' key is still
+generated per process. The `authToken` would buy one thing this does not need: proof the caller was the one it
+was issued to. That is already answered, better, by the caller's own access token, since a reservation is only
+ever resolved against the account holding it.
+
+**Whether the unit is spent is a different question from whether the relist worked**, and the two are answered
+separately:
+
+| Outcome | The reservation | Why |
+|---|---|---|
+| `SUCCESS` | settles | the user got what they paid a unit for |
+| `FAILED_AFTER_DELETE` | settles | the ad was deleted — the destructive half happened, and a refund would let a broken relist loop burn a seller's listings for free |
+| `FAILED_BEFORE_DELETE` | **refunds** | nothing was consumed on Marktplaats, so nothing is consumed here |
+
+A refund still writes a `relist_event`, and that is the point of the table: it is the **breakage canary**, not
+the usage count. A rising `FAILED_BEFORE_DELETE` rate is the first sign Marktplaats moved something, and a
+table keeping only the relists that worked would be blind to exactly the failure it exists to reveal. What a
+period spent is the reservations in it, one row away.
+
+**The database is what makes this idempotent.** `relist_event.reservation_id` is unique, so a second report
+for one authorization conflicts there rather than depending on anything having remembered the first;
+`on conflict do nothing` turns that into the contract's answer — the unchanged `{quotaRemaining, resetAt}`,
+which is also the right answer to the ordinary cause of a second report, an extension retrying because our
+own response never arrived. **The first report decides and later ones cannot revise it**: a
+`FAILED_BEFORE_DELETE` after a `SUCCESS` does not hand back the unit for a relist that happened, and under
+ADR-0007 the client sending it is the adversary.
+
+**No check runs here.** A lapsed payer whose subscription stopped between the two calls is still the only
+witness to what happened, and refusing their report would hold their unit forever and lose the outcome the
+canary is watching for. The same goes for a report arriving after the 45-second grant expired: the token's
+lifetime bounds how long an *authorization* is good for, not how long the extension has to say what it did
+with one — and the late reports are the slow and broken relists, which are the ones worth hearing about. This
+call grants nothing, so there is nothing here to fail closed about.
+
+**A `jti` that is not this caller's is a `404` with no reason code**, which is the contract's shape for a
+`4xx` that is not a denial: they were not turned away, they named something that is not there. It is the same
+answer for a reservation that never existed and for one belonging to somebody else, on purpose — a client
+that could tell those apart would have been handed a way to ask whether a given id is anybody's. A `jti`
+shaped like anything other than a reservation id is a `400` instead, because "we cannot read this" and "this
+is not yours" are different things for an extension to do about.
+
+**What the caller is told it has left is what the gate will enforce.** `RemainingQuota` is one subtraction
+with two readers — the refusal in `RelistGate` and the answer here, with #26's `/api/me` to come — because two
+written a day apart are two chances for the popup to show a relist left beside a button that refuses. It is
+**clamped at zero**: a tier's quota is an operator's to edit at any time (ADR-0014), so a subscriber holding
+more than their tier now grants is reachable without anybody doing anything wrong, and a negative number
+rendered in the popup is not a smaller quota but a bug on screen. The clamp is also what keeps "nothing left"
+and "refused" the same condition.
+
+| Class | Module | Holds |
+|---|---|---|
+| `CompleteRelist` | `enforcement/internal` | the route, and the `200`/`404` |
+| `RelistReports` | `enforcement/internal` | the transaction: the lock, the ownership check, the report, the answer |
+| `RelistEvents` | `enforcement/internal` | the `relist_event` table, and the conflict that makes this idempotent |
+| `RelistOutcome` | `enforcement/internal` | the three outcomes, and which of them spend the unit |
+| `RemainingQuota` | `enforcement/internal` | what is left of a period, for the gate and for this |
+
+Mutation-verified — each applied, observed, reverted:
+
+| Mutation | Fails |
+|---|---|
+| `FAILED_AFTER_DELETE` refunds rather than settling | `andSoDoesOneThatFailedOnceTheAdWasAlreadyDeleted` |
+| `FAILED_BEFORE_DELETE` settles rather than refunding | `butOneThatFailedBeforeTheAdWasTouchedGivesTheUnitBack` (+2) |
+| the `on conflict` is dropped from the event insert | `theSameReportTwiceCostsWhatTheFirstOneCost` (+2) |
+| the reservation is resolved whether or not this report is the first | `andASecondReportCannotReviseWhatTheFirstOneSaid`, `andNorTheOtherWayRound` |
+| the ownership check is dropped | `aReservationSomebodyElseHoldsIsNotThisCallersToResolve`, `andNorIsOneThisApiNeverIssued` |
+| …or no longer names the caller | the first of those two, alone — which is what it is for |
+| what is left is not clamped at nothing | `aQuotaLoweredUnderASubscriberLeavesThemWithNothingRatherThanLessThanNothing` |
+| spent means *fewer than* none left rather than none | that one and 6 in the authorize suite — the two readers of one subtraction |
+| `@Transactional` is dropped from the report | 16 of the 21 — `currentFor` is `MANDATORY`, so it refuses rather than running without one |
+| the quota is counted before the report resolves the unit | `butOneThatFailedBeforeTheAdWasTouchedGivesTheUnitBack` (+1) |
+| a resolved reservation is not stamped with when it resolved | 13 — `usage_reservation_resolved_at_matches_status` refuses the row |
+| a `jti` that is nobody's answers `200` | both `404` tests |
+| the body's `jti` may be absent | `aBodyNamingNoAuthorizationIsARequestThisApiCouldNotRead` |
+| …or its `outcome` may | `andSoIsOneSayingNothingAboutWhatHappened` |
+
+One survives and is left surviving, for the reason `reserved_at`'s twin does: **`recorded_at` left to the
+column's `now()` default** rather than passed from the report. Both clocks are the same machine everywhere
+this has run, so nothing here can tell them apart. It is passed anyway, because the event and the reservation
+it resolves should be stamped by one clock — the interval between a relist being authorized and reported on is
+what #24 will size its grace window from, and two clocks would make that interval the drift between two
+machines.
 
 ## The realm
 
@@ -802,10 +904,10 @@ Two mutations survive and are left surviving:
 ## Not here yet
 
 **The rest of the endpoints** of [`docs/enforcement-contract.md`](../../docs/enforcement-contract.md):
-`POST /api/relist/complete` ([#23](https://github.com/Shei254/marketplaats-extension/issues/23)), which
-settles or refunds the reservations [the gate](#the-gate) takes and is the breakage canary that contract
-exists for; `GET /api/me` ([#26](https://github.com/Shei254/marketplaats-extension/issues/26)), the display
-state both clients read after signing in; and `GET /api/client-config`
+`GET /api/me` ([#26](https://github.com/Shei254/marketplaats-extension/issues/26)), the display state both
+clients read after signing in — and the first call from outside `enforcement` that will need a
+`quotaRemaining`, which is counted from the `usage_reservation` table and nowhere else, so `RemainingQuota` is
+what leaves `internal` on that ticket; and `GET /api/client-config`
 ([#36](https://github.com/Shei254/marketplaats-extension/issues/36)).
 
 **The SafetyPolicy check** ([#25](https://github.com/Shei254/marketplaats-extension/issues/25)), whose place
@@ -813,8 +915,13 @@ in the order the gate marks. A quota is a number per period and not a number per
 spent in one is refused by nothing here today.
 
 **Reconciliation of abandoned reservations**
-([#24](https://github.com/Shei254/marketplaats-extension/issues/24)). Until #23 exists nothing resolves a
-reservation at all, so every unit the gate takes stays taken for the rest of the period.
+([#24](https://github.com/Shei254/marketplaats-extension/issues/24)). A report resolves a reservation, but a
+relist whose report never arrives — the tab closed, the worker slept, the machine went away — holds its unit
+for the rest of the period, and only a job that refunds `RESERVED` rows past their `expires_at` plus a grace
+window gives it back. When it lands, a report arriving after it has refunded one still wins: that report is
+the only account of what actually happened on Marktplaats, and reconciliation is the guess made in its
+absence. `aReportForAUnitAlreadyRefundedForWantOfOneIsStillTheAccountOfWhatHappened` is that decision,
+asserted here so #24 inherits it rather than choosing again.
 
 **What a tier is called, and what it costs.** `TierCatalog` answers what a tier grants and nothing about how
 to show or sell it: the display name arrives with

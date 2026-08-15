@@ -109,6 +109,7 @@ authorization server.
   unit left in it. Nobody else waits: the lock is that user's own row.
 
 ### `POST /api/relist/complete`
+- **Auth:** `Authorization: Bearer <Keycloak access token>`, and the reservation must be **that caller's own**.
 - **Body:** `{ "jti": "...", "outcome": "SUCCESS" | "FAILED_BEFORE_DELETE" | "FAILED_AFTER_DELETE" }`
 - Resolves the reservation the `jti` names, and records a **RelistEvent** against it either way.
   - `SUCCESS` / `FAILED_AFTER_DELETE` → the reservation **settles**; usage stands (the destructive action
@@ -117,8 +118,27 @@ authorization server.
     unit returns to the period. The RelistEvent is still written — that is the canary below.
 - Idempotent on `jti`: the event's reservation id is unique, so a second report collides in the database, and
   the endpoint answers that collision with the unchanged `{quotaRemaining, resetAt}` rather than an error.
-- A never-completed reservation expires and auto-refunds after a grace window.
+  **The first report decides** and a later one cannot revise it — a `FAILED_BEFORE_DELETE` after a `SUCCESS`
+  does not hand back the unit for a relist that happened.
+- **No check runs here** (#23). A lapsed subscription, an exhausted quota, or a grant whose 45 seconds ran out
+  long ago are all still reported on: this call grants nothing, and refusing it would hold the unit for the
+  rest of the period and lose exactly the outcome the canary is watching for. The token's lifetime bounds how
+  long an *authorization* is good for, not how long the extension has to say what it did with one.
+- A `jti` naming no reservation **of this caller's** is a `404` with no reason code — the shape above for a
+  `4xx` that is not a denial. Deliberately the same answer for one that never existed and one belonging to
+  somebody else, so that it cannot be used to ask whether an id is anybody's. A `jti` that is not shaped like a
+  reservation id is a `400` instead: "we could not read this" and "this is not yours" are different things for
+  a client to do about.
+- No `authToken` in the body, and **nothing here verifies one**: the `jti` is the reservation's own id, so this
+  resolves a row in our own table, and who the caller is comes from their access token. That is why the signing
+  key of the authorization is still generated per process — see the build question below.
+- A never-completed reservation expires and auto-refunds after a grace window (#24). A report arriving after
+  that refund still wins: it is the only account of what actually happened on Marktplaats, and reconciliation
+  is the guess made in its absence.
 - **Returns the updated `{ quotaRemaining, resetAt }`**, so a relist needs no follow-up `/api/me` call.
+  `quotaRemaining` is **never negative**: a tier's quota is an operator's to edit (ADR-0014), so a subscriber
+  can hold more units than their tier now grants, and that state reads as nothing left rather than as less than
+  nothing. It is the same number the gate refuses on, from the same subtraction.
 
 > **Outcome reporting is the breakage canary.** We drive private, unversioned endpoints that ADR-0004 says
 > will change without notice. A spike in `FAILED_BEFORE_DELETE` is the signal that Marktplaats moved
@@ -174,7 +194,11 @@ Extension                         Backend                    Stripe
   #22 signs with an RSA key generated per process and held in memory, because nothing verifies one of these
   tokens — `complete` takes a `jti` and resolves the reservation it names in our own table. A restart therefore
   invalidates at most 45 seconds of grants, and a second instance of the API would sign with a second key. The
-  first code that *verifies* an `authToken` is what has to make the key configuration.
+  first code that *verifies* an `authToken` is what has to make the key configuration. #23 was named as that
+  code and turned out not to be it: resolving the row answers everything verifying the token would, and better,
+  since the caller's own access token already says who they are. **No ticket is open that needs to verify one**,
+  so a second instance of this API is the thing that cannot be deployed today, and it is the reason to make the
+  key configuration when one is wanted.
 
 ## Open spikes
 - **Stable Marktplaats account identifier** — blocks `maxMpAccounts` as a sellable entitlement and the return

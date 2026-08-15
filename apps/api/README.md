@@ -4,14 +4,16 @@ Five modules and the build-time check that makes them mean something, the schema
 seeded into it and what each of its tiers grants, the resource server every route is closed behind, the
 account and subscription a first sign-in leaves behind, and the tests that hold `infra/`'s Keycloak realm to
 what it promises. Two endpoints so far — `POST /api/relist/authorize` and `POST /api/relist/complete`, the
-two ends of the gate — with the rest arriving on the tickets named below.
+two ends of the gate — plus the scheduled reconciliation that gives back the units nobody ever reports on,
+with the rest arriving on the tickets named below.
 
 ```bash
 cd apps/api
-./gradlew test      # 147 tests: the module boundary, the schema and catalog on a real Postgres, the realm,
+./gradlew test      # 156 tests: the module boundary, the schema and catalog on a real Postgres, the realm,
                     #            which tokens get past the resource server, what first login provisions, what
-                    #            a tier grants whoever is on it, who may relist and what it costs them, and
-                    #            what the extension reporting back settles or gives them back
+                    #            a tier grants whoever is on it, who may relist and what it costs them, what
+                    #            the extension reporting back settles or gives them back, and what becomes of
+                    #            the relists it never reports on at all
 ./gradlew build     # the above, plus the executable jar
 ./gradlew bootRun   # http://localhost:8080 — 401 without a token, and the gate below with one
 ```
@@ -68,7 +70,7 @@ Each is a direct sub-package of `com.mprelist`, which is what makes it an applic
 | `identity` | who the caller is: `CurrentUser`, and `UserRef` for the account behind them | [#19](https://github.com/Shei254/marketplaats-extension/issues/19) — [below](#the-resource-server) — and [#20](https://github.com/Shei254/marketplaats-extension/issues/20) — [below](#first-login) |
 | `catalog` | Tier → Entitlement, from our table, no Stripe | `TierId` and `defaultTier()` with [#20](https://github.com/Shei254/marketplaats-extension/issues/20), `Entitlement` with [#21](https://github.com/Shei254/marketplaats-extension/issues/21) — [below](#what-a-tier-grants) |
 | `subscription` | the mirror of Stripe's status and period | [#20](https://github.com/Shei254/marketplaats-extension/issues/20) provisions the first one, [#22](https://github.com/Shei254/marketplaats-extension/issues/22) reads and rolls its window — [below](#the-gate) — and [#30](https://github.com/Shei254/marketplaats-extension/issues/30) mirrors Stripe into it |
-| `enforcement` | `authorize` / `complete`, the gate | [#22](https://github.com/Shei254/marketplaats-extension/issues/22) — [below](#the-gate) — and [#23](https://github.com/Shei254/marketplaats-extension/issues/23) — [below](#what-the-extension-reports-back) |
+| `enforcement` | `authorize` / `complete`, the gate, and the reconciliation behind it | [#22](https://github.com/Shei254/marketplaats-extension/issues/22) — [below](#the-gate) — [#23](https://github.com/Shei254/marketplaats-extension/issues/23) — [below](#what-the-extension-reports-back) — and [#24](https://github.com/Shei254/marketplaats-extension/issues/24) — [below](#what-nobody-ever-reports-back) |
 | `admin` | operator endpoints behind the `ADMIN` role | [#27](https://github.com/Shei254/marketplaats-extension/issues/27) |
 
 `admin` still holds a single `package-info.java` carrying `@ApplicationModule` and nothing else. The annotation
@@ -780,8 +782,90 @@ One survives and is left surviving, for the reason `reserved_at`'s twin does: **
 column's `now()` default** rather than passed from the report. Both clocks are the same machine everywhere
 this has run, so nothing here can tell them apart. It is passed anyway, because the event and the reservation
 it resolves should be stamped by one clock — the interval between a relist being authorized and reported on is
-what #24 will size its grace window from, and two clocks would make that interval the drift between two
+what #24 sizes its grace window from, and two clocks would make that interval the drift between two
 machines.
+
+## What nobody ever reports back
+
+Every `authorize` takes a unit and only a report gives it back, but **nothing obliges the extension to make
+the second call**. An MV3 worker is evicted between the delete and the create, a tab is closed, a machine
+sleeps, a network drops on the one request that mattered. `ReservationReconciliation` is what stops waiting:
+on a schedule, every reservation still `RESERVED` whose grant ran out more than the grace window ago has its
+unit handed back.
+
+```yaml
+mprelist:
+  reconciliation:
+    grace: 30m     # how long past a grant running out we keep waiting for a report
+    interval: 5m   # how often we stop waiting — a fixed delay, and it fires once at startup
+```
+
+Neither setting has a fallback in code: a missing one fails startup rather than running with a window nobody
+chose, because a wrong value here is silent in both directions.
+
+**This is the only guess in the enforcement path, and it is deliberately the weaker of the two claims.** A
+report is the sole account of what actually happened on Marktplaats; what is known here is only that one has
+not arrived. So a report that turns up afterwards **settles the unit back and this refund is discarded** —
+the rule #23 fixed from its own side, and the reason `UsageReservations.resolve` is unconditional on the
+status it finds. And **no `relist_event` is written here**: all three outcomes are things the extension
+observed, and a row saying a relist failed because we stopped waiting for news of it would put an invention
+into the breakage canary.
+
+**The grace is generous because the two mistakes are not symmetric.** Guessing too early costs almost
+nothing — the relist that was still running reports in the end, and that report settles the unit back.
+Guessing too late is what the ticket exists to stop: a free user is three relists a month, so one browser
+closed at the wrong moment is a third of their quota held until the period rolls. It is measured from
+`expires_at` rather than from `reserved_at`, so what a relist is judged against is the authorization it was
+actually given rather than a second rule that could drift from `RelistAuthorizations.LIFETIME`.
+
+**Idempotent and safe to run twice over — including from two instances — because of the statement rather than
+because of anything remembered.**
+
+```sql
+update usage_reservation set status = 'REFUNDED', resolved_at = ?
+where status = 'RESERVED' and expires_at < ?
+```
+
+`status = 'RESERVED'` is the whole of it. Rows a previous run moved are `REFUNDED` and no longer match, so a
+second run refunds nothing; rows a report already resolved are not `RESERVED` and are never matched. The
+interesting case is the one in between — a report that commits *while this statement is scanning* — and
+`read committed` is what covers it: the update blocks on that row's lock, and when the report commits it
+re-checks the predicate against the new version, finds it no longer holds, and leaves the row alone. A
+statement that read the ids first and updated them afterwards would pass every other test and refund a relist
+that happened. No lock is taken on the subscription, unlike both ends of the gate, so this never waits on the
+hot path and cannot deadlock against a call that takes the subscription first and this row second.
+
+| Class | Module | Holds |
+|---|---|---|
+| `ReservationReconciliation` | `enforcement/internal` | the grace window, the schedule, and the decision to stop waiting |
+| `UsageReservations` | `enforcement/internal` | the statement above, and why its predicate is the safety |
+| `ApiApplication` | root | `@EnableScheduling` — an application-wide capability, not a module's to switch on |
+
+`ReservationReconciliationTest` **runs the job rather than waiting for it**: the suite sets an interval long
+enough that the schedule never fires, and each test invokes the task the scheduler holds. That is what makes
+the negative assertions — *this row was left alone* — claims about a reconciliation that provably happened
+rather than about one that may not have got there yet. The task is reached through `ScheduledTaskHolder`
+rather than by naming the bean, so nothing in `enforcement/internal` had to be made public for a test, and the
+wiring becomes part of what is asserted: a job that stopped being scheduled is one the suite cannot find to
+run.
+
+Mutation-verified — each applied, observed, reverted:
+
+| Mutation | Fails |
+|---|---|
+| the `status = 'RESERVED'` guard is dropped | `aReservationAReportAlreadySettledIsNotOneToHandBack` (+2) |
+| the grace window is dropped, so anything expired is swept | `butAGrantThatRanOutAMomentAgoIsARelistThatMayStillBeRunning` |
+| abandonment is judged on `reserved_at` rather than on the grant's expiry | 4 |
+| `resolved_at` is left null on a refunded row | 5 — `usage_reservation_resolved_at_matches_status` refuses it |
+| `@EnableScheduling` is dropped | all 9 — there is then no `ScheduledTaskHolder` and the suite does not start |
+| `@Scheduled` is dropped from the method | 8 — the task is not there to be found and run |
+| the interval is a constant rather than the configured one | `andItIsScheduledWithTheIntervalItIsConfiguredWith` |
+| the shipped grace is set to nothing | that suite's two, including the one reading `application.yml` |
+
+One survives and is left surviving: **the grace read from a constant rather than from configuration**. No test
+can tell them apart while the constant and the shipped value agree, and catching it would mean a second Spring
+context whose only difference is a grace — a container per assertion. It is configuration because how slow a
+real relist gets is a thing the world tells an operator and not a thing this code knows.
 
 ## The realm
 
@@ -923,15 +1007,6 @@ what leaves `internal` on that ticket; and `GET /api/client-config`
 **The SafetyPolicy check** ([#25](https://github.com/Shei254/marketplaats-extension/issues/25)), whose place
 in the order the gate marks. A quota is a number per period and not a number per minute, so a month's worth
 spent in one is refused by nothing here today.
-
-**Reconciliation of abandoned reservations**
-([#24](https://github.com/Shei254/marketplaats-extension/issues/24)). A report resolves a reservation, but a
-relist whose report never arrives — the tab closed, the worker slept, the machine went away — holds its unit
-for the rest of the period, and only a job that refunds `RESERVED` rows past their `expires_at` plus a grace
-window gives it back. When it lands, a report arriving after it has refunded one still wins: that report is
-the only account of what actually happened on Marktplaats, and reconciliation is the guess made in its
-absence. `aReportForAUnitAlreadyRefundedForWantOfOneIsStillTheAccountOfWhatHappened` is that decision,
-asserted here so #24 inherits it rather than choosing again.
 
 **What a tier is called, and what it costs.** `TierCatalog` answers what a tier grants and nothing about how
 to show or sell it: the display name arrives with

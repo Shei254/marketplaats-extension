@@ -7,6 +7,8 @@ import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.mprelist.enforcement.Quotas;
+import com.mprelist.enforcement.RemainingQuota;
 import com.mprelist.identity.UserRef;
 import com.mprelist.subscription.Subscription;
 import com.mprelist.subscription.Subscriptions;

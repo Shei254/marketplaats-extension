@@ -20,12 +20,14 @@ preserving ADR-0009's no-lock-in goal.
 ```
 com.mprelist
 ├── identity/       public: UserRef, CurrentUser, UserProvisioned
-├── catalog/        public: TierId, TierCatalog, Entitlement
+├── catalog/        public: TierId, TierCatalog, Entitlement, TierName
 ├── subscription/   public: SubscriptionStatus, Subscription, QuotaPeriod, Subscriptions
 │   ├── internal/                 ◀ the table, through JdbcClient
 │   └── internal/stripe/          ◀ adapter, at #30
-├── enforcement/    public: /authorize, /complete
+├── enforcement/    public: /authorize, /complete, Quotas, RemainingQuota
 │   └── internal/                 ◀ the tables, and the decision itself
+├── display/        public: /api/me
+│   └── internal/                 ◀ the snapshot, composed from the four above
 └── admin/
 ```
 
@@ -84,6 +86,29 @@ trade this boundary exists to refuse, and would put a package in the tree whose 
 state afterwards. The ticket that creates `domain` is the one with a second *caller*; the bar is not lowered
 here. The rest of #25 is this module's own: the rail reads `usage_reservation`, and what it answers with is a
 denial the routes above already publish.
+
+**Amended in #26, which adds the sixth module and the first type `enforcement` lets anybody else see.**
+`GET /api/me` renders `{subscriptionStatus, tier, quotaRemaining, resetAt, features}` — the status and the
+window are `subscription`'s, the tier's name and flags are `catalog`'s, and `quotaRemaining` is counted from
+`usage_reservation` and nowhere else. So `enforcement` publishes `Quotas` (one question: what has this
+subscriber left of the period they are in) and `RemainingQuota` (what it answers with), which is what that
+module was named for above and no more: the reservations, the statuses and the SQL stay `internal`. The port
+takes a `Subscription` the caller has already read rather than reading one, so a second reader is not a second
+lock on that row and not a second chance to roll a closed window. `catalog` gains **`TierName`** — the code
+and the display name, the pair `/api/me` needs to render a plan without a client branding one by text an
+operator may rewrite — which is the amendment predicted above as "whichever of #26 and #29 first needs what a
+tier is called".
+
+**The route is its own module because the alternative is a cycle**, and that is worth stating rather than
+leaving as taste. `subscription` is the module whose concept dominates that body, but `enforcement` already
+depends on it, so a `/api/me` living there would point `subscription` at `enforcement` and close the loop —
+`identity` and `catalog` are underneath both and fare no better. The check catches it by name (`Cycle
+detected: Slice enforcement -> Slice subscription -> Slice enforcement`), which is this ADR's boundary being
+worth having twice: once for reaches into `internal`, once for the direction of a dependency. So the composer
+of a view over four modules is its own module, `display`, named for the glossary's **display state** and for
+what ADR-0007 makes of it: the relist path ignores this answer completely, and a module named for the display
+is one nothing that grants anything can be put into by accident. It publishes the route and nothing else —
+nobody asks it anything; it is the leaf that asks everybody.
 
 `subscription` also publishes **`QuotaPeriod`** as of #22: `[periodStart, periodEnd)` is one concept in the
 glossary and travelled as two parameters, which is a pair the compiler cannot tell apart and an invariant

@@ -20,8 +20,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * way to reach a state no sequence of calls to this API can produce — a lapsed payer, a window that closed
  * three months ago, a reservation a reconciliation job already refunded.
  *
- * <p>One home for it, because two suites now need the same rows: {@link RelistAuthorizationTest} arranges what
- * a relist is authorized against and {@link RelistCompletionTest} arranges what a report resolves. The SQL
+ * <p>One home for it, because several suites now need the same rows: {@link RelistAuthorizationTest} arranges
+ * what a relist is authorized against, {@link RelistCompletionTest} what a report resolves, and
+ * {@link DisplayStateTest} what {@code /api/me} renders — the last of which reads the tier's own display
+ * columns, so a plan arranged for the gate and a plan arranged for the popup are provably one row. The SQL
  * being in one place is what keeps a schema change from being fixed in the suite somebody remembered — and
  * these statements write columns (a subscription's {@code created_at}, a reservation's {@code expires_at})
  * whose meaning the tests then assert, so a copy that drifted would be a suite quietly testing a different
@@ -69,6 +71,30 @@ final class Subscribers {
 				values (?, ?, 'active', ?, ?)
 				""", account, tier, provisioned, provisioned.plusMonths(1));
 		return new Subscriber(idpSubject, account, this.idp);
+	}
+
+	/**
+	 * What the tier this subscriber is on is called — display text an operator may rewrite at any time
+	 * (ADR-0014), which is exactly why {@code /api/me} sends the code beside it.
+	 */
+	void tierIsCalled(Subscriber user, String name) {
+		this.db.update("update tier set name = ? where id = " + THE_TIER_OF, name, user.account());
+	}
+
+	/**
+	 * The flags that tier grants, as the {@code jsonb} object an admin edit writes. Every seeded tier grants
+	 * {@code {}} today, so a suite that wants a flag rendered has to put one there.
+	 */
+	void tierGrantsFeatures(Subscriber user, String features) {
+		this.db.update("update tier set features = ?::jsonb where id = " + THE_TIER_OF, features, user.account());
+	}
+
+	/** The tier row behind a subscriber, the way the catalog reads it — what a rendering is asserted against. */
+	Map<String, Object> tierOf(Subscriber user) {
+		return this.db.queryForMap("""
+				select code, name, relist_quota_per_period, features::text as features
+				from tier where id =
+				""" + THE_TIER_OF, user.account());
 	}
 
 	void statusIs(Subscriber user, String status) {
@@ -243,5 +269,11 @@ final class Subscribers {
 	private final MintedTokens idp;
 
 	private final String tierCodePrefix;
+
+	/**
+	 * The tier a given account is subscribed to, as a sub-select rather than a second round trip — three
+	 * statements above say "the tier this subscriber is on" and only the columns they touch differ.
+	 */
+	private static final String THE_TIER_OF = "(select tier_id from subscription where app_user_id = ?)";
 
 }

@@ -1,5 +1,6 @@
 package com.mprelist.enforcement.internal;
 
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
@@ -7,8 +8,9 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 
 /**
  * What the gate answers: an authorization, or a refusal carrying the reason the extension renders. Sealed, so
- * that the route below cannot forget a case and a third answer — #25's {@code RATE_LIMITED} is not one, since a
- * refusal is a refusal — would have to be added here rather than appear as a status somewhere.
+ * that the route below cannot forget a case and a third answer would have to be added here rather than appear
+ * as a status somewhere. {@code RATE_LIMITED} did not turn out to be one, which is the sealing working: a
+ * refusal is a refusal, and what a new code brings is a field of its own rather than a shape of its own.
  *
  * <p>These records are also the wire shapes {@code docs/enforcement-contract.md} names, serialized as they
  * stand. One type rather than a domain answer plus a response mapped from it, because the two would be the
@@ -36,14 +38,39 @@ sealed interface Verdict {
 	 * {@code "resetAt": null} would invite a client to read a reset date out of a refusal that has none, and
 	 * the contract describes the field as belonging to the code rather than to the shape.
 	 *
+	 * <p><strong>Each code is built by the factory that knows what it carries</strong>, rather than by callers
+	 * filling in the nulls around the one field they mean. Two of the three components are a code's own
+	 * baggage, so a refusal assembled at the point of refusal is one that can carry the wrong code's — a
+	 * {@code 402} with a reset date, or a cooldown with none of the two things that would make it actionable.
+	 *
 	 * @param reason the code, which is the whole of what a client acts on
 	 * @param resetAt when the quota comes back, for {@link ReasonCode#QUOTA_EXCEEDED} and null otherwise
+	 * @param retryAfter seconds until this caller may relist again, for {@link ReasonCode#RATE_LIMITED} and
+	 * null otherwise. Whole seconds rather than an instant, and named after HTTP's own {@code Retry-After},
+	 * which is what a client renders as a countdown — a date would make every client subtract two clocks that
+	 * do not agree, which is the arithmetic a cooldown of a few seconds cannot survive. It travels in the body
+	 * and <em>not</em> in the header of that name: the contract puts everything a client acts on in the JSON,
+	 * and a second copy in a header is a second thing that can disagree with the first
 	 */
 	@JsonInclude(JsonInclude.Include.NON_NULL)
-	record Refused(ReasonCode reason, OffsetDateTime resetAt) implements Verdict {
+	record Refused(ReasonCode reason, OffsetDateTime resetAt, Long retryAfter) implements Verdict {
 
+		/** A code that adds nothing, which is {@link ReasonCode#SUBSCRIPTION_INACTIVE} and so far only it. */
 		static Refused because(ReasonCode reason) {
-			return new Refused(reason, null);
+			return new Refused(reason, null, null);
+		}
+
+		/** Out of quota until the window rolls, which is the one date this denial is actionable beside. */
+		static Refused untilTheQuotaComesBackAt(OffsetDateTime resetAt) {
+			return new Refused(ReasonCode.QUOTA_EXCEEDED, resetAt, null);
+		}
+
+		/**
+		 * Going too fast, and how long to wait — already whole seconds and already rounded up when it gets
+		 * here ({@link RelistPace#waitAfter}), so nothing is lost by asking a {@link Duration} for them.
+		 */
+		static Refused untilTheyMayRelistAgainIn(Duration wait) {
+			return new Refused(ReasonCode.RATE_LIMITED, null, wait.toSeconds());
 		}
 
 	}

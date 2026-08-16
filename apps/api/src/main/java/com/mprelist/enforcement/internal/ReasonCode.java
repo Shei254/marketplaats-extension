@@ -10,9 +10,9 @@ import org.springframework.http.HttpStatus;
  * <p>The mapping lives on the code rather than at the point of refusal, so that "quota exhausted is a 429" is
  * stated once. Nothing else in this application decides a denial's status.
  *
- * <p>Two of the contract's four are here. {@code UNAUTHENTICATED} is {@code identity}'s — it is answered by the
- * filter chain before any route is reached, which is what makes it true of routes no ticket has written yet
- * (#19) — and {@code RATE_LIMITED} arrives with #25's SafetyPolicy, whose check the gate leaves a place for.
+ * <p>Three of the contract's four are here. {@code UNAUTHENTICATED} is {@code identity}'s — it is answered by
+ * the filter chain before any route is reached, which is what makes it true of routes no ticket has written
+ * yet (#19).
  */
 enum ReasonCode {
 
@@ -34,7 +34,19 @@ enum ReasonCode {
 	 *
 	 * <p>{@code 429} rather than {@code 403}: the request is one the caller may make again, just not yet.
 	 */
-	QUOTA_EXCEEDED(HttpStatus.TOO_MANY_REQUESTS);
+	QUOTA_EXCEEDED(HttpStatus.TOO_MANY_REQUESTS),
+
+	/**
+	 * Too fast (#25, ADR-0008). Carries {@code retryAfter} — how many seconds until the caller may relist
+	 * again — because a cooldown a user cannot see the end of is indistinguishable from something broken, and
+	 * the extension renders it as a timer rather than as an error.
+	 *
+	 * <p>{@code 429} beside {@link #QUOTA_EXCEEDED}, and the two are told apart by the code rather than by the
+	 * status: they are the same statement about HTTP — come back later — and different statements about the
+	 * user, one of whom needs a bigger plan and the other of whom needs a minute. Which is exactly why the
+	 * contract's denials carry a typed code at all.
+	 */
+	RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS);
 
 	HttpStatus status() {
 		return this.status;

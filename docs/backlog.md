@@ -249,8 +249,9 @@ Resolve quota, max accounts and feature flags from our table. **No Stripe depend
     verifier and turned out not to be one (see below), and **no open ticket is**: the key becomes configuration
     when a second instance is wanted, which is the thing that cannot be deployed until it does.
   - **No `enforcement/domain` package yet**, though ADR-0012 sketches one: the decision is a status and two
-    numbers the same method has just read. T16's SafetyPolicy is the likeliest ticket to create it, and its
-    place in the order — after the quota, before the reservation — is marked in `RelistGate`.
+    numbers the same method has just read. T16's SafetyPolicy was the likeliest ticket to create it and did
+    not either — `RelistPace` is rules with no reading in them, but it has one reader, which is the bar that
+    ADR draws.
 - Refs: [enforcement-contract.md](enforcement-contract.md), [ADR-0007](adr/0007-quota-enforcement.md).
 
 ### T14 · `POST /api/relist/complete` · **M** · T13
@@ -328,10 +329,36 @@ Abandoned reservations auto-refund after a grace window; idempotent, safe to run
 
 ### T16 · SafetyPolicy rate and pacing check · **M** · T13
 Per-User rate limits and pacing; `429 RATE_LIMITED` with `retryAfter`. Refs: [ADR-0008](adr/0008-safety-and-consent.md).
-- Its place in the order is already marked in `RelistGate`: **after** the quota check, so a user with nothing
-  left to spend is told that rather than told to wait, and **before** the reservation, so a refusal does not
-  cost the unit it refused. It is also the ticket most likely to want ADR-0012's `enforcement/domain` package,
-  which T13 did not create for want of a second reader.
+- Its place in the order was already marked in `RelistGate` and is where it landed: **after** the quota check,
+  so a user with nothing left to spend is told that rather than told to wait, and **before** the reservation,
+  so a refusal does not cost the unit it refused.
+- **Decided in #25:**
+  - **Two rails, because one of them caps nothing.** A `minimum-interval` between consecutive relists and a
+    `burst-limit` inside a sliding `burst-window`. The shipped `30s` alone permits 120 relists an hour — a
+    Power tier's whole month in under two, at a rhythm no human has — so the interval keeps them out of a
+    volley and the cap keeps a paced volley from running all day. Shipped `30s` / `10` / `1h`, all three
+    configuration and none defaulted in code. A window shorter than `burst-limit` × `minimum-interval` would
+    be a rail arithmetic can never reach, which `theShippedRailsAreBothOnesThatCanBind` refuses to let happen
+    quietly.
+  - **The longer of the two rails answers**, and the burst rail is measured from the cap-th most recent relist
+    rather than the oldest in the window — they are the same row until an operator lowers the cap under
+    somebody, and answering from the oldest would promise a moment at which the gate still refuses. The wait
+    is rounded **up** to whole seconds, since a client that waits exactly as long as it was told must not
+    arrive early and be refused twice.
+  - **It counts attempts, where quota counts what was kept.** The pacing read carries no predicate about
+    status at all: a `FAILED_BEFORE_DELETE` gives its unit back (#23) but still captured an ad and fetched its
+    photos, so a rail that forgave every failure would stop pacing an extension exactly when it started
+    failing. That is also why it needs an unpartial index of its own (`V4`), keyed `(app_user_id,
+    reserved_at)` — V1's leads with the same two columns but is partial on `status <> 'REFUNDED'`, which this
+    statement cannot imply.
+  - **`RelistPace` is the rules with no reading in them**, exercised by a suite with no Spring context and no
+    database — and it still does **not** create ADR-0012's `enforcement/domain`, because that package's bar is
+    a second reader and it has one. See the amendment in that ADR.
+  - **`retryAfter` is whole seconds in the body**, named for HTTP's own `Retry-After` and deliberately not
+    also sent as that header: the contract puts everything a client acts on in the JSON.
+  - **Jitter is not here and cannot be** — [#54](https://github.com/Shei254/marketplaats-extension/issues/54)
+    is client-side pacing. A backend can refuse a call that came too soon; it cannot make one arrive at a
+    human-shaped moment.
 
 ### T17 · `GET /api/me` · **S** · T12
 Returns `{ subscriptionStatus, tier, quotaRemaining, resetAt, features }`. Unsigned, carries no authorization.

@@ -48,9 +48,15 @@ import tools.jackson.databind.JsonNode;
  * job refunding one of them mid-test would leave the test asserting something it did not arrange. What
  * reconciliation does with those rows is {@link ReservationReconciliationTest}'s subject, and the rule they
  * share — a report arriving after a refund still settles the unit — is asserted below.
+ *
+ * <p><strong>#25's pacing rails are switched off too</strong>, for {@link RelistAuthorizationTest}'s reason:
+ * several tests here take two authorizations in a row to say what a report leaves behind, and the shipped
+ * interval refuses the second of them. Nothing on this endpoint is paced — {@code /complete} grants nothing,
+ * so there is nothing to slow down — but the {@code authorize} that arranges each test is.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-		properties = "mprelist.reconciliation.interval=24h")
+		properties = { "mprelist.reconciliation.interval=24h", "mprelist.safety.minimum-interval=0s",
+				"mprelist.safety.burst-window=0s" })
 @Import(PostgresFromCompose.class)
 class RelistCompletionTest {
 

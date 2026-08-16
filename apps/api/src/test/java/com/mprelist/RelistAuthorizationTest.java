@@ -61,9 +61,17 @@ import tools.jackson.databind.JsonNode;
  * below arrange units held an hour or a month ago in order to say what the gate counts, and those are exactly
  * the rows a reconciliation hands back: one firing mid-test would leave a test that still passes while having
  * arranged something else. What it does with them is {@link ReservationReconciliationTest}'s subject.
+ *
+ * <p><strong>And #25's pacing rails are switched off</strong>, which is a setting rather than a hole. Several
+ * tests below spend a quota one relist at a time, and the shipped interval is exactly what refuses a second
+ * relist arriving in the same second as the first — so left on, the tests about what a quota costs would
+ * quietly become tests about how fast it was spent. What happens when those rails <em>do</em> refuse is
+ * {@link RelistPacingTest}'s whole subject, including that it happens after the quota check below rather than
+ * before it.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-		properties = "mprelist.reconciliation.interval=24h")
+		properties = { "mprelist.reconciliation.interval=24h", "mprelist.safety.minimum-interval=0s",
+				"mprelist.safety.burst-window=0s" })
 @Import(PostgresFromCompose.class)
 class RelistAuthorizationTest {
 

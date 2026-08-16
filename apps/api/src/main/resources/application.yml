@@ -58,3 +58,36 @@ mprelist:
     # browser took with it. A fixed delay, and it fires once at startup too, which is what reconciles whatever
     # accumulated while nothing was running.
     interval: 5m
+
+  # #25: how fast one account may relist. Rails for the *user's* Marktplaats account rather than a throttle
+  # protecting ours (ADR-0008) — relisting is delete-and-recreate against a private API, and the account that
+  # gets flagged for a machine-shaped rhythm is the seller's. Nothing here is about our own load.
+  #
+  # All three are here rather than defaulted in code, and none has a fallback, for the reconciliation block's
+  # reason: how fast is too fast is a judgement about a platform that publishes no number, and the day a ban
+  # wave says ours was wrong is a day to change a setting rather than to ship a release. A missing one fails
+  # startup instead of running with a rail nobody chose.
+  safety:
+    # How long after a relist before the next may be authorized. Zero turns this rail off — which is a
+    # setting, and the one the suites whose subject is quota are run with.
+    #
+    # Roughly how long a person takes to find their next ad and click it. This is the rail that keeps two
+    # relists from arriving in a volley; it is not a cap on anything, which is what the two below are for.
+    # Jitter around it is #54's and has to be the extension's: a backend can deny a call that came too soon,
+    # it cannot make one arrive at a human-shaped moment.
+    minimum-interval: 30s
+    # How many may be authorized inside the window below, and at least 1 — "none per window" is a gate
+    # nobody gets through and no wait resolves, so it is refused where it is configured.
+    #
+    # The interval alone caps nothing worth capping: 30s permits 120 relists an hour, which is a Power
+    # tier's entire month in under two, at a rhythm no human has. Ten in an hour is a seller working through
+    # a batch of their own ads and then stopping, which is the shape being imitated. A free user never
+    # reaches it — three relists is their month — so this rail is the paying tiers'.
+    burst-limit: 10
+    # The span that cap counts in, sliding rather than aligned to a clock: a window that reset on the hour
+    # would let twice the cap through across the boundary.
+    #
+    # It has to exceed `burst-limit` × `minimum-interval` or the cap is one arithmetic can never reach — the
+    # interval alone would keep the count under it — and a rail written off by arithmetic is one nobody
+    # decided to switch off. Five minutes of relists in an hour, so 55 of that hour are the cap's to refuse.
+    burst-window: 1h

@@ -107,6 +107,27 @@ authorization server.
   | Subscription status is Allowed | `402 SUBSCRIPTION_INACTIVE` |
   | Entitlement quota remaining this period | `429 QUOTA_EXCEEDED` (+ `resetAt`) |
   | SafetyPolicy rate/pacing OK | `429 RATE_LIMITED` (+ `retryAfter`) |
+
+  `retryAfter` is **whole seconds** — a number, not a date — named after HTTP's own `Retry-After` because it
+  is what a client renders as a countdown, and rounded **up**, so that a client waiting exactly as long as it
+  was told does not arrive a fraction of a second early and get refused twice. It travels in the body and not
+  in the header of that name: everything a client acts on is in the JSON, and a second copy in a header is a
+  second thing that can disagree. The two `429`s are told apart by the code and not by the status — they are
+  the same statement about HTTP and different statements about the user, one of whom needs a bigger plan and
+  the other of whom needs a minute.
+
+  **The pacing rails are for the user's own Marktplaats account**, not a throttle protecting ours (ADR-0008).
+  Shipped (#25) as a `30s` minimum interval between consecutive relists and at most `10` inside a sliding `1h`
+  window — three settings, all configuration, none defaulted in code. The longer of the two rails answers, and
+  the burst rail is measured from the cap-th most recent relist rather than the oldest in the window, so the
+  wait it names is a moment at which this actually stops refusing. **Jitter around the interval is the
+  extension's** ([#54](https://github.com/Shei254/marketplaats-extension/issues/54)) and can be nothing else:
+  a backend can refuse a call that came too soon, it cannot make one arrive at a human-shaped moment.
+
+  **Pacing counts attempts; quota counts what was kept.** The rail reads every reservation this caller has
+  taken, whatever became of it — a `FAILED_BEFORE_DELETE` hands its unit back but had already captured an ad
+  and fetched its photos, and a rail that forgave every failure would stop pacing an extension exactly when it
+  started failing. So the two reads have no predicate in common and neither is the other's filter.
 - **Success `200`:** reserve one usage unit, then return
   `{ "authToken": "<JWT>", "expiresAt": "<~45s out>", "jti": "..." }`, with `expiresAt` an ISO-8601 instant.
   The `authToken` is a backend-signed JWT embedding `{ sub, adId, jti, exp }` — where `sub` is our own

@@ -13,8 +13,9 @@ import java.util.Map;
  * <p><strong>Limits, not a window and not a rate.</strong> The period a quota is counted in lives on the
  * subscription, because it is copied from Stripe's billing period for a payer and rolled monthly from
  * provisioning for a free user (ADR-0014) — two tiers are not two windows. And a number per period is not a
- * number per minute: a month's quota spent in one is exactly what #25's SafetyPolicy exists to refuse, so
- * nothing here paces anything.
+ * number per minute: a month's quota spent in one is exactly what {@code enforcement}'s SafetyPolicy refuses
+ * (#25), and its rails are one setting for everybody rather than a rung of this ladder — so nothing here
+ * paces anything.
  *
  * <p><strong>What a tier is called is not among these.</strong> {@code name} is display text an operator may
  * rewrite and {@code code} is the handle the seed upserts on; neither is something a caller is entitled

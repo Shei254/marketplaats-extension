@@ -1,0 +1,23 @@
+-- The index #25's pacing rail reads.
+--
+-- `unitsTakenSince` matches `app_user_id = ? and reserved_at >= ?`, newest first and limited to the burst
+-- cap: the last handful of relists one account made, asked on the hot path of every `authorize`. Without an
+-- index for it that is a full scan of `usage_reservation` per authorization, over a table that gains a row
+-- per relist and never loses one — the cost the gate would pay would grow with how much the whole product
+-- has ever done.
+--
+-- V1's `usage_reservation_holding_a_unit` leads with exactly these two columns and still cannot serve it,
+-- which is why this is a second index and not a wider one. That index is *partial* on
+-- `status <> 'REFUNDED'`, and the pacing read deliberately carries no predicate about status at all: it
+-- counts attempts rather than units still held, because a relist that failed before the delete had already
+-- captured an ad and fetched its photos from the user's own session, and a rail that forgave every failure
+-- would stop pacing an extension exactly when it started failing. A planner uses a partial index only where
+-- it can prove the statement's own predicate implies the index's, and there is nothing here to prove from.
+--
+-- So this one is unpartial, and it is the whole table by design. It is also the only index on this table a
+-- statement reads without saying anything about status, which is what keeps the three from collapsing into
+-- one.
+--
+-- No `desc` on `reserved_at`: a btree is read in either direction, so under an equality on `app_user_id`
+-- this answers `order by reserved_at desc limit n` with a backward scan of rows it already holds together.
+create index usage_reservation_by_when_it_was_taken on usage_reservation (app_user_id, reserved_at);

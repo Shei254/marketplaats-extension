@@ -74,6 +74,17 @@ other module from inside its own `internal` package is a dependency nothing decl
 cannot see — so the annotation goes where the application is configured, and the module keeps only the
 `@Scheduled` method that says how often its own job runs.
 
+**Not amended in #25** either, and this is the amendment that has to say *why*, because #25 is the ticket
+named above as the likeliest to create `enforcement/domain` — and it produced exactly the thing that package
+was sketched for. `RelistPace` is the pacing rules with no reading in them: a record with an invariant and
+four methods, exercised by a suite that starts no Spring context and touches no database. It stays in
+`internal` all the same, because the bar written above is a **second reader** and it has one — `SafetyPolicy`,
+which is the reading half. Moving it would make a type public so that a test could sit beside it, which is the
+trade this boundary exists to refuse, and would put a package in the tree whose entry criterion nobody could
+state afterwards. The ticket that creates `domain` is the one with a second *caller*; the bar is not lowered
+here. The rest of #25 is this module's own: the rail reads `usage_reservation`, and what it answers with is a
+denial the routes above already publish.
+
 `subscription` also publishes **`QuotaPeriod`** as of #22: `[periodStart, periodEnd)` is one concept in the
 glossary and travelled as two parameters, which is a pair the compiler cannot tell apart and an invariant
 ("it runs forward") with no single home. The gate hands the window whole to the count that reads it.

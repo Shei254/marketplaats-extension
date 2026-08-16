@@ -1,7 +1,9 @@
 package com.mprelist.enforcement.internal;
 
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -20,14 +22,19 @@ import com.mprelist.subscription.Subscriptions;
  * are this module's own — which is why the entitlement is resolved from a tier rather than from a user, and why
  * nothing in either of those modules knows what a quota check is. The last two meet in {@link Quotas}, which
  * {@code /complete} asks the same question of.
+ *
+ * <p>The last check answers to none of them. {@link SafetyPolicy} asks about time rather than about
+ * entitlement — how fast this account has been relisting, whatever it is paying (#25) — and reads only this
+ * module's own table to answer.
  */
 @Service
 class RelistGate {
 
-	RelistGate(Subscriptions subscriptions, Quotas quotas, UsageReservations reservations,
+	RelistGate(Subscriptions subscriptions, Quotas quotas, SafetyPolicy safety, UsageReservations reservations,
 			RelistAuthorizations authorizations) {
 		this.subscriptions = subscriptions;
 		this.quotas = quotas;
+		this.safety = safety;
 		this.reservations = reservations;
 		this.authorizations = authorizations;
 	}
@@ -63,16 +70,22 @@ class RelistGate {
 		// that says there is something in it.
 		RemainingQuota left = this.quotas.leftFor(caller, plan);
 		if (left.isSpent()) {
-			return new Verdict.Refused(ReasonCode.QUOTA_EXCEEDED, left.resetAt());
+			return Verdict.Refused.untilTheQuotaComesBackAt(left.resetAt());
 		}
-		// #25's SafetyPolicy check belongs here: after the quota, because a user who has nothing left to spend
-		// should be told so rather than told to wait, and before the reservation, because a refusal must not
-		// cost the unit it refused to let them spend.
-		//
 		// The clock is read once, after the subscription: a window this call has just rolled starts at an
 		// instant that cannot be later than this one, so the reservation below falls inside the period it was
-		// counted against, and the token expires exactly when the row says it does.
+		// counted against, and the token expires exactly when the row says it does. The pacing rail measures
+		// from the same reading, so the row this call is about to write is stamped with the instant the next
+		// call will pace itself from — two readings of a clock would let the interval between two relists come
+		// out shorter than the one that was enforced.
 		OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+		// Last, and after the quota rather than before it: a user with nothing left to spend is told that
+		// rather than told to wait for a unit that is not coming back this period. Still before the
+		// reservation, so a refusal does not cost the unit it refused to let them spend.
+		Optional<Duration> wait = this.safety.waitRequiredOf(caller, now);
+		if (wait.isPresent()) {
+			return Verdict.Refused.untilTheyMayRelistAgainIn(wait.get());
+		}
 		OffsetDateTime expiresAt = now.plus(RelistAuthorizations.LIFETIME);
 		UUID reservation = this.reservations.reserve(caller, adId, now, expiresAt);
 		return this.authorizations.issue(caller, adId, reservation, expiresAt);
@@ -81,6 +94,8 @@ class RelistGate {
 	private final Subscriptions subscriptions;
 
 	private final Quotas quotas;
+
+	private final SafetyPolicy safety;
 
 	private final UsageReservations reservations;
 

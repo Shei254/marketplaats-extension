@@ -4,16 +4,17 @@ Five modules and the build-time check that makes them mean something, the schema
 seeded into it and what each of its tiers grants, the resource server every route is closed behind, the
 account and subscription a first sign-in leaves behind, and the tests that hold `infra/`'s Keycloak realm to
 what it promises. Two endpoints so far — `POST /api/relist/authorize` and `POST /api/relist/complete`, the
-two ends of the gate — plus the scheduled reconciliation that gives back the units nobody ever reports on,
-with the rest arriving on the tickets named below.
+two ends of the gate — plus the rails that say how fast one account may relist and the scheduled
+reconciliation that gives back the units nobody ever reports on, with the rest arriving on the tickets named
+below.
 
 ```bash
 cd apps/api
-./gradlew test      # 157 tests: the module boundary, the schema and catalog on a real Postgres, the realm,
+./gradlew test      # 183 tests: the module boundary, the schema and catalog on a real Postgres, the realm,
                     #            which tokens get past the resource server, what first login provisions, what
-                    #            a tier grants whoever is on it, who may relist and what it costs them, what
-                    #            the extension reporting back settles or gives them back, and what becomes of
-                    #            the relists it never reports on at all
+                    #            a tier grants whoever is on it, who may relist and what it costs them, how
+                    #            fast they may do it again, what the extension reporting back settles or gives
+                    #            them back, and what becomes of the relists it never reports on at all
 ./gradlew build     # the above, plus the executable jar
 ./gradlew bootRun   # http://localhost:8080 — 401 without a token, and the gate below with one
 ```
@@ -114,9 +115,13 @@ Mutation-verified — each of these was applied, observed, and reverted:
 what it has already applied, so a correction to that file once it has run anywhere is a new `V2` — never an
 edit to `V1`.
 
-Two migrations follow it, each named for what it adds rather than for the ticket that wanted it:
-`V2__seed_tier_catalog.sql` (the catalog, below) and `V3__index_abandoned_reservations.sql` (the index #24's
-sweep reads — see [What nobody ever reports back](#what-nobody-ever-reports-back)).
+Three migrations follow it, each named for what it adds rather than for the ticket that wanted it:
+`V2__seed_tier_catalog.sql` (the catalog, below), `V3__index_abandoned_reservations.sql` (the index #24's
+sweep reads — see [What nobody ever reports back](#what-nobody-ever-reports-back)) and
+`V4__index_relists_by_when_they_were_taken.sql` (the one the pacing rail reads — see
+[How fast, as well as how much](#how-fast-as-well-as-how-much)). Both index files carry the whole argument for
+why they do not collapse into V1's, which is the same argument twice: an index partial on a status serves only
+a statement that says something about status.
 
 > If startup fails with **`Migration checksum mismatch for migration version 1`**, your Postgres volume
 > predates the rename `keycloak_subject` → `idp_subject` in [#17](https://github.com/Shei254/marketplaats-extension/issues/17),
@@ -198,8 +203,8 @@ Marktplaats account identifier, and `features` keeps its `{}` default because th
 no ticket, and [#26](https://github.com/Shei254/marketplaats-extension/issues/26)'s `/api/me` would hand a
 seeded `"bulk": true` to the UI to render as though it did. The numbers themselves are configuration —
 [`docs/specs/quota-enforcement.md`](../../docs/specs/quota-enforcement.md) puts them outside its scope — and
-none of them is a rate: pacing and burst are [#25](https://github.com/Shei254/marketplaats-extension/issues/25)'s
-SafetyPolicy.
+none of them is a rate: pacing and burst are the SafetyPolicy's, and they are one setting for everybody rather
+than a rung of this ladder.
 
 **No tier carries a `stripe_price_id` yet**, so nothing in the catalog is purchasable:
 [#28](https://github.com/Shei254/marketplaats-extension/issues/28) creates the Products and Prices by hand
@@ -248,9 +253,8 @@ reads the subscriber's tier from there and brings it here to find out what it gr
 
 **Limits, not a window and not a rate.** The period a quota is counted in is on the *subscription*, because it
 is Stripe's billing period for a payer and a monthly roll from provisioning for a free user — two tiers are not
-two windows. And a number per period is not a number per minute: a month's quota spent in one is what
-[#25](https://github.com/Shei254/marketplaats-extension/issues/25)'s SafetyPolicy refuses, and nothing here
-paces anything.
+two windows. And a number per period is not a number per minute: a month's quota spent in one is what the
+SafetyPolicy refuses, and nothing here paces anything.
 
 **What a tier is called is not among these.** `name` is display text an operator may rewrite and `code` is the
 handle the seed upserts on; neither is something a caller is entitled *to*.
@@ -564,6 +568,7 @@ did. Quota is per user.
 200  { "authToken": "<JWT>", "expiresAt": "…", "jti": "…" }   and one unit of quota is gone
 402  { "reason": "SUBSCRIPTION_INACTIVE" }                    a payer whose subscription stopped
 429  { "reason": "QUOTA_EXCEEDED", "resetAt": "…" }           the period's relists are spent
+429  { "reason": "RATE_LIMITED", "retryAfter": 27 }           relisting faster than the rails allow
 401  { "reason": "UNAUTHENTICATED" }                          answered by the filter chain, never reached (#19)
 ```
 
@@ -583,6 +588,8 @@ place that knows both halves.
 | `AuthorizeRelist` | `enforcement/internal` | the route, and the verdict → status mapping |
 | `RelistGate` | `enforcement/internal` | the checks, in order, and the transaction that makes them one decision |
 | `Quotas` | `enforcement/internal` | the tier's grant less what the window holds — the walk both ends of the gate take |
+| `SafetyPolicy` | `enforcement/internal` | the pacing read and the configuration behind it (below) |
+| `RelistPace` | `enforcement/internal` | the rails themselves, with no reading in them — pure, and tested without Spring |
 | `UsageReservations` | `enforcement/internal` | the `usage_reservation` table: what a period holds, and taking one |
 | `RelistAuthorizations` | `enforcement/internal` | the signed, ~45-second grant a `200` comes with |
 | `SubscriptionRows` | `subscription/internal` | the `subscription` table, the row lock, and the roll below |
@@ -676,12 +683,116 @@ same machine in every environment this has ever run in, so nothing here can tell
 anyway because the instant a row is counted at should be the instant the gate compared against the period it
 counted in, and the row that falls outside the window it was authorized against is the one nobody would find.
 
-**Not here, and each named where it goes.** #25's SafetyPolicy check has its place in `RelistGate` marked, in
-the one position that is right: after the quota, so a user with nothing left is told so rather than told to
-wait, and before the reservation, so a refusal does not cost the unit it refused. ADR-0012 also sketches an
-`enforcement/domain` package for pure decision logic; there is none, because the decision is a status and two
-numbers the same method has just read, and the ticket that gives it a second reader is the one that should
-create it.
+**Not here.** ADR-0012 sketches an `enforcement/domain` package for pure decision logic and there is none —
+see the section below, which is the ticket that was expected to create it and did not.
+
+## How fast, as well as how much
+
+A quota is a number per period and not a number per minute, so a month's worth spent in one is something no
+check above refuses. `SafetyPolicy` is the last check of the gate and the only one that is not about
+entitlement ([#25](https://github.com/Shei254/marketplaats-extension/issues/25),
+[ADR-0008](../../docs/adr/0008-safety-and-consent.md)).
+
+```yaml
+mprelist:
+  safety:
+    minimum-interval: 30s   # between one relist and the next; 0 turns this rail off
+    burst-limit: 10         # how many inside the window below, at least 1
+    burst-window: 1h        # sliding, not aligned to a clock
+```
+
+**These are rails for the user's own Marktplaats account, not a throttle protecting ours.** Relisting is
+delete-and-recreate against a private API ([ADR-0002](../../docs/adr/0002-relist-mechanic.md)/
+[0004](../../docs/adr/0004-surfaces-and-internal-api.md)), and the account that gets flagged for a
+machine-shaped rhythm is the seller's. Nothing here is about load. Human-like *jitter* around the interval is
+the extension's ([#54](https://github.com/Shei254/marketplaats-extension/issues/54)) and can be nothing else:
+a backend can refuse a call that came too soon, it cannot make one arrive at a human-shaped moment.
+
+**Two rails, because one of them caps nothing.** Thirty seconds between relists permits a hundred and twenty
+an hour — a Power tier's whole month in under two — at a rhythm no human has. The interval is what keeps
+consecutive actions out of a volley; the burst cap is what keeps a properly paced volley from running all day.
+So a window shorter than `burst-limit` × `minimum-interval` would be a rail arithmetic can never reach, and a
+rail written off by arithmetic is one nobody decided to switch off: `theShippedRailsAreBothOnesThatCanBind` is
+what refuses to let that happen quietly. None of the three is defaulted in code, for the reconciliation
+window's reason — how fast is too fast is a judgement about a platform that publishes no number.
+
+**The longer of the two rails answers**, since waiting out the one that binds today and being refused by the
+other is a cooldown that runs to zero in front of a user and then refuses them anyway. The burst rail is
+measured from the **cap-th most recent** relist rather than the oldest one in the window: those are the same
+row until an operator lowers the cap under somebody who has already exceeded it, and answering from the oldest
+would name a moment at which this still refuses. The wait is rounded **up** to whole seconds, because it
+leaves as a countdown a client renders — rounded down, a client that waits exactly as long as it was told
+arrives a fraction early and is refused a second time, which reads to a user as a timer that lied.
+
+**It counts attempts, where quota counts what was kept**, and that is the whole difference between the two
+reads of one table. `Quotas` asks what a period is still holding, so a `FAILED_BEFORE_DELETE` gives its unit
+back (#23) and a relist nobody reported on is handed back too (#24). This asks what the extension has been
+doing to Marktplaats — and those relists *happened*: an ad was captured, photos were fetched, requests were
+made from the user's own session. A rail that forgave every failure would stop pacing an extension exactly
+when it started failing.
+
+```sql
+select reserved_at from usage_reservation
+where app_user_id = ? and reserved_at >= ?
+order by reserved_at desc limit ?
+```
+
+Which is why it needs an index of its own. `usage_reservation_by_when_it_was_taken` (`V4`) leads with the same
+two columns as V1's `usage_reservation_holding_a_unit` and is **unpartial**, because the statement above
+carries no predicate about status at all and a planner uses a partial index only where it can prove the
+statement's predicate implies the index's. Bounded on both ends — as far back as the longer rail reaches, and
+never more rows than the cap can be decided by — so what this costs on the hot path is set by a number an
+operator configures rather than by how much a user has ever relisted.
+
+**No lock of its own, and it needs none.** Two of the same user's calls cannot both pass it for the reason
+neither can spend the last unit of a quota: the gate already holds a write lock on that caller's subscription
+row, so the second call is still waiting at that read when the first commits its reservation. The clock is
+read once by the gate and passed in, so the horizon this counts back from and the `reserved_at` the next call
+will pace itself from are the same instant rather than two readings.
+
+**`RelistPace` is the rules with no reading in them**, and `RelistPaceTest` runs the lot with no Spring
+context and no database: which rail answers, what happens at the exact instant one runs out, how a wait is
+rounded, what a cap lowered under somebody does. Those are cases an HTTP suite could not land on a clock it
+does not control. It is **still `internal`**, though ADR-0012 names this ticket as the likeliest to create the
+`domain` package: that ADR's bar is a *second reader*, and this has one. Moving it would make a type public so
+that a test could sit beside it.
+
+`RelistPacingTest` is then about what only the running application can answer, and it **overrides none of the
+three settings** — like the reconciliation suite and its grace, what it is written against is what ships. The
+suites whose subject is quota switch both rails off instead, which is a setting rather than a hole: they spend
+a quota one relist at a time, and the interval is exactly what refuses the second of them.
+
+Mutation-verified — each applied, observed, reverted:
+
+| Mutation | Fails |
+|---|---|
+| the pacing check is dropped from the gate | 4, every refusal `RelistPacingTest` arranges |
+| …or runs before the quota check | `aCallerWithNothingLeftThisPeriodIsToldSoRatherThanToldToWait`, alone — which is what it is for |
+| the unit is reserved before the rail is asked | 12, including `andTheRefusalCostsNothingButTheWait`; the rest are grants that begin failing at random, since a row stamped `now` reads back rounded a microsecond into the future |
+| the pace counts only the units still held | `aRelistThatFailedBeforeAnythingWasDeletedStillPacesTheNextOne` |
+| …or counts every user's relists | `butSomebodyElsesRelistIsNotThisCallersToWaitFor` |
+| the interval rail is dropped | 4 in `RelistPaceTest` |
+| the burst rail is dropped | 3 there |
+| the earlier of the two rails answers | 7 there |
+| the burst rail is decided by the oldest relist in the window | `theBurstRailIsDecidedByTheCapthMostRecentRelistRatherThanByTheOldestInTheWindow` |
+| the horizon is the shorter of the two rails | `theHorizonIsAsFarBackAsTheLongerRailReaches` |
+| one more relist is read than the cap can be decided by | `andNoMoreRelistsThanTheCapCanBeDecidedBy` |
+| the interval is over one instant *after* it runs out | 5, including `andItIsOverAtTheInstantItRunsOutRatherThanAfterIt` |
+| a wait is rounded down | `aWaitIsRoundedUpToWholeSeconds` |
+| …or always up, whole or not | 6, including `andOneThatIsAlreadyWholeIsLeftAlone` |
+| a burst cap of none is allowed | `aBurstCapOfNoneIsRefusedWhereItIsConfigured` |
+| a negative rail is allowed | `andSoIsARailSetToLessThanNothing` |
+| the rails are constants rather than the configured values | `aSubscriberWhoHasSpentThePeriodsQuotaIsRefusedWithTheDateItComesBack` — the suites that switch the rails off are what notice |
+| a rate-limited refusal carries no wait | `aSecondRelistTheMomentAfterTheFirstIsToldHowLongToWait`, `aWindowFullOfRelistsIsRefused…` |
+| `RATE_LIMITED` is served as something other than `429` | 3 |
+| `@JsonInclude(NON_NULL)` is dropped from the refusal | 3, on the `retryAfter` a quota denial must not carry and the `resetAt` this one must not |
+| `V4` is left out of the migrations | `andThePaceIsReadThroughAnIndexRatherThanByReadingEveryRelistThisCallerEverMade` |
+
+One mutation survives and is left surviving: **the rail reading a clock of its own** rather than the one the
+gate passes it. The two are microseconds apart on one machine, so nothing here can tell them apart — it is
+`reserved_at`'s case again, and it is passed for the same reason: the instant a relist is paced from should be
+the instant the row it wrote was stamped with, or the interval enforced between two relists is the drift
+between two readings.
 
 ## What the extension reports back
 
@@ -1058,9 +1169,9 @@ clients read after signing in — and the first call from outside `enforcement` 
 what leaves `internal` on that ticket; and `GET /api/client-config`
 ([#36](https://github.com/Shei254/marketplaats-extension/issues/36)).
 
-**The SafetyPolicy check** ([#25](https://github.com/Shei254/marketplaats-extension/issues/25)), whose place
-in the order the gate marks. A quota is a number per period and not a number per minute, so a month's worth
-spent in one is refused by nothing here today.
+**Client-side pacing and jitter** ([#54](https://github.com/Shei254/marketplaats-extension/issues/54)). The
+rails above refuse a relist that came too soon; making one *arrive* at a human-shaped moment is the
+extension's, and there is no jitter anywhere today — only serialisation.
 
 **What a tier is called, and what it costs.** `TierCatalog` answers what a tier grants and nothing about how
 to show or sell it: the display name arrives with

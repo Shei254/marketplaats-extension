@@ -5,9 +5,7 @@ import static org.assertj.core.api.Assertions.within;
 
 import java.net.http.HttpResponse;
 import java.sql.Connection;
-import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
@@ -59,9 +57,14 @@ import com.mprelist.Subscribers.Subscriber;
  * whether a relist still running is guessed abandoned, so these tests are written against it and
  * {@link #theShippedGraceIsLongerThanAnyRelistAndShorterThanTheirPatience()} is what holds it in the range
  * they assume.
+ *
+ * <p>#25's pacing rails are switched off, for {@link RelistAuthorizationTest}'s reason: the reservations here
+ * are taken through {@code /api/relist/authorize}, several tests take more than one, and how fast they were
+ * taken is nothing this suite is about.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-		properties = "mprelist.reconciliation.interval=24h")
+		properties = { "mprelist.reconciliation.interval=24h", "mprelist.safety.minimum-interval=0s",
+				"mprelist.safety.burst-window=0s" })
 @Import(PostgresFromCompose.class)
 class ReservationReconciliationTest {
 
@@ -298,47 +301,16 @@ class ReservationReconciliationTest {
 	 * exactly the same rows and lose the index the moment it earned a generic plan, which is the failure
 	 * {@code ReservationStatus#inSql} exists to rule out and the one nothing else here would notice.
 	 *
-	 * <p>Costs are not asserted, only that the index <em>can</em> serve the predicate — see {@link #planOf}.
+	 * <p>Costs are not asserted, only that the index <em>can</em> serve the predicate — see {@link QueryPlans}.
 	 */
 	@Test
 	void andItFindsThemThroughAnIndexRatherThanByReadingEveryRelistEverMade() throws SQLException {
-		String plan = planOf("""
+		String plan = QueryPlans.of(this.database, """
 				update usage_reservation set status = 'REFUNDED', resolved_at = now()
 				where status = 'RESERVED' and expires_at < now()
 				""");
 
 		assertThat(plan).contains("usage_reservation_awaiting_a_report");
-	}
-
-	/**
-	 * How Postgres would reach those rows if reaching for an index were worth it.
-	 *
-	 * <p>Sequential scans are turned off for the question, because this table holds whatever one test just
-	 * wrote and a planner is right to read a handful of rows directly — left on, this would assert the size of
-	 * the fixture rather than anything about the schema. Off, the plan answers the question actually being
-	 * asked: <em>is there an index that serves this predicate at all?</em> A partial index whose predicate the
-	 * statement does not match is not chosen even then, since the planner cannot prove it holds every row the
-	 * statement wants.
-	 *
-	 * <p>{@code set local} and a rollback, so the setting dies with this transaction rather than following the
-	 * connection back into the pool and quietly planning somebody else's test. {@code explain} without
-	 * {@code analyze} plans the statement and does not run it, so nothing here writes.
-	 */
-	private String planOf(String statement) throws SQLException {
-		try (Connection planning = this.database.getConnection()) {
-			planning.setAutoCommit(false);
-			try (Statement session = planning.createStatement()) {
-				session.execute("set local enable_seqscan = off");
-				StringBuilder plan = new StringBuilder();
-				try (ResultSet lines = session.executeQuery("explain " + statement)) {
-					while (lines.next()) {
-						plan.append(lines.getString(1)).append('\n');
-					}
-				}
-				planning.rollback();
-				return plan.toString();
-			}
-		}
 	}
 
 	// --- running the job --------------------------------------------------------------------------------

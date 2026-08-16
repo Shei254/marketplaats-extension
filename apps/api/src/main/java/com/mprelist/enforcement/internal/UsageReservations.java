@@ -1,6 +1,7 @@
 package com.mprelist.enforcement.internal;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.UUID;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -50,6 +51,39 @@ class UsageReservations {
 			select count(*) from usage_reservation
 			where app_user_id = ? and status <> %s and reserved_at >= ? and reserved_at < ?
 			""".formatted(ReservationStatus.REFUNDED.inSql());
+
+	/**
+	 * When this user last took units, most recent first — the relists {@link SafetyPolicy} paces them by.
+	 *
+	 * <p><strong>Every status counts here, and that is the difference from {@link #unitsHeldIn}.</strong> That
+	 * one asks what a period is still holding, so a refunded reservation has given its unit back; this one asks
+	 * what the extension has been doing to Marktplaats, and a relist that failed before the delete still
+	 * captured an ad and fetched its photos. A rail that forgave every failure would stop pacing an extension
+	 * exactly when it started failing.
+	 *
+	 * <p>Which is also why this cannot read {@code usage_reservation_holding_a_unit}: that index is partial on
+	 * {@code status <> 'REFUNDED'}, and a statement carrying no predicate about status is one the planner
+	 * cannot prove it covers. {@code usage_reservation_by_when_it_was_taken} (V4) is the index for this read,
+	 * and it is unpartial for the same reason.
+	 *
+	 * <p>Bounded on both ends, because this runs on the hot path against a table that gains a row per relist
+	 * and never loses one: {@code since} is as far back as either rail can still bind, and {@code atMost} is
+	 * the burst cap, past which an older relist changes no answer.
+	 *
+	 * @return the instants themselves rather than a count, since the rails ask <em>when</em> and not
+	 * <em>how many</em> — the wait each one answers with is measured from one of these rows
+	 */
+	List<OffsetDateTime> unitsTakenSince(UserRef user, OffsetDateTime since, int atMost) {
+		return this.db.sql("""
+				select reserved_at from usage_reservation
+				where app_user_id = ? and reserved_at >= ?
+				order by reserved_at desc
+				limit ?
+				""")
+				.params(user.id(), since, atMost)
+				.query(OffsetDateTime.class)
+				.list();
+	}
 
 	/**
 	 * Takes one unit, and answers with the id that is the authorization's {@code jti}.

@@ -2,10 +2,7 @@ package com.mprelist;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.net.URI;
-import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -73,6 +70,7 @@ class RelistCompletionTest {
 	@BeforeEach
 	void nothingHasBeenReportedYet() {
 		this.rows = new Subscribers(this.db, IDP, "complete-suite-");
+		this.calls = new Relists(this.port);
 		this.rows.nobodyHasRelistedYet();
 	}
 
@@ -270,7 +268,7 @@ class RelistCompletionTest {
 		HttpResponse<String> refused = complete(somebodyElse, theirs, "FAILED_BEFORE_DELETE");
 
 		assertThat(refused.statusCode()).isEqualTo(404);
-		assertThat(refused.body()).doesNotContain("reason");
+		Relists.carriesNothingButItsStatus(refused);
 		assertThat(this.rows.theOnlyReservationOf(owner).get("status")).isEqualTo("RESERVED");
 		assertThat(this.rows.eventsOf(owner)).isEmpty();
 	}
@@ -287,7 +285,7 @@ class RelistCompletionTest {
 		HttpResponse<String> refused = complete(user, UUID.randomUUID(), "SUCCESS");
 
 		assertThat(refused.statusCode()).isEqualTo(404);
-		assertThat(refused.body()).doesNotContain("reason");
+		Relists.carriesNothingButItsStatus(refused);
 	}
 
 	/**
@@ -339,7 +337,7 @@ class RelistCompletionTest {
 				{"outcome": "SUCCESS"}""");
 
 		assertThat(unread.statusCode()).isEqualTo(400);
-		assertThat(unread.body()).doesNotContain("reason");
+		Relists.carriesNothingButItsStatus(unread);
 		assertThat(this.rows.theOnlyReservationOf(user).get("status")).isEqualTo("RESERVED");
 	}
 
@@ -356,7 +354,7 @@ class RelistCompletionTest {
 		HttpResponse<String> unread = complete(user.token(), "{\"jti\": \"" + authorized + "\"}");
 
 		assertThat(unread.statusCode()).isEqualTo(400);
-		assertThat(unread.body()).doesNotContain("reason");
+		Relists.carriesNothingButItsStatus(unread);
 		assertThat(this.rows.theOnlyReservationOf(user).get("status")).isEqualTo("RESERVED");
 	}
 
@@ -373,7 +371,7 @@ class RelistCompletionTest {
 		HttpResponse<String> unread = complete(user, authorized, "NEARLY_WORKED");
 
 		assertThat(unread.statusCode()).isEqualTo(400);
-		assertThat(unread.body()).doesNotContain("reason");
+		Relists.carriesNothingButItsStatus(unread);
 		assertThat(this.rows.theOnlyReservationOf(user).get("status")).isEqualTo("RESERVED");
 	}
 
@@ -391,7 +389,7 @@ class RelistCompletionTest {
 				{"jti": "not-an-authorization", "outcome": "SUCCESS"}""");
 
 		assertThat(unread.statusCode()).isEqualTo(400);
-		assertThat(unread.body()).doesNotContain("reason");
+		Relists.carriesNothingButItsStatus(unread);
 	}
 
 	/**
@@ -500,34 +498,20 @@ class RelistCompletionTest {
 	// --- the calls --------------------------------------------------------------------------------------
 
 	private HttpResponse<String> complete(Subscriber user, UUID jti, String outcome) {
-		return complete(user.token(), "{\"jti\": \"" + jti + "\", \"outcome\": \"" + outcome + "\"}");
+		return this.calls.completing(user, jti, outcome);
 	}
 
 	private HttpResponse<String> complete(String token, String body) {
-		return post("/api/relist/complete", token, body);
+		return this.calls.completing(token, body);
 	}
 
-	/**
-	 * The authorization being reported on, taken the way the extension takes one. Arranging a reservation row
-	 * directly would be arranging a {@code jti} this API never issued, which is the subject of one test above
-	 * and not of the rest.
-	 */
+	/** The authorization being reported on, taken the way the extension takes one — see {@link Relists}. */
 	private UUID authorize(Subscriber user, String adId) {
-		HttpResponse<String> granted = authorizing(user, adId);
-		assertThat(granted.statusCode()).isEqualTo(200);
-		return UUID.fromString(Json.of(granted).get("jti").asString());
+		return this.calls.authorized(user, adId);
 	}
 
 	private HttpResponse<String> authorizing(Subscriber user, String adId) {
-		return post("/api/relist/authorize", user.token(), "{\"adId\": \"" + adId + "\"}");
-	}
-
-	private HttpResponse<String> post(String path, String token, String body) {
-		HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("http://localhost:" + this.port + path))
-				.timeout(Duration.ofSeconds(20))
-				.header("Content-Type", "application/json")
-				.POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8));
-		return Http.send((token == null ? request : request.header("Authorization", "Bearer " + token)).build());
+		return this.calls.authorizing(user, adId);
 	}
 
 	// --- arrangement and reading back -------------------------------------------------------------------
@@ -551,5 +535,8 @@ class RelistCompletionTest {
 
 	/** The rows this suite arranges, under a tier prefix of its own — see {@link Subscribers}. */
 	private Subscribers rows;
+
+	/** The gate's own calls, over {@link #port} — see {@link Relists}. */
+	private Relists calls;
 
 }

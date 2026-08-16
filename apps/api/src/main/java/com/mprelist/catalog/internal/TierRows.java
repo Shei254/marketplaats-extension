@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import com.mprelist.catalog.Entitlement;
 import com.mprelist.catalog.TierCatalog;
 import com.mprelist.catalog.TierId;
+import com.mprelist.catalog.TierName;
 
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
@@ -42,7 +43,7 @@ class TierRows implements TierCatalog {
 	/**
 	 * The three columns that say what the tier lets its holder do, and none of the ones that say what it costs
 	 * or what it is called: {@code stripe_price_id} is #29's to read when it opens a Checkout session, and
-	 * {@code name} is #26's when there is somebody to show it to.
+	 * {@code name} is {@link #nameOf} below, which #26 added when there was somebody to show it to.
 	 *
 	 * <p>{@code features::text} rather than the column itself, so the {@code jsonb} arrives as the JSON it is
 	 * rather than as a driver-specific object this module would then be written against. Parsed here, so that
@@ -61,6 +62,25 @@ class TierRows implements TierCatalog {
 						+ "nothing to resolve an entitlement from. A subscription references its tier behind a "
 						+ "foreign key with no delete rule, so this is an id the catalog never issued rather than "
 						+ "a tier that has been retired."));
+	}
+
+	/**
+	 * The two columns that say what the tier is called, and neither of the ones that say what it grants.
+	 *
+	 * <p>Its own statement rather than one query serving both, so that the authorize path keeps reading the
+	 * three columns it checks against and nothing else — a display label travelling on the hot path is a
+	 * column a later reader could come to branch on.
+	 */
+	@Override
+	public TierName nameOf(TierId tier) {
+		return this.db.sql("select code, name from tier where id = ?")
+				.param(tier.id())
+				.query((row, number) -> new TierName(row.getString("code"), row.getString("name")))
+				.optional()
+				.orElseThrow(() -> new IllegalStateException("No tier carries the id " + tier.id() + ", so there is "
+						+ "nothing to name. A subscription references its tier behind a foreign key with no delete "
+						+ "rule, so this is an id the catalog never issued rather than a tier that has been "
+						+ "retired."));
 	}
 
 	private static Map<String, Object> flagsIn(String features) {

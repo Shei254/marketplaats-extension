@@ -52,8 +52,12 @@ import com.mprelist.identity.UserRef;
  * <p>There is no login endpoint to test — the API is a resource server, and ADR-0014's "on first login"
  * therefore means "on the first request we can attribute to somebody new". So this drives it the way it will
  * really happen: a token over a real port, at a route that declares a {@link UserRef} parameter, with the
- * rows read back from the Postgres Flyway just migrated. The route is a fixture; the application still ships
- * no endpoint of its own until #26.
+ * rows read back from the Postgres Flyway just migrated. The route is a fixture of this suite's own, and
+ * stays one now that #26 ships a real declarer of a {@link UserRef}: what is asserted here is the row the
+ * resolver left behind, which means answering with the {@code UserRef} itself — and {@code /api/me}
+ * deliberately does not, because its body is display state and our own account id is no part of it.
+ * {@link DisplayStateTest} asserts the other half from outside: a subject this API has never seen is answered
+ * with the plan it has just been provisioned onto.
  *
  * <p>Not {@code @Transactional}. The application answers on its own connection, so a rollback here would
  * neither see nor undo what it wrote; each test empties {@code app_user} instead, and the cascade takes the

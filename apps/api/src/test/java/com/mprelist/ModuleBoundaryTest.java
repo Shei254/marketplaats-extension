@@ -42,8 +42,9 @@ class ModuleBoundaryTest {
 	 * file to see. This is what would fail if a package-info lost its {@code @ApplicationModule}.
 	 */
 	@Test
-	void allFiveModulesAreVisibleToTheCheck() {
+	void allSixModulesAreVisibleToTheCheck() {
 		assertThat(MODULES.stream().map(module -> module.getIdentifier().toString()))
-				.containsExactlyInAnyOrder("identity", "catalog", "subscription", "enforcement", "admin");
+				.containsExactlyInAnyOrder("identity", "catalog", "subscription", "enforcement", "display",
+						"admin");
 	}
 }

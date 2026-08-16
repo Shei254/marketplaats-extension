@@ -1,0 +1,43 @@
+package com.mprelist.display.internal;
+
+import java.time.OffsetDateTime;
+import java.util.Map;
+
+import com.mprelist.catalog.TierName;
+import com.mprelist.subscription.SubscriptionStatus;
+
+/**
+ * The body of {@code GET /api/me}: the five fields {@code docs/enforcement-contract.md} names, serialized as
+ * this record stands.
+ *
+ * <p>One type rather than a domain answer plus a response mapped from it, for {@code Verdict}'s reason: the
+ * two would be the same five fields, and the mapping between them is where a field silently stops being sent.
+ *
+ * <p><strong>Flat, and deliberately.</strong> {@code quotaRemaining} and {@code resetAt} arrive together on a
+ * {@code RemainingQuota} — the same one {@code /complete} answers with whole — and are spelled out here as
+ * two fields rather than nested under a key, because this body's shape is the contract's and a client should
+ * read {@code quotaRemaining} in one place whichever call it came from.
+ *
+ * <p><strong>What is not here is as decided as what is.</strong> No {@code jti}, no token and no expiry:
+ * this call grants nothing (ADR-0007), so there is nothing here a modified extension could present as an
+ * authorization. No {@code maxMarktplaatsAccounts} either, though the tier grants one — nothing renders it
+ * until #47 finds an identifier that can tell two Marktplaats accounts apart, and a field nobody reads is a
+ * field somebody eventually reads wrongly. And no cooldown: the pacing rails (#25) answer at the moment of
+ * refusal with a {@code retryAfter}, and a rail has nothing to say ahead of one.
+ *
+ * @param subscriptionStatus the mirror of Stripe's status, normalized to the seven the contract names and
+ * spelled as this enum spells them — the same screaming-case vocabulary as the reason codes and the outcomes,
+ * so a client reads one convention across the API. It is display state and not permission: whether it
+ * <em>allows</em> a relist is asked of the gate, on the call that grants one
+ * @param tier what the caller's plan is called, both halves, so that a client can brand a plan without
+ * branching on text an operator may rewrite ({@link TierName})
+ * @param quotaRemaining relists left in the current period, never below zero — the same subtraction the gate
+ * refuses on and {@code /complete} answers with
+ * @param resetAt the end of that period, which is when the number above comes back
+ * @param features the flags the tier carries, as the {@code tier.features} object holds them. Empty on every
+ * tier in the catalog today, and rendered as an empty object rather than omitted: "this plan grants no flags"
+ * is an answer, where a missing field is a client's guess
+ */
+record DisplayState(SubscriptionStatus subscriptionStatus, TierName tier, int quotaRemaining,
+		OffsetDateTime resetAt, Map<String, Object> features) {
+}

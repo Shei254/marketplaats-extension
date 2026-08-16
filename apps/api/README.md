@@ -1,20 +1,21 @@
 # `apps/api` — Spring Boot API
 
-Five modules and the build-time check that makes them mean something, the schema they fill, the tier catalog
+Six modules and the build-time check that makes them mean something, the schema they fill, the tier catalog
 seeded into it and what each of its tiers grants, the resource server every route is closed behind, the
 account and subscription a first sign-in leaves behind, and the tests that hold `infra/`'s Keycloak realm to
-what it promises. Two endpoints so far — `POST /api/relist/authorize` and `POST /api/relist/complete`, the
-two ends of the gate — plus the rails that say how fast one account may relist and the scheduled
-reconciliation that gives back the units nobody ever reports on, with the rest arriving on the tickets named
-below.
+what it promises. Three endpoints so far — `POST /api/relist/authorize` and `POST /api/relist/complete`, the
+two ends of the gate, and `GET /api/me`, the display state both clients read after signing in — plus the
+rails that say how fast one account may relist and the scheduled reconciliation that gives back the units
+nobody ever reports on, with the rest arriving on the tickets named below.
 
 ```bash
 cd apps/api
-./gradlew test      # 183 tests: the module boundary, the schema and catalog on a real Postgres, the realm,
+./gradlew test      # 195 tests: the module boundary, the schema and catalog on a real Postgres, the realm,
                     #            which tokens get past the resource server, what first login provisions, what
                     #            a tier grants whoever is on it, who may relist and what it costs them, how
                     #            fast they may do it again, what the extension reporting back settles or gives
-                    #            them back, and what becomes of the relists it never reports on at all
+                    #            them back, what becomes of the relists it never reports on at all, and what a
+                    #            signed-in caller is shown of all of it
 ./gradlew build     # the above, plus the executable jar
 ./gradlew bootRun   # http://localhost:8080 — 401 without a token, and the gate below with one
 ```
@@ -69,14 +70,18 @@ Each is a direct sub-package of `com.mprelist`, which is what makes it an applic
 | Module | Owns | Fills with |
 |---|---|---|
 | `identity` | who the caller is: `CurrentUser`, and `UserRef` for the account behind them | [#19](https://github.com/Shei254/marketplaats-extension/issues/19) — [below](#the-resource-server) — and [#20](https://github.com/Shei254/marketplaats-extension/issues/20) — [below](#first-login) |
-| `catalog` | Tier → Entitlement, from our table, no Stripe | `TierId` and `defaultTier()` with [#20](https://github.com/Shei254/marketplaats-extension/issues/20), `Entitlement` with [#21](https://github.com/Shei254/marketplaats-extension/issues/21) — [below](#what-a-tier-grants) |
+| `catalog` | Tier → Entitlement and what a tier is called, from our table, no Stripe | `TierId` and `defaultTier()` with [#20](https://github.com/Shei254/marketplaats-extension/issues/20), `Entitlement` with [#21](https://github.com/Shei254/marketplaats-extension/issues/21) — [below](#what-a-tier-grants) — and `TierName` with [#26](https://github.com/Shei254/marketplaats-extension/issues/26) |
 | `subscription` | the mirror of Stripe's status and period | [#20](https://github.com/Shei254/marketplaats-extension/issues/20) provisions the first one, [#22](https://github.com/Shei254/marketplaats-extension/issues/22) reads and rolls its window — [below](#the-gate) — and [#30](https://github.com/Shei254/marketplaats-extension/issues/30) mirrors Stripe into it |
 | `enforcement` | `authorize` / `complete`, the gate, and the reconciliation behind it | [#22](https://github.com/Shei254/marketplaats-extension/issues/22) — [below](#the-gate) — [#23](https://github.com/Shei254/marketplaats-extension/issues/23) — [below](#what-the-extension-reports-back) — and [#24](https://github.com/Shei254/marketplaats-extension/issues/24) — [below](#what-nobody-ever-reports-back) |
+| `display` | `GET /api/me`: the unsigned snapshot the popup and the dashboard render from, composed from the four above | [#26](https://github.com/Shei254/marketplaats-extension/issues/26) — [below](#what-the-caller-is-shown) |
 | `admin` | operator endpoints behind the `ADMIN` role | [#27](https://github.com/Shei254/marketplaats-extension/issues/27) |
 
 `admin` still holds a single `package-info.java` carrying `@ApplicationModule` and nothing else. The annotation
-is not decoration: an empty package compiles to no class file at all, and a module Spring Modulith cannot see
-is a module it does not check. `allFiveModulesAreVisibleToTheCheck` is the test that says so.
+is not decoration **there**: an empty package compiles to no class file at all, and a module Spring Modulith
+cannot see is a module it does not check. `allSixModulesAreVisibleToTheCheck` is the test that says so, and
+`admin` is the module it is actually about — Modulith's default detection takes every direct sub-package that
+*holds* a class, so on the other five the annotation is consistency rather than what makes them visible. The
+mutation table below said otherwise until #26 ran it.
 
 A module's **sub-packages are internal to it** — `enforcement.internal.jpa` is reachable from `enforcement`
 and from nowhere else. That is the rule below enforces, and it is why ADR-0012 can promise Stripe and JPA stay
@@ -106,7 +111,9 @@ Mutation-verified — each of these was applied, observed, and reverted:
 |---|---|
 | `enforcement` references `identity.internal.TokenParser` | `noModuleReachesIntoAnothersInternals` |
 | the fixture's `beta` stops reaching into `alpha.internal` | `andTheCheckAboveIsWhatWouldCatchOneThatDid` |
-| `catalog`'s `package-info` loses `@ApplicationModule` | `allFiveModulesAreVisibleToTheCheck` |
+| `admin`'s `package-info` loses `@ApplicationModule` | `allSixModulesAreVisibleToTheCheck` — the package then compiles to nothing and the module is gone |
+| `subscription` holds a field of type `enforcement.Quotas`, which is `/api/me` written in the module whose concept dominates it | `noModuleReachesIntoAnothersInternals`, by name: `Cycle detected: Slice enforcement -> Slice subscription -> Slice enforcement`. It is why `display` is a module of its own (#26) |
+| `catalog`'s `package-info` loses `@ApplicationModule` | **nothing** — corrected in #26. The row was recorded against the wrong module: a package holding classes is detected either way, and `display` shipped with the same mutation surviving before this was chased down |
 
 ## The schema
 
@@ -864,7 +871,7 @@ this call an adversary picks (ADR-0007), so a value nobody was ever issued shoul
 reservation's owner never changes, so nothing is bought by asking under the lock instead.
 
 **What the caller is told it has left is what the gate will enforce.** `RemainingQuota` is one subtraction
-with two readers — the refusal in `RelistGate` and the answer here, with #26's `/api/me` to come — because two
+with three readers — the refusal in `RelistGate`, the answer here, and `/api/me` since #26 — because two
 written a day apart are two chances for the popup to show a relist left beside a button that refuses. `Quotas`
 is the pair of reads that feeds it, in one place for the same reason: a subtraction shared over two callers
 that each fetched their own entitlement and counted their own window is still two answers waiting to differ.
@@ -879,8 +886,8 @@ number rendered in the popup is not a smaller quota but a bug on screen. The cla
 | `RelistReports` | `enforcement/internal` | the transaction: the ownership check, the lock, the report, the answer |
 | `RelistEvents` | `enforcement/internal` | the `relist_event` table, and the conflict that makes this idempotent |
 | `RelistOutcome` | `enforcement/internal` | the three outcomes, and which of them spend the unit |
-| `Quotas` | `enforcement/internal` | the same walk the gate takes, so both answer from one pair of reads |
-| `RemainingQuota` | `enforcement/internal` | what is left of a period, for the gate and for this |
+| `Quotas` | `enforcement` | the question, published at #26 — `QuotasFromReservations` in `internal` is the walk the gate takes, so both answer from one pair of reads |
+| `RemainingQuota` | `enforcement` | what is left of a period, for the gate, for this and for `/api/me` |
 | `UnreadableRequests` | `enforcement/internal` | the empty-bodied `400` both routes answer with, scoped to the two of them |
 
 Mutation-verified — each applied, observed, reverted:
@@ -1032,6 +1039,97 @@ hundred thousand rows deep before a planner prefers an index at all, in a suite 
 three — or exporting the statement. Neither is worth what it costs; the comment on `ReservationStatus.inSql` is
 the guard instead, and it is a weaker one than a test, which is why it is written out at length.
 
+## What the caller is shown
+
+`GET /api/me` is the display state of ADR-0007: what the popup and the dashboard render, read once after
+signing in and again from a `/complete` answer. It is **never a grant** — the relist path ignores it
+completely, so a stale `active` sitting in a client's cache cannot cause a relist — and that is what the
+module is named for.
+
+```json
+{ "subscriptionStatus": "ACTIVE",
+  "tier": { "code": "free", "name": "Free" },
+  "quotaRemaining": 2,
+  "resetAt": "2026-09-14T08:31:22.101Z",
+  "features": {} }
+```
+
+**`200` or `401`, and nothing between them.** Every user always has a subscription (ADR-0014), so there is
+nothing here to refuse: a payer whose plan lapsed and a free user with nothing left are both *shown* that,
+and being turned away for it is the job of the call that grants something. A caller refused here could not
+tell a lapsed plan from a backend that is down, which is the opposite of the fail-closed display the contract
+asks for. It also **spends nothing** — a popup opened five times is five of these calls, and one that cost a
+unit would empty a free tier by being looked at.
+
+**It is a sixth module, and the reason is a cycle rather than taste.** The body is four modules' answers: the
+status and the window are `subscription`'s, the tier's name and flags are `catalog`'s, and `quotaRemaining` is
+counted from `enforcement`'s `usage_reservation` and nowhere else. `subscription` is the module whose concept
+dominates that body — and `enforcement` already reads `subscription`, so a route living there closes a loop
+the boundary check refuses by name (`Cycle detected: Slice enforcement -> Slice subscription -> Slice
+enforcement`, which is the mutation recorded [above](#the-boundary-check)). `identity` and `catalog` sit
+underneath both and fare no better. So the composer of a view over four modules is its own module, `display`,
+which publishes the route and nothing else: nobody asks it anything, it is the leaf that asks everybody.
+
+**`enforcement` publishes one question, and this is the first thing anybody has ever asked it.** `Quotas`
+answers what a subscriber has left of the period they are in and `RemainingQuota` is what it answers with —
+the same subtraction the gate refuses on and `/complete` reports, now with a third reader. A display that
+counted for itself is the popup reading "1 relist left" beside a button the gate refuses, which is the whole
+reason that type exists. The port **takes the `Subscription` its caller has already read**, so a third reader
+is not a third lock on that row and not a third chance to roll a closed window — and the number and the
+`resetAt` beside it provably describe one period.
+
+**The tier travels in both of its spellings.** `code` is the handle an admin edit never moves; `name` is
+display text an operator may rewrite at any time. A client given only the name brands a plan by text somebody
+is free to change; given only the code it renders `power` to a human, or keeps a second catalog of labels
+ours never reaches. `TierName` is `catalog`'s, on the interface `Entitlement` came in on, and is read by a
+statement of its own so the authorize path keeps reading only the columns a check is made of.
+
+**A free window that has closed is rolled here too**, like both ends of the gate — this is the call both
+clients make immediately after signing in, so it is exactly where a user returning after a month would
+otherwise be shown a `resetAt` in the past and a quota counted in a period that ended. It is also the first
+route to declare a `UserRef`, which is what [#20](https://github.com/Shei254/marketplaats-extension/issues/20)
+deferred to "the first handler that needs one": a subject this API has never seen is provisioned an account
+and a default-tier subscription, and answered with the plan it has just been given.
+
+| Class | Module | Holds |
+|---|---|---|
+| `ShowDisplayState` | `display/internal` | the route, and the `UserRef` that provisions on first sight of a subject |
+| `DisplayStates` | `display/internal` | the transaction, and the four questions in the order that keeps their answers consistent |
+| `DisplayState` | `display/internal` | the body: the five fields, serialized as the record stands |
+| `Quotas` / `RemainingQuota` | `enforcement` | what a period has left — asked here, refused on by the gate |
+| `TierName` | `catalog` | the code and the display name, which are not interchangeable |
+
+Mutation-verified — each applied, observed, reverted:
+
+| Mutation | Fails |
+|---|---|
+| `@Transactional` is dropped from the snapshot | 11 of the 12 — `currentFor` is `MANDATORY`, so it refuses rather than reading without one. Not the `401`, which never reaches a handler |
+| the units held are not counted, so the tier's grant is shown | `theQuotaShownIsWhatThePeriodHasLeftRatherThanWhatTheTierGrants` (+2) |
+| what is left is not clamped at nothing | `andItIsNeverFewerThanNoneWhenATierIsLoweredUnderItsSubscribers` |
+| `resetAt` is where the window began rather than where it ends | `aSubscriberIsShownTheStatusTierQuotaAndResetDateOfThePlanTheyAreOn` (+2) |
+| the status shown is `ACTIVE` whatever the subscription says | `aPayerWhoseSubscriptionLapsedIsShownThatRatherThanTurnedAway` |
+| `features` is dropped from the body | `aSubscriberIsShownTheStatusTierQuotaAndResetDateOfThePlanTheyAreOn` (+2) |
+| …or is always empty rather than the tier's own flags | `theFlagsTheTierGrantsAreShownAsTheColumnHoldsThem` |
+| the tier's `code` is its display name too | `theTierIsShownInBothOfItsSpellingsSoThatNobodyBrandsAPlanByItsLabel` (+1) |
+| `@JsonIgnore` is dropped from `RemainingQuota.isSpent` | `aRelistReportedAsDoneSpendsTheUnitItWasAuthorizedFor` — see below |
+| the route is written in `subscription` instead | the boundary check, on the cycle |
+
+**One of those was not a mutation but a bug this suite's neighbour caught.** Publishing `RemainingQuota` made
+`isSpent()` public, and public plus an `is` prefix is a *property* as far as Jackson is concerned — so
+`/complete` began answering `{quotaRemaining, resetAt, spent}`, a third field no contract names and one a
+client could come to read instead of the number beside it. `RelistCompletionTest` asserts that body has two
+fields and failed on the first run. `@JsonIgnore` is the fix, and the general lesson is written on the method:
+this record is a wire shape as well as an answer, so anything added to it is added to the contract.
+
+**One survives and is left surviving: the route permitted without a token.** `permitAll()` on `/api/me`
+changes nothing a test can see, and that is [#19](https://github.com/Shei254/marketplaats-extension/issues/19)
+working rather than a hole. `TokenOnThisRequest.orRefuse` fails closed in the *same* shape as the filter
+chain — `401 UNAUTHENTICATED`, with the challenge header — precisely so that a route which permits anonymous
+access and then asks who is calling cannot answer a caller it could not name. The two guards are
+indistinguishable from outside because they were built to be, and a test that could tell them apart would be
+asserting which of the two refused rather than that the caller was refused.
+
+
 ## The realm
 
 `KeycloakRealmTest` and `KeycloakRealmWithoutAnExtensionIdTest` are the only places
@@ -1163,22 +1261,19 @@ Two mutations survive and are left surviving:
 ## Not here yet
 
 **The rest of the endpoints** of [`docs/enforcement-contract.md`](../../docs/enforcement-contract.md):
-`GET /api/me` ([#26](https://github.com/Shei254/marketplaats-extension/issues/26)), the display state both
-clients read after signing in — and the first call from outside `enforcement` that will need a
-`quotaRemaining`, which is counted from the `usage_reservation` table and nowhere else, so `RemainingQuota` is
-what leaves `internal` on that ticket; and `GET /api/client-config`
-([#36](https://github.com/Shei254/marketplaats-extension/issues/36)).
+`GET /api/client-config` ([#36](https://github.com/Shei254/marketplaats-extension/issues/36)), which is the
+next route to test whether `UnreadableRequests`' scope was worth naming.
 
 **Client-side pacing and jitter** ([#54](https://github.com/Shei254/marketplaats-extension/issues/54)). The
 rails above refuse a relist that came too soon; making one *arrive* at a human-shaped moment is the
 extension's, and there is no jitter anywhere today — only serialisation.
 
-**What a tier is called, and what it costs.** `TierCatalog` answers what a tier grants and nothing about how
-to show or sell it: the display name arrives with
-[#26](https://github.com/Shei254/marketplaats-extension/issues/26), which has a caller to render it to, and
-`stripe_price_id` with [#29](https://github.com/Shei254/marketplaats-extension/issues/29), which opens the
-Checkout session that needs it — no tier carries one until
-[#28](https://github.com/Shei254/marketplaats-extension/issues/28) creates the Prices by hand.
+**What a tier costs.** `TierCatalog` now answers what a tier grants and what it is called — the second
+arrived with [#26](https://github.com/Shei254/marketplaats-extension/issues/26), which had a caller to render
+it to — but nothing about how to sell it. `stripe_price_id` waits for
+[#29](https://github.com/Shei254/marketplaats-extension/issues/29), which opens the Checkout session that
+needs it, and no tier carries one until [#28](https://github.com/Shei254/marketplaats-extension/issues/28)
+creates the Prices by hand.
 
 Gradle, not npm, and so deliberately **not** an npm workspace — the root scripts skip a directory with no
 `package.json`, and CI will run `./gradlew` here separately once this repo has CI. Both are covered in

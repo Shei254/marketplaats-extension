@@ -3,11 +3,11 @@ package com.mprelist;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
-import java.net.URI;
-import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
@@ -81,6 +81,7 @@ class ReservationReconciliationTest {
 	@BeforeEach
 	void nothingHasBeenAbandonedYet() {
 		this.rows = new Subscribers(this.db, IDP, "reconcile-suite-");
+		this.calls = new Relists(this.port);
 		this.rows.nobodyHasRelistedYet();
 	}
 
@@ -285,6 +286,61 @@ class ReservationReconciliationTest {
 		assertThat(interval).isLessThanOrEqualTo(grace);
 	}
 
+	/**
+	 * And the sweep reads an index rather than the table. This job asks about every user at once, so V1's
+	 * {@code usage_reservation_holding_a_unit} — which leads with {@code app_user_id} — cannot serve it, and
+	 * without {@code usage_reservation_awaiting_a_report} (V3) the statement is a full scan taking row locks
+	 * against the hot path, every few minutes, over a table that gains a row per relist and never loses one.
+	 *
+	 * <p>The plan is the subject rather than the index's existence, because the two come apart: the index is
+	 * <em>partial</em> on {@code status = 'RESERVED'}, so it serves the statement only while the planner can
+	 * prove that predicate holds. A statement that stopped carrying the status as a literal would return
+	 * exactly the same rows and lose the index the moment it earned a generic plan, which is the failure
+	 * {@code ReservationStatus#inSql} exists to rule out and the one nothing else here would notice.
+	 *
+	 * <p>Costs are not asserted, only that the index <em>can</em> serve the predicate — see {@link #planOf}.
+	 */
+	@Test
+	void andItFindsThemThroughAnIndexRatherThanByReadingEveryRelistEverMade() throws SQLException {
+		String plan = planOf("""
+				update usage_reservation set status = 'REFUNDED', resolved_at = now()
+				where status = 'RESERVED' and expires_at < now()
+				""");
+
+		assertThat(plan).contains("usage_reservation_awaiting_a_report");
+	}
+
+	/**
+	 * How Postgres would reach those rows if reaching for an index were worth it.
+	 *
+	 * <p>Sequential scans are turned off for the question, because this table holds whatever one test just
+	 * wrote and a planner is right to read a handful of rows directly — left on, this would assert the size of
+	 * the fixture rather than anything about the schema. Off, the plan answers the question actually being
+	 * asked: <em>is there an index that serves this predicate at all?</em> A partial index whose predicate the
+	 * statement does not match is not chosen even then, since the planner cannot prove it holds every row the
+	 * statement wants.
+	 *
+	 * <p>{@code set local} and a rollback, so the setting dies with this transaction rather than following the
+	 * connection back into the pool and quietly planning somebody else's test. {@code explain} without
+	 * {@code analyze} plans the statement and does not run it, so nothing here writes.
+	 */
+	private String planOf(String statement) throws SQLException {
+		try (Connection planning = this.database.getConnection()) {
+			planning.setAutoCommit(false);
+			try (Statement session = planning.createStatement()) {
+				session.execute("set local enable_seqscan = off");
+				StringBuilder plan = new StringBuilder();
+				try (ResultSet lines = session.executeQuery("explain " + statement)) {
+					while (lines.next()) {
+						plan.append(lines.getString(1)).append('\n');
+					}
+				}
+				planning.rollback();
+				return plan.toString();
+			}
+		}
+	}
+
 	// --- running the job --------------------------------------------------------------------------------
 
 	/** One run of exactly what the scheduler runs, on this thread. */
@@ -327,27 +383,15 @@ class ReservationReconciliationTest {
 	}
 
 	private UUID authorize(Subscriber user, String adId) {
-		HttpResponse<String> granted = authorizing(user, adId);
-		assertThat(granted.statusCode()).isEqualTo(200);
-		return UUID.fromString(Json.of(granted).get("jti").asString());
+		return this.calls.authorized(user, adId);
 	}
 
 	private HttpResponse<String> authorizing(Subscriber user, String adId) {
-		return post("/api/relist/authorize", user.token(), "{\"adId\": \"" + adId + "\"}");
+		return this.calls.authorizing(user, adId);
 	}
 
 	private HttpResponse<String> complete(Subscriber user, UUID jti, String outcome) {
-		return post("/api/relist/complete", user.token(),
-				"{\"jti\": \"" + jti + "\", \"outcome\": \"" + outcome + "\"}");
-	}
-
-	private HttpResponse<String> post(String path, String token, String body) {
-		return Http.send(HttpRequest.newBuilder(URI.create("http://localhost:" + this.port + path))
-				.timeout(Duration.ofSeconds(20))
-				.header("Content-Type", "application/json")
-				.header("Authorization", "Bearer " + token)
-				.POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-				.build());
+		return this.calls.completing(user, jti, outcome);
 	}
 
 	@Autowired
@@ -372,5 +416,8 @@ class ReservationReconciliationTest {
 
 	/** The rows this suite arranges, under a tier prefix of its own — see {@link Subscribers}. */
 	private Subscribers rows;
+
+	/** The gate's own calls, over {@link #port} — see {@link Relists}. */
+	private Relists calls;
 
 }

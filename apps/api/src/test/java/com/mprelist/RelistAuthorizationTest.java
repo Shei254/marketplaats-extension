@@ -3,10 +3,7 @@ package com.mprelist;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
-import java.net.URI;
-import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.time.Duration;
 import java.time.Instant;
@@ -86,6 +83,7 @@ class RelistAuthorizationTest {
 	@BeforeEach
 	void nobodyHasRelistedYet() {
 		this.rows = new Subscribers(this.db, IDP, "authorize-suite-");
+		this.calls = new Relists(this.port);
 		this.rows.nobodyHasRelistedYet();
 	}
 
@@ -366,7 +364,7 @@ class RelistAuthorizationTest {
 		HttpResponse<String> unread = authorize(user.token(), "{}");
 
 		assertThat(unread.statusCode()).isEqualTo(400);
-		assertThat(unread.body()).doesNotContain("reason");
+		Relists.carriesNothingButItsStatus(unread);
 		assertThat(this.rows.reservationsOf(user)).isEmpty();
 	}
 
@@ -526,16 +524,11 @@ class RelistAuthorizationTest {
 	// --- the call itself --------------------------------------------------------------------------------
 
 	private HttpResponse<String> authorize(Subscriber user, String adId) {
-		return authorize(user.token(), "{\"adId\": \"" + adId + "\"}");
+		return this.calls.authorizing(user, adId);
 	}
 
 	private HttpResponse<String> authorize(String token, String body) {
-		HttpRequest.Builder request = HttpRequest
-				.newBuilder(URI.create("http://localhost:" + this.port + "/api/relist/authorize"))
-				.timeout(Duration.ofSeconds(20))
-				.header("Content-Type", "application/json")
-				.POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8));
-		return Http.send((token == null ? request : request.header("Authorization", "Bearer " + token)).build());
+		return this.calls.authorizing(token, body);
 	}
 
 	/** The same call on a thread of its own, for the two tests that need one in flight while they arrange. */
@@ -604,5 +597,8 @@ class RelistAuthorizationTest {
 	 * as a field initialiser, since the {@link JdbcTemplate} it writes through is injected into this instance.
 	 */
 	private Subscribers rows;
+
+	/** The gate's own calls, over {@link #port} — see {@link Relists}. Built per test for {@link #rows}' reason. */
+	private Relists calls;
 
 }

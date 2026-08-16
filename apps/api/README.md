@@ -9,7 +9,7 @@ with the rest arriving on the tickets named below.
 
 ```bash
 cd apps/api
-./gradlew test      # 156 tests: the module boundary, the schema and catalog on a real Postgres, the realm,
+./gradlew test      # 157 tests: the module boundary, the schema and catalog on a real Postgres, the realm,
                     #            which tokens get past the resource server, what first login provisions, what
                     #            a tier grants whoever is on it, who may relist and what it costs them, what
                     #            the extension reporting back settles or gives them back, and what becomes of
@@ -113,6 +113,10 @@ Mutation-verified — each of these was applied, observed, and reverted:
 [`docs/domain-model.md`](../../docs/domain-model.md) calls backend-owned, and nothing else. Flyway checksums
 what it has already applied, so a correction to that file once it has run anywhere is a new `V2` — never an
 edit to `V1`.
+
+Two migrations follow it, each named for what it adds rather than for the ticket that wanted it:
+`V2__seed_tier_catalog.sql` (the catalog, below) and `V3__index_abandoned_reservations.sql` (the index #24's
+sweep reads — see [What nobody ever reports back](#what-nobody-ever-reports-back)).
 
 > If startup fails with **`Migration checksum mismatch for migration version 1`**, your Postgres volume
 > predates the rename `keycloak_subject` → `idp_subject` in [#17](https://github.com/Shei254/marketplaats-extension/issues/17),
@@ -687,8 +691,8 @@ them has to come back here** or the unit stays taken for the rest of the period.
 
 ```
 200  { "quotaRemaining": 2, "resetAt": "…" }   whether it settled the unit or gave it back
-404                                            a jti naming no reservation of this caller's — no reason code
-400                                            a body this API could not read — no reason code
+404                                            a jti naming no reservation of this caller's — empty body
+400                                            a body this API could not read — empty body
 ```
 
 The body is `{ "jti": "…", "outcome": "SUCCESS" | "FAILED_BEFORE_DELETE" | "FAILED_AFTER_DELETE" }`. The `jti`
@@ -727,12 +731,21 @@ lifetime bounds how long an *authorization* is good for, not how long the extens
 with one — and the late reports are the slow and broken relists, which are the ones worth hearing about. This
 call grants nothing, so there is nothing here to fail closed about.
 
-**A `jti` that is not this caller's is a `404` with no reason code**, which is the contract's shape for a
+**A `jti` that is not this caller's is a `404` with an empty body**, which is the contract's shape for a
 `4xx` that is not a denial: they were not turned away, they named something that is not there. It is the same
 answer for a reservation that never existed and for one belonging to somebody else, on purpose — a client
 that could tell those apart would have been handed a way to ask whether a given id is anybody's. A `jti`
 shaped like anything other than a reservation id is a `400` instead, because "we cannot read this" and "this
 is not yours" are different things for an extension to do about.
+
+**Both bodies are empty, and the `400`'s is ours rather than the framework's.** Left alone, an unreadable
+request came back as Spring Boot's default error representation — `{timestamp, status, error, path}` — which
+names no reason code and so satisfied the letter of the contract, but put a second body shape on these two
+endpoints and echoed the caller's own request path back at them. `UnreadableRequests` is a
+`@RestControllerAdvice` scoped to this module's two controllers — named types rather than a global advice,
+since one with no types named would decide the shape of every route later modules write, a reach across a
+boundary the build-time check cannot see because Spring wires it by annotation. The tests assert the body is
+*empty* rather than that it lacks `reason`, which is the assertion the default body used to pass.
 
 **It is asked before the subscription is read**, because reading one is not free of consequence: `currentFor`
 takes a write lock on the caller's row and rolls a free window that has closed. The `jti` is the one input to
@@ -757,6 +770,7 @@ number rendered in the popup is not a smaller quota but a bug on screen. The cla
 | `RelistOutcome` | `enforcement/internal` | the three outcomes, and which of them spend the unit |
 | `Quotas` | `enforcement/internal` | the same walk the gate takes, so both answer from one pair of reads |
 | `RemainingQuota` | `enforcement/internal` | what is left of a period, for the gate and for this |
+| `UnreadableRequests` | `enforcement/internal` | the empty-bodied `400` both routes answer with, scoped to the two of them |
 
 Mutation-verified — each applied, observed, reverted:
 
@@ -777,13 +791,22 @@ Mutation-verified — each applied, observed, reverted:
 | the ownership check runs after the subscription is read | `andAJtiThatIsNobodysRollsNoWindowOnTheWayToSayingSo` |
 | the body's `jti` may be absent | `aBodyNamingNoAuthorizationIsARequestThisApiCouldNotRead` |
 | …or its `outcome` may | `andSoIsOneSayingNothingAboutWhatHappened` |
+| `UnreadableRequests` is dropped, so the `400` is the framework's default body again | 4 here and 1 in the authorize suite |
+| …or is left global instead of scoped to these two controllers | none — see below |
 
-One survives and is left surviving, for the reason `reserved_at`'s twin does: **`recorded_at` left to the
-column's `now()` default** rather than passed from the report. Both clocks are the same machine everywhere
-this has run, so nothing here can tell them apart. It is passed anyway, because the event and the reservation
-it resolves should be stamped by one clock — the interval between a relist being authorized and reported on is
-what #24 sizes its grace window from, and two clocks would make that interval the drift between two
-machines.
+Two survive and are left surviving.
+
+**`recorded_at` left to the column's `now()` default** rather than passed from the report, for the reason
+`reserved_at`'s twin does. Both clocks are the same machine everywhere this has run, so nothing here can tell
+them apart. It is passed anyway, because the event and the reservation it resolves should be stamped by one
+clock — the interval between a relist being authorized and reported on is what #24 sizes its grace window
+from, and two clocks would make that interval the drift between two machines.
+
+**`UnreadableRequests` left global** rather than scoped to the two controllers it names — applied, and the
+suite stays green. It cannot fail today: `enforcement` ships the only routes there are, so global and scoped
+select the same two. The scope is written for the routes #26 and #36 will add, and the day it starts mattering
+is the day somebody wants a different shape on a route this module does not own. That is a test those tickets
+can write and this one cannot, since the thing to assert is the behaviour of a controller nobody has written.
 
 ## What nobody ever reports back
 
@@ -822,7 +845,7 @@ actually given rather than a second rule that could drift from `RelistAuthorizat
 because of anything remembered.**
 
 ```sql
-update usage_reservation set status = 'REFUNDED', resolved_at = ?
+update usage_reservation set status = ?, resolved_at = ?
 where status = 'RESERVED' and expires_at < ?
 ```
 
@@ -835,10 +858,29 @@ statement that read the ids first and updated them afterwards would pass every o
 that happened. No lock is taken on the subscription, unlike both ends of the gate, so this never waits on the
 hot path and cannot deadlock against a call that takes the subscription first and this row second.
 
+**It reads an index, and the status stays a literal so that it keeps reading one.** `V3` adds
+`usage_reservation_awaiting_a_report (expires_at) where status = 'RESERVED'`. V1's index leads with
+`app_user_id`, which this statement does not constrain — it asks about every user at once — so without V3 the
+sweep is a full scan taking row locks against the hot path, every `interval`, over a table that gains a row
+per relist and never loses one. The index is partial, which is what keeps it small forever: it holds only the
+relists currently in flight, and a row leaves it for good the moment either a report or this job resolves it.
+
+That partial predicate is also why `where status = 'RESERVED'` is pasted into the statement while the status
+being *written* is bound. A planner uses a partial index only when it can prove the statement's predicate
+implies the index's, and through a bind parameter it can do that only while planning with the value
+substituted — a *custom* plan. A statement that earns a *generic* plan has an opaque parameter, no proof, and
+a sequential scan: measured over 200k rows, cost 5356 against the index's 12.43. Postgres takes the generic
+plan only when it judges it no worse, so the parameterized form would very likely keep the index today — the
+point is that it would make the access path of a growing sweep depend on a cost comparison and a statement
+cache, with nothing to announce the day it tips. `ReservationStatus.inSql` is where that is spelled once, and
+`andItFindsThemThroughAnIndexRatherThanByReadingEveryRelistEverMade` asserts the plan rather than the index's
+existence, because those are what come apart.
+
 | Class | Module | Holds |
 |---|---|---|
 | `ReservationReconciliation` | `enforcement/internal` | the grace window, the schedule, and the decision to stop waiting |
 | `UsageReservations` | `enforcement/internal` | the statement above, and why its predicate is the safety |
+| `ReservationStatus` | `enforcement/internal` | the three states, and the one place each is spelled for SQL |
 | `ApiApplication` | root | `@EnableScheduling` — an application-wide capability, not a module's to switch on |
 
 `ReservationReconciliationTest` **runs the job rather than waiting for it**: the suite sets an interval long
@@ -861,11 +903,23 @@ Mutation-verified — each applied, observed, reverted:
 | `@Scheduled` is dropped from the method | 8 — the task is not there to be found and run |
 | the interval is a constant rather than the configured one | `andItIsScheduledWithTheIntervalItIsConfiguredWith` |
 | the shipped grace is set to nothing | that suite's two, including the one reading `application.yml` |
+| `V3`'s index is dropped, or made non-partial on another column | `andItFindsThemThroughAnIndexRatherThanByReadingEveryRelistEverMade` |
 
-One survives and is left surviving: **the grace read from a constant rather than from configuration**. No test
-can tell them apart while the constant and the shipped value agree, and catching it would mean a second Spring
-context whose only difference is a grace — a container per assertion. It is configuration because how slow a
-real relist gets is a thing the world tells an operator and not a thing this code knows.
+Two survive and are left surviving.
+
+**The grace read from a constant rather than from configuration.** No test can tell them apart while the
+constant and the shipped value agree, and catching it would mean a second Spring context whose only difference
+is a grace — a container per assertion. It is configuration because how slow a real relist gets is a thing the
+world tells an operator and not a thing this code knows.
+
+**The matched status bound rather than pasted** — applied, and the suite stays green. The plan test explains a
+statement of its own rather than the one `UsageReservations` runs, because that statement is `internal` and
+reaching it would mean making SQL public for a test. So what the test holds is the *index*: that one exists
+and can serve this predicate. What it cannot see is the day the statement stops being written in the form that
+uses it. Closing that would mean either a scan counter read back after a real run — which needs a table two
+hundred thousand rows deep before a planner prefers an index at all, in a suite where every other test arranges
+three — or exporting the statement. Neither is worth what it costs; the comment on `ReservationStatus.inSql` is
+the guard instead, and it is a weaker one than a test, which is why it is written out at length.
 
 ## The realm
 

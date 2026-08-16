@@ -66,13 +66,19 @@ an unauthenticated call reaches no handler at all. It also carries the `WWW-Auth
 RFC 6750 requires, which is where *how* a presented token was wrong is said — the body says only that the
 caller is not authenticated, because that is the whole of what a client acts on.
 
-A `4xx` that is *not* a denial carries no `reason` at all, rather than a reason code its status contradicts, so
-a client can read the presence of `reason` as meaning it was turned away. `/complete` ships the first two
-(#23): a body this API could not read is a `400`, and a `jti` naming no reservation of the caller's is a `404`
-with an empty body. **What else such a response carries is not this contract's to fix** — the `400` is Spring
-Boot's default error representation, which names no reason code and is the framework's to change. The
-`WWW-Authenticate` challenge belongs to the `401` and to nothing else: these callers were authenticated, they
-named something this API could not read or could not find.
+A `4xx` that is *not* a denial **carries an empty body** — no `reason`, and nothing else either — so a client
+can read the presence of `reason` as meaning it was turned away. `/complete` ships the first two (#23): a body
+this API could not read is a `400`, and a `jti` naming no reservation of the caller's is a `404`. Both answer
+with the status and nothing to parse beside it.
+
+It carries no `WWW-Authenticate` either. That challenge belongs to the `401` and to nothing else (RFC 6750):
+these callers were authenticated, they named something this API could not read or could not find.
+
+The `400` is written by this repository rather than left to the framework (`UnreadableRequests`, #24's review).
+Spring Boot's default error representation — `{timestamp, status, error, path}` — names no reason code and so
+did not break the letter of the rule above, but it is a second body shape on the same two endpoints and it
+echoes the caller's own request path back at them. A `415` is still Spring's, which sets the `Accept` header
+RFC 9110 wants on one.
 
 One route is exempt and it is not ours: Spring Security publishes RFC 9728 protected-resource metadata at
 `/.well-known/oauth-protected-resource` and permits it, which is what the challenge above points a client at.

@@ -283,6 +283,11 @@ Resolve quota, max accounts and feature flags from our table. **No Stripe depend
     reads** (`Quotas`), clamped at zero — an operator lowering a tier's quota under a subscriber is reachable
     without anybody doing anything wrong, and the popup showing a relist left beside a button that refuses is
     the bug the shared type prevents.
+  - **Amended in #24's review:** the `400` is written here (`UnreadableRequests`) rather than left to Spring
+    Boot's default error body. `{timestamp, status, error, path}` names no reason code, so it did not break the
+    contract's letter, but it was a second body shape on these two endpoints and echoed the caller's request
+    path back at them. A non-denial `4xx` now carries an *empty* body on both routes, which is what the tests
+    assert — `doesNotContain("reason")` was an assertion the default body passed.
 
 ### T15 · Reservation reconciliation job · **M** · T14
 Abandoned reservations auto-refund after a grace window; idempotent, safe to run concurrently.
@@ -311,6 +316,15 @@ Abandoned reservations auto-refund after a grace window; idempotent, safe to run
   - **The suite runs the job rather than waiting for it**, reaching the task through `ScheduledTaskHolder` —
     so nothing in `enforcement/internal` had to be made public for a test, the negative assertions are about a
     run that provably happened, and a job that stopped being scheduled is one the suite cannot find to run.
+  - **The sweep gets an index of its own** (`V3`), partial on `status = 'RESERVED'` and keyed by `expires_at`.
+    V1's index leads with `app_user_id`, which this statement does not constrain — it asks about every user at
+    once — so without V3 a job running every few minutes is a full scan taking row locks against the hot path,
+    over a table that gains a row per relist and never loses one. Partial is what keeps it small forever: it
+    holds only the relists currently in flight. **The matched status is therefore pasted into the statement
+    rather than bound** (`ReservationStatus.inSql`) — a planner uses a partial index only where it can prove
+    the statement's predicate implies the index's, and through a bind parameter it can do that only on a custom
+    plan; on a generic one it scans. The plan is asserted rather than the index's existence, since those are
+    what come apart, and the statement's *form* is the one mutation left surviving — see `apps/api/README.md`.
 
 ### T16 · SafetyPolicy rate and pacing check · **M** · T13
 Per-User rate limits and pacing; `429 RATE_LIMITED` with `retryAfter`. Refs: [ADR-0008](adr/0008-safety-and-consent.md).

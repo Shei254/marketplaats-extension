@@ -40,14 +40,16 @@ class UsageReservations {
 	 * wrong way round
 	 */
 	int unitsHeldIn(UserRef user, QuotaPeriod period) {
-		return this.db.sql("""
-				select count(*) from usage_reservation
-				where app_user_id = ? and status <> 'REFUNDED' and reserved_at >= ? and reserved_at < ?
-				""")
+		return this.db.sql(UNITS_HELD_IN)
 				.params(user.id(), period.start(), period.end())
 				.query(Integer.class)
 				.single();
 	}
+
+	private static final String UNITS_HELD_IN = """
+			select count(*) from usage_reservation
+			where app_user_id = ? and status <> %s and reserved_at >= ? and reserved_at < ?
+			""".formatted(ReservationStatus.REFUNDED.inSql());
 
 	/**
 	 * Takes one unit, and answers with the id that is the authorization's {@code jti}.
@@ -137,6 +139,11 @@ class UsageReservations {
 	 * holds without reading a plan, so it never waits on the hot path and cannot deadlock against a call that
 	 * takes the subscription first and this row second.
 	 *
+	 * <p>The predicate is {@code usage_reservation_awaiting_a_report}'s own (V3), which is what keeps a sweep
+	 * running every few minutes off a table that grows by a row per relist and never shrinks. That index is
+	 * partial on the same {@code RESERVED}, so what it holds is only ever the relists currently in flight —
+	 * and a row leaves it the moment either this job or a report resolves it.
+	 *
 	 * @param cutoff the instant a grant must have run out before, which is now less the grace window. Judged on
 	 * {@code expires_at} rather than on {@code reserved_at}, so that what a relist is measured against is the
 	 * authorization it was actually given ({@link RelistAuthorizations#LIFETIME}) rather than a second rule
@@ -147,13 +154,21 @@ class UsageReservations {
 	 * @return how many units went back, which is the abandonment rate an operator has to read this from
 	 */
 	int refundAbandonedBefore(OffsetDateTime cutoff, OffsetDateTime at) {
-		return this.db.sql("""
-				update usage_reservation set status = 'REFUNDED', resolved_at = ?
-				where status = 'RESERVED' and expires_at < ?
-				""")
-				.params(at, cutoff)
+		return this.db.sql(REFUND_ABANDONED)
+				.params(ReservationStatus.REFUNDED.name(), at, cutoff)
 				.update();
 	}
+
+	/**
+	 * The matched status is pasted in and the written one is bound, which is {@link ReservationStatus#inSql}'s
+	 * distinction: {@code usage_reservation_awaiting_a_report} is partial on the predicate below, so what the
+	 * planner can prove about that value decides whether this reads an index or the whole table. Nothing is
+	 * proved about the value in a {@code set} clause, and nothing needs to be.
+	 */
+	private static final String REFUND_ABANDONED = """
+			update usage_reservation set status = ?, resolved_at = ?
+			where status = %s and expires_at < ?
+			""".formatted(ReservationStatus.RESERVED.inSql());
 
 	private final JdbcClient db;
 

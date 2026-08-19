@@ -15,13 +15,22 @@ MP sessions live only in the user's browser. Nothing here holds them server-side
   id/handle only — **no credentials/session**). A User may have many. Enables the "managed user
   list" and multi-account extensibility. **Not yet realised:** no stable MP account identifier has been
   found, so it appears in no wire contract today (ADR-0007, 2026-08-13 refinement).
-- **Tier** — a plan in **our** catalog: quota per period, max MarktplaatsAccounts, feature flags,
-  an `isDefault` flag, and a nullable `stripePriceId`. Admin-managed; the free tier is an ordinary row
-  with a null price (ADR-0014).
-- **Subscription** — the User's current plan: a reference to a Tier, a normalized status mirrored from
+- **Tier** — an entry in **our** catalog: quota per period, max MarktplaatsAccounts, feature flags,
+  an `isDefault` flag, a `published` flag, and a nullable `stripePriceId`. Admin-managed; the free tier is
+  an ordinary row with a null price (ADR-0014). A Tier is **not** a Plan — see below. A `price.created`
+  webhook syncs one in on `metadata.tier_code`, unpublished and at quota 0 if the code is new, and never
+  overwrites a quota (ADR-0019).
+- **Plan** — a **Tier joined with the Stripe Price** its `stripePriceId` names: quota and flags ours,
+  amount and currency and interval Stripe's. Derived, never stored — `GET /api/plans` composes it and caches
+  the Stripe half. Only a *published* Tier with a price id is one, so the free tier is a Tier and never a
+  Plan (ADR-0019).
+- **Subscription** — the User's current standing: a reference to a Tier, a normalized status mirrored from
   Stripe via webhooks, and `periodStart`/`periodEnd`. Stripe is the source of truth for **status and
   lifecycle**; the Tier and its limits are ours. **Every User always has one** — first login
-  auto-provisions onto the default Tier, so "no subscription" is not a reachable state.
+  auto-provisions onto the default Tier, so "no subscription" is not a reachable state. When Stripe reports a
+  **terminal** end the webhook returns it to the default Tier, `active`, with the period back on our monthly
+  roll; **dunning** does not (ADR-0018). `SUBSCRIPTION_INACTIVE` therefore means a failing card and nothing
+  else.
 - **Entitlement** — the limits/features resolved from the Subscription's **Tier**: relists per period,
   max MarktplaatsAccounts, feature flags (bulk, scheduling). The thing quotas check. Read from Postgres,
   never from Stripe on the hot path.
@@ -45,6 +54,9 @@ MP sessions live only in the user's browser. Nothing here holds them server-side
 User 1───1 Subscription (always exists) ───1 Tier ──resolves──▶ Entitlement
                           │                        │
                     periodStart/End          stripePriceId ──▶ Stripe Price (money only)
+                          │                        └──────────┬─────────┘
+              terminal end ▼ (ADR-0018)                       ▼
+                     default Tier, active                   Plan (derived, GET /api/plans)
 User 1───* UsageReservation  (the unit; counted within [periodStart, periodEnd) unless refunded)
                  └──1 RelistEvent   (the outcome reported for it, at most one)
 User      ──requests──▶ RelistAuthorization ──checked against──▶ Entitlement + SafetyPolicy
@@ -67,6 +79,13 @@ User 1───* MarktplaatsAccount   ── modelled, not yet realised (no stab
 ## Invariants
 - **Every User has exactly one current Subscription.** "No subscription" is unreachable; free users hold an
   `active` Subscription on the default Tier. Nothing in the code branches on "is this user free?".
+- **There is always exactly one default Tier.** The partial index `tier_single_default` makes it at most one;
+  `TierCatalog.defaultTier()` throwing makes it at least one. So "no free tier" is that tier's quota set to
+  **0**, never the flag unset — which would provision nobody (ADR-0019).
+- **A subscription that ends is a downgrade, never a lockout.** Nobody who has paid ends up with less than
+  somebody who never did (ADR-0018).
+- **Money is never stored here.** Amount, currency and interval live in Stripe alone; a Plan holds a cache of
+  them and never a second copy of record (ADR-0014/0019).
 - **`authorize` never calls Stripe.** Status is read from the webhook-fed mirror; limits from our Tier table.
 - **Nothing about a Marktplaats session or credential ever reaches the backend** (ADR-0001/0005). The backend
   sees ad references only.

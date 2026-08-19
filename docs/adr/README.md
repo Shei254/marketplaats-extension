@@ -26,9 +26,18 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0013](0013-remote-client-configuration.md) | Remote client configuration for the internal-API layer | Accepted |
 | [0014](0014-tier-catalog-and-entitlements.md) | Tier catalog & entitlements ours, keyed to Stripe Prices | Accepted, refines 0006 |
 | [0015](0015-frozen-internal-api-golden-tests.md) | Internal-API layer frozen by golden-payload tests | Accepted |
+| [0016](0016-vertical-slices-and-review-gates.md) | Iteration 1 cut into vertical slices, each ending at a manual review | Accepted |
+| [0017](0017-web-surface-and-subscribing.md) | One web app, loginless public routes; subscribing starts in the popup | Accepted, amends 0011 |
+| [0018](0018-lapse-falls-back-to-the-default-tier.md) | A subscription that ends falls back to the default tier | Accepted, refines 0014 |
+| [0019](0019-plans-are-stripe-first-and-webhook-synced.md) | Plans created in Stripe, synced to the Tier catalog by webhook | Accepted, refines 0014 |
 
 **Amended by the 2026-08-13 session:** 0006 (Stripe narrowed to money + lifecycle), 0007 (gating depth,
 `/api/me` display state, `marktplaatsAccountId` dropped), 0009 (monorepo, React popup, Options page removed).
+
+**Amended by the 2026-08-20 session:** 0011 (`apps/dashboard` becomes `apps/web`, no customer login),
+0006 (no trial in iteration 1), 0014 (`SUBSCRIPTION_INACTIVE` is dunning-only, no-free-tier is a zero quota,
+admin CRUD un-deferred). That session also cut the backlog into vertical slices and split **Go-Live** out as
+its own milestone — see [0016](0016-vertical-slices-and-review-gates.md) and [../backlog.md](../backlog.md).
 
 See also [../domain-model.md](../domain-model.md), [../glossary.md](../glossary.md) and
 [../enforcement-contract.md](../enforcement-contract.md).

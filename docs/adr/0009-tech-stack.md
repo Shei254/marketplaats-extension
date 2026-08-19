@@ -30,12 +30,12 @@ The POC is complete and the full app is being built. Refinements to the table ab
 
 | Layer | Refinement |
 |---|---|
-| Repository | **Monorepo** — `apps/{extension,api,dashboard}`, `packages/{contracts,ui}`, `infra/` ([ADR-0011](0011-repository-layout.md)) |
+| Repository | **Monorepo** — `apps/{extension,api,web}`, `packages/{contracts,ui}`, `infra/` ([ADR-0011](0011-repository-layout.md)) |
 | Backend API | **Modular monolith** with Spring Modulith; Gradle, Java 21, Flyway ([ADR-0012](0012-backend-modular-monolith.md)) |
 | Extension auth | `chrome.identity.launchWebAuthFlow` + PKCE, extension as Keycloak public client ([ADR-0010](0010-extension-authentication.md)) |
-| Extension UI | **React**, consuming `packages/ui` shared with the dashboard. The POC **Options page is deleted** ([ADR-0013](0013-remote-client-configuration.md)) |
+| Extension UI | **React**, consuming `packages/ui` shared with `apps/web`. The POC **Options page is deleted** ([ADR-0013](0013-remote-client-configuration.md)) |
 | Endpoint config | **Backend-served**, hardcoded defaults as fallback, data-only ([ADR-0013](0013-remote-client-configuration.md)) |
-| Web dashboard | First cut is a **thin shell**: sign-in, plan picker → Stripe Checkout, account page → Stripe Customer Portal, privacy/terms. Payment methods, invoices, cancellation, dunning and proration stay Stripe-hosted. |
+| Web dashboard | First cut is a **thin shell**: sign-in, plan picker → Stripe Checkout, account page → Stripe Customer Portal, privacy/terms. Payment methods, invoices, cancellation, dunning and proration stay Stripe-hosted. **Superseded by [ADR-0017](0017-web-surface-and-subscribing.md):** there is no customer sign-in and no account page — the plan picker moved into the popup, and `apps/web` is public pages plus an admin corner. |
 | Internal-API layer | Frozen by **golden-payload characterization tests** ([ADR-0015](0015-frozen-internal-api-golden-tests.md)) |
 
 **Release-cadence constraint:** extension releases take days (Chrome Web Store review), API deploys take

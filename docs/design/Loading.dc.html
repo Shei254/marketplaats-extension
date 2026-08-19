@@ -1,0 +1,49 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    .t{
+      --bg:#ffffff; --fg:#1a1a1a; --muted:#6b7280; --line:#ececec; --hover:#f7f8fa;
+      --accent:#0a5fd6; --accent-hover:#0b4fb0; --on-accent:#ffffff;
+      --ok:#0a7d28; --ok-bg:#e8f6ec; --warn:#a15c00; --warn-bg:#fdf3e2;
+      --err:#c02626; --err-bg:#fdecec; --disabled:#a5abb5;
+      --stage:#eceef1;
+      --shadow:0 1px 2px rgba(16,19,26,.08), 0 8px 24px rgba(16,19,26,.10);
+    }
+    .t.dark{
+      --bg:#202124; --fg:#e8eaed; --muted:#9aa0a6; --line:#34363a; --hover:#26282c;
+      --accent:#4285f4; --accent-hover:#5b96f7; --on-accent:#10131a;
+      --ok:#6dd58c; --ok-bg:#1d2b21; --warn:#e8b558; --warn-bg:#2e2617;
+      --err:#f28b82; --err-bg:#2e1b1b; --disabled:#5f6368;
+      --stage:#17181a;
+      --shadow:0 1px 2px rgba(0,0,0,.5), 0 8px 24px rgba(0,0,0,.45);
+    }
+    body{ margin:0; font:14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    *{ box-sizing:border-box; }
+    a{ color:var(--accent); text-decoration:none; }
+    a:hover{ color:var(--accent-hover); text-decoration:underline; }
+    @keyframes spin{ to{ transform:rotate(360deg); } }
+    .sp{ width:11px; height:11px; border:2px solid currentColor; border-right-color:transparent;
+         border-radius:50%; animation:spin .7s linear infinite; }
+    .sp-lg{ width:22px; height:22px; border-width:2.5px; }
+    @media (prefers-reduced-motion: reduce){ .sp{ animation-duration:2s; } }
+    .sk{ background:var(--line); border-radius:4px; }
+  </style>
+</helmet>
+<div class="{{theme}}" style="background:var(--stage); padding:20px; display:flex; justify-content:center;"><div style="width:360px; background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow); overflow:hidden;"><div style="display:flex; align-items:center; justify-content:space-between; gap:8px; padding:12px 14px; border-bottom:1px solid var(--line);"><div style="display:flex; align-items:center; gap:8px; min-width:0;"><span style="display:inline-flex; color:var(--accent);"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12.5 10 6.5l6 6"></path><path d="M5 16h10"></path></svg></span><span style="font-weight:650; letter-spacing:-.01em;">Bumpr</span></div><button type="button" style="border:0; background:none; padding:5px; border-radius:6px; color:var(--accent); cursor:pointer; display:inline-flex;"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 6.5A7 7 0 1 0 17 10"></path><path d="M16.5 3.5v3.2h-3.2"></path></svg></button></div><div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 14px; border-bottom:1px solid var(--line); background:transparent; font-size:12.5px; color:var(--muted);"><span class="sk" style="display:inline-block; width:120px; height:11px;"></span><span class="sk" style="display:inline-block; width:64px; height:11px;"></span></div><ul style="margin:0; padding:0; max-height:420px; overflow-y:auto;"><li style="padding:12px 14px; border-bottom:1px solid var(--line); list-style:none;"><div style="display:flex; align-items:center; justify-content:space-between; gap:10px;"><div style="min-width:0; flex:1;"><span class="sk" style="display:block; width:78%; height:11px;"></span><span class="sk" style="display:block; margin-top:7px; width:60px; height:10px;"></span></div><span class="sk" style="width:74px; height:28px; border-radius:999px; flex:none;"></span></div></li><li style="padding:12px 14px; border-bottom:1px solid var(--line); list-style:none;"><div style="display:flex; align-items:center; justify-content:space-between; gap:10px;"><div style="min-width:0; flex:1;"><span class="sk" style="display:block; width:62%; height:11px;"></span><span class="sk" style="display:block; margin-top:7px; width:60px; height:10px;"></span></div><span class="sk" style="width:74px; height:28px; border-radius:999px; flex:none;"></span></div></li><li style="padding:12px 14px; border-bottom:1px solid var(--line); list-style:none;"><div style="display:flex; align-items:center; justify-content:space-between; gap:10px;"><div style="min-width:0; flex:1;"><span class="sk" style="display:block; width:88%; height:11px;"></span><span class="sk" style="display:block; margin-top:7px; width:60px; height:10px;"></span></div><span class="sk" style="width:74px; height:28px; border-radius:999px; flex:none;"></span></div></li></ul></div></div>
+</x-dc>
+<script data-dc-script data-props='{"dark":{"editor":"boolean","default":false}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.dark ? 't dark' : 't' };
+  }
+}
+</script>
+</body>
+</html>

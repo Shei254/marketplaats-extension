@@ -1,0 +1,49 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    .t{
+      --bg:#ffffff; --fg:#1a1a1a; --muted:#6b7280; --line:#ececec; --hover:#f7f8fa;
+      --accent:#0a5fd6; --accent-hover:#0b4fb0; --on-accent:#ffffff;
+      --ok:#0a7d28; --ok-bg:#e8f6ec; --warn:#a15c00; --warn-bg:#fdf3e2;
+      --err:#c02626; --err-bg:#fdecec; --disabled:#a5abb5;
+      --stage:#eceef1;
+      --shadow:0 1px 2px rgba(16,19,26,.08), 0 8px 24px rgba(16,19,26,.10);
+    }
+    .t.dark{
+      --bg:#202124; --fg:#e8eaed; --muted:#9aa0a6; --line:#34363a; --hover:#26282c;
+      --accent:#4285f4; --accent-hover:#5b96f7; --on-accent:#10131a;
+      --ok:#6dd58c; --ok-bg:#1d2b21; --warn:#e8b558; --warn-bg:#2e2617;
+      --err:#f28b82; --err-bg:#2e1b1b; --disabled:#5f6368;
+      --stage:#17181a;
+      --shadow:0 1px 2px rgba(0,0,0,.5), 0 8px 24px rgba(0,0,0,.45);
+    }
+    body{ margin:0; font:14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    *{ box-sizing:border-box; }
+    a{ color:var(--accent); text-decoration:none; }
+    a:hover{ color:var(--accent-hover); text-decoration:underline; }
+    @keyframes spin{ to{ transform:rotate(360deg); } }
+    .sp{ width:11px; height:11px; border:2px solid currentColor; border-right-color:transparent;
+         border-radius:50%; animation:spin .7s linear infinite; }
+    .sp-lg{ width:22px; height:22px; border-width:2.5px; }
+    @media (prefers-reduced-motion: reduce){ .sp{ animation-duration:2s; } }
+    .sk{ background:var(--line); border-radius:4px; }
+  </style>
+</helmet>
+<div class="{{theme}}" style="background:var(--stage); padding:28px; display:flex; justify-content:center;"><div style="width:824px; background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); overflow:hidden;"><div style="display:flex; align-items:center; justify-content:space-between; padding:16px 30px; border-bottom:1px solid var(--line);"><div style="display:flex; align-items:center; gap:9px;"><span style="display:inline-flex; color:var(--accent);"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12.5 10 6.5l6 6"></path><path d="M5 16h10"></path></svg></span><span style="font-weight:650; letter-spacing:-.01em; font-size:15px;">Bumpr</span></div><div style="display:flex; gap:20px;"><a href="#" style="color:var(--muted); font-weight:400; font-size:13px;">Privacy</a><a href="#" style="color:var(--muted); font-weight:400; font-size:13px;">Terms</a></div></div><div style="padding:56px 30px 52px; text-align:center;"><div style="width:52px; height:52px; margin:0 auto 18px; border-radius:50%; background:var(--ok-bg); color:var(--ok); display:flex; align-items:center; justify-content:center;"><svg width="26" height="26" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.6 10.4 8.2 14l7.2-8"></path></svg></div><h1 style="margin:0 0 10px; font-size:24px; font-weight:650; letter-spacing:-.02em;">You’re all set</h1><p style="margin:0 auto 26px; max-width:420px; font-size:14.5px; color:var(--muted); line-height:1.6;">Your payment went through. Open the Bumpr icon in your browser toolbar — your new relist allowance is already there.</p><div style="display:inline-flex; align-items:center; gap:10px; padding:11px 16px; border:1px solid var(--line); border-radius:10px; background:var(--hover); font-size:13.5px;"><span style="display:inline-flex; color:var(--accent);"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12.5 10 6.5l6 6"></path><path d="M5 16h10"></path></svg></span><span style="color:var(--muted);">Click the <b style="color:var(--fg);">Bumpr</b> icon in your toolbar</span></div><p style="margin:26px 0 0; font-size:12.5px; color:var(--muted);">Nothing to do here — you can close this tab.</p></div><div style="padding:16px 30px; border-top:1px solid var(--line); display:flex; justify-content:space-between; gap:12px; font-size:12px; color:var(--muted);"><span>© 2026 Bumpr</span><span><a href="#">Privacy</a> · <a href="#">Terms</a> · <a href="#">support@bumpr.nl</a></span></div></div></div>
+</x-dc>
+<script data-dc-script data-props='{"dark":{"editor":"boolean","default":false}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.dark ? 't dark' : 't' };
+  }
+}
+</script>
+</body>
+</html>

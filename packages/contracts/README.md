@@ -3,10 +3,10 @@
 Empty on purpose. ADR-0011 reserves this for the API contract types consumed by **both** clients, the
 extension and the dashboard, so a contract change lands atomically in one commit.
 
-No ticket owns its creation. The first consumers are
-[#34 (T25 · authorization gate)](https://github.com/Shei254/marketplaats-extension/issues/34) and
-[#36 (T27 · client config)](https://github.com/Shei254/marketplaats-extension/issues/36); whichever lands
-first should create the package rather than inline the types.
+No ticket owns its creation. **T25 (the authorization gate,
+[#34](https://github.com/Shei254/marketplaats-extension/issues/34)) creates it** — it is the first ticket in
+iteration 1 that needs the wire types, and T27 is deferred, so the race the earlier wording anticipated no
+longer exists. See [`../../docs/backlog.md`](../../docs/backlog.md), slice B.
 
 The wire shapes it has to encode are already specified in
 [`docs/enforcement-contract.md`](../../docs/enforcement-contract.md) — that document, not this package, is

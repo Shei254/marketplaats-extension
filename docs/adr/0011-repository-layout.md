@@ -15,9 +15,9 @@ dashboard), and ADR-0009 already banks on sharing TypeScript between them. Optio
 ```
 apps/extension      the existing Chrome MV3 extension
 apps/api            Spring Boot (Gradle, Java 21, Flyway)
-apps/dashboard      React SPA
+apps/web            React SPA  (named apps/dashboard when this was decided — see the amendment)
 packages/contracts  shared API types, consumed by both clients
-packages/ui         design tokens + components, consumed by dashboard and popup
+packages/ui         design tokens + components, consumed by apps/web and popup
 infra/              docker-compose for Postgres + Keycloak
 docs/               ADRs, specs, glossary — unchanged location
 ```
@@ -33,3 +33,13 @@ docs/               ADRs, specs, glossary — unchanged location
 **Extension releases take days (Chrome Web Store review); API deploys take minutes.** The API must therefore
 stay backward-compatible with older installed extension versions regardless of source layout. Monorepo means
 lockstep *source*, never lockstep *releases*.
+
+## Amended by ADR-0017 (2026-08-20)
+`apps/dashboard` is renamed **`apps/web`** and its purpose changes. It is not a customer dashboard: it is a
+public surface — Stripe success and cancel landings, privacy and terms — with an authenticated `/admin`
+corner, and no customer ever has an account page on it. The plan choice and Checkout live in the extension
+popup, so the app has **no customer login at all**. One workspace, one build; the `www.`/`admin.` split is
+DNS at deploy time. See [ADR-0017](0017-web-surface-and-subscribing.md).
+
+`packages/ui` keeps its reason to exist unchanged — it still serves two consumers, now the popup and
+`apps/web` — and so does `packages/contracts`, which still types one API contract for both.

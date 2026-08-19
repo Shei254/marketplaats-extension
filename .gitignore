@@ -7,3 +7,7 @@ dist/
 .agents/
 /skills-lock.json
 ralf/
+# The seeded design-canvas payload: ~2.3 MB of editor code generated from the
+# .dc.html sources beside it. Re-seed with docs/design/README.md rather than commit it.
+docs/design/*.html
+!docs/design/*.dc.html

@@ -23,3 +23,17 @@ Stripe. See [ADR-0014](0014-tier-catalog-and-entitlements.md).
 
 ## Revisit if
 EU VAT filing becomes a burden we want fully offloaded → reconsider a Merchant-of-Record; or a Dutch-provider mandate emerges → reconsider Mollie.
+
+## Amended by ADR-0019 (2026-08-20)
+**No trial ships in iteration 1.** The permanent free tier is the trial: three relists a month, forever,
+converting on the exact ad the user wanted to bump. A time-boxed trial of a paid tier on top of that is a
+second free experience the plan cards would have to explain.
+
+This costs nothing to reverse. `trialing` is already an allowed status in the schema check constraint and in
+`enforcement-contract.md`, and T20 mirrors it with no special-casing — so turning a trial on later is
+`trial_period_days` on a Stripe Price in the dashboard, a configuration change and not a code change.
+
+**How a plan comes to exist is settled by [ADR-0019](0019-plans-are-stripe-first-and-webhook-synced.md):**
+created in Stripe, synced to our Tier catalog by webhook on `metadata.tier_code`, given a quota here. Prices
+are immutable in Stripe, so amounts are never editable in our admin — changing one mints a new Price and
+leaves current subscribers on the old one.

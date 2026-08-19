@@ -51,3 +51,28 @@ dashboard.
 - **Negative:** Two systems to keep in sync — creating a tier means creating a Stripe Product/Price and
   storing its id. **Open question deliberately deferred:** what happens to existing subscribers when a tier's
   quota is edited underneath them. Deferred with the admin CRUD UI (ADR see `enforcement-contract.md`).
+
+## Amended by ADR-0018 and ADR-0019 (2026-08-20)
+
+**"`SUBSCRIPTION_INACTIVE` only ever means a lapsed payer" narrows to *a payer whose card is currently
+failing*.** [ADR-0018](0018-lapse-falls-back-to-the-default-tier.md) makes a terminal subscription end move
+the row back to the `isDefault` tier with status `active`, so a cancelled customer becomes a free user rather
+than a locked-out one. Only dunning — `past_due`, `unpaid`, `incomplete` — still answers 402.
+
+**"Removing the free tier is a data migration" is refined.** Unsetting `isDefault` is *not* the way to do it:
+`TierCatalog.defaultTier()` throws when no row carries the flag and `ProvisionOnFirstLogin` catches nothing,
+so a catalog with no default cannot provision anybody. There must always be a default tier. "No free tier" is
+instead **the default tier's quota set to 0**, which `check (relist_quota_per_period >= 0)` already permits:
+every new user is still provisioned, the invariant holds, and every relist is refused by `QUOTA_EXCEEDED`
+down a path that already works.
+
+**The deferred admin CRUD is un-deferred, in the narrow form ADR-0019 describes.** Iteration 1 gets quota,
+name, flags, `isDefault` and publish — not amount or interval, which are Stripe's. `tier` gains a
+**`published`** flag so a Price synced before anyone has said what it grants sells nothing.
+
+**The remaining deferral stands and is now partly answered.** What happens to existing subscribers when a
+quota is edited underneath them: `quotaRemaining` is clamped at zero, so lowering a quota under a subscriber
+reads as "nothing left" rather than as a negative. Nothing else is done — no proration, no notification.
+
+**Trials:** the section above still describes how one would work. None ships in iteration 1
+([ADR-0006](0006-billing.md), amended).

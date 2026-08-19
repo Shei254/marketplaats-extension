@@ -1,0 +1,184 @@
+{
+  "artboards": [
+    {
+      "file": "SignedOut.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 400,
+      "h": 400,
+      "page": "popup"
+    },
+    {
+      "file": "Loading.dc.html",
+      "x": 440,
+      "y": 0,
+      "w": 400,
+      "h": 330,
+      "page": "popup"
+    },
+    {
+      "file": "Main.dc.html",
+      "x": 880,
+      "y": 0,
+      "w": 400,
+      "h": 480,
+      "page": "popup"
+    },
+    {
+      "file": "RowStates.dc.html",
+      "x": 1320,
+      "y": 0,
+      "w": 400,
+      "h": 520,
+      "page": "popup"
+    },
+    {
+      "file": "QuotaExhausted.dc.html",
+      "x": 1760,
+      "y": 0,
+      "w": 400,
+      "h": 560,
+      "page": "popup"
+    },
+    {
+      "file": "Cooldown.dc.html",
+      "x": 0,
+      "y": 640,
+      "w": 400,
+      "h": 480,
+      "page": "popup"
+    },
+    {
+      "file": "Dunning.dc.html",
+      "x": 440,
+      "y": 640,
+      "w": 400,
+      "h": 560,
+      "page": "popup"
+    },
+    {
+      "file": "Unavailable.dc.html",
+      "x": 880,
+      "y": 640,
+      "w": 400,
+      "h": 340,
+      "page": "popup"
+    },
+    {
+      "file": "PlanCards.dc.html",
+      "x": 1320,
+      "y": 640,
+      "w": 400,
+      "h": 600,
+      "page": "popup"
+    },
+    {
+      "file": "Success.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 880,
+      "h": 700,
+      "page": "web"
+    },
+    {
+      "file": "Cancel.dc.html",
+      "x": 920,
+      "y": 0,
+      "w": 880,
+      "h": 700,
+      "page": "web"
+    },
+    {
+      "file": "Privacy.dc.html",
+      "x": 0,
+      "y": 760,
+      "w": 880,
+      "h": 1180,
+      "page": "web"
+    },
+    {
+      "file": "Terms.dc.html",
+      "x": 920,
+      "y": 760,
+      "w": 880,
+      "h": 1240,
+      "page": "web"
+    },
+    {
+      "file": "Tokens.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 880,
+      "h": 900,
+      "page": "tokens"
+    }
+  ],
+  "pages": [
+    {
+      "id": "popup",
+      "name": "Popup states"
+    },
+    {
+      "id": "web",
+      "name": "Web pages"
+    },
+    {
+      "id": "tokens",
+      "name": "Tokens"
+    }
+  ],
+  "annotations": [
+    {
+      "id": "note-states",
+      "x": 0,
+      "y": -150,
+      "w": 420,
+      "page": "popup",
+      "text": "Nine popup states, 360px wide.\nEvery artboard has a Dark tweak above it.\n\nCopy is real, not lorem \u2014 it is the copy the slices ship."
+    },
+    {
+      "id": "note-gate",
+      "x": 1760,
+      "y": -150,
+      "w": 420,
+      "page": "popup",
+      "text": "The four gated states.\n\nAds stay visible in all of them \u2014 enforcement-contract.md keeps the list ungated because a locked button beside your own ad is the conversion surface."
+    },
+    {
+      "id": "note-402",
+      "x": 2640,
+      "y": -150,
+      "w": 400,
+      "page": "popup",
+      "text": "Dunning, not \"lapsed\".\n\nADR-0018 sends a cancelled customer back to Free, so 402 now only ever means a card that is failing. Hence \"update your card\", never \"resubscribe\"."
+    },
+    {
+      "id": "note-web",
+      "x": 0,
+      "y": -140,
+      "w": 460,
+      "page": "web",
+      "text": "No login anywhere on these pages (ADR-0017).\n\nStripe lands on Success; the webhook does the real work, so the page never learns who anybody is. Privacy and Terms are what the Web Store listing requires."
+    },
+    {
+      "id": "note-legal",
+      "x": 960,
+      "y": -140,
+      "w": 420,
+      "page": "web",
+      "text": "The legal copy is structure plus an honest description of what Bumpr does \u2014 marked [PLACEHOLDER]. It needs a lawyer before T58."
+    },
+    {
+      "id": "note-tokens",
+      "x": 0,
+      "y": -130,
+      "w": 440,
+      "page": "tokens",
+      "text": "This is what T28 (packages/ui) encodes.\n\nEvery value is lifted verbatim from the POC popup, so the design is continuous with what already ships. Two additions are called out on the sheet."
+    }
+  ],
+  "launch": {
+    "view": "canvas",
+    "page": "popup"
+  }
+}

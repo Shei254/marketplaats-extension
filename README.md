@@ -8,10 +8,10 @@ Monorepo, one deployable per workspace ([ADR-0011](docs/adr/0011-repository-layo
 | Path | What | State |
 |---|---|---|
 | `apps/extension` | Chrome MV3 extension (esbuild, TypeScript) | the POC, working |
-| `apps/api` | Spring Boot, Gradle, Java 21, Flyway | five modules with the boundary check, the schema, the seeded tier catalog and what each of its tiers grants, the resource server every route is closed behind, the account and free subscription a first sign-in provisions, and the gate that authorizes a relist against them — `POST /api/relist/authorize`; the endpoints beside it are #23, #26 |
-| `apps/dashboard` | React SPA | reserved — #42 |
-| `packages/contracts` | API types shared by both clients | reserved — no owner; consumers #34/#36 |
-| `packages/ui` | design tokens + components (popup and dashboard) | reserved — #37 |
+| `apps/api` | Spring Boot, Gradle, Java 21, Flyway | six modules with the boundary check, the schema, the seeded tier catalog and what each of its tiers grants, the resource server every route is closed behind, the account and free subscription a first sign-in provisions, both ends of the gate — `POST /api/relist/authorize` reserves a unit before anything is deleted and `POST /api/relist/complete` settles or refunds it against what the extension reports, with pacing rails saying how fast one account may relist and a scheduled reconciliation handing back the units nobody ever reports on — and `GET /api/me`, the unsigned snapshot both clients render after signing in, which grants nothing and spends nothing; and `GET /api/plans` is next |
+| `apps/web` | React SPA: public pages (Stripe success/cancel, privacy, terms) + an authenticated `/admin` corner. **No customer login** — plans and Checkout are in the popup ([ADR-0017](docs/adr/0017-web-surface-and-subscribing.md)) | reserved — T50 |
+| `packages/contracts` | API types shared by both clients | reserved — created by T25 (#34) |
+| `packages/ui` | design tokens + components (popup and `apps/web`) | reserved — #37 |
 | `infra` | docker-compose: Postgres + Keycloak | working, and the `mprelist` realm imports on first start |
 | `docs` | ADRs, specs, glossary, backlog | — |
 
@@ -74,6 +74,12 @@ Unset, sign-in from a real extension is refused rather than misrouted, and chang
 `npm run build` writes `apps/extension/dist/`. Load that directory unpacked at `chrome://extensions` with
 developer mode on.
 
+The extension's user-facing name comes from the root `brand.json` and is templated into the manifest at build
+time (T48), so renaming the product before launch is one edit and a rebuild. That is separate from
+`mprelist`, the internal identifier frozen into `com.mprelist`, `@mprelist/*`, the Keycloak realm and the
+database. The brand must never lead with "Marktplaats" — Web Store policy forbids trademark use that implies
+endorsement, so it belongs in the description.
+
 That default build is the shippable one. For live-testing use `npm run build:dev -w @mprelist/extension`,
 which additionally defines `__DEV__` and so keeps the service worker's manual test hooks (`__relist`,
 `__setEndpoints`, …). They are *eliminated* from the default build, not merely inert in it — hooks that can
@@ -82,7 +88,11 @@ delete a user's ad have no business in a published extension.
 
 ## Where to start reading
 
-- [`docs/backlog.md`](docs/backlog.md) — the work breakdown, mapped to GitHub issues #9–#55.
+- [`docs/backlog.md`](docs/backlog.md) — the work breakdown. Cut into **vertical slices**: iteration 1 is the
+  whole loop — sign in, get gated, pay, get unlocked — running locally against Stripe **test mode**, and
+  **Go-Live** is its own milestone ([ADR-0016](docs/adr/0016-vertical-slices-and-review-gates.md)).
+- [`docs/click-through.md`](docs/click-through.md) — the manual script each slice must pass. **A slice is done
+  when its script has been walked, not when its tickets close.**
 - [`docs/adr/`](docs/adr/README.md) — the decisions. If the backlog disagrees with an ADR, the ADR wins.
 - [`docs/enforcement-contract.md`](docs/enforcement-contract.md) — the wire contract between extension and API.
 - [`docs/adr/0015-frozen-internal-api-golden-tests.md`](docs/adr/0015-frozen-internal-api-golden-tests.md) —

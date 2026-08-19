@@ -5,6 +5,10 @@ action-time, fail-closed) with ADR-0005/0010 (Keycloak + PKCE), ADR-0006/0014 (S
 entitlements), and ADR-0008 (safety).
 
 **Revised 2026-08-13** — see [ADR-0007's second refinement](adr/0007-quota-enforcement.md).
+**Revised 2026-08-20** — a terminal subscription end falls back to the default tier
+([ADR-0018](adr/0018-lapse-falls-back-to-the-default-tier.md)), so `SUBSCRIPTION_INACTIVE` is now a
+**dunning-only** state; and `GET /api/plans` is added
+([ADR-0019](adr/0019-plans-are-stripe-first-and-webhook-synced.md)).
 
 ## Principle
 The repost feature is **gated at action time by the backend**. The extension can never relist without a
@@ -17,7 +21,7 @@ feature*; it does not (and cannot) prevent a user relisting by other means (ADR-
 | Signed out | Sign-in screen only | none | denied |
 | Signed in, quota remaining | Full: ads, search, quota | active buttons | allowed |
 | Signed in, quota exhausted | Full: ads, search | buttons **locked + upgrade** | denied |
-| Signed in, payment lapsed | Full: ads, search | buttons **locked + upsell** | denied |
+| Signed in, payment **failing** (dunning) | Full: ads, search | buttons **locked + "update your card"** | denied |
 
 The ad list and search are **not** subscription-gated: they run client-side against the user's own
 Marktplaats session and cost us nothing, and a locked button beside the user's own ads is the strongest
@@ -31,6 +35,14 @@ conversion surface available. The login gate is a product decision, not a securi
 - **Every user always has a Subscription** (ADR-0014): first login auto-provisions one on the `isDefault`
   tier with status `active`. "No subscription" is not a reachable state, so free users are denied by
   `QUOTA_EXCEEDED`, never by `SUBSCRIPTION_INACTIVE`.
+- **A terminal end falls back to the default tier** (ADR-0018). `canceled` and `incomplete_expired`, and a
+  trial or period ending unpaid, move the row to the `isDefault` tier with status `active` and the period
+  back to our monthly roll; `stripeCustomerId` is kept and `stripeSubscriptionId` cleared. **Dunning does
+  not** — `past_due`, `unpaid` and `incomplete` keep the paid tier and stay denied, because Stripe is still
+  retrying and a successful retry gives the tier straight back.
+- **`SUBSCRIPTION_INACTIVE` therefore means one thing: a card that is currently failing.** Nobody who
+  deliberately ended a subscription ever sees it — they see the free tier's `QUOTA_EXCEEDED` and the plan
+  cards. That is what the "update your card" copy above is for, and why it is not an upsell.
 - The authorize check reads the mirrored status and our Tier — **no Stripe call on the hot path**.
 
 ## Quota period
@@ -38,8 +50,10 @@ conversion surface available. The login gate is a product decision, not a securi
 subscriptions, rolled monthly from the provisioning date for free ones. `resetAt = periodEnd`, always
 answerable.
 
-A free window is rolled **when it is next read** — by `authorize`, which is the only call that reads one
-(#22) — in whole calendar months **anchored on the subscription's creation** rather than on the window being
+A free window is rolled **when it is next read** — by either end of the gate: `authorize` before it counts
+against one (#22), `complete` before it answers with one (#23), and `complete` only once it knows the `jti` is
+the caller's, so a value nobody was issued rolls nothing — in whole calendar months **anchored on the
+subscription's creation** rather than on the window being
 replaced, so that an account provisioned on the 31st does not spend every month after February on the 28th. A
 window Stripe owns is never rolled here: a closed one means a webhook has not arrived yet, and moving it would
 grant a period Stripe did not (#30 is what moves it). Usage is the reservations in `[periodStart, periodEnd)` that were not refunded — the
@@ -64,10 +78,19 @@ an unauthenticated call reaches no handler at all. It also carries the `WWW-Auth
 RFC 6750 requires, which is where *how* a presented token was wrong is said — the body says only that the
 caller is not authenticated, because that is the whole of what a client acts on.
 
-A `4xx` that is *not* a denial carries no `reason` at all. A request the API could not parse is answered with
-the challenge header and an empty body rather than with a reason code its status contradicts, so a client can
-read the presence of `reason` as meaning it was turned away. Nothing in the shipped configuration produces
-one today; it is stated because the status is Spring Security's to choose and not this repository's.
+A `4xx` that is *not* a denial **carries an empty body** — no `reason`, and nothing else either — so a client
+can read the presence of `reason` as meaning it was turned away. `/complete` ships the first two (#23): a body
+this API could not read is a `400`, and a `jti` naming no reservation of the caller's is a `404`. Both answer
+with the status and nothing to parse beside it.
+
+It carries no `WWW-Authenticate` either. That challenge belongs to the `401` and to nothing else (RFC 6750):
+these callers were authenticated, they named something this API could not read or could not find.
+
+The `400` is written by this repository rather than left to the framework (`UnreadableRequests`, #24's review).
+Spring Boot's default error representation — `{timestamp, status, error, path}` — names no reason code and so
+did not break the letter of the rule above, but it is a second body shape on the same two endpoints and it
+echoes the caller's own request path back at them. A `415` is still Spring's, which sets the `Accept` header
+RFC 9110 wants on one.
 
 One route is exempt and it is not ours: Spring Security publishes RFC 9728 protected-resource metadata at
 `/.well-known/oauth-protected-resource` and permits it, which is what the challenge above points a client at.
@@ -76,9 +99,71 @@ authorization server.
 
 ## Endpoints
 
+### `GET /api/plans` — what can be bought
+- **Auth:** `Authorization: Bearer <Keycloak access token>`. Nothing here is per-user, but the API is closed
+  by default and there is no reason to open one route.
+- **Returns `200`:** the **published** tiers carrying a `stripePriceId`, each as a **Plan** — our half joined
+  with Stripe's:
+
+  ```json
+  { "plans": [
+      { "tier": { "code": "pro", "name": "Pro" },
+        "relistQuotaPerPeriod": 50,
+        "features": {},
+        "price": { "amount": 999, "currency": "eur", "interval": "month" } } ] }
+  ```
+
+- **The amount comes from Stripe and is cached; it is never stored** (ADR-0014/0019). This is display, so the
+  cache is the whole defence — `authorize` still never calls Stripe, and this route is not on that path.
+- **The free tier is absent**, and every unpublished tier with it. A tier with no price id is not something a
+  buyer can choose, and a **draft** — synced by webhook at quota 0 before anyone said what it grants — must
+  not be sellable (ADR-0019).
+- **Stripe unreachable → the plan cards render "prices unavailable, retry".** Never a free plan, never a
+  stale-but-unlabelled price, and never a card whose button would open a Checkout for an amount we guessed.
+  Fail-closed applies to display, as it does for `/api/me`.
+- Consumed by the **popup**, which holds the access token and opens the Checkout URL in a tab; `apps/web`
+  has no login and never calls this (ADR-0017).
+
 ### `GET /api/me` — display state, **never a grant**
 - **Auth:** `Authorization: Bearer <Keycloak access token>`.
-- **Returns:** `{ subscriptionStatus, tier, quotaRemaining, resetAt, features }`.
+- **Returns `200`:** `{ subscriptionStatus, tier, quotaRemaining, resetAt, features }` — shipped (#26) as
+
+  ```json
+  { "subscriptionStatus": "ACTIVE",
+    "tier": { "code": "free", "name": "Free" },
+    "quotaRemaining": 2,
+    "resetAt": "2026-09-14T08:31:22.101Z",
+    "features": {} }
+  ```
+
+  `subscriptionStatus` is one of the seven normalized statuses, spelled in the same screaming case as the
+  reason codes and the outcomes, so a client reads one convention across this API.
+- **`tier` carries both spellings**, and that is the one place the shipped shape says more than the field list
+  above. `code` is the stable handle an admin edit never moves; `name` is display text an operator may rewrite
+  at any time (ADR-0014). Given only the name, a client deciding "is this the free plan" branches on text
+  somebody is free to change and stops matching the day they do; given only the code, it renders `power` to a
+  human or keeps a second catalog of labels ours never reaches. So both travel and which is which is stated
+  here rather than guessed at each reader.
+- **`200` is the only answer other than `401`.** Every user always has a subscription (ADR-0014), so there is
+  nothing here to refuse: a lapsed payer and a user with nothing left are both *shown* their state, and being
+  turned away is the job of the call that grants something. A caller refused here would have no way to tell a
+  lapsed plan from a backend that is down, which is the same fail-closed display the last bullet asks for.
+- **It grants nothing and spends nothing.** No token, no `jti`, no expiry, and no reservation is taken — a
+  popup opened five times is five of these calls, and one that cost a unit would empty a free tier by being
+  looked at. It carries no cooldown either: the pacing rails answer with a `retryAfter` at the moment of
+  refusal (#25), and a rail has nothing to say ahead of one.
+- **`quotaRemaining` is the number the gate refuses on**, from the same subtraction `/complete` answers with
+  and never negative. It is counted from `usage_reservation`, which is `enforcement`'s table, so this route
+  asks that module rather than counting for itself — the popup showing "1 relist left" beside a button the
+  gate refuses is the failure that shares one arithmetic prevents.
+- **A free window that has closed is rolled before it is answered with**, like both ends of the gate (#22,
+  #23) — this is the call both clients make immediately after signing in, so it is where a user returning
+  after a month would otherwise be shown a `resetAt` in the past and a quota counted in a period that ended.
+- `features` is the tier's flag object as stored, `{}` on every tier in the catalog today, and sent as an
+  empty object rather than omitted: "this plan grants no flags" is an answer where a missing field is a
+  guess. `maxMarktplaatsAccounts` is deliberately **not** sent — nothing renders it until
+  [#47](https://github.com/Shei254/marketplaats-extension/issues/47) finds an identifier that can tell two
+  Marktplaats accounts apart.
 - Unsigned. The relist path ignores it completely — a stale `active` cannot cause a relist.
 - **Refreshed on:** login, popup open, and from the `/complete` response. No timers, no polling. The service
   worker holds one cached copy, so N injected buttons on a page cost zero extra requests.
@@ -96,6 +181,27 @@ authorization server.
   | Subscription status is Allowed | `402 SUBSCRIPTION_INACTIVE` |
   | Entitlement quota remaining this period | `429 QUOTA_EXCEEDED` (+ `resetAt`) |
   | SafetyPolicy rate/pacing OK | `429 RATE_LIMITED` (+ `retryAfter`) |
+
+  `retryAfter` is **whole seconds** — a number, not a date — named after HTTP's own `Retry-After` because it
+  is what a client renders as a countdown, and rounded **up**, so that a client waiting exactly as long as it
+  was told does not arrive a fraction of a second early and get refused twice. It travels in the body and not
+  in the header of that name: everything a client acts on is in the JSON, and a second copy in a header is a
+  second thing that can disagree. The two `429`s are told apart by the code and not by the status — they are
+  the same statement about HTTP and different statements about the user, one of whom needs a bigger plan and
+  the other of whom needs a minute.
+
+  **The pacing rails are for the user's own Marktplaats account**, not a throttle protecting ours (ADR-0008).
+  Shipped (#25) as a `30s` minimum interval between consecutive relists and at most `10` inside a sliding `1h`
+  window — three settings, all configuration, none defaulted in code. The longer of the two rails answers, and
+  the burst rail is measured from the cap-th most recent relist rather than the oldest in the window, so the
+  wait it names is a moment at which this actually stops refusing. **Jitter around the interval is the
+  extension's** ([#54](https://github.com/Shei254/marketplaats-extension/issues/54)) and can be nothing else:
+  a backend can refuse a call that came too soon, it cannot make one arrive at a human-shaped moment.
+
+  **Pacing counts attempts; quota counts what was kept.** The rail reads every reservation this caller has
+  taken, whatever became of it — a `FAILED_BEFORE_DELETE` hands its unit back but had already captured an ad
+  and fetched its photos, and a rail that forgave every failure would stop pacing an extension exactly when it
+  started failing. So the two reads have no predicate in common and neither is the other's filter.
 - **Success `200`:** reserve one usage unit, then return
   `{ "authToken": "<JWT>", "expiresAt": "<~45s out>", "jti": "..." }`, with `expiresAt` an ISO-8601 instant.
   The `authToken` is a backend-signed JWT embedding `{ sub, adId, jti, exp }` — where `sub` is our own
@@ -109,6 +215,7 @@ authorization server.
   unit left in it. Nobody else waits: the lock is that user's own row.
 
 ### `POST /api/relist/complete`
+- **Auth:** `Authorization: Bearer <Keycloak access token>`, and the reservation must be **that caller's own**.
 - **Body:** `{ "jti": "...", "outcome": "SUCCESS" | "FAILED_BEFORE_DELETE" | "FAILED_AFTER_DELETE" }`
 - Resolves the reservation the `jti` names, and records a **RelistEvent** against it either way.
   - `SUCCESS` / `FAILED_AFTER_DELETE` → the reservation **settles**; usage stands (the destructive action
@@ -117,8 +224,36 @@ authorization server.
     unit returns to the period. The RelistEvent is still written — that is the canary below.
 - Idempotent on `jti`: the event's reservation id is unique, so a second report collides in the database, and
   the endpoint answers that collision with the unchanged `{quotaRemaining, resetAt}` rather than an error.
-- A never-completed reservation expires and auto-refunds after a grace window.
+  **The first report decides** and a later one cannot revise it — a `FAILED_BEFORE_DELETE` after a `SUCCESS`
+  does not hand back the unit for a relist that happened.
+- **No check runs here** (#23). A lapsed subscription, an exhausted quota, or a grant whose 45 seconds ran out
+  long ago are all still reported on: this call grants nothing, and refusing it would hold the unit for the
+  rest of the period and lose exactly the outcome the canary is watching for. The token's lifetime bounds how
+  long an *authorization* is good for, not how long the extension has to say what it did with one.
+- A `jti` naming no reservation **of this caller's** is a `404` with no reason code — the shape above for a
+  `4xx` that is not a denial. Deliberately the same answer for one that never existed and one belonging to
+  somebody else, so that it cannot be used to ask whether an id is anybody's. A `jti` that is not shaped like a
+  reservation id is a `400` instead: "we could not read this" and "this is not yours" are different things for
+  a client to do about. **The ownership question is asked first**, before the subscription is read: reading one
+  takes a write lock on the caller's row and may roll a closed window, and the `jti` is the one input to this
+  call an adversary chooses (ADR-0007). A reservation's owner never changes, so nothing is lost by asking
+  outside the lock.
+- No `authToken` in the body, and **nothing here verifies one**: the `jti` is the reservation's own id, so this
+  resolves a row in our own table, and who the caller is comes from their access token. That is why the signing
+  key of the authorization is still generated per process — see the build question below.
+- A never-completed reservation expires and auto-refunds after a grace window (#24, shipped: a fixed-delay job
+  every `5m`, refunding reservations still held `30m` past the `expiresAt` of the grant they were taken for —
+  both configurable, neither defaulted in code). A report arriving after that refund still wins: it is the only
+  account of what actually happened on Marktplaats, and reconciliation is the guess made in its absence. The
+  job writes **no** RelistEvent, because all three outcomes are things the extension observed and it observed
+  only that nothing was said — a row there would put an invention into the canary below. It is measured from
+  `expiresAt` rather than from when the unit was taken, so a relist is judged against the authorization it was
+  actually given, and the window is generous because the two mistakes are not symmetric: guessing early costs
+  a unit the eventual report settles back, guessing late holds a free user's month a third short.
 - **Returns the updated `{ quotaRemaining, resetAt }`**, so a relist needs no follow-up `/api/me` call.
+  `quotaRemaining` is **never negative**: a tier's quota is an operator's to edit (ADR-0014), so a subscriber
+  can hold more units than their tier now grants, and that state reads as nothing left rather than as less than
+  nothing. It is the same number the gate refuses on, from the same subtraction.
 
 > **Outcome reporting is the breakage canary.** We drive private, unversioned endpoints that ADR-0004 says
 > will change without notice. A spike in `FAILED_BEFORE_DELETE` is the signal that Marktplaats moved
@@ -142,7 +277,7 @@ non-200} → **abort, do not relist**, surface the typed reason. No cached/offli
 | Backend result | Control state |
 |---|---|
 | `200` OK | active → proceeds with delete-first relist (ADR-0003) |
-| `402 SUBSCRIPTION_INACTIVE` | shown but locked → **upsell** (lapsed payer only) |
+| `402 SUBSCRIPTION_INACTIVE` | shown but locked → **"update your card"** + Portal link (dunning only) |
 | `429 QUOTA_EXCEEDED` | shown → **upgrade** prompt + `resetAt` |
 | `429 RATE_LIMITED` | shown → cooldown timer (`retryAfter`) |
 | `401` / unreachable / timeout | shown → "unavailable, retry" (fail-closed) |
@@ -174,7 +309,11 @@ Extension                         Backend                    Stripe
   #22 signs with an RSA key generated per process and held in memory, because nothing verifies one of these
   tokens — `complete` takes a `jti` and resolves the reservation it names in our own table. A restart therefore
   invalidates at most 45 seconds of grants, and a second instance of the API would sign with a second key. The
-  first code that *verifies* an `authToken` is what has to make the key configuration.
+  first code that *verifies* an `authToken` is what has to make the key configuration. #23 was named as that
+  code and turned out not to be it: resolving the row answers everything verifying the token would, and better,
+  since the caller's own access token already says who they are. **No ticket is open that needs to verify one**,
+  so a second instance of this API is the thing that cannot be deployed today, and it is the reason to make the
+  key configuration when one is wanted.
 
 ## Open spikes
 - **Stable Marktplaats account identifier** — blocks `maxMpAccounts` as a sellable entitlement and the return

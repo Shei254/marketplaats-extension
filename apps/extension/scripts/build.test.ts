@@ -184,6 +184,23 @@ describe("extension build", () => {
     }
   });
 
+  it("emits every permission the template asks for", async () => {
+    // The manifest is re-serialised from a parsed tree (T48), so what it grants is
+    // something the build could silently drop. `identity` is the one this matters
+    // most for: without it `chrome.identity` is undefined at the moment somebody
+    // clicks sign in (T23, #32). Compared against the template rather than a list
+    // here, so a permission added later is covered without editing this test.
+    const template = JSON.parse(
+      await readFile(new URL("../public/manifest.template.json", import.meta.url), "utf8"),
+    ) as { permissions: string[] };
+    const built = JSON.parse(await readFile(join(production.dir, "manifest.json"), "utf8")) as {
+      permissions: string[];
+    };
+
+    expect(built.permissions).toEqual(template.permissions);
+    expect(built.permissions).toContain("identity");
+  });
+
   it("passes the pinned `key` through untouched", async () => {
     // The key is the extension id (T44, #13), which is the Keycloak redirect URI,
     // in a realm that imports once. Templating the manifest must not disturb it.

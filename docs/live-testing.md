@@ -86,6 +86,28 @@ need do nothing. Re-apply by hand any override you still want: the first
 that is the only place the hook exists, so a production install keeps it forever,
 inert and unread.
 
+## 3b. Sign in
+
+Sign-in runs in the **worker**, not the popup — `launchWebAuthFlow` opens a window, and the popup dies the
+moment that window takes focus. Until the React popup lands (#38) the console is the way to drive it, in a
+`build:dev` build:
+
+```js
+await __authState();   // { status: "signed-out" }
+await __signIn();      // opens the real Keycloak window; sign in as `dev` / `dev`
+await __authState();   // { status: "signed-in", expiresAt: … }
+await __signOut();     // clears our session and ends Keycloak's
+```
+
+The stack has to be up, and it has to have been started with the extension id in the environment — the realm
+imports on first start only, so a realm built without it refuses the redirect (`infra/README.md`). What that
+failure looks like from here is `Invalid parameter: redirect_uri` in the Keycloak window.
+
+`__signIn()` rejects with a `SignInCancelledError` if you close the window, and a `SignInFailedError` for
+everything else, carrying Keycloak's own words — `invalid_client` means the realm has no such client,
+`invalid_grant` a PKCE or redirect-URI mismatch. Nothing logs a token, a code or the PKCE verifier, so a
+console you paste into an issue carries none of them.
+
 ## 4. Run a relist
 
 ### From the popup (one click)

@@ -263,8 +263,11 @@ URL, permission justifications for `host_permissions` on marktplaats.nl. Review 
 Web Store name availability, domain availability, a trademark search. One edit to `brand.json` and a rebuild
 (T48) — everything else is prose, the listing, and the realm's origins.
 
-#### [T59](https://github.com/Shei254/marketplaats-extension/issues/90) · CI · **M**
-Gradle and npm run separately; the repo has no CI config today.
+#### [T59](https://github.com/Shei254/marketplaats-extension/issues/90) · CI · **M** · **shipped**
+`.github/workflows/ci.yml`: two jobs, neither waiting for the other — `npm ci` and the three root scripts,
+and `./gradlew build` on the runner's Docker daemon. **No path filters**, because both jobs read inputs from
+outside the directory they are named for and a stale filter fails silently. Node is pinned in `.nvmrc`, Java
+by the toolchain already in `build.gradle.kts`. See [the root README](../README.md#ci).
 
 #### [T43](https://github.com/Shei254/marketplaats-extension/issues/52) · API backward-compatibility policy · **S**
 Extension releases take days, API deploys take minutes. The version header, the minimum-supported-version

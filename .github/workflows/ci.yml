@@ -1,0 +1,119 @@
+# The whole of CI: two jobs that never wait for each other.
+#
+# `apps/api` is Gradle and everything else is npm (docs/adr/0011-repository-layout.md), and the two have
+# nothing to say to one another — no artefact crosses, no version is shared, neither builds the other. So
+# they are jobs rather than steps and neither carries a `needs:`: a broken extension test must not withhold
+# the backend's verdict, in a monorepo whose workspaces deploy separately.
+#
+# There are deliberately **no path filters**, tempting though they are on a private repository that pays
+# for minutes. Both jobs read files outside the directory they are named for: `apps/api/build.gradle.kts`
+# declares `infra/docker-compose.yml` and `infra/keycloak/mprelist-realm.json` as test inputs, because most
+# of that suite reads them out of the working tree rather than off the classpath — the compose file names
+# the Postgres image every one of those tests starts. The extension build reads the root `brand.json` the
+# same way. A filter would have to keep a second copy of both lists, and a stale filter fails *silently*:
+# a green run that looked at nothing. That is the one failure CI cannot have.
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  # A newer push to a branch supersedes the one before it. `master` is exempt, which is what the
+  # expression is for: every commit there is one somebody may bisect to, and a cancelled run leaves it
+  # with no verdict at all.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+permissions:
+  # Nothing here writes anything back. Stated rather than inherited: the repository-wide default is a
+  # setting somebody can change, and the permissive value of it is write.
+  contents: read
+
+jobs:
+  npm:
+    name: npm workspaces
+    runs-on: ubuntu-latest
+    # Two minutes' work locally. The default is six hours, which is what a stalled `npm ci` would bill.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          # The version lives in `.nvmrc`, so a developer's `nvm use` and this file read the same one
+          # rather than drifting apart with a copy of it in YAML. 24 is the current LTS line, and the
+          # whole npm pipeline was run against 24.19.0 from a clean checkout before it was pinned here.
+          node-version-file: .nvmrc
+          cache: npm
+
+      # `npm ci`, not `npm install`: it installs exactly `package-lock.json` and refuses when the lock
+      # file and a `package.json` disagree, so a dependency added without the lock file being committed
+      # fails here instead of being quietly resolved around.
+      - run: npm ci
+
+      - run: npm run typecheck
+      - run: npm test
+      # Not redundant beside `test`. A `{{brand.…}}` token that does not resolve fails the build (T48,
+      # #78), and what the build emits is the artefact that gets loaded into Chrome; the suite asserts a
+      # build into a temp directory, and this is the one that writes `dist/`. Both root scripts fan out
+      # with `--workspaces --if-present`, so they cover every npm workspace that ever gains one.
+      - run: npm run build
+
+  api:
+    name: apps/api
+    runs-on: ubuntu-latest
+    # Four minutes from clean on a developer's machine with the images already pulled; the ceiling is here
+    # because this job starts containers, and the failure modes `apps/api/README.md` records are *waits*.
+    # Testcontainers times its own out, a stalled image pull does not.
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v7
+
+      # Java 21, the toolchain `build.gradle.kts` states. Installed here rather than left to the foojay
+      # resolver in `settings.gradle.kts`: that plugin exists so a developer's machine works whatever JDK
+      # it happens to have, and downloading a JDK on every CI run to reach a version the runner can
+      # simply be told to provide is a minute spent for nothing.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # Caches the Gradle User Home and validates every `gradle-wrapper.jar` in the repository against the
+      # published checksums. That second one is the reason this step is not just `actions/cache`: the
+      # wrapper is an executable jar committed to the tree, and a substituted one runs with the build's
+      # privileges.
+      #
+      # `basic` is the MIT provider over `actions/cache`. The default, `enhanced`, is a proprietary
+      # service that is free for public repositories and a free *preview* for private ones, which this
+      # repository is — and a build that depends on a preview is a build that breaks when the preview
+      # ends. No `build-root-directory`: v6 dropped that input, and it needs none, since the cache is the
+      # Gradle User Home and wrapper validation scans the whole repository.
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
+
+      # `build`, not `test`: it runs the same suite and then assembles the boot jar, which is the artefact
+      # T55 deploys. The mirror of `npm run build` in the job above — each side proves the shippable thing
+      # comes out, not only that the tests pass.
+      #
+      # Testcontainers starts a Postgres and a Keycloak of its own against the runner's Docker daemon, so
+      # no `services:` block is declared here and none should be: the suite takes those images from
+      # `infra/docker-compose.yml`, and a second copy of them in this file is a second thing to keep in
+      # step. The daemon on `ubuntu-latest` is plain Docker Engine, which is also why neither workaround
+      # in `apps/api/README.md` appears here — both are Docker Desktop's.
+      - run: ./gradlew build
+
+      # The console log of a failed run is thousands of lines of Spring startup. The HTML report is what
+      # someone actually reads, and it does not survive the runner. Paths are workspace-relative:
+      # `defaults.run` moves `run` steps and nothing else.
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: api-test-report
+          path: apps/api/build/reports/tests/test
+          retention-days: 7

@@ -43,9 +43,28 @@ cd apps/api && ./gradlew test
 ```
 
 The wrapper fetches Gradle, and a Java 21 toolchain if the machine has none, on first run. Those tests start
-a Postgres of their own, so they need a Docker daemon but not the stack below. CI will run them separately
-from npm once this repo has CI — it has no CI config yet. That mixed Gradle + npm toolchain is the cost
-ADR-0011 accepted; [`apps/api/README.md`](apps/api/README.md) covers the build in full.
+a Postgres of their own, so they need a Docker daemon but not the stack below. That mixed Gradle + npm
+toolchain is the cost ADR-0011 accepted, and CI below is where it is paid;
+[`apps/api/README.md`](apps/api/README.md) covers the build in full.
+
+## CI
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml), on every push to `master` and every pull request.
+**Two jobs, and neither waits for the other** — no artefact crosses between Gradle and npm and no version is
+shared, so a broken extension test has no business withholding the backend's verdict:
+
+| Job | Runs | Needs |
+|---|---|---|
+| `npm workspaces` | `npm ci`, then the three root scripts above | nothing but Node |
+| `apps/api` | `./gradlew build` — the suite, then the boot jar | a Docker daemon, which the runner has |
+
+The Node version is pinned in [`.nvmrc`](.nvmrc) rather than in the workflow, so `nvm use` and CI read one
+file instead of two copies; Java is 21, which is the toolchain `apps/api/build.gradle.kts` already states.
+
+There are **no path filters**, deliberately. Both jobs read inputs from outside the directory they are named
+for — the API suite reads `infra/docker-compose.yml` and the Keycloak realm out of the working tree, the
+extension build reads the root `brand.json` — so a filter would keep a second copy of both lists, and a
+stale filter fails *silently*: a green run that looked at nothing.
 
 ## The local stack
 

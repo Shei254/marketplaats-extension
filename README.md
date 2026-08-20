@@ -7,7 +7,7 @@ Monorepo, one deployable per workspace ([ADR-0011](docs/adr/0011-repository-layo
 
 | Path | What | State |
 |---|---|---|
-| `apps/extension` | Chrome MV3 extension (esbuild, TypeScript) | the POC, working |
+| `apps/extension` | Chrome MV3 extension (esbuild, TypeScript) | the POC, working, and signing in — Authorization Code + PKCE against the realm, driven from the service worker, with the session in `chrome.storage.local` ([ADR-0010](docs/adr/0010-extension-authentication.md)). Refresh is next (T24) |
 | `apps/api` | Spring Boot, Gradle, Java 21, Flyway | six modules with the boundary check, the schema, the seeded tier catalog and what each of its tiers grants, the resource server every route is closed behind, the account and free subscription a first sign-in provisions, both ends of the gate — `POST /api/relist/authorize` reserves a unit before anything is deleted and `POST /api/relist/complete` settles or refunds it against what the extension reports, with pacing rails saying how fast one account may relist and a scheduled reconciliation handing back the units nobody ever reports on — and `GET /api/me`, the unsigned snapshot both clients render after signing in, which grants nothing and spends nothing; and `GET /api/plans` is next |
 | `apps/web` | React SPA: public pages (Stripe success/cancel, privacy, terms) + an authenticated `/admin` corner. **No customer login** — plans and Checkout are in the popup ([ADR-0017](docs/adr/0017-web-surface-and-subscribing.md)) | reserved — T50 |
 | `packages/contracts` | API types shared by both clients | reserved — created by T25 (#34) |

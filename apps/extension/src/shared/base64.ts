@@ -14,3 +14,12 @@ export function base64ToBytes(base64: string): Uint8Array {
   for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
   return bytes;
 }
+
+/**
+ * base64url (RFC 4648 §5) — the alphabet OAuth uses, since `+`, `/` and `=` all
+ * mean something else inside a URL. Used by PKCE, where a padded or plus-carrying
+ * verifier is a `code_verifier` the server hashes to something else entirely.
+ */
+export function bytesToBase64Url(bytes: Uint8Array): string {
+  return bytesToBase64(bytes).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}

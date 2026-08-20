@@ -43,3 +43,11 @@ DNS at deploy time. See [ADR-0017](0017-web-surface-and-subscribing.md).
 
 `packages/ui` keeps its reason to exist unchanged — it still serves two consumers, now the popup and
 `apps/web` — and so does `packages/contracts`, which still types one API contract for both.
+
+## What T59 cost (2026-08-20)
+The "mixed Gradle + npm CI" above, priced. It is **two jobs in one workflow, neither carrying a `needs:`** —
+no artefact crosses between the two toolchains and no version is shared, so the mixture costs a second job
+rather than a second pipeline, and a broken extension test does not withhold the backend's verdict. What it
+does *not* buy is a filter: both jobs read inputs from outside the directory they are named for, so
+`.github/workflows/ci.yml` runs everything on everything and says why. Monorepo means lockstep *source*, and
+this is the shape of CI that keeps it from meaning lockstep *verdicts* either.

@@ -1276,5 +1276,7 @@ needs it, and no tier carries one until [#28](https://github.com/Shei254/marketp
 creates the Prices by hand.
 
 Gradle, not npm, and so deliberately **not** an npm workspace — the root scripts skip a directory with no
-`package.json`, and CI will run `./gradlew` here separately once this repo has CI. Both are covered in
+`package.json`, and CI runs `./gradlew` here in a job of its own that no npm job waits for
+([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml), T59). It runs `./gradlew build` rather than
+`test`: the same suite, and then the boot jar T55 deploys. Both are covered in
 [../../README.md](../../README.md#working-on-it).

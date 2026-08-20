@@ -33,11 +33,18 @@ import com.mprelist.subscription.SubscriptionStatus;
  * branching on text an operator may rewrite ({@link TierName})
  * @param quotaRemaining relists left in the current period, never below zero — the same subtraction the gate
  * refuses on and {@code /complete} answers with
+ * @param relistQuotaPerPeriod what the tier grants for a whole period, which is the other half of the sentence
+ * a popup draws: "2 <em>of 3</em> relists left". Added by #41, whose design draws the pair and whose first
+ * implementation could only render the numerator — a client that had one number and not the other would be
+ * left keeping a catalog of quotas ours never reaches, which is the same mistake {@link TierName} exists to
+ * prevent for a tier's name. It is the tier's grant and not the subscriber's history, so it does not move when
+ * a unit is spent; lowering it under a subscriber is an operator's to do (ADR-0014), and
+ * {@code quotaRemaining} clamping at zero is what keeps the pair readable when they do
  * @param resetAt the end of that period, which is when the number above comes back
  * @param features the flags the tier carries, as the {@code tier.features} object holds them. Empty on every
  * tier in the catalog today, and rendered as an empty object rather than omitted: "this plan grants no flags"
  * is an answer, where a missing field is a client's guess
  */
 record DisplayState(SubscriptionStatus subscriptionStatus, TierName tier, int quotaRemaining,
-		OffsetDateTime resetAt, Map<String, Object> features) {
+		int relistQuotaPerPeriod, OffsetDateTime resetAt, Map<String, Object> features) {
 }

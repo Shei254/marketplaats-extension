@@ -1,4 +1,4 @@
-import type { RelistOutcomeCode } from "@mprelist/contracts";
+import type { RelistOutcomeCode, RemainingQuota } from "@mprelist/contracts";
 
 import type { Http } from "../auth/discovery";
 import type { AccessTokens } from "./display-state";
@@ -52,21 +52,28 @@ export class RelistAuthorizations implements RelistPermission {
    * reconciliation after a grace window (#24), and a report that arrives later
    * still wins — which is what makes it safe for this to give up.
    */
-  async report(jti: string, outcome: RelistOutcomeCode): Promise<void> {
+  async report(jti: string, outcome: RelistOutcomeCode): Promise<RemainingQuota | null> {
     const token = await this.deps.tokens.accessToken();
     if (token.status !== "ready") {
       console.warn(`[relist] ${outcome} not reported: no access token`);
-      return;
+      return null;
     }
 
     const attempt = await this.post("/api/relist/complete", token.token, { jti, outcome });
     if (attempt.kind === "unreachable") {
       console.warn(`[relist] ${outcome} not reported: the backend could not be reached`);
-      return;
+      return null;
     }
     if (attempt.status !== 200) {
       console.warn(`[relist] ${outcome} not reported: the backend answered ${attempt.status}`);
+      return null;
     }
+
+    // The answer is the updated quota, so the popup needs no second `/api/me`
+    // after a relist (T32, #41). Checked rather than trusted, like every other
+    // body: a half-read one would put a number on the screen that the gate does
+    // not agree with, which is the failure `RemainingQuota` exists to prevent.
+    return asRemainingQuota(attempt.body);
   }
 
   private async post(path: string, token: string, body: unknown): Promise<AuthorizeAttempt> {
@@ -94,4 +101,15 @@ export class RelistAuthorizations implements RelistPermission {
       body: await response.json().catch(() => null),
     };
   }
+}
+
+/** `{ quotaRemaining, resetAt }`, or nothing if that is not what came back. */
+export function asRemainingQuota(body: unknown): RemainingQuota | null {
+  if (typeof body !== "object" || body === null) return null;
+  const { quotaRemaining, resetAt } = body as Record<string, unknown>;
+  if (typeof quotaRemaining !== "number" || !Number.isInteger(quotaRemaining) || quotaRemaining < 0) {
+    return null;
+  }
+  if (typeof resetAt !== "string" || resetAt.length === 0) return null;
+  return { quotaRemaining, resetAt };
 }

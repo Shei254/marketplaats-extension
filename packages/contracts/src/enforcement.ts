@@ -127,6 +127,13 @@ export interface DisplayState {
   subscriptionStatus: SubscriptionStatus;
   tier: TierName;
   quotaRemaining: number;
+  /**
+   * What the tier grants for a whole period — the other half of "2 of 3", and a
+   * number that does not move when a unit is spent. A client holding only
+   * `quotaRemaining` cannot draw that sentence and ends up keeping a catalog of
+   * quotas the API never sends it.
+   */
+  relistQuotaPerPeriod: number;
   resetAt: string;
   /** The tier's flags as stored. `{}` on every tier today, and sent rather than omitted. */
   features: Record<string, unknown>;

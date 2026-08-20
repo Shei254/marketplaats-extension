@@ -1,5 +1,7 @@
 import type { DisplayStateAnswer } from "../api/display-state";
 import type { AuthState } from "../auth/session";
+import type { RemainingQuota } from "@mprelist/contracts";
+
 import type { LockedState } from "../gate/authorization-gate";
 import type { RelistOutcome } from "../domain/relist-orchestrator";
 import type { ListingSummary } from "../domain/types";
@@ -39,11 +41,11 @@ export type BackgroundRequest = RelistRequest | AuthRequest | DisplayStateReques
 
 /** A RelistOutcome with its `error: unknown` flattened to something serialisable. */
 export type WireRelistOutcome =
-  | { status: "relisted" }
+  | { status: "relisted"; quota: RemainingQuota | null }
   /** Nothing was removed from Marktplaats; the original ad is intact. */
-  | { status: "failed-before-delete"; error: WireError }
+  | { status: "failed-before-delete"; error: WireError; quota: RemainingQuota | null }
   /** The original was deleted but re-create failed; snapshot retained for retry. */
-  | { status: "failed-recoverable"; listingId: string; error: WireError }
+  | { status: "failed-recoverable"; listingId: string; error: WireError; quota: RemainingQuota | null }
   /**
    * The backend refused, so nothing ran (#35). It crosses as it stands: a
    * `LockedState` is a code and at most one number, and the row that renders it

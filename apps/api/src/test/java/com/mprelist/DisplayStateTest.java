@@ -94,10 +94,45 @@ class DisplayStateTest {
 		assertThat(shown.statusCode()).isEqualTo(200);
 		JsonNode state = Json.of(shown);
 		assertThat(state.propertyNames()).containsExactlyInAnyOrder("subscriptionStatus", "tier", "quotaRemaining",
-				"resetAt", "features");
+				"relistQuotaPerPeriod", "resetAt", "features");
 		assertThat(state.get("subscriptionStatus").asString()).isEqualTo("ACTIVE");
 		assertThat(state.get("quotaRemaining").asInt()).isEqualTo(3);
 		assertThat(resetAtIn(state)).isEqualTo(this.rows.windowOf(user).end());
+	}
+
+	/**
+	 * Both halves of "2 of 3", which is the sentence the popup draws (#41).
+	 *
+	 * <p>The pair is the point: the first number is what this period has left and moves with every relist, and
+	 * the second is what the tier grants and does not. A client given only the first is a client that keeps a
+	 * catalog of quotas ours never reaches — the same mistake {@link com.mprelist.catalog.TierName} exists to
+	 * prevent for what a tier is called.
+	 */
+	@Test
+	void andWhatTheTierGrantsBesideWhatIsLeftOfIt() {
+		Subscriber user = aSubscriberEntitledTo(3);
+		assertThat(relist(user, "ad-1").statusCode()).isEqualTo(200);
+
+		JsonNode state = Json.of(displayStateOf(user));
+
+		assertThat(state.get("quotaRemaining").asInt()).isEqualTo(2);
+		assertThat(state.get("relistQuotaPerPeriod").asInt()).isEqualTo(3);
+	}
+
+	/**
+	 * And the grant does not move when a unit is spent — asserted beside the number that does, because a pair
+	 * where both halves fall is "2 of 2" on every screen and says nothing at all.
+	 */
+	@Test
+	void andThatGrantDoesNotMoveWhenAUnitIsSpent() {
+		Subscriber user = aSubscriberEntitledTo(3);
+
+		int before = Json.of(displayStateOf(user)).get("relistQuotaPerPeriod").asInt();
+		assertThat(relist(user, "ad-1").statusCode()).isEqualTo(200);
+		int after = Json.of(displayStateOf(user)).get("relistQuotaPerPeriod").asInt();
+
+		assertThat(before).isEqualTo(3);
+		assertThat(after).isEqualTo(3);
 	}
 
 	/**

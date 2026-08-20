@@ -134,15 +134,24 @@ authorization server.
 
 ### `GET /api/me` — display state, **never a grant**
 - **Auth:** `Authorization: Bearer <Keycloak access token>`.
-- **Returns `200`:** `{ subscriptionStatus, tier, quotaRemaining, resetAt, features }` — shipped (#26) as
+- **Returns `200`:** `{ subscriptionStatus, tier, quotaRemaining, relistQuotaPerPeriod, resetAt, features }`
+  — shipped (#26), with the grant added by #41:
 
   ```json
   { "subscriptionStatus": "ACTIVE",
     "tier": { "code": "free", "name": "Free" },
     "quotaRemaining": 2,
+    "relistQuotaPerPeriod": 3,
     "resetAt": "2026-09-14T08:31:22.101Z",
     "features": {} }
   ```
+
+  **`relistQuotaPerPeriod` is the other half of "2 of 3"** — the sentence the popup draws, and one a client
+  holding only the numerator cannot. It is the tier's grant and does not move when a unit is spent; lowering
+  it under a subscriber is an operator's to do (ADR-0014), and `quotaRemaining` clamping at zero is what keeps
+  the pair readable when they do. Added rather than replacing anything, which is the direction ADR-0011's
+  release cadence allows: an older installed extension that has never heard of it goes on rendering what it
+  did.
 
   `subscriptionStatus` is one of the seven normalized statuses, spelled in the same screaming case as the
   reason codes and the outcomes, so a client reads one convention across this API.

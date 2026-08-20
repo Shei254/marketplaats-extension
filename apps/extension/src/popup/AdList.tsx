@@ -1,5 +1,7 @@
 import { Button, Note, Skeleton } from "@mprelist/ui";
-import { useCallback, useState, type JSX } from "react";
+import { useCallback, useEffect, useState, type JSX } from "react";
+
+import type { WireRelistOutcome } from "../background/messages";
 
 import type { ListingSummary } from "../domain/types";
 import { formatEuro, type AdsView } from "./ads";
@@ -24,15 +26,27 @@ import type { WorkerPort } from "./screen";
 export function AdList({
   view,
   worker,
-  onRelisted,
+  onOutcome,
 }: {
   view: AdsView;
   worker: WorkerPort;
-  /** Called after a successful relist: the ad list and the quota have both moved. */
-  onRelisted: () => void;
+  /**
+   * Every finished attempt, handed up whole. The plan strip belongs to the screen
+   * above and moves on the quota this carries; the ad list is reloaded there too,
+   * since a reposted ad has a new id.
+   */
+  onOutcome: (outcome: WireRelistOutcome) => void;
 }): JSX.Element {
   const [running, setRunning] = useState<string | null>(null);
   const [states, setStates] = useState<Record<string, RowState>>({});
+  /**
+   * When the account's cooldown ends, if one is running. **The whole list is
+   * locked, not the row that met it**: the pacing rails are per user (ADR-0008),
+   * so the next ad would be refused for the same reason and a button that offered
+   * to try is a button that lies.
+   */
+  const [cooldownUntil, setCooldownUntil] = useState<number | null>(null);
+  const secondsLeft = useCountdown(cooldownUntil, () => setCooldownUntil(null));
 
   const start = useCallback(
     async (listingId: string, action: "relist" | "retry") => {
@@ -40,8 +54,9 @@ export function AdList({
       setStates((current) => ({ ...current, [listingId]: { kind: "busy" } }));
 
       let state: RowState;
+      let outcome: WireRelistOutcome | null = null;
       try {
-        const outcome = action === "relist" ? await worker.relist(listingId) : await worker.retry(listingId);
+        outcome = action === "relist" ? await worker.relist(listingId) : await worker.retry(listingId);
         state = rowStateFor(outcome);
       } catch (error) {
         // The worker itself did not answer. Nothing ran, so this is the same
@@ -56,11 +71,17 @@ export function AdList({
 
       setStates((current) => ({ ...current, [listingId]: state }));
       setRunning(null);
-      // The list is stale the moment one of them is reposted — the ad has a new
-      // id — and so is the quota. Both come back from the one reload.
-      if (state.kind === "done") onRelisted();
+      if (state.kind === "refused" && state.locked.state === "cooldown") {
+        // A refusal carrying no seconds locks nothing: there is nothing to count,
+        // and a lock for an unknown length is worse than letting the next attempt
+        // be refused too. It becomes a cooldown that has already elapsed, which
+        // `useCountdown` clears on its first read — one place decides that rather
+        // than two agreeing.
+        setCooldownUntil(Date.now() + (state.locked.retryAfter ?? 0) * 1000);
+      }
+      onOutcome(outcome ?? { status: "refused", locked: { state: "retry" } });
     },
-    [worker, onRelisted],
+    [worker, onOutcome],
   );
 
   if (view.status === "loading") return <LoadingRows />;
@@ -84,7 +105,8 @@ export function AdList({
           ad={ad}
           key={ad.id}
           state={states[ad.id] ?? IDLE}
-          locked={running !== null && running !== ad.id}
+          locked={(running !== null && running !== ad.id) || secondsLeft !== null}
+          secondsLeft={secondsLeft}
           onStart={start}
         />
       ))}
@@ -103,12 +125,15 @@ export function AdRow({
   ad,
   state,
   locked,
+  secondsLeft,
   onStart,
 }: {
   ad: ListingSummary;
   state: RowState;
-  /** Another row is relisting, so this one may not start. */
+  /** Another row is relisting, or the account is in a cooldown, so this one may not start. */
   locked: boolean;
+  /** Seconds until the account's cooldown ends, when one is running. */
+  secondsLeft?: number | null;
   onStart: (listingId: string, action: "relist" | "retry") => void;
 }): JSX.Element {
   const action = state.kind === "failed" ? state.action : "relist";
@@ -122,16 +147,45 @@ export function AdRow({
           <span className="popup-ad-price">{formatEuro(ad.priceCents)}</span>
         </div>
         <Button
-          tone={toneFor(state, locked)}
+          tone={secondsLeft != null ? "cooldown" : toneFor(state, locked)}
           title={tooltipFor(state, ad.title)}
           onClick={() => onStart(ad.id, action)}
         >
-          {labelFor(state)}
+          {secondsLeft != null ? `${secondsLeft}s` : labelFor(state)}
         </Button>
       </div>
       <RowNote state={state} />
     </li>
   );
+}
+
+/**
+ * The countdown on a cooldown, in whole seconds, ending itself when it runs out.
+ *
+ * A timer rather than a static number because a cooldown a user cannot see the end
+ * of is indistinguishable from something broken — and when it reaches zero the
+ * buttons come back on their own, which is the half that makes it a countdown
+ * rather than a label.
+ */
+function useCountdown(until: number | null, onElapsed: () => void): number | null {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (until === null) return;
+    setNow(Date.now());
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, [until]);
+
+  if (until === null) return null;
+  const left = Math.ceil((until - now) / 1000);
+  if (left <= 0) {
+    // Cleared through the caller's state rather than here, so the elapsed
+    // cooldown unlocks every row at once and this hook stays a function of time.
+    queueMicrotask(onElapsed);
+    return null;
+  }
+  return left;
 }
 
 function RowNote({ state }: { state: RowState }): JSX.Element | null {

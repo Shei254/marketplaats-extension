@@ -1,4 +1,4 @@
-import type { RelistOutcomeCode } from "@mprelist/contracts";
+import type { RelistOutcomeCode, RemainingQuota } from "@mprelist/contracts";
 
 import type { GateDecision } from "./authorization-gate";
 
@@ -19,5 +19,13 @@ import type { GateDecision } from "./authorization-gate";
  */
 export interface RelistPermission {
   authorize(adId: string): Promise<GateDecision>;
-  report(jti: string, outcome: RelistOutcomeCode): Promise<void>;
+  /**
+   * Answers with **what the period has left now**, which is the same subtraction
+   * `/api/me` renders and the gate refuses on — so a popup that has just relisted
+   * can move its own counter without asking again (T32, #41). `null` when the
+   * backend could not be told, or told us nothing readable: the caller then knows
+   * only that it does not know, which is different from knowing the number is
+   * unchanged.
+   */
+  report(jti: string, outcome: RelistOutcomeCode): Promise<RemainingQuota | null>;
 }

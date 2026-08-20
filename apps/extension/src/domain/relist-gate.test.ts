@@ -29,6 +29,9 @@ function relisting(options: { gate?: FakeRelistPermission; createFailures?: numb
   return { orchestrator: new RelistOrchestrator(client, store, gate), client, store, gate, events };
 }
 
+/** What the fake gate answers `/complete` with — see `FakeRelistPermission`. */
+const REPORTED_QUOTA = { quotaRemaining: 2, resetAt: "2026-09-14T08:31:22.101Z" };
+
 describe("nothing runs without permission", () => {
   it("refuses before the ad is even captured", async () => {
     // Not just before the delete: the capture is what the backend's pacing rails
@@ -114,7 +117,10 @@ describe("what the backend is told", () => {
     };
     const { orchestrator } = relisting({ gate });
 
-    await expect(orchestrator.relist("ad-1")).resolves.toEqual({ status: "relisted" });
+    // The quota is unknown — the call that would have said it threw — and that is
+    // `null` rather than a stale number, because "we do not know" and "unchanged"
+    // are different things for the strip above to render.
+    await expect(orchestrator.relist("ad-1")).resolves.toEqual({ status: "relisted", quota: null });
   });
 });
 
@@ -173,7 +179,7 @@ describe("finishing what a crash interrupted", () => {
 
     const outcome = await orchestrator.retry("ad-1");
 
-    expect(outcome).toEqual({ status: "relisted" });
+    expect(outcome).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
     expect(gate.authorized).toEqual(["ad-1"]);
     expect(client.lastCreated()).toEqual(sampleAd());
   });
@@ -196,7 +202,7 @@ describe("finishing what a crash interrupted", () => {
 
     const outcomes = await orchestrator.resumeAll();
 
-    expect(outcomes).toEqual([{ status: "relisted" }]);
+    expect(outcomes).toEqual([{ status: "relisted", quota: REPORTED_QUOTA }]);
     expect(await store.get("ad-1")).toBeNull();
     expect(gate.authorized).toEqual(["ad-1"]);
   });

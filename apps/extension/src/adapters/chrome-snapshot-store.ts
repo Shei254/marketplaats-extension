@@ -24,6 +24,8 @@ interface StoredSnapshot {
   photos: StoredPhoto[];
   phase: AdSnapshot["phase"];
   createdAt: number;
+  /** The reservation this relist was authorized under (T26, #35); absent on rows written before it. */
+  grantJti?: string | null;
 }
 
 function keyFor(listingId: string): string {

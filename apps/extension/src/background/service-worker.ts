@@ -3,6 +3,7 @@ import { ChromeSessionStore } from "../adapters/chrome-session-store";
 import { ChromeSnapshotStore } from "../adapters/chrome-snapshot-store";
 import { RelayMarktplaatsClient } from "../adapters/relay-marktplaats-client";
 import { MprelistApi } from "../api/display-state";
+import { RelistAuthorizations } from "../api/relist-authorizations";
 import { Authenticator } from "../auth/authenticator";
 import { toWireError } from "../content/messages";
 import { RelistOrchestrator } from "../domain/relist-orchestrator";
@@ -21,17 +22,18 @@ import {
  * interrupted mid-flight so a listing is never left missing (ADR-0003); resume
  * is a no-op (swallowed) when no marktplaats.nl tab is open or endpoints are
  * still pending the spike.
+ *
+ * Everything here is constructed at module scope and in dependency order, which
+ * `const` makes load-bearing rather than tidy: a worker that built the
+ * orchestrator first would reach a `TemporalDeadZone` on the authenticator it
+ * needs, on every wake, before any message was handled.
  */
-const orchestrator = new RelistOrchestrator(
-  new RelayMarktplaatsClient(),
-  new ChromeSnapshotStore(),
-);
 
 /**
  * Sign-in lives here rather than in the popup because `launchWebAuthFlow` opens a
  * window, and the popup is destroyed the moment that window takes focus (ADR-0010,
- * T23). Constructed at module scope beside the orchestrator, which is safe because
- * neither adapter touches `chrome.identity` or storage until it is called.
+ * T23). Constructing it costs nothing: neither adapter touches `chrome.identity`
+ * or storage until it is called.
  */
 const authenticator = new Authenticator({
   flow: new ChromeAuthFlow(),
@@ -46,6 +48,15 @@ const authenticator = new Authenticator({
  * that outlives a popup being closed.
  */
 const api = new MprelistApi({ tokens: authenticator });
+
+const orchestrator = new RelistOrchestrator(
+  new RelayMarktplaatsClient(),
+  new ChromeSnapshotStore(),
+  // The gate (T26, #35). The orchestrator authorizes before it captures and
+  // reports after it finishes, and this is the only thing in the extension that
+  // may say "proceed".
+  new RelistAuthorizations({ tokens: authenticator }),
+);
 
 chrome.runtime.onStartup.addListener(() => void resumeInterruptedRelists());
 chrome.runtime.onInstalled.addListener(() => void resumeInterruptedRelists());

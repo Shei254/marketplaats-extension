@@ -154,10 +154,14 @@ Same service-worker console as step 3 — again, only in a `build:dev` build:
 ```js
 await __listAds();               // what the popup would render
 await __captureAd("<id>");       // capture only, nothing destructive
-await __relist("<throwaway-ad-id>");
+await __relist("<throwaway-ad-id>");   // now goes through the gate: `{status:"refused"}` is an answer
 await __apiMe();                 // the plan the popup is drawing, or why it is not
 ```
-Watch it capture → snapshot → delete → re-create. Then verify safety for real:
+Since T26 (#35) that call **authorizes first**, so with the API down or the quota
+spent it answers `{ status: "refused", locked: … }` and nothing is captured, let
+alone deleted — which is the first thing worth checking, because it is the whole
+of fail-closed. With permission granted, watch it capture → snapshot → delete →
+re-create. Then verify safety for real:
 force the create to fail (e.g. `await __setEndpoints({ createAd: "/nope" })`), confirm
 the snapshot survives and `await __retry("<id>")` restores the ad — the ADR-0003
 guarantee. `await __resume()` replays whatever a crash left half-done.

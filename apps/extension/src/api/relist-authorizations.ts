@@ -1,0 +1,97 @@
+import type { RelistOutcomeCode } from "@mprelist/contracts";
+
+import type { Http } from "../auth/discovery";
+import type { AccessTokens } from "./display-state";
+import { decide, type AuthorizeAttempt, type GateDecision } from "../gate/authorization-gate";
+import type { RelistPermission } from "../gate/relist-permission";
+import { DEFAULT_API_CONFIG, type ApiConfig } from "./api-config";
+
+/**
+ * The two ends of the gate, over HTTP (T26, #35): `POST /api/relist/authorize`
+ * before anything is deleted, and `POST /api/relist/complete` to say what became
+ * of it.
+ *
+ * The reading of the answer is not here — `decide` does that, and this hands it
+ * the attempt whole. So there is one place that says what a `402` means and it is
+ * a pure function with a suite of its own (#34); this file's job is the request,
+ * the token on it, and turning a thrown `fetch` into an attempt that failed.
+ */
+export interface RelistApiDeps {
+  tokens: AccessTokens;
+  config?: ApiConfig;
+  http?: Http;
+}
+
+export class RelistAuthorizations implements RelistPermission {
+  private readonly config: ApiConfig;
+  private readonly http: Http;
+
+  constructor(private readonly deps: RelistApiDeps) {
+    this.config = deps.config ?? DEFAULT_API_CONFIG;
+    this.http = deps.http ?? ((url, init) => fetch(url, init));
+  }
+
+  async authorize(adId: string): Promise<GateDecision> {
+    const token = await this.deps.tokens.accessToken();
+    if (token.status !== "ready") {
+      // No token is not a denial with a reason code, so it is not something the
+      // gate can read — but it is certainly not permission. Handed over as an
+      // attempt that never reached the backend, which is the same fail-closed
+      // answer as a network failure: refused, and the popup's own next refresh is
+      // what will tell the user they are signed out.
+      return decide({ kind: "unreachable" });
+    }
+
+    return decide(await this.post("/api/relist/authorize", token.token, { adId }));
+  }
+
+  /**
+   * Say what happened. **Best-effort, and deliberately quiet**: the relist has
+   * already happened or already failed, and neither is undone by our failing to
+   * report it. A reservation nobody reports on is refunded by the backend's
+   * reconciliation after a grace window (#24), and a report that arrives later
+   * still wins — which is what makes it safe for this to give up.
+   */
+  async report(jti: string, outcome: RelistOutcomeCode): Promise<void> {
+    const token = await this.deps.tokens.accessToken();
+    if (token.status !== "ready") {
+      console.warn(`[relist] ${outcome} not reported: no access token`);
+      return;
+    }
+
+    const attempt = await this.post("/api/relist/complete", token.token, { jti, outcome });
+    if (attempt.kind === "unreachable") {
+      console.warn(`[relist] ${outcome} not reported: the backend could not be reached`);
+      return;
+    }
+    if (attempt.status !== 200) {
+      console.warn(`[relist] ${outcome} not reported: the backend answered ${attempt.status}`);
+    }
+  }
+
+  private async post(path: string, token: string, body: unknown): Promise<AuthorizeAttempt> {
+    let response: Response;
+    try {
+      response = await this.http(`${this.config.baseUrl}${path}`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+          accept: "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+    } catch {
+      return { kind: "unreachable" };
+    }
+
+    // The body is read whatever the status is: a denial carries its reason there,
+    // and a `4xx` that is not a denial carries nothing at all — both of which the
+    // gate reads as refusals, for different reasons and with different screens.
+    return {
+      kind: "answered",
+      status: response.status,
+      body: await response.json().catch(() => null),
+    };
+  }
+}

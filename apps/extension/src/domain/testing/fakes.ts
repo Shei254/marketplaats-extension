@@ -1,3 +1,7 @@
+import type { RelistOutcomeCode } from "@mprelist/contracts";
+
+import type { GateDecision, LockedState } from "../../gate/authorization-gate";
+import type { RelistPermission } from "../../gate/relist-permission";
 import {
   AdNotFoundError,
   type MarktplaatsClient,
@@ -12,6 +16,37 @@ import type {
   Photo,
   SnapshotPhase,
 } from "../types";
+
+/**
+ * The gate, faked (T26, #35). Answers `proceed` with a fresh reservation each time
+ * unless a test says otherwise, and records every outcome reported back — which is
+ * where the assertions about settling and refunding live.
+ */
+export class FakeRelistPermission implements RelistPermission {
+  readonly authorized: string[] = [];
+  readonly reports: Array<{ jti: string; outcome: RelistOutcomeCode }> = [];
+
+  constructor(
+    private readonly answer: (adId: string, nth: number) => GateDecision = (_adId, nth) => ({
+      decision: "proceed",
+      grant: { authToken: `token-${nth}`, expiresAt: "2026-08-20T10:00:45.000Z", jti: `grant-${nth}` },
+    }),
+  ) {}
+
+  async authorize(adId: string): Promise<GateDecision> {
+    this.authorized.push(adId);
+    return this.answer(adId, this.authorized.length);
+  }
+
+  async report(jti: string, outcome: RelistOutcomeCode): Promise<void> {
+    this.reports.push({ jti, outcome });
+  }
+}
+
+/** A gate that refuses everything, with the state the row would show. */
+export function refusing(locked: LockedState = { state: "upgrade", resetAt: null }): FakeRelistPermission {
+  return new FakeRelistPermission(() => ({ decision: "refuse", locked }));
+}
 
 /** An ordered log of boundary interactions, so tests can assert delete-first ordering. */
 export type FakeEvent =

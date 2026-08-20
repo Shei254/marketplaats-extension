@@ -13,6 +13,9 @@
     "extension-id": "node scripts/extension-key.mjs id",
     "extension-key": "node scripts/extension-key.mjs"
   },
+  "dependencies": {
+    "@mprelist/contracts": "*"
+  },
   "devDependencies": {
     "@types/chrome": "^0.0.268",
     "@types/node": "^26.2.0",

@@ -7,10 +7,10 @@ Monorepo, one deployable per workspace ([ADR-0011](docs/adr/0011-repository-layo
 
 | Path | What | State |
 |---|---|---|
-| `apps/extension` | Chrome MV3 extension (esbuild, TypeScript) | the POC, working |
+| `apps/extension` | Chrome MV3 extension (esbuild, TypeScript) | the POC, working, and the authorization gate — the pure function that decides whether a relist may happen, and fails closed on everything but a fresh `200` |
 | `apps/api` | Spring Boot, Gradle, Java 21, Flyway | six modules with the boundary check, the schema, the seeded tier catalog and what each of its tiers grants, the resource server every route is closed behind, the account and free subscription a first sign-in provisions, both ends of the gate — `POST /api/relist/authorize` reserves a unit before anything is deleted and `POST /api/relist/complete` settles or refunds it against what the extension reports, with pacing rails saying how fast one account may relist and a scheduled reconciliation handing back the units nobody ever reports on — and `GET /api/me`, the unsigned snapshot both clients render after signing in, which grants nothing and spends nothing; and `GET /api/plans` is next |
 | `apps/web` | React SPA: public pages (Stripe success/cancel, privacy, terms) + an authenticated `/admin` corner. **No customer login** — plans and Checkout are in the popup ([ADR-0017](docs/adr/0017-web-surface-and-subscribing.md)) | reserved — T50 |
-| `packages/contracts` | API types shared by both clients | reserved — created by T25 (#34) |
+| `packages/contracts` | API types shared by both clients | the enforcement contract's wire shapes — denial reasons, `authorize`, `complete`, `/api/me` — held to [`docs/enforcement-contract.md`](docs/enforcement-contract.md) and to the API's own enums by its tests |
 | `packages/ui` | design tokens + components (popup and `apps/web`) | reserved — #37 |
 | `infra` | docker-compose: Postgres + Keycloak | working, and the `mprelist` realm imports on first start |
 | `docs` | ADRs, specs, glossary, backlog | — |

@@ -3,7 +3,13 @@ import type { BrowserAuthFlow } from "./browser-flow";
 import { fetchOidcEndpoints, type Http, type OidcEndpoints } from "./discovery";
 import { SignInCancelledError, SignInFailedError } from "./errors";
 import { challengeFor, createState, createVerifier } from "./pkce";
-import { stateOf, type AuthSession, type AuthState, type SessionStore } from "./session";
+import {
+  stateOf,
+  type AccessToken,
+  type AuthSession,
+  type AuthState,
+  type SessionStore,
+} from "./session";
 
 /**
  * Authorization Code + PKCE against Keycloak (ADR-0010), and the sign-out that
@@ -14,10 +20,11 @@ import { stateOf, type AuthSession, type AuthState, type SessionStore } from "./
  * flow awaiting a redirect in a page that no longer exists never resolves — the
  * same reason the orchestrator lives there (background/messages.ts).
  *
- * What this ticket (T23, #32) does **not** do is refresh. A session here is one
- * that was obtained; making a five-minute access token usable an hour later is
- * T24 (#33), which is also where the serialisation the realm's
- * `refreshTokenMaxReuse: 0` demands belongs (infra/README.md).
+ * **Refresh happens at call time and never on a timer** (T24, #33). An MV3 worker
+ * is evicted between one relist and the next, so a timer set now is a timer that
+ * will not be there later — and a token refreshed on a schedule nobody is waiting
+ * for is a request made for nothing. `accessToken()` is the whole of it: it hands
+ * back a token that is good now, renewing it on the way if it is not.
  */
 export interface AuthenticatorDeps {
   flow: BrowserAuthFlow;
@@ -38,6 +45,19 @@ export class Authenticator {
    * every later attempt until the worker happened to be evicted.
    */
   private endpointsPromise: Promise<OidcEndpoints> | null = null;
+
+  /**
+   * The refresh in flight, shared by everyone who asks while it is running.
+   *
+   * Not an optimisation. The realm sets `revokeRefreshToken` with
+   * `refreshTokenMaxReuse: 0` (infra/README.md), so a refresh token is spent by
+   * the refresh that uses it: two of the worker's callers waking together and
+   * each refreshing means the second presents a token Keycloak has already
+   * retired, and the answer to that is not a slow call — it is the session ending.
+   * This is the same one-in-flight shape `ensureCsrfToken` uses next door, for a
+   * milder version of the same reason.
+   */
+  private refreshInFlight: Promise<AccessToken> | null = null;
 
   constructor(private readonly deps: AuthenticatorDeps) {
     this.config = deps.config ?? DEFAULT_AUTH_CONFIG;
@@ -134,20 +154,149 @@ export class Authenticator {
     if (!outcome.ok) throw new SignInFailedError(outcome.message);
   }
 
+  /**
+   * A token good enough to send now, renewing the session on the way if it is not.
+   *
+   * Called at the moment a request needs one, which is the only moment an MV3
+   * worker can be relied on to exist. Nothing here throws: the three answers are
+   * the three states a caller has to render, and an exception would make "the
+   * network hiccupped" indistinguishable from "you are signed out" at exactly the
+   * point where the difference is the whole of what to show.
+   */
+  async accessToken(): Promise<AccessToken> {
+    const session = await this.deps.store.read();
+    if (!session) return SIGNED_OUT;
+    if (this.stillGood(session)) return { status: "ready", token: session.accessToken };
+    return this.refreshed(session);
+  }
+
+  /**
+   * Whether the access token has enough life left to be worth sending.
+   *
+   * The margin is what stops a token that expires between this check and the
+   * server reading it — a request in flight, a retry, a laptop that slept for a
+   * moment. It costs nothing: renewing 30 seconds early throws away a
+   * thirtieth of a five-minute token.
+   *
+   * The clock is the user's own and no attempt is made to be clever about that.
+   * A device far ahead refreshes constantly, which is harmless; one far behind
+   * sends a token the API refuses, and a `401` is already an answer the gate knows
+   * what to do with (#34).
+   */
+  private stillGood(session: AuthSession): boolean {
+    return session.expiresAt - this.now() > FRESH_ENOUGH_MS;
+  }
+
+  private refreshed(stale: AuthSession): Promise<AccessToken> {
+    if (this.refreshInFlight) return this.refreshInFlight;
+
+    const pending = this.renew(stale);
+    this.refreshInFlight = pending;
+    void pending.finally(() => {
+      if (this.refreshInFlight === pending) this.refreshInFlight = null;
+    });
+    return pending;
+  }
+
+  /**
+   * One refresh, and the decision of what its failure means.
+   *
+   * **Only `invalid_grant` ends the session.** That is the one OAuth error which
+   * says the refresh token itself is spent, expired or revoked (RFC 6749 §5.2) —
+   * everything else is our problem rather than the user's. A wrong `client_id`
+   * answers `invalid_client`, and clearing every user's session over a
+   * misconfigured deploy would turn a five-minute fix into a re-sign-in for
+   * everybody who was logged in when it shipped.
+   */
+  private async renew(stale: AuthSession): Promise<AccessToken> {
+    if (!stale.refreshToken) {
+      // Past it, and nothing to renew with. Cleared rather than left to fail every
+      // call from now on with a token that cannot come back.
+      await this.deps.store.clear();
+      return SIGNED_OUT;
+    }
+
+    let endpoints: OidcEndpoints;
+    try {
+      endpoints = await this.endpoints();
+    } catch {
+      return UNAVAILABLE;
+    }
+
+    const answer = await this.askTokenEndpoint(
+      endpoints.tokenEndpoint,
+      new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: stale.refreshToken,
+        client_id: this.config.clientId,
+      }),
+    );
+
+    if (answer.kind === "unreachable") return UNAVAILABLE;
+
+    if (answer.kind === "refused") {
+      if (answer.status < 500 && answer.error === "invalid_grant") {
+        await this.deps.store.clear();
+        return SIGNED_OUT;
+      }
+      console.warn(`[auth] the session could not be renewed: ${answer.error ?? answer.status}`);
+      return UNAVAILABLE;
+    }
+
+    try {
+      const session = renewedSession(stale, answer.payload, this.now());
+      await this.deps.store.write(session);
+      return { status: "ready", token: session.accessToken };
+    } catch {
+      // A 200 carrying no usable token. Keycloak answering strangely is not the
+      // session being over, so the session stays and the next call tries again.
+      console.warn("[auth] the renewed session was not usable");
+      return UNAVAILABLE;
+    }
+  }
+
   private async exchange(
     tokenEndpoint: string,
     code: string,
     verifier: string,
     redirectUri: string,
   ): Promise<AuthSession> {
-    const body = new URLSearchParams({
-      grant_type: "authorization_code",
-      code,
-      redirect_uri: redirectUri,
-      client_id: this.config.clientId,
-      code_verifier: verifier,
-    });
+    const answer = await this.askTokenEndpoint(
+      tokenEndpoint,
+      new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: redirectUri,
+        client_id: this.config.clientId,
+        code_verifier: verifier,
+      }),
+    );
 
+    if (answer.kind === "unreachable") {
+      throw new SignInFailedError("Could not reach the sign-in server to complete sign-in.");
+    }
+    if (answer.kind === "refused") {
+      // Keycloak's own words — `invalid_grant`, `unauthorized_client` and the rest
+      // say precisely what is misconfigured, and inventing a friendlier sentence
+      // here would throw that away. No token can be in this body: it is an error.
+      throw new SignInFailedError(
+        `Keycloak refused the sign-in: ${answer.description ?? answer.error ?? answer.status}`,
+      );
+    }
+
+    return sessionFrom(answer.payload, this.now());
+  }
+
+  /**
+   * One POST to the token endpoint, in the one encoding it takes — shared by the
+   * code exchange and the refresh, which differ only in the grant they name.
+   *
+   * It answers rather than throws, because the two callers do different things
+   * with the same failures: a sign-in that cannot reach Keycloak is an error a
+   * user just asked for and should be told about, and a refresh that cannot is a
+   * session left alone until the next call.
+   */
+  private async askTokenEndpoint(tokenEndpoint: string, body: URLSearchParams): Promise<TokenAnswer> {
     let response: Response;
     try {
       response = await this.http(tokenEndpoint, {
@@ -159,21 +308,19 @@ export class Authenticator {
         body: body.toString(),
       });
     } catch {
-      throw new SignInFailedError("Could not reach the sign-in server to complete sign-in.");
+      return { kind: "unreachable" };
     }
 
     const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-
     if (!response.ok) {
-      // Keycloak's own words — `invalid_grant`, `unauthorized_client` and the rest
-      // say precisely what is misconfigured, and inventing a friendlier sentence
-      // here would throw that away. No token can be in this body: it is an error.
-      throw new SignInFailedError(
-        `Keycloak refused the sign-in: ${describeOauthError(payload) ?? response.status}`,
-      );
+      return {
+        kind: "refused",
+        status: response.status,
+        error: stringIn(payload, "error"),
+        description: stringIn(payload, "error_description"),
+      };
     }
-
-    return sessionFrom(payload, this.now());
+    return { kind: "granted", payload };
   }
 
   private endpoints(): Promise<OidcEndpoints> {
@@ -186,6 +333,50 @@ export class Authenticator {
     }
     return this.endpointsPromise;
   }
+}
+
+/** What the token endpoint said, in the three shapes its two callers act on. */
+type TokenAnswer =
+  | { kind: "granted"; payload: unknown }
+  /**
+   * Both spellings of the failure, because the two callers need different ones: a
+   * refused sign-in repeats Keycloak's `description` to whoever just clicked, and
+   * a refused refresh decides on the `error` code — `invalid_grant` is the one
+   * that means the session is over (RFC 6749 §5.2), and matching on prose
+   * Keycloak is free to reword would make that a translation away from wrong.
+   */
+  | { kind: "refused"; status: number; error: string | null; description: string | null }
+  | { kind: "unreachable" };
+
+const SIGNED_OUT: AccessToken = { status: "signed-out" };
+
+const UNAVAILABLE: AccessToken = { status: "unavailable" };
+
+/**
+ * How much life an access token needs left to be worth sending, in milliseconds.
+ * The realm mints them for five minutes (infra/README.md).
+ */
+const FRESH_ENOUGH_MS = 30_000;
+
+/**
+ * The session a refresh leaves behind: the new token, and the halves of the old
+ * one Keycloak did not send back.
+ *
+ * The realm rotates refresh tokens and spends the old one on use, so a new one
+ * replaces it. When the answer carries none, RFC 6749 §6 says the old one is
+ * still good, and keeping it is what that means in practice. The **id token**
+ * matters for a different reason: it is only ever used as the `id_token_hint`
+ * that ends the Keycloak session at sign-out, and a refresh that quietly dropped
+ * it would leave sign-out unable to do that — a bug that appears hours later, in
+ * a different feature, as "signing in again never asks who I am".
+ */
+export function renewedSession(previous: AuthSession, payload: unknown, now: number): AuthSession {
+  const renewed = sessionFrom(payload, now);
+  return {
+    ...renewed,
+    refreshToken: renewed.refreshToken ?? previous.refreshToken,
+    idToken: renewed.idToken ?? previous.idToken,
+  };
 }
 
 /**
@@ -251,12 +442,9 @@ function optionalString(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-function describeOauthError(payload: Record<string, unknown> | null): string | null {
-  if (!payload) return null;
-  const error = payload["error"];
-  const description = payload["error_description"];
-  if (typeof description === "string" && description.length > 0) return description;
-  return typeof error === "string" && error.length > 0 ? error : null;
+/** One field of an OAuth error body, when it is there and is a string. */
+function stringIn(payload: Record<string, unknown> | null, key: string): string | null {
+  return optionalString(payload?.[key]);
 }
 
 /** An error's message and nothing else — never a session, never a token. */

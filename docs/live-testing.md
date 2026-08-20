@@ -99,6 +99,20 @@ await __authState();   // { status: "signed-in", expiresAt: … }
 await __signOut();     // clears our session and ends Keycloak's
 ```
 
+Once signed in, `__accessToken()` hands back a token that is usable *now* — refreshing first if the one held
+has expired, which is the whole of T24 (#33) — so the backend can be driven by hand before any client calls it:
+
+```js
+const { token } = await __accessToken();
+// then, in a terminal:
+//   curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/me | jq
+```
+
+It answers `{ status: "signed-out" }` when there is nothing to renew, and `{ status: "unavailable" }` when
+Keycloak could not be reached — in which case the session is left alone rather than thrown away, so trying
+again a minute later is the right move. It is also the one hook that hands over a secret: nothing here *logs*
+one, and this has to be asked.
+
 The stack has to be up, and it has to have been started with the extension id in the environment — the realm
 imports on first start only, so a realm built without it refuses the redirect (`infra/README.md`). What that
 failure looks like from here is `Invalid parameter: redirect_uri` in the Keycloak window.

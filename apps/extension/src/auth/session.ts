@@ -43,6 +43,24 @@ export type AuthState =
   | { status: "signed-out" };
 
 /**
+ * What a caller who wants to *use* the session is given (T24, #33).
+ *
+ * Three answers rather than a token or null, because the two ways there is no
+ * token are different facts about the world and lead to different screens. Being
+ * signed out is the user's state and the sign-in button is the answer to it;
+ * being unable to reach Keycloak is ours, the session is untouched, and the
+ * answer is to try again in a moment — which is the same "unavailable, retry"
+ * the enforcement contract asks a fail-closed display to show.
+ *
+ * Collapsing them would mean a flaky minute of network signing somebody out of a
+ * session that is still perfectly good.
+ */
+export type AccessToken =
+  | { status: "ready"; token: string }
+  | { status: "signed-out" }
+  | { status: "unavailable" };
+
+/**
  * System boundary: where the session is persisted. The real one is
  * chrome.storage.local; the authenticator is tested against an in-memory fake,
  * the same arrangement `SnapshotStore` has.

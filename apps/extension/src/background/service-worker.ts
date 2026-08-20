@@ -107,6 +107,7 @@ function describe(error: unknown): string {
  * "Inspect views: service worker") with a marktplaats.nl tab open:
  *   await __getEndpoints()                       // what the layer will call
  *   await __signIn()                             // opens the real Keycloak window
+ *   await __accessToken()                        // a token to curl the API with
  *   await __relist("<throwaway-ad-id>")
  *
  * `__setEndpoints` outlives the Options page it duplicated (ADR-0013): the
@@ -133,6 +134,18 @@ if (__DEV__) {
     __signIn: () => authenticator.signIn(),
     __signOut: () => authenticator.signOut(),
     __authState: () => authenticator.state(),
+    /**
+     * Hands back a usable access token, refreshing first if the one held is past
+     * it — which is what makes `curl -H "Authorization: Bearer …" …/api/me`
+     * possible before any client calls the API for itself (T24, #33).
+     *
+     * It is the one hook that answers with a secret, and that is a different
+     * thing from the rule everything else here keeps: nothing *logs* a token
+     * unbidden, so a console pasted into an issue carries none. This one has to
+     * be asked. It exists only in a `build:dev` bundle, which
+     * `scripts/build.test.ts` asserts against the emitted bytes.
+     */
+    __accessToken: () => authenticator.accessToken(),
   };
   Object.assign(globalThis, hooks);
 }

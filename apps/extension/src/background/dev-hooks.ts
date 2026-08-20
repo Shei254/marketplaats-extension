@@ -30,6 +30,7 @@ export const DEV_HOOK_NAMES = [
   "__signIn",
   "__signOut",
   "__authState",
+  "__accessToken",
 ] as const;
 
 export type DevHookName = (typeof DEV_HOOK_NAMES)[number];

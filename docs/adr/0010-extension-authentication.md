@@ -122,8 +122,26 @@ Four decisions the ADR did not have to make, each stated where it lives:
   flow being on, and `pkce.code.challenge.method` being `S256` — because a realm that does not require S256
   turns the challenge we send into decoration.
 
-**Refresh is not here.** A session is one that was obtained; making a five-minute access token usable an hour
-later is [#33 (T24)](https://github.com/Shei254/marketplaats-extension/issues/33), which is also where the
-serialisation the realm's `refreshTokenMaxReuse: 0` demands belongs. Until it lands, "signed in" means a
-session is held — deliberately not "the access token is fresh", or the state would flap for every user who
-left the popup closed for five minutes.
+**Refresh arrived with T24 (#33)**, and it is `accessToken()`: a token good enough to send now, renewed on the
+way if it is not. **At call time and never on a timer** — an MV3 worker is evicted between one relist and the
+next, so a timer set now is one that will not be there later, and a token refreshed on a schedule nobody is
+waiting for is a request made for nothing.
+
+Two decisions in it are worth reading before touching that code:
+
+- **One refresh in flight, shared by everyone who asks.** The realm sets `revokeRefreshToken` with
+  `refreshTokenMaxReuse: 0` (infra/README.md), so a refresh token is spent by the refresh that uses it: two
+  callers each refreshing means the second presents a token Keycloak has already retired, and the answer to
+  that is not a slow call — it is the session ending.
+- **Only `invalid_grant` ends a session.** That is the one OAuth error meaning the refresh token itself is
+  spent, expired or revoked (RFC 6749 §5.2). A network failure, a `5xx`, or an `invalid_client` from a
+  misconfigured deploy leaves the stored session exactly where it was and answers `unavailable` instead —
+  because clearing every user's session over a one-line deploy mistake turns it into a re-sign-in for
+  everybody who happened to be logged in.
+
+So a caller gets one of three answers, not a token or null: `ready`, `signed-out`, `unavailable`. The last two
+are different facts about the world and lead to different screens — the sign-in button answers one, and "we
+could not reach the server, try again" answers the other, which is the same fail-closed display the
+enforcement contract already asks for. "Signed in" still means a session is held rather than that the access
+token is fresh: the display state is read from storage, so a flaky minute cannot sign anybody out of a session
+that is still good.

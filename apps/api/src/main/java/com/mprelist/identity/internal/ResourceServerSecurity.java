@@ -6,6 +6,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
@@ -24,6 +25,8 @@ import org.springframework.security.oauth2.server.resource.web.BearerTokenAuthen
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 
+import com.mprelist.identity.RoutesNeedingARole;
+
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -41,13 +44,26 @@ import jakarta.servlet.http.HttpServletResponse;
 @Configuration(proxyBeanMethods = false)
 class ResourceServerSecurity {
 
+	/**
+	 * @param guarded what other modules have said about their own routes (#27). Each is applied before the
+	 * catch-all below, since a rule stated after {@code anyRequest()} would never be reached — and the whole
+	 * of what a module can say is "these paths need this role", so nothing contributed here can open a route
+	 * that default-deny closed. An {@link ObjectProvider} rather than a {@code List}, which Spring treats as
+	 * a required dependency: a module publishing no rule would otherwise be an application that will not
+	 * start, and the message it would fail with names a type nobody looking for the cause has heard of
+	 */
 	@Bean
-	SecurityFilterChain everyRouteNeedsAToken(HttpSecurity http) throws Exception {
+	SecurityFilterChain everyRouteNeedsAToken(HttpSecurity http, ObjectProvider<RoutesNeedingARole> guarded)
+			throws Exception {
 		return http
 				// Default-deny, and deliberately not scoped to /api/**: a route added by a later ticket is
 				// then closed until that ticket opens it, rather than open until someone notices. #36's
 				// client config is the first that may want opening, and it can say so itself.
-				.authorizeHttpRequests(routes -> routes.anyRequest().authenticated())
+				.authorizeHttpRequests(routes -> {
+					guarded.orderedStream()
+							.forEach(rule -> routes.requestMatchers(rule.pattern()).hasRole(rule.realmRole()));
+					routes.anyRequest().authenticated();
+				})
 				// One entry point, and it is the chain's: a call with no Authorization header at all — the
 				// commonest 401 there is — is refused in the same shape as one whose token was rejected,
 				// rather than through Spring Security's default, which answers 403 with no body.

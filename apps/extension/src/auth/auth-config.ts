@@ -18,13 +18,18 @@ export interface AuthConfig {
   issuer: string;
   clientId: string;
   /**
-   * `openid` and nothing else — deliberately.
+   * `openid` and nothing else — deliberately, but this is not what keeps the
+   * user's name and email out of the token.
    *
-   * Keycloak's default client scopes would put the user's name and email in the
-   * token we send to our own API, and ADR-0001/0005 draw the boundary at not
-   * sending personal data there. The API identifies a user by `sub` and has never
-   * needed anything else; the narrowest scope that still yields an id token is
-   * the one that keeps it that way.
+   * ADR-0001/0005 draw the boundary at not sending personal data to our own API,
+   * which identifies a user by `sub` and has never needed anything else. Asking
+   * for the narrowest scope is the half of that we can state from here. The other
+   * half is not ours: Keycloak adds a client's **default client scopes** whatever
+   * the request asks for, and `profile` and `email` are attached to every client
+   * a realm creates unless the client names its own — so for as long as it did
+   * not, this request asked for `openid` and was answered with an address (#108).
+   * `mprelist-extension` now names them, and `auth-config.test.ts` reads the realm
+   * export to hold it to that.
    */
   scope: string;
 }

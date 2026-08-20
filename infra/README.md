@@ -80,6 +80,31 @@ issuer — every client in the realm shares that.
 The `ADMIN` realm role is defined and held by `dev-admin`, for
 [#27 (T18 · `admin` module + role guard)](https://github.com/Shei254/marketplaats-extension/issues/27).
 
+### What a token carries, which is not what the client asked for
+
+Both public clients name their own **`defaultClientScopes`** — `basic`, `acr`, `roles`, `web-origins` — and
+assign **no optional ones**. That is Keycloak's own default list with `profile` and `email` taken out, and it
+is the fix for [#108](https://github.com/Shei254/marketplaats-extension/issues/108).
+
+**A client's default scopes are added to every token whatever the authorization request asks for.** The
+extension asks for `scope=openid` and nothing else ([ADR-0010](../docs/adr/0010-extension-authentication.md)),
+which was believed to be the whole story; it is not. Until this was named, a token minted here came back with
+`"scope": "openid email profile"` and the user's address, full name and username in it — travelling to our
+API, sitting in `chrome.storage.local`, and printed in full by any log line that ever logs a raw token.
+Nothing reads it (`identity` takes `sub` and nothing else), which is exactly why it went unnoticed.
+
+Assigning no optional scopes closes the other half: a realm's own optional list is `address`, `phone`,
+`offline_access`, `microprofile-jwt` and `organization`, of which the first two map straight off the user
+profile and the third carries the username as `upn`. Neither client requests any of them, so a request that
+did is now refused with `invalid_scope` rather than answered.
+
+What is left is `sub`, the `aud` the audience mapper writes, `realm_access` for a user who holds a role, and
+`allowed-origins`. `KeycloakRealmTest` mints real tokens through the full flow and asserts both halves — that
+nothing the realm records about a user appears in one, and that the admin role still does.
+
+**Changing this needs a `down -v`**, like every other line in the file: the realm imports on first start only,
+so a stack that is already up keeps the clients it imported with.
+
 The two dev users are shaped to cover both token shapes a real user can produce, which one user cannot:
 
 | | Realm roles | `realm_access` | `aud` |

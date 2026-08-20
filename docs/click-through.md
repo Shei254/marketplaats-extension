@@ -23,6 +23,11 @@ The id comes from the `key` T44 pinned in the manifest, so the substitution abov
 literal you pasted last month may not be. The realm imports on **first start only**, so if it is wrong the fix
 is `down -v`, not a restart.
 
+> **A stack started before 2026-08-21 has the realm from before [#108](https://github.com/Shei254/marketplaats-extension/issues/108)**,
+> whose clients mint tokens carrying the signed-in user's name and email address. Nothing reads them and the
+> script below passes either way, so the only way to notice is to decode a token — `down -v` first and it
+> cannot come up. The same reset is what re-syncs a container whose realm was edited in the admin console.
+
 ---
 
 ## Slice A · I can sign in

@@ -109,9 +109,9 @@ Four decisions the ADR did not have to make, each stated where it lives:
   check is what makes a stale port a failure *before* the login window instead of a 401 from our own API
   afterwards. It is also what keeps this ADR's "revisit if a second IdP has to be supported" a configuration
   change rather than a rewrite.
-- **The scope is `openid` and nothing else.** Keycloak's default client scopes would put a name and an email
-  in the token we send to our own backend, and ADR-0001/0005 draw the boundary at not sending personal data
-  there. The API has only ever needed `sub`.
+- **The scope is `openid` and nothing else.** ADR-0001/0005 draw the boundary at not sending personal data to
+  our own backend, and the API has only ever needed `sub`. **This is half of what that takes** — see the
+  amendment below, which is the half that was missing.
 - **Sign-out ends the Keycloak session, and clears ours first.** Clearing first means a user who clicked
   sign out is signed out whatever the network does; ending the session afterwards is best-effort. It still
   matters — Keycloak's SSO cookie outlives our tokens, so without it the next sign-in silently
@@ -145,3 +145,41 @@ could not reach the server, try again" answers the other, which is the same fail
 enforcement contract already asks for. "Signed in" still means a session is held rather than that the access
 token is fresh: the display state is read from storage, so a flaky minute cannot sign anybody out of a session
 that is still good.
+
+## Amended (2026-08-21) — the scope asked for is not the scope granted (#108)
+
+The line above was wrong about the mechanism, and a token decoded by hand while diagnosing #106 is how it was
+found out. The extension asked for `scope=openid`, exactly as written, and was answered with this:
+
+```json
+{ "azp": "mprelist-extension",
+  "scope": "openid email profile",
+  "sub": "d838418f-…",
+  "email": "<the user's real address>",
+  "name": "customer One", "preferred_username": "st0n3dk1d" }
+```
+
+**Requesting a narrow scope does not remove Keycloak's *default client scopes*.** They are added to every
+token whatever the authorization request asks for, and `profile` and `email` are attached to every client a
+realm creates unless the client names its own. So the address was in the bearer our API receives, in
+`chrome.storage.local`, and in any log line that ever printed a raw token. Nothing read it — `identity` takes
+`sub` and nothing else — which is exactly why it went unnoticed.
+
+**The realm is where this is decided, so the realm is where it is now stated.** Both public clients name
+their own `defaultClientScopes` — `basic`, `acr`, `roles`, `web-origins`, which is Keycloak's own default list
+minus the two that carry a person — and assign **no** optional scopes, so `address`, `phone` and
+`microprofile-jwt` cannot be asked for back either. What a token then carries is `sub`, the audience, and the
+roles #27 guards on, and nothing that says who the user is.
+
+Two consequences worth keeping:
+
+- **The scope request stays `openid`.** It is still the narrowest thing to ask for and it is still the right
+  request; it was never the guarantee. `auth-config.test.ts` reads the realm export for the half this
+  repository can assert statically, and `apps/api`'s `KeycloakRealmTest` mints a real token for the half only
+  a running Keycloak can answer.
+- **`preferred_username` is gone, so nothing may key on a username.** It never was our identifier — the API
+  has always used `sub` — but a Keycloak admin looking for a user by name now has the admin console and not
+  our logs, which is the point.
+
+It costs a `down -v`: the realm imports on first start only, so a stack already up keeps the clients it
+imported with.

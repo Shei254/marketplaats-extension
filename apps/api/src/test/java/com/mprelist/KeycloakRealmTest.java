@@ -13,8 +13,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -229,13 +231,79 @@ class KeycloakRealmTest {
 		assertThat(audiencesOf(keycloak.signIn("dev-admin", "dev-admin"))).contains(API_CLIENT, "account");
 	}
 
-	/** #27 guards the admin module on this role, so a token has to be able to carry it. */
+	/**
+	 * #27 guards the admin module on this role, so a token has to be able to carry it — and the role is also
+	 * the only thing in the token that now says <em>whose</em> it is, `dev-admin` being the one user who holds
+	 * it. The username used to be asserted here; the test below is why it is not.
+	 */
 	@Test
 	void andCarriesTheAdminRoleForAnOperatorWhoHasIt() {
 		JsonNode claims = keycloak.signIn("dev-admin", "dev-admin");
 
-		assertThat(claims.get("preferred_username").asString()).isEqualTo("dev-admin");
 		assertThat(claims.get("realm_access").get("roles").valueStream().map(JsonNode::asString)).contains("ADMIN");
+	}
+
+	/**
+	 * ADR-0001/0005 draw the boundary at not sending personal data to our backend, and #108 found it crossed:
+	 * a token minted here carried the user's real address, their name, and their username, in a bearer that
+	 * travels to our API, sits in {@code chrome.storage.local}, and appears in full in any log line that ever
+	 * prints one. Nothing read it — {@code identity} takes {@code sub} and nothing else — which is precisely
+	 * why it went unnoticed for as long as it did.
+	 *
+	 * <p><strong>Asking for a narrow scope is not what decides this.</strong> The extension requests
+	 * {@code scope=openid} and nothing else (T23), and that was believed to be the whole answer; it is not.
+	 * Keycloak's <em>default client scopes</em> are added to every token whatever the authorization request
+	 * asks for, and {@code profile} and {@code email} are attached to every client a realm creates unless the
+	 * client names its own. So this is a property of the realm file and can only be asserted here — the
+	 * extension's own test can see the request it sends, never the token that comes back.
+	 *
+	 * <p>Asserted against the <em>values</em> the realm records for that user rather than against a list of
+	 * claim names: {@code email} and {@code preferred_username} are the two #108 reported, and a claim under
+	 * some name nobody here thought to forbid is exactly the regression a name list would let through.
+	 */
+	@Test
+	void andCarriesNothingAboutTheUserBeyondTheIdOurApiIdentifiesThemBy() {
+		JsonNode claims = keycloak.signIn("dev", "dev");
+
+		assertThat(claims.get("sub").asString()).isNotBlank();
+		assertThat(claims.toString()).doesNotContain(whatTheRealmKnowsAbout("dev"));
+	}
+
+	/**
+	 * And the dashboard's tokens are held to the same thing. It is the second client that holds a user's
+	 * session, its tokens name the same {@code aud} and are read by the same API, and it inherits the same
+	 * realm defaults — so leaving it out would fix the boundary for one caller and leave it crossed for the
+	 * other, in the client whose admin screens (T54) are the ones an operator signs into.
+	 */
+	@Test
+	void asIsWhatTheDashboardMints() {
+		JsonNode claims = keycloak.signIn(DASHBOARD_CLIENT, DASHBOARD_REDIRECT_URI, "dev", "dev");
+
+		assertThat(claims.get("sub").asString()).isNotBlank();
+		assertThat(claims.toString()).doesNotContain(whatTheRealmKnowsAbout("dev"));
+	}
+
+	/**
+	 * And it cannot simply be asked for back. Naming the default scopes settles what arrives unasked; the
+	 * <em>optional</em> ones are what a client may add to a request, and a realm's own defaults include
+	 * {@code address} and {@code phone} — which map straight off the user profile — and
+	 * {@code microprofile-jwt}, which carries the username as {@code upn}. Neither client asks for any of
+	 * them, so assigning none costs nothing and means the boundary holds against the request rather than
+	 * against the code that happens to make it today.
+	 *
+	 * <p>Keycloak refuses an unassigned scope through the redirect URI, which is also what proves the empty
+	 * list imported at all: leaving {@code optionalClientScopes} out entirely assigns the realm's own, and
+	 * this same request would be answered with a login page.
+	 */
+	@Test
+	void andNoRequestCanAddAScopeThatWouldPutItBack() {
+		Map<String, String> askingForMore = new LinkedHashMap<>(pkce());
+		askingForMore.put("scope", "openid microprofile-jwt");
+
+		HttpResponse<String> asked = keycloak.authorizationRequest(EXTENSION_CLIENT, EXTENSION_REDIRECT_URI,
+				askingForMore);
+
+		assertThat(redirectedError(asked)).isEqualTo("invalid_scope");
 	}
 
 	/**
@@ -326,6 +394,20 @@ class KeycloakRealmTest {
 	@Test
 	void andPassesTheExtensionIdThroughWithoutGivingItAValue() {
 		assertThat(ComposeFile.text()).containsPattern("\\n\\s+MPRELIST_EXTENSION_ID:[ \\t]*\\n");
+	}
+
+	/**
+	 * Everything the realm file records about a user besides their id, as the strings a token carrying any of
+	 * it would contain. Read out of the file rather than spelled here: an address changed there would
+	 * otherwise leave the two tests above asserting the absence of something nobody has any more.
+	 */
+	private static String[] whatTheRealmKnowsAbout(String username) {
+		JsonNode user = Json.of(InfraFiles.textOf(InfraFiles.keycloakRealm())).get("users").valueStream()
+				.filter(entry -> username.equals(entry.path("username").asString())).findFirst()
+				.orElseThrow(() -> new AssertionError("No " + username + " user in " + InfraFiles.keycloakRealm()));
+
+		return Stream.of("username", "email", "firstName", "lastName").map(field -> user.path(field).asString())
+				.filter(value -> !value.isEmpty()).toArray(String[]::new);
 	}
 
 	/** A sign-in of its own each time: a logout ends the session, so the second one needs a second session. */

@@ -34,6 +34,13 @@
       "webOrigins": [
         "chrome-extension://${MPRELIST_EXTENSION_ID:unset-extension-id}"
       ],
+      "defaultClientScopes": [
+        "basic",
+        "acr",
+        "roles",
+        "web-origins"
+      ],
+      "optionalClientScopes": [],
       "attributes": {
         "pkce.code.challenge.method": "S256",
         "post.logout.redirect.uris": "+"
@@ -71,6 +78,13 @@
       "webOrigins": [
         "http://localhost:5173"
       ],
+      "defaultClientScopes": [
+        "basic",
+        "acr",
+        "roles",
+        "web-origins"
+      ],
+      "optionalClientScopes": [],
       "attributes": {
         "pkce.code.challenge.method": "S256",
         "post.logout.redirect.uris": "+"

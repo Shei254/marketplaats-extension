@@ -1,6 +1,8 @@
 import { build } from "esbuild";
-import { cp, mkdir, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
+
+import { escapeHtml, readBrand, resolveJson, resolveTokens } from "./brand.mjs";
 
 /**
  * Two builds from one script.
@@ -79,10 +81,22 @@ await build({
   logLevel: "info",
 });
 
-// Static assets referenced by the manifest.
-await cp("public/manifest.json", `${outdir}/manifest.json`);
-await cp("src/popup/popup.html", `${outdir}/popup.html`);
+// Static assets referenced by the manifest. Both carry `{{brand.name}}` tokens
+// resolved from the root brand.json (T48, #78) rather than being copied verbatim,
+// so the product's name lives in one file and a rename is an edit and a rebuild.
+//
+// The manifest is resolved as a parsed tree and re-serialised; popup.html is
+// resolved as text with HTML escaping. That asymmetry is the point — see
+// scripts/brand.mjs. `key` passes through untouched: it is the pinned extension
+// id (T44, #13) and nothing about the brand may disturb it.
+const brand = await readBrand();
+
+const manifest = resolveJson(JSON.parse(await readFile("public/manifest.template.json", "utf8")), brand);
+await writeFile(`${outdir}/manifest.json`, `${JSON.stringify(manifest, null, 2)}\n`);
+
+const popup = resolveTokens(await readFile("src/popup/popup.html", "utf8"), brand, escapeHtml);
+await writeFile(`${outdir}/popup.html`, popup);
 
 console.log(
-  `Built the ${dev ? "dev" : "production"} extension into ${outdir}/ — load it unpacked in chrome://extensions.`,
+  `Built ${brand.name} (${dev ? "dev" : "production"}) into ${outdir}/ — load it unpacked in chrome://extensions.`,
 );

@@ -18,6 +18,10 @@ import { parseArgs } from "node:util";
  * pins it. Chrome derives the id from that key rather than from the path, so the
  * same id follows the extension across machines, checkouts and reloads.
  *
+ * It lives in `public/manifest.template.json`, the source the build resolves brand
+ * tokens into (T48, #78) — not in the emitted `dist/manifest.json`, which is a
+ * build artefact. The build passes `key` through untouched.
+ *
  * **We generate our own key (ADR-0010's second row), not a Web Store one.** The
  * cost is stated there and is real: the Web Store signs uploads with *its* key,
  * so publishing assigns a different id, and the redirect URI has to change once.
@@ -39,7 +43,7 @@ import { parseArgs } from "node:util";
  * the same precedent, as `--outdir` in scripts/build.mjs.
  */
 
-const DEFAULT_MANIFEST = new URL("../public/manifest.json", import.meta.url);
+const DEFAULT_MANIFEST = new URL("../public/manifest.template.json", import.meta.url);
 const PRIVATE_KEY = new URL("../keys/extension.pem", import.meta.url);
 
 /**
@@ -80,7 +84,7 @@ async function writeKey(path, base64Spki) {
       ? raw.replace(/^ {2}"key": ".*",$/m, line)
       : // Directly after the opening brace: `key` is identity, so it reads first.
         raw.replace(/^\{$/m, `{\n${line}`);
-  if (next === raw) throw new Error("could not place `key` in manifest.json — has its shape changed?");
+  if (next === raw) throw new Error("could not place `key` in the manifest template — has its shape changed?");
   await writeFile(path, next);
   return extensionIdFromKey(base64Spki);
 }
@@ -95,7 +99,7 @@ async function generate(path) {
   await writeFile(PRIVATE_KEY, privateKey);
   const base64 = publicKey.toString("base64");
   const id = await writeKey(path, base64);
-  console.log(`Wrote the public key to public/manifest.json and the private half to keys/extension.pem.`);
+  console.log(`Wrote the public key to public/manifest.template.json and the private half to keys/extension.pem.`);
   console.log(`Extension id: ${id}`);
   console.log(
     `\nThe private key is git-ignored, and nothing in this project's path to production needs it:\n` +
@@ -118,7 +122,7 @@ async function set(path, base64Spki) {
 async function id(path) {
   const { manifest } = await readManifest(path);
   if (typeof manifest.key !== "string") {
-    throw new Error("manifest.json has no `key` — run `extension-key.mjs generate` first");
+    throw new Error("the manifest template has no `key` — run `extension-key.mjs generate` first");
   }
   // Bare, so it can be captured: MPRELIST_EXTENSION_ID=$(npm run -s extension-id …)
   console.log(extensionIdFromKey(manifest.key));

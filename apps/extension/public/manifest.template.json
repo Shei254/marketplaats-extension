@@ -1,9 +1,9 @@
 {
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArTpNLVWiLIDQyqEk+ndqdNrADSMeKOIMfH13S1Rcuh4U61OSLAjZrv9CMiezKyCPWFs2eVDnLatu1dN03Ua+TLo9SipNxikVzIj8Mn2u4+jv6Dv0IZHt4Pl3rq7hZo4M410JUJO5L/GDml9U9hf5iJoYXO1v5YdqDsiUt5TPmensvrDmxceLHVPuu1ba21VmfhLInwfa8J36/9gwK2VVyHnT7Z6vOub86z13nglYrFUaZpThgfQA2viC1f+vEtcmECVeK2WtUq0y1IPJyQADmCxS47a8Q7IqGtmxUdEyvvtv1UpAXppIc3gRFy9jlOcXMe5nd1zcwuM/Dpt8KKefLQIDAQAB",
   "manifest_version": 3,
-  "name": "Marktplaats Relist (POC)",
+  "name": "{{brand.name}}",
   "version": "0.0.1",
-  "description": "Relist your Marktplaats ads to regain top ranking. Proof of concept.",
+  "description": "{{brand.tagline}}",
   "permissions": ["storage", "unlimitedStorage"],
   "host_permissions": ["https://www.marktplaats.nl/*", "https://*.marktplaats.nl/*", "*://*.marktplaats.nl/*"],
   "background": {
@@ -18,7 +18,7 @@
     }
   ],
   "action": {
-    "default_title": "Marktplaats Relist",
+    "default_title": "{{brand.name}}",
     "default_popup": "popup.html"
   }
 }

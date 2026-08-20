@@ -1,0 +1,7 @@
+{
+  "$note": "Everything a user sees the product called. Change it here and rebuild; nothing else holds a copy. This is NOT `mprelist`, the internal identifier frozen into com.mprelist, @mprelist/*, the Keycloak realm and the database — renaming that is a repo-wide refactor and a `down -v`. The name must never lead with 'Marktplaats' (Web Store policy on trademarks); it belongs in the tagline instead. `name`, `domain` and `supportEmail` are provisional until T60 confirms Web Store name availability, domain availability and a trademark search.",
+  "name": "Bumpr",
+  "tagline": "Relist your Marktplaats ads in one click, so they land back on top.",
+  "domain": "bumpr.nl",
+  "supportEmail": "support@bumpr.nl"
+}

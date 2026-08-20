@@ -8,3 +8,14 @@
  * `define`, is scripts/build.mjs's docstring.
  */
 declare const __DEV__: boolean;
+
+/**
+ * The product's name, from the root `brand.json` (T48, #78) — the same file the
+ * manifest and `popup.html` take theirs from, substituted rather than imported so
+ * that a rename stays one edit and a rebuild.
+ *
+ * Defined for the popup, which draws the name in its header. The templated
+ * `{{brand.name}}` tokens cannot reach here: those are resolved in HTML and JSON
+ * text, and this is a bundle.
+ */
+declare const __BRAND_NAME__: string;

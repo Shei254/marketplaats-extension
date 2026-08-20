@@ -48,17 +48,34 @@ const { values } = parseArgs({
 });
 
 const { dev, outdir } = values;
-const define = { __DEV__: String(dev) };
 const minifySyntax = !dev;
 
 await rm(outdir, { recursive: true, force: true });
 await mkdir(outdir, { recursive: true });
 
+// Read before the bundles rather than after, because the popup draws the product
+// name in its header and so needs it substituted in (T29, #38) — the same one
+// file the manifest and popup.html take theirs from, so a rename is still one
+// edit and a rebuild. `src/build-flags.d.ts` declares both constants.
+const brand = await readBrand();
+const define = {
+  __DEV__: String(dev),
+  __BRAND_NAME__: JSON.stringify(brand.name),
+  // React ships two implementations of itself behind `process.env.NODE_ENV`: a
+  // development one carrying warnings and dev-only bookkeeping, and a production
+  // one. Nothing substitutes that for us — and `process` does not exist in a page
+  // or a service worker at all, so leaving it in would put a reference that
+  // throws on load into the bundle. Stated for both builds, so the dev popup
+  // keeps React's warnings and the shipped one keeps neither them nor their
+  // weight.
+  "process.env.NODE_ENV": JSON.stringify(dev ? "development" : "production"),
+};
+
 // ESM bundles: service worker (type: module) and the module-script pages.
 await build({
   entryPoints: {
     background: "src/background/service-worker.ts",
-    popup: "src/popup/popup.ts",
+    popup: "src/popup/popup-entry.tsx",
   },
   bundle: true,
   format: "esm",
@@ -89,8 +106,6 @@ await build({
 // resolved as text with HTML escaping. That asymmetry is the point — see
 // scripts/brand.mjs. `key` passes through untouched: it is the pinned extension
 // id (T44, #13) and nothing about the brand may disturb it.
-const brand = await readBrand();
-
 const manifest = resolveJson(JSON.parse(await readFile("public/manifest.template.json", "utf8")), brand);
 await writeFile(`${outdir}/manifest.json`, `${JSON.stringify(manifest, null, 2)}\n`);
 

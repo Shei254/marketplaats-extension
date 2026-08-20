@@ -117,22 +117,29 @@ presents a spent token and the session dies. Refresh has to be serialised in the
 
 ### Your extension id
 
-The redirect URI needs an extension id, and this repository does not know one:
-[ADR-0010 § Obtaining the extension ID](../docs/adr/0010-extension-authentication.md) leaves that to
-[#13 (T44 · Pin the extension ID)](https://github.com/Shei254/marketplaats-extension/issues/13), and until
-then an unpacked extension's id is derived from its absolute path and so differs per developer. So the realm
-takes it from the environment at import time:
+The redirect URI needs an extension id, and **this repository now knows one**. T44 (#13) pinned it with a
+`key` in `apps/extension/public/manifest.json` — ADR-0010's second row — so the id no longer depends on which
+machine or which directory the extension was loaded from. It is **derived from that key on demand and never
+written down twice**:
 
 ```bash
-MPRELIST_EXTENSION_ID=<your 32-character id> docker compose -f infra/docker-compose.yml up -d --wait
+MPRELIST_EXTENSION_ID=$(npm run -s extension-id -w @mprelist/extension) \
+  docker compose -f infra/docker-compose.yml up -d --wait
 ```
+
+Today that command substitutes `dolloiambeojifmnofjchofbnepodiof`, but prefer the substitution to the literal:
+if the key is ever replaced — which it will be at publish time, see below — the literal is wrong and the
+command still is not.
+
+The realm still takes it from the environment at import time, and the fallback below is still what you get if
+you forget.
 
 Unset, it falls back to the literal `unset-extension-id`, which is a valid URI and will never match a real
 flow — the realm imports, and sign-in from a real extension is refused with `Invalid parameter: redirect_uri`
 rather than silently bouncing a code somewhere. That is not prose: `KeycloakRealmWithoutAnExtensionIdTest`
 starts a Keycloak with the variable **unset**, and asserts both halves — the fallback URI is accepted, a real
-extension's is refused with that error. It is the shipped default until #13 pins an id, so it gets a
-container of its own rather than a paragraph.
+extension's is refused with that error. It is what you get when the substitution above is left out, so it
+gets a container of its own rather than a paragraph.
 
 Two things have to hold for it, and each is proven where it lives: the realm file carries the
 `${MPRELIST_EXTENSION_ID:unset-extension-id}` default (delete it and the realm no longer imports at all when
@@ -141,6 +148,11 @@ subtle one — `MPRELIST_EXTENSION_ID: ""` would define it *empty*, the realm's 
 the client would register `https://.chromiumapp.org/`: a URI with no host, which imports without complaint
 and refuses every sign-in. No container those tests start uses compose's environment, so that line is
 asserted on the compose text instead.
+
+**The id changes exactly once more, at publish.** The Web Store signs uploads with its own key, so it
+assigns a different id than the one our key derives (ADR-0010's second row, and its stated cost). When that
+happens, `npm run extension-key -w @mprelist/extension -- set <the Web Store public key>` rewrites the
+manifest and prints the new id; the production realm then has to be built with *that* one. T56 (#87) owns it.
 
 Because the import runs once, changing the variable means `down -v` first. A wildcard would avoid all of
 this; ADR-0010 says not to, and a realm file that grew one for convenience is the one that gets copied to a

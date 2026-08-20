@@ -13,14 +13,15 @@ the failure is written down too — a script that only records the happy path re
 ## Before any of them
 
 ```bash
-MPRELIST_EXTENSION_ID=<the pinned id>            \
+MPRELIST_EXTENSION_ID=$(npm run -s extension-id -w @mprelist/extension) \
   docker compose -f infra/docker-compose.yml up -d --wait
 cd apps/api && ./gradlew bootRun
 npm run build -w @mprelist/extension             # dist/ — load unpacked
 ```
 
-The id must be the one T44 pinned. The realm imports on **first start only**, so if it is wrong the fix is
-`down -v`, not a restart.
+The id comes from the `key` T44 pinned in the manifest, so the substitution above is always right and a
+literal you pasted last month may not be. The realm imports on **first start only**, so if it is wrong the fix
+is `down -v`, not a restart.
 
 ---
 
@@ -30,6 +31,9 @@ The id must be the one T44 pinned. The realm imports on **first start only**, so
 
 1. `chrome://extensions` → Developer mode → **Load unpacked** → `apps/extension/dist/`.
    *Expect:* the extension is named from `brand.json` — **not** "Marktplaats Relist (POC)".
+   *Expect:* the **ID shown matches `npm run -s extension-id -w @mprelist/extension`**. This is the only
+   place our derivation is checked against Chrome's own; if they disagree, stop — the realm was built from
+   the wrong redirect URI and sign-in in step 3 will fail with `Invalid parameter: redirect_uri`.
 2. Click the toolbar icon **while signed out**.
    *Expect:* a sign-in screen and **nothing else**. No ad list, no quota, no plan.
 3. Click sign in.

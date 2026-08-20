@@ -9,7 +9,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "build": "node scripts/build.mjs",
-    "build:dev": "node scripts/build.mjs --dev"
+    "build:dev": "node scripts/build.mjs --dev",
+    "extension-id": "node scripts/extension-key.mjs id",
+    "extension-key": "node scripts/extension-key.mjs"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.268",

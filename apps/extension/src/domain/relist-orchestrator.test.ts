@@ -18,7 +18,11 @@ describe("RelistOrchestrator", () => {
    */
   it("answers with the user's own ads rather than printing them", async () => {
     const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() } });
-    const orchestrator = new RelistOrchestrator(client, new InMemorySnapshotStore());
+    const orchestrator = new RelistOrchestrator(
+      client,
+      new InMemorySnapshotStore(),
+      new FakeRelistPermission(),
+    );
 
     const ads = await orchestrator.listAds();
 

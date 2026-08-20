@@ -94,3 +94,36 @@ could go stale. The one place our derivation is checked against Chrome's is step
 [#87 (T56 · Domain, TLS, and the production realm)](https://github.com/Shei254/marketplaats-extension/issues/87)
 rather than left to memory, because the production realm is built from scratch there and is the last moment
 the id can be got right for free.
+
+## What T23 actually did (2026-08-20)
+
+The flow this ADR chose is implemented in `apps/extension/src/auth/`, driven from the **service worker**.
+That placement is not a preference: `launchWebAuthFlow` opens a window, the window takes focus, the popup is
+destroyed the moment it does, and a flow awaited in a page that no longer exists never resolves. The popup
+asks (`sign-in`, `sign-out`, `auth-state` on the same channel the relist requests use) and the worker acts.
+
+Four decisions the ADR did not have to make, each stated where it lives:
+
+- **The realm is read, not composed.** Every URL comes from the issuer's discovery document rather than from
+  Keycloak's path layout, and the document has to say it belongs to the issuer this build asked for. That
+  check is what makes a stale port a failure *before* the login window instead of a 401 from our own API
+  afterwards. It is also what keeps this ADR's "revisit if a second IdP has to be supported" a configuration
+  change rather than a rewrite.
+- **The scope is `openid` and nothing else.** Keycloak's default client scopes would put a name and an email
+  in the token we send to our own backend, and ADR-0001/0005 draw the boundary at not sending personal data
+  there. The API has only ever needed `sub`.
+- **Sign-out ends the Keycloak session, and clears ours first.** Clearing first means a user who clicked
+  sign out is signed out whatever the network does; ending the session afterwards is best-effort. It still
+  matters — Keycloak's SSO cookie outlives our tokens, so without it the next sign-in silently
+  re-authenticates the same person and "sign in as someone else" becomes impossible.
+- **No host permission for Keycloak.** The token exchange is a cross-origin `fetch` from the worker, and what
+  makes it legal is the realm registering `chrome-extension://<id>` in `webOrigins`. `auth-config.test.ts`
+  reads `infra/keycloak/mprelist-realm.json` and asserts that, along with the client being public, the code
+  flow being on, and `pkce.code.challenge.method` being `S256` — because a realm that does not require S256
+  turns the challenge we send into decoration.
+
+**Refresh is not here.** A session is one that was obtained; making a five-minute access token usable an hour
+later is [#33 (T24)](https://github.com/Shei254/marketplaats-extension/issues/33), which is also where the
+serialisation the realm's `refreshTokenMaxReuse: 0` demands belongs. Until it lands, "signed in" means a
+session is held — deliberately not "the access token is fresh", or the state would flap for every user who
+left the popup closed for five minutes.

@@ -291,6 +291,14 @@ non-200} → **abort, do not relist**, surface the typed reason. No cached/offli
 | `401` / unreachable / timeout | shown → "unavailable, retry" (fail-closed) |
 | not signed in | sign-in screen; nothing injected |
 
+That mapping is a function rather than a habit: `apps/extension/src/gate/authorization-gate.ts` (T25, #34)
+turns an attempt into `proceed` or a locked state, and nothing else in the extension decides it. It reads the
+**code and never the status** — the two `429`s above are one statement about HTTP and two about the user — and
+it maps every reason `@mprelist/contracts` declares, so a code added there without an answer here is a compile
+error. A code from a *newer* backend than the installed build, which the release cadence makes a certainty
+rather than an edge case, refuses with "retry": the safe reading of a denial nobody here recognises is that we
+were turned away.
+
 ## Sequence
 ```
 Extension                         Backend                    Stripe

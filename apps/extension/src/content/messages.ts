@@ -6,6 +6,7 @@ import {
 import type { CapturedAd, ListingDraft, ListingSummary, Photo } from "../domain/types";
 import { base64ToBytes, bytesToBase64 } from "../shared/base64";
 import {ApiRequestError, NoMarktplaatsTabError} from "../adapters/relay-marktplaats-client";
+import { SignInCancelledError, SignInFailedError } from "../auth/errors";
 
 /**
  * Wire protocol for the content-script relay. The popup/background send a
@@ -45,6 +46,8 @@ export type RelayResult =
 
 export type WireErrorCode =
   | "AD_NOT_FOUND"
+  | "SIGN_IN_CANCELLED"
+  | "SIGN_IN_FAILED"
   | "NOT_AUTHENTICATED"
   | "NO_MARKTPLAATS_TAB"
   | "SPIKE_PENDING"
@@ -96,6 +99,18 @@ export function toWireError(error: unknown): WireError {
   if (error instanceof SpikePendingError) {
     return { code: "SPIKE_PENDING", message: error.message };
   }
+
+  // The two halves of a sign-in that produced no session are different events —
+  // a closed window is not a failure to report — and that distinction is only
+  // useful if it survives the message boundary, exactly as AdNotFoundError's does.
+  if (error instanceof SignInCancelledError) {
+    return { code: "SIGN_IN_CANCELLED", message: error.message };
+  }
+
+  if (error instanceof SignInFailedError) {
+    return { code: "SIGN_IN_FAILED", message: error.message };
+  }
+
   return { code: "UNKNOWN", message: error instanceof Error ? error.message : String(error) };
 }
 
@@ -116,6 +131,10 @@ export function fromWireError(error: WireError): Error {
       return new NoMarktplaatsTabError();
     case "SPIKE_PENDING":
       return new SpikePendingError(error.message);
+    case "SIGN_IN_CANCELLED":
+      return new SignInCancelledError(error.message);
+    case "SIGN_IN_FAILED":
+      return new SignInFailedError(error.message);
     case "UNKNOWN":
       return new Error(error.message);
   }

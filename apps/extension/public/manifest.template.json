@@ -4,7 +4,7 @@
   "name": "{{brand.name}}",
   "version": "0.0.1",
   "description": "{{brand.tagline}}",
-  "permissions": ["storage", "unlimitedStorage"],
+  "permissions": ["storage", "unlimitedStorage", "identity"],
   "host_permissions": ["https://www.marktplaats.nl/*", "https://*.marktplaats.nl/*", "*://*.marktplaats.nl/*"],
   "background": {
     "service_worker": "background.js",

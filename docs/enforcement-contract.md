@@ -86,6 +86,14 @@ with the status and nothing to parse beside it.
 It carries no `WWW-Authenticate` either. That challenge belongs to the `401` and to nothing else (RFC 6750):
 these callers were authenticated, they named something this API could not read or could not find.
 
+**Amended 2026-08-20 (#27).** One `4xx` does carry one, and it is not ours to remove: an authenticated caller
+without the `ADMIN` role is refused `403` by the resource server itself, with the empty body the rule above
+asks for and a `WWW-Authenticate: Bearer error="insufficient_scope"` — which RFC 6750 §3.1 defines for exactly
+that status and that case. The sentence above was written about the two answers this repository writes by
+hand. A standards-defined header is not worth a handler of our own to strip, so what it actually sends is
+pinned by `AdminGuardTest` instead. It still carries **no `reason`**, which is the part a client reads: the
+presence of one means the gate turned you away.
+
 The `400` is written by this repository rather than left to the framework (`UnreadableRequests`, #24's review).
 Spring Boot's default error representation — `{timestamp, status, error, path}` — names no reason code and so
 did not break the letter of the rule above, but it is a second body shape on the same two endpoints and it

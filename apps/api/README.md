@@ -74,14 +74,15 @@ Each is a direct sub-package of `com.mprelist`, which is what makes it an applic
 | `subscription` | the mirror of Stripe's status and period | [#20](https://github.com/Shei254/marketplaats-extension/issues/20) provisions the first one, [#22](https://github.com/Shei254/marketplaats-extension/issues/22) reads and rolls its window — [below](#the-gate) — and [#30](https://github.com/Shei254/marketplaats-extension/issues/30) mirrors Stripe into it |
 | `enforcement` | `authorize` / `complete`, the gate, and the reconciliation behind it | [#22](https://github.com/Shei254/marketplaats-extension/issues/22) — [below](#the-gate) — [#23](https://github.com/Shei254/marketplaats-extension/issues/23) — [below](#what-the-extension-reports-back) — and [#24](https://github.com/Shei254/marketplaats-extension/issues/24) — [below](#what-nobody-ever-reports-back) |
 | `display` | `GET /api/me`: the unsigned snapshot the popup and the dashboard render from, composed from the four above | [#26](https://github.com/Shei254/marketplaats-extension/issues/26) — [below](#what-the-caller-is-shown) |
-| `admin` | operator endpoints behind the `ADMIN` role | [#27](https://github.com/Shei254/marketplaats-extension/issues/27) |
+| `admin` | operator endpoints behind the `ADMIN` role | [#27](https://github.com/Shei254/marketplaats-extension/issues/27) — [below](#the-admin-guard) — which is the guard and no endpoint; the endpoints are [#84](https://github.com/Shei254/marketplaats-extension/issues/84) |
 
-`admin` still holds a single `package-info.java` carrying `@ApplicationModule` and nothing else. The annotation
-is not decoration **there**: an empty package compiles to no class file at all, and a module Spring Modulith
-cannot see is a module it does not check. `allSixModulesAreVisibleToTheCheck` is the test that says so, and
-`admin` is the module it is actually about — Modulith's default detection takes every direct sub-package that
-*holds* a class, so on the other five the annotation is consistency rather than what makes them visible. The
-mutation table below said otherwise until #26 ran it.
+Every module now holds at least one class, `admin` included since #27, which changes what its
+`@ApplicationModule` annotation is doing. Modulith's default detection takes every direct sub-package that
+*holds* a class, so on all six the annotation is now consistency rather than what makes them visible — and
+`allSixModulesAreVisibleToTheCheck` no longer fails if `admin`'s `package-info` loses it. It did until this
+ticket, because an empty package compiles to no class file at all and a module Modulith cannot see is a
+module it does not check; that was the one place the annotation was load-bearing, and the mutation table
+below records both readings and when each was true.
 
 A module's **sub-packages are internal to it** — `enforcement.internal.jpa` is reachable from `enforcement`
 and from nowhere else. That is the rule below enforces, and it is why ADR-0012 can promise Stripe and JPA stay
@@ -111,7 +112,7 @@ Mutation-verified — each of these was applied, observed, and reverted:
 |---|---|
 | `enforcement` references `identity.internal.TokenParser` | `noModuleReachesIntoAnothersInternals` |
 | the fixture's `beta` stops reaching into `alpha.internal` | `andTheCheckAboveIsWhatWouldCatchOneThatDid` |
-| `admin`'s `package-info` loses `@ApplicationModule` | `allSixModulesAreVisibleToTheCheck` — the package then compiles to nothing and the module is gone |
+| `admin`'s `package-info` loses `@ApplicationModule` | **nothing, since #27** — the module now holds a class and is detected either way. It failed `allSixModulesAreVisibleToTheCheck` while the package was empty, which is what that row said before this ticket; re-run and observed on both sides of the change |
 | `subscription` holds a field of type `enforcement.Quotas`, which is `/api/me` written in the module whose concept dominates it | `noModuleReachesIntoAnothersInternals`, by name: `Cycle detected: Slice enforcement -> Slice subscription -> Slice enforcement`. It is why `display` is a module of its own (#26) |
 | `catalog`'s `package-info` loses `@ApplicationModule` | **nothing** — corrected in #26. The row was recorded against the wrong module: a package holding classes is detected either way, and `display` shipped with the same mutation surviving before this was chased down |
 
@@ -1128,6 +1129,60 @@ chain — `401 UNAUTHENTICATED`, with the challenge header — precisely so that
 access and then asks who is calling cannot answer a caller it could not name. The two guards are
 indistinguishable from outside because they were built to be, and a test that could tell them apart would be
 asserting which of the two refused rather than that the caller was refused.
+
+
+## The admin guard
+
+`/api/admin/**` needs the realm's `ADMIN` role, and **that is the whole of what #27 ships** — the guard and no
+endpoint, the way #19 shipped a resource server and no endpoint. `AdminGuardTest` brings its own routes for
+the same reason `ResourceServerTest` does: what has to be proven is a filter chain, and the application still
+serves nothing under that path.
+
+**It is a rule over a path space, not over a list of handlers.** A path under `/api/admin` that nothing serves
+is already refused — asserted, and asserted beside its discriminator, since to an operator that same path is a
+`404`. That pairing is the point of the ticket: [#84](https://github.com/Shei254/marketplaats-extension/issues/84)'s
+tier CRUD will be guarded by being written there, rather than by each handler remembering an annotation whose
+absence looks exactly like its presence.
+
+**The rule is `admin`'s, applied by `identity`.** `RoutesNeedingARole` is a two-field record — a pattern and a
+realm role — that a module publishes as a bean and the filter chain turns into a guard:
+
+```java
+@Bean
+RoutesNeedingARole theAdminApiIsForOperators() {
+    return new RoutesNeedingARole("/api/admin/**", "ADMIN");
+}
+```
+
+Two alternatives were weighed and both are worse. Spelling `requestMatchers("/api/admin/**")` inside
+`ResourceServerSecurity` puts another module's URL space in the one file that knows nothing else about it, and
+importing the pattern from `admin` instead would point `identity` at a module that already points back at
+it — a cycle the boundary check rejects. A **second `SecurityFilterChain`** owned by `admin` would have to
+restate how a token is read, how its realm roles become authorities and what a refusal looks like; the piece
+easiest to leave out is the authorities converter, and without it these routes are closed to operators too,
+silently and completely.
+
+The record says *what*, never *how* — no Spring Security type appears in it — and it can only ever restrict.
+There is deliberately no way to say "open this to anyone": every route is closed until its own ticket opens it,
+and opening one should be visible in the chain rather than contributed from a module.
+
+**The refusal is a `403` with an empty body**, which is the rule `docs/enforcement-contract.md` states for a
+`4xx` that is not one of its denials, and in particular carries no `reason` — a client reads the presence of
+one as meaning the gate turned it away. It does carry `WWW-Authenticate: Bearer error="insufficient_scope"`,
+which is the resource server's own and what RFC 6750 §3.1 defines for this status; the contract is amended to
+say so rather than a handler written to strip it. A call with **no** token is still the contract's
+`401 UNAUTHENTICATED`, because "sign in" and "you are signed in as somebody who may not do this" are different
+instructions.
+
+Mutation-verified — each applied, observed, reverted:
+
+| Mutation | Fails |
+|---|---|
+| the chain stops applying the rules it is handed | `andACallerWithoutTheRoleIsRefusedBeforeItRuns` (+3) |
+| the rule is applied *after* `anyRequest().authenticated()` | the same, and for the reason the parameter's javadoc gives: nothing after the catch-all is ever reached |
+| `hasRole(...)` becomes `authenticated()` | `andSoIsOneHoldingSomeOtherRole` (+1) — every signed-in user is an operator |
+| the pattern loses its `/**` | `aPathNobodyHasWrittenYetIsAlreadyClosed` — the guard then covers one path and not the space |
+| the guard is scoped to `/**` instead | `andEverywhereElseIsUntouched` — one rule, and the whole application is operators-only |
 
 
 ## The realm

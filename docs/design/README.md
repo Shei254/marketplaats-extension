@@ -23,6 +23,15 @@ background) and `--shadow`.
 The legal copy in `Privacy` and `Terms` is structure plus an honest description of what the product
 does. It is marked `[PLACEHOLDER]` and **needs a lawyer before the Web Store listing** (T58).
 
+## What reads these files
+
+[`packages/ui`](../../packages/ui/README.md) (T28) **encodes the token sheet**, and its tests read the
+artboards directly: the palette is compared with the `.t` / `.t.dark` blocks in `Tokens.dc.html`, and every
+icon it ships is matched — geometry and stroke width — against an `<svg>` actually drawn on some artboard.
+
+So a re-seed that changes a colour or redraws an icon **fails `npm test`** until the package is updated to
+match. That is the intended direction: the canvas decides, the code follows.
+
 ## Re-seeding
 
 Edit the `.dc.html` files, then re-seed and republish to the same artifact URL. The seeding helper

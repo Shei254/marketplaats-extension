@@ -11,7 +11,7 @@
  *
  * The stakes are specific: `scripts/build.test.ts` asserts that none of these
  * reach the production bundle, and that assertion can only cover the hooks it
- * knows about. A ninth hook the test had never heard of would ship, silently,
+ * knows about. One more hook the test had never heard of would ship, silently,
  * past a green suite. That is the failure this module exists to make impossible.
  *
  * The worker imports only the *type*, so `verbatimModuleSyntax` erases the import
@@ -27,6 +27,9 @@ export const DEV_HOOK_NAMES = [
   "__searchAd",
   "__getEndpoints",
   "__setEndpoints",
+  "__signIn",
+  "__signOut",
+  "__authState",
 ] as const;
 
 export type DevHookName = (typeof DEV_HOOK_NAMES)[number];

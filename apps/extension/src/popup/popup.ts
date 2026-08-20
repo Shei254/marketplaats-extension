@@ -4,8 +4,8 @@ import {
   RelayMarktplaatsClient,
 } from "../adapters/relay-marktplaats-client";
 import type {
-  BackgroundRequest,
   BackgroundResponse,
+  RelistRequest,
   WireRelistOutcome,
 } from "../background/messages";
 import { fromWireError } from "../content/messages";
@@ -38,7 +38,7 @@ type RowState =
   | { kind: "busy" }
   | { kind: "done" }
   /** `action` is what the button retries with: a fresh relist, or a resume from the snapshot. */
-  | { kind: "failed"; message: string; tone: "error" | "warn"; action: BackgroundRequest["kind"] };
+  | { kind: "failed"; message: string; tone: "error" | "warn"; action: RelistRequest["kind"] };
 
 function showStatus(message: string): void {
   statusEl.textContent = message;
@@ -243,12 +243,21 @@ function formatEuro(cents: number): string {
   );
 }
 
-/** Ask the background worker to run a relist/retry and unwrap its typed answer. */
-async function ask(request: BackgroundRequest): Promise<WireRelistOutcome> {
-  const response = (await chrome.runtime.sendMessage(request)) as BackgroundResponse | undefined;
+/**
+ * Ask the background worker to run a relist/retry and unwrap its typed answer.
+ *
+ * Typed to the relist half of the protocol: the worker also answers sign-in
+ * questions now (T23, #32), and this popup — which T29 (#38) replaces — asks none
+ * of them. The generic is what keeps `answer` a `WireRelistOutcome` here rather
+ * than a union nobody would narrow.
+ */
+async function ask(request: RelistRequest): Promise<WireRelistOutcome> {
+  const response = (await chrome.runtime.sendMessage(request)) as
+    | BackgroundResponse<RelistRequest["kind"]>
+    | undefined;
   if (!response) throw new Error("The extension's background worker did not answer.");
   if (!response.ok) throw fromWireError(response.error);
-  return response.outcome;
+  return response.answer;
 }
 
 /** Reload the ad list. `banner` carries a confirmation across the re-render; null clears it. */

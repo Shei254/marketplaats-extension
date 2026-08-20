@@ -10,6 +10,21 @@ import {
 } from "./testing/fakes";
 
 describe("RelistOrchestrator", () => {
+  /**
+   * The popup renders these (T30a, #39), so they have to come back rather than be
+   * logged — which is what this did while its only caller was a console hook. A
+   * regression to that reads on screen as "You have no active ads", for everybody,
+   * silently.
+   */
+  it("answers with the user's own ads rather than printing them", async () => {
+    const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() } });
+    const orchestrator = new RelistOrchestrator(client, new InMemorySnapshotStore());
+
+    const ads = await orchestrator.listAds();
+
+    expect(ads).toEqual([{ id: "ad-1", title: sampleAd().draft.title, priceCents: sampleAd().draft.price.priceCent }]);
+  });
+
   it("relists an ad by deleting the original and creating a fresh identical one", async () => {
     const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() } });
     const store = new InMemorySnapshotStore();

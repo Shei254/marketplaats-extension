@@ -126,25 +126,29 @@ console you paste into an issue carries none of them.
 
 ### From the popup
 
-**The popup is being rebuilt in React, and the ad list is not back yet.** T29
-(#38) replaced the POC's page with the shell: sign in, the plan and what is left
-of it, and the two screens that are not a plan — "loading" and "can't reach
-{brand}". The ad list is T30a (#39) and the Repost behaviour T30b (#79); until
-they land, a relist is run from the console below.
+The popup is React now (#38, #39): sign in, the plan and what is left of it, and
+the user's own ads beneath it. **There is no Repost button yet** — the row's
+idle / busy / done / failed machine and the one-relist-at-a-time lock are T30b
+(#79), so until then a relist is run from the console below.
 
-What the popup shows today, and what each one proves:
+What the popup shows, and what each one proves:
 
 | Screen | Means |
 |---|---|
-| **Sign in**, and nothing else | no session, or a token the API refuses. ADR-0007's refinement: signed out shows no quota and no list |
+| **Sign in**, and nothing else | no session, or a token the API refuses. ADR-0007's refinement: signed out shows no quota, and asks Marktplaats for nothing |
 | **Free · 2 relists left · resets 14 Sep** | `GET /api/me` answered. The number is the one the gate refuses on |
-| **Can't reach {brand} right now** | the backend is down, or answered something unreadable. Never a plan — fail-closed applies to display |
+| the ads, with titles and prices | the content script reached Marktplaats in the user's own session |
+| **You have no active ads.** | it reached Marktplaats and the account has none — an answer, not a failure |
+| **Could not load your ads. Open marktplaats.nl in a tab…** | the relay had no tab to talk to. The other messages name a login, a pending spike's endpoint, or the HTTP status Marktplaats refused with |
+| **Can't reach {brand} right now** | *our* backend is down, or answered something unreadable. Never a plan — fail-closed applies to display |
+
+The last two are worth telling apart while testing: the ad list comes from
+Marktplaats and the strip above it comes from our API, so one can fail while the
+other is fine, and the screen says so rather than collapsing both into one error.
 
 The strip says "2 relists left" rather than the canvas's "2 of 3": `/api/me`
 carries what is left and not what the tier grants. See #41.
 
-The POC's row behaviour — *Reposting…* / **Reposted** / retry — is in the git
-history at `dc935f3^:apps/extension/src/popup/popup.ts`, which is what T30a ports.
 A create answers with 200/201/a redirect and no JSON, so `createAd` returns
 nothing: not throwing *is* the success signal, and there is no new-ad id anywhere
 in the relist contract.

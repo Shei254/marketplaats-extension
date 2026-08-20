@@ -2,6 +2,9 @@ import { Button, Icon, IconButton, Note, Skeleton, Spinner } from "@mprelist/ui"
 import type { DisplayState } from "@mprelist/contracts";
 import type { JSX, ReactNode } from "react";
 
+import type { ListingSummary } from "../domain/types";
+import { formatEuro, type AdsView } from "./ads";
+
 /**
  * The four screens, as functions of what they show and nothing else — no state,
  * no messaging, no clock beyond the one date they are handed. What decides
@@ -125,11 +128,13 @@ export function UnavailableScreen({
  */
 export function SignedInScreen({
   plan,
+  ads,
   onRefresh,
   onSignOut,
   busy,
 }: {
   plan: DisplayState;
+  ads: AdsView;
   onRefresh: () => void;
   onSignOut: () => void;
   busy: boolean;
@@ -155,7 +160,76 @@ export function SignedInScreen({
         </span>
         <span>{resetsOn(plan.resetAt)}</span>
       </div>
+      <Ads view={ads} />
     </>
+  );
+}
+
+/**
+ * The user's own ads, straight from their own Marktplaats session (T30a, #39).
+ *
+ * **No Repost button yet.** The row's idle / busy / done / failed machine and the
+ * one-relist-at-a-time lock are T30b (#79), in the next slice, and a button that
+ * looked live and did nothing would be a worse half than none at all.
+ */
+export function Ads({ view }: { view: AdsView }): JSX.Element {
+  switch (view.status) {
+    case "loading":
+      return (
+        <ul className="popup-ads">
+          {[78, 62, 88].map((width) => (
+            <li className="popup-ad" key={width}>
+              <div className="popup-ad-row">
+                <div className="popup-ad-info" style={{ flex: 1 }}>
+                  <Skeleton width={`${width}%`} height={11} />
+                  <Skeleton width={60} height={10} className="popup-ad-price" />
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      );
+    case "failed":
+      return (
+        <div className="popup-ads-failed">
+          <Note tone="error">Could not load your ads. {view.message}</Note>
+        </div>
+      );
+    case "ready":
+      if (view.ads.length === 0) {
+        // An account with no ads is an answer, not a failure — and a spinner left
+        // turning over one is the version of this screen that looks broken.
+        return <p className="popup-ads-empty">You have no active ads.</p>;
+      }
+      return (
+        <ul className="popup-ads">
+          {view.ads.map((ad) => (
+            <AdRow ad={ad} key={ad.id} />
+          ))}
+        </ul>
+      );
+  }
+}
+
+/**
+ * One ad: what it is called and what it costs.
+ *
+ * The title is truncated by CSS rather than by cutting the string, so the whole of
+ * it stays in the DOM — a `title` attribute carries it to a tooltip, which is what
+ * the POC popup did and the only way to read a long one in a 360px window.
+ */
+export function AdRow({ ad }: { ad: ListingSummary }): JSX.Element {
+  return (
+    <li className="popup-ad">
+      <div className="popup-ad-row">
+        <div className="popup-ad-info">
+          <span className="popup-ad-title" title={ad.title}>
+            {ad.title}
+          </span>
+          <span className="popup-ad-price">{formatEuro(ad.priceCents)}</span>
+        </div>
+      </div>
+    </li>
   );
 }
 

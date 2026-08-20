@@ -48,6 +48,7 @@ describe("the plan strip", () => {
     renderToStaticMarkup(
       <SignedInScreen
         plan={{ ...PLAN, quotaRemaining }}
+        ads={{ status: "ready", ads: [] }}
         onRefresh={() => {}}
         onSignOut={() => {}}
         busy={false}

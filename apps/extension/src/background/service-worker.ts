@@ -2,6 +2,7 @@ import { ChromeAuthFlow } from "../adapters/chrome-auth-flow";
 import { ChromeSessionStore } from "../adapters/chrome-session-store";
 import { ChromeSnapshotStore } from "../adapters/chrome-snapshot-store";
 import { RelayMarktplaatsClient } from "../adapters/relay-marktplaats-client";
+import { MprelistApi } from "../api/display-state";
 import { Authenticator } from "../auth/authenticator";
 import { toWireError } from "../content/messages";
 import { RelistOrchestrator } from "../domain/relist-orchestrator";
@@ -36,6 +37,15 @@ const authenticator = new Authenticator({
   flow: new ChromeAuthFlow(),
   store: new ChromeSessionStore(),
 });
+
+/**
+ * Our own API, asked with whatever token the authenticator can produce at the
+ * moment of the call (T24, #33). It lives here rather than in the popup because
+ * the token does: a popup holding one would be a second copy to keep fresh, and
+ * the cached snapshot the injected buttons will read (#51) has to be somewhere
+ * that outlives a popup being closed.
+ */
+const api = new MprelistApi({ tokens: authenticator });
 
 chrome.runtime.onStartup.addListener(() => void resumeInterruptedRelists());
 chrome.runtime.onInstalled.addListener(() => void resumeInterruptedRelists());
@@ -90,6 +100,8 @@ function answer(
       return authenticator.signOut();
     case "auth-state":
       return authenticator.state();
+    case "display-state":
+      return api.displayState();
   }
 }
 
@@ -108,6 +120,7 @@ function describe(error: unknown): string {
  *   await __getEndpoints()                       // what the layer will call
  *   await __signIn()                             // opens the real Keycloak window
  *   await __accessToken()                        // a token to curl the API with
+ *   await __apiMe()                              // what the popup renders
  *   await __relist("<throwaway-ad-id>")
  *
  * `__setEndpoints` outlives the Options page it duplicated (ADR-0013): the
@@ -146,6 +159,7 @@ if (__DEV__) {
      * `scripts/build.test.ts` asserts against the emitted bytes.
      */
     __accessToken: () => authenticator.accessToken(),
+    __apiMe: () => api.displayState(),
   };
   Object.assign(globalThis, hooks);
 }

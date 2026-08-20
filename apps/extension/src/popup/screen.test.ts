@@ -1,0 +1,28 @@
+import type { DisplayState } from "@mprelist/contracts";
+import { describe, expect, it } from "vitest";
+
+import { screenFor } from "./screen";
+
+const PLAN: DisplayState = {
+  subscriptionStatus: "ACTIVE",
+  tier: { code: "free", name: "Free" },
+  quotaRemaining: 3,
+  resetAt: "2026-09-14T08:31:22.101Z",
+  features: {},
+};
+
+describe("which screen an answer means", () => {
+  it("shows the plan when there is one", () => {
+    expect(screenFor({ status: "ready", plan: PLAN })).toEqual({ screen: "signed-in", plan: PLAN });
+  });
+
+  it("shows sign-in when there is no session", () => {
+    expect(screenFor({ status: "signed-out" })).toEqual({ screen: "signed-out" });
+  });
+
+  it("shows unavailable when nobody could be asked", () => {
+    // Never the signed-in screen with stale numbers on it: fail-closed applies to
+    // display, and a plan nobody could confirm is the one thing this must not draw.
+    expect(screenFor({ status: "unavailable" })).toEqual({ screen: "unavailable" });
+  });
+});

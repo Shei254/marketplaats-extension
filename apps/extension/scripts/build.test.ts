@@ -201,6 +201,37 @@ describe("extension build", () => {
     expect(built.permissions).toContain("identity");
   });
 
+  it("leaves no `process.env` in anything it emits", async () => {
+    // React reads `process.env.NODE_ENV` to choose between its two
+    // implementations, and `process` does not exist in a page or a service
+    // worker: an unsubstituted reference is not a bigger bundle, it is a popup
+    // that throws on load. `scripts/build.mjs` defines it for both builds, and
+    // this is what would notice a third bundle being added without it.
+    for (const [name, source] of Object.entries(production.bundles)) {
+      expect(source, `${name} still reads process.env`).not.toContain("process.env");
+    }
+    for (const [name, source] of Object.entries(dev.bundles)) {
+      expect(source, `${name} still reads process.env`).not.toContain("process.env");
+    }
+  });
+
+  it("ships React's production implementation, not its development one", async () => {
+    // The two differ by warnings, name-tracking and about half the bundle — 574kb
+    // against 1.1mb here. `process.env.NODE_ENV` is what chooses between them, and
+    // with it substituted the dead half folds away rather than shipping behind a
+    // branch nobody takes.
+    //
+    // Asserted as a size ratio and a dev-only word rather than on a marker string,
+    // which is React's to rename: what has to hold is that the shipped popup is
+    // the smaller build and carries none of the other's warnings.
+    const shipped = production.bundles["popup.js"] ?? "";
+    const forTesters = dev.bundles["popup.js"] ?? "";
+
+    expect(shipped).not.toContain("development");
+    expect(forTesters).toContain("development");
+    expect(shipped.length).toBeLessThan(forTesters.length * 0.75);
+  });
+
   it("passes the pinned `key` through untouched", async () => {
     // The key is the extension id (T44, #13), which is the Keycloak redirect URI,
     // in a realm that imports once. Templating the manifest must not disturb it.

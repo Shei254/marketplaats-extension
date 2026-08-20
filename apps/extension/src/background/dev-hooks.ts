@@ -31,6 +31,11 @@ export const DEV_HOOK_NAMES = [
   "__signOut",
   "__authState",
   "__accessToken",
+  // `__apiMe` rather than `__me`: these names are asserted absent from the
+  // production bundles by a text search, and a two-letter one is a search that
+  // will one day match something inside a dependency and fail for the wrong
+  // reason. The popup's bundle now carries React.
+  "__apiMe",
 ] as const;
 
 export type DevHookName = (typeof DEV_HOOK_NAMES)[number];

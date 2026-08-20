@@ -14,11 +14,16 @@
     "extension-key": "node scripts/extension-key.mjs"
   },
   "dependencies": {
-    "@mprelist/contracts": "*"
+    "@mprelist/contracts": "*",
+    "@mprelist/ui": "*",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.268",
     "@types/node": "^26.2.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
     "esbuild": "^0.24.0",
     "happy-dom": "^20.11.2",
     "typescript": "^5.6.0",

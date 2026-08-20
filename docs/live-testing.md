@@ -124,23 +124,30 @@ console you paste into an issue carries none of them.
 
 ## 4. Run a relist
 
-### From the popup (one click)
-Keep a marktplaats.nl tab open and click the extension icon. Each ad row has a
-**Repost** button: it asks the **background worker** to run the relist (never the
-popup itself — closing the popup mid-relist must not strand an ad between the
-delete and the re-create), and shows the outcome on the row:
+### From the popup
 
-| Row shows | Meaning |
+**The popup is being rebuilt in React, and the ad list is not back yet.** T29
+(#38) replaced the POC's page with the shell: sign in, the plan and what is left
+of it, and the two screens that are not a plan — "loading" and "can't reach
+{brand}". The ad list is T30a (#39) and the Repost behaviour T30b (#79); until
+they land, a relist is run from the console below.
+
+What the popup shows today, and what each one proves:
+
+| Screen | Means |
 |---|---|
-| *Reposting…* | in flight; the other rows are locked until it finishes |
-| **Reposted** | `relisted` — snapshot cleared, then the list reloads under a green banner |
-| *Nothing was reposted…* + **Try again** | `failed-before-delete` — the original ad is untouched |
-| *Your ad was removed but…* + **Retry** | `failed-recoverable` — snapshot kept; Retry re-creates from it |
+| **Sign in**, and nothing else | no session, or a token the API refuses. ADR-0007's refinement: signed out shows no quota and no list |
+| **Free · 2 relists left · resets 14 Sep** | `GET /api/me` answered. The number is the one the gate refuses on |
+| **Can't reach {brand} right now** | the backend is down, or answered something unreadable. Never a plan — fail-closed applies to display |
 
+The strip says "2 relists left" rather than the canvas's "2 of 3": `/api/me`
+carries what is left and not what the tier grants. See #41.
+
+The POC's row behaviour — *Reposting…* / **Reposted** / retry — is in the git
+history at `dc935f3^:apps/extension/src/popup/popup.ts`, which is what T30a ports.
 A create answers with 200/201/a redirect and no JSON, so `createAd` returns
 nothing: not throwing *is* the success signal, and there is no new-ad id anywhere
-in the relist contract. The reloaded list may not show the new ad immediately if
-Marktplaats hasn't indexed it yet — the banner says so.
+in the relist contract.
 
 ### From the console
 Same service-worker console as step 3 — again, only in a `build:dev` build:
@@ -148,6 +155,7 @@ Same service-worker console as step 3 — again, only in a `build:dev` build:
 await __listAds();               // what the popup would render
 await __captureAd("<id>");       // capture only, nothing destructive
 await __relist("<throwaway-ad-id>");
+await __apiMe();                 // the plan the popup is drawing, or why it is not
 ```
 Watch it capture → snapshot → delete → re-create. Then verify safety for real:
 force the create to fail (e.g. `await __setEndpoints({ createAd: "/nope" })`), confirm

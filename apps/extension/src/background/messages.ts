@@ -1,3 +1,4 @@
+import type { DisplayStateAnswer } from "../api/display-state";
 import type { AuthState } from "../auth/session";
 import type { RelistOutcome } from "../domain/relist-orchestrator";
 import { toWireError, type WireError } from "../content/messages";
@@ -18,7 +19,14 @@ export type RelistRequest =
 
 export type AuthRequest = { kind: "sign-in" } | { kind: "sign-out" } | { kind: "auth-state" };
 
-export type BackgroundRequest = RelistRequest | AuthRequest;
+/**
+ * What the popup renders after signing in — asked of the worker rather than
+ * fetched here, because the worker holds the token and will hold the one cached
+ * copy N injected buttons read (#51, T42).
+ */
+export type DisplayStateRequest = { kind: "display-state" };
+
+export type BackgroundRequest = RelistRequest | AuthRequest | DisplayStateRequest;
 
 /** A RelistOutcome with its `error: unknown` flattened to something serialisable. */
 export type WireRelistOutcome =
@@ -41,6 +49,7 @@ export interface BackgroundAnswers {
   "sign-in": AuthState;
   "sign-out": AuthState;
   "auth-state": AuthState;
+  "display-state": DisplayStateAnswer;
 }
 
 export type BackgroundResponse<K extends BackgroundRequest["kind"] = BackgroundRequest["kind"]> =

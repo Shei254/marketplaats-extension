@@ -6,7 +6,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
- * The files under {@code infra/} that this suite reads out of the working tree rather than off the classpath.
+ * The files this suite reads out of the working tree rather than off the classpath — {@code infra/}'s two,
+ * and the extension manifest whose pinned key this application's allowed origin is derived from.
  *
  * <p>Named here once because three things have to agree on where they are: the tests that read them,
  * {@code build.gradle.kts} — whose {@code inputs.files} is the only reason an edit to either does not leave
@@ -24,6 +25,19 @@ final class InfraFiles {
 	/** The realm {@link KeycloakFromCompose} imports, mounted into a container rather than read here. */
 	static Path keycloakRealm() {
 		return repositoryRoot().resolve("infra/keycloak/mprelist-realm.json");
+	}
+
+	/**
+	 * The extension's manifest template, read for the one thing in it this application also states: the
+	 * {@code key} the extension's id is derived from (T44), which is the origin CORS allows.
+	 *
+	 * <p>The only file here from outside {@code infra/}, and the class keeps its name because what these
+	 * have in common is being read out of the working tree rather than off a classpath — with the same
+	 * consequence for {@code build.gradle.kts}, which has to declare it an input or an edit to it leaves the
+	 * previous run's verdict standing.
+	 */
+	static Path extensionManifest() {
+		return repositoryRoot().resolve("apps/extension/public/manifest.template.json");
 	}
 
 	/**

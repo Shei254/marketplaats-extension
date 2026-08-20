@@ -5,7 +5,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
+import java.util.Base64;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
@@ -119,13 +122,60 @@ class CrossOriginTest {
 	 * <p>They are two files that have to agree about one id, and the failure of a disagreement is split
 	 * between them: the token exchange goes through Keycloak's CORS and the API call goes through this, so a
 	 * drift breaks one and not the other, and the symptom names whichever half was asked first.
+	 *
+	 * <p>They spell it differently on purpose — the realm substitutes from the environment because it is
+	 * imported once, and this application defaults to the id because it is re-read on every start — so what
+	 * is asserted is the shape of each rather than one string equal to the other.
 	 */
 	@Test
-	void theOriginThisApiAllowsIsTheOneTheRealmRegistersForTheExtension() {
-		String allowed = YamlSetting.inApplicationYaml("allowed-origins");
+	void andTheRealmRegistersThatSameOriginAsTheExtensionsWebOrigin() {
+		String key = Json.of(InfraFiles.textOf(InfraFiles.extensionManifest())).get("key").asString();
 		JsonNode realm = Json.of(InfraFiles.textOf(InfraFiles.keycloakRealm()));
 
-		assertThat(webOriginsOfTheExtensionClient(realm)).contains(allowed);
+		// The realm substitutes rather than defaulting, so what is compared is the id both resolve to — the
+		// file cannot be read with the variable already applied, and the point is that they name one id.
+		assertThat(webOriginsOfTheExtensionClient(realm))
+				.isEqualTo("chrome-extension://${MPRELIST_EXTENSION_ID:unset-extension-id}");
+		assertThat(YamlSetting.inApplicationYaml("allowed-origins")).contains(extensionIdFrom(key));
+	}
+
+	/**
+	 * The origin this application ships with names the extension's **actual** id — derived here from the
+	 * {@code key} the manifest pins it with, exactly as {@code npm run extension-id} derives it.
+	 *
+	 * <p>This is what makes a literal safe to write in {@code application.yml} at all. The setting defaults
+	 * to the id rather than to an environment variable because the variant that required one was tried
+	 * first, and every developer met the same failure: a browser refusing an answer, naming nothing about
+	 * this application, with the fix living in a shell they had already opened. A value that is wrong here
+	 * costs a restart; the realm file, which imports once, keeps the substitution because a value that is
+	 * wrong *there* costs a {@code down -v}.
+	 *
+	 * <p>Chrome's own derivation: SHA-256 of the decoded key, the first sixteen bytes, each nibble as a
+	 * letter {@code a}–{@code p}. Pinned against the key rather than against a second copy of the id.
+	 */
+	@Test
+	void theOriginThisApiAllowsIsDerivedFromTheKeyTheExtensionIsPinnedBy() {
+		String key = Json.of(InfraFiles.textOf(InfraFiles.extensionManifest())).get("key").asString();
+
+		assertThat(YamlSetting.inApplicationYaml("allowed-origins"))
+				.isEqualTo("chrome-extension://${MPRELIST_EXTENSION_ID:" + extensionIdFrom(key) + "}");
+	}
+
+	private static String extensionIdFrom(String base64Key) {
+		byte[] digest;
+		try {
+			digest = MessageDigest.getInstance("SHA-256").digest(Base64.getDecoder().decode(base64Key));
+		}
+		catch (NoSuchAlgorithmException impossible) {
+			throw new IllegalStateException("SHA-256 is not optional in a JDK", impossible);
+		}
+
+		StringBuilder id = new StringBuilder(32);
+		for (int byteIndex = 0; byteIndex < 16; byteIndex++) {
+			id.append((char) ('a' + ((digest[byteIndex] >> 4) & 0xF)));
+			id.append((char) ('a' + (digest[byteIndex] & 0xF)));
+		}
+		return id.toString();
 	}
 
 	private static String webOriginsOfTheExtensionClient(JsonNode realm) {

@@ -43,16 +43,21 @@ mprelist:
   # answer before any of our code sees a problem: a console line about a missing Access-Control-Allow-Origin,
   # and a popup showing "unavailable" for a backend that answered perfectly well.
   #
-  # The id is T44's pinned one, substituted from the environment exactly as infra/keycloak's realm file
-  # substitutes it, so that neither holds a literal copy that can go stale. Export it the same way:
+  # The id is T44's pinned one. Unlike infra/keycloak's realm file, which substitutes it from the
+  # environment because it is imported once and a wrong value there costs a `down -v`, this **defaults to
+  # the id itself** — a value re-read on every start, where being wrong costs a restart.
   #
-  #   MPRELIST_EXTENSION_ID=$(npm run -s extension-id -w @mprelist/extension) ./gradlew bootRun
+  # That is the trade this setting is: the environment variable was tried first and every developer met the
+  # same failure, which is a browser refusing an answer and naming nothing about this application. What
+  # keeps the literal from going stale is not care, it is
+  # `theOriginThisApiAllowsIsDerivedFromTheKeyTheExtensionIsPinnedBy` — which derives the id from the `key`
+  # in apps/extension/public/manifest.template.json exactly as `npm run extension-id` does, and fails the
+  # build if this line disagrees. The variable still wins where it is set, which is what the Web Store's own
+  # id will need at publish (#87).
   #
-  # Unset, it falls back to the same `unset-extension-id` the realm does — a valid origin that no browser
-  # will ever send, so sign-in fails closed rather than against a wildcard. `apps/web`'s origins join this
-  # list at T50/T54; it is comma-separated and matched exactly, with no patterns.
+  # `apps/web`'s origins join this list at T50/T54. Comma-separated, matched exactly, no patterns.
   cors:
-    allowed-origins: chrome-extension://${MPRELIST_EXTENSION_ID:unset-extension-id}
+    allowed-origins: chrome-extension://${MPRELIST_EXTENSION_ID:dolloiambeojifmnofjchofbnepodiof}
 
   # #24: what to do about a relist that was authorized and never reported on. Both settings are here rather
   # than defaulted in code, and neither has a fallback — a missing one fails startup instead of running with

@@ -24,11 +24,11 @@ The id comes from the `key` T44 pinned in the manifest, so the substitution abov
 literal you pasted last month may not be. The realm imports on **first start only**, so if it is wrong the fix
 is `down -v`, not a restart.
 
-**`bootRun` needs it too**, which is why it is `export`ed rather than set on the compose line: the API allows
-the extension's origin through CORS by that id, and every call the popup makes is cross-origin. Forget it and
-the popup shows **"unavailable"** while the API answers every request perfectly well — the refusal is the
-browser's, and the only place it is visible is the popup's own devtools console. The API logs the origins it
-will accept as it starts, which is the other end of that thread.
+`bootRun` does **not** need it: the API's allowed CORS origin defaults to that same pinned id, and a test
+derives it from the manifest's key so the default cannot go stale. Setting it anyway overrides both, which is
+what a Web Store id will need at publish (#87). Whatever it resolves to, the API logs the origins it will
+accept as it starts — the browser's refusal names nothing about the API, so that line is the other end of the
+thread.
 
 ---
 

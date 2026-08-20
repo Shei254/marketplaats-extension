@@ -1232,10 +1232,22 @@ answer; the token decides who is answered at all. What it prevents is a site the
 reading their plan out of this API in the background — not anything a caller holding a valid token could not
 do anyway.
 
-The origin is spelled as a substitution of `MPRELIST_EXTENSION_ID`, exactly as `infra/keycloak`'s realm file
-spells its `webOrigins` entry, so neither holds a literal copy of an id that is supposed to be derived (T44).
-`theOriginThisApiAllowsIsTheOneTheRealmRegistersForTheExtension` holds the two files to each other — they
-break in different halves of the same sign-in otherwise, and the symptom names whichever was asked first.
+**The origin defaults to the id rather than to an environment variable, and that was the second attempt.**
+The first spelled it as a substitution of `MPRELIST_EXTENSION_ID`, exactly as `infra/keycloak`'s realm file
+does, so that neither held a literal copy of an id that is supposed to be derived (T44). Every developer then
+met the same failure — a browser refusing an answer, naming nothing about this application, with the fix
+living in a shell they had already opened. So the trade was inverted: this file is re-read on every start, and
+a value that is wrong here costs a restart, while the realm imports **once** and a wrong value there costs a
+`down -v`. The realm keeps the substitution; this defaults.
+
+What keeps the literal honest is not care but
+`theOriginThisApiAllowsIsDerivedFromTheKeyTheExtensionIsPinnedBy`, which derives the id from the `key` in
+`apps/extension/public/manifest.template.json` — SHA-256, first sixteen bytes, each nibble as a letter `a`–`p`,
+which is Chrome's own and `npm run extension-id`'s — and fails the build if `application.yml` disagrees. The
+variable still wins where it is set, which is what the Web Store's own id will need at publish (#87).
+
+`andTheRealmRegistersThatSameOriginAsTheExtensionsWebOrigin` holds the two files to each other — they break in
+different halves of the same sign-in otherwise, and the symptom names whichever was asked first.
 
 Mutation-verified — each applied, observed, reverted:
 
@@ -1246,6 +1258,7 @@ Mutation-verified — each applied, observed, reverted:
 | the allowed origins widened to `*` | `anOriginNobodyConfiguredIsNotAnsweredAtAll` |
 | `Authorization` dropped from the allowed headers | `theBrowsersQuestionIsAnsweredBeforeAnybodyIsAskedForAToken` |
 | credentials allowed | `andNoBrowserIsInvitedToSendCredentialsWithIt` |
+| one letter of the allowed origin's id changed | `theOriginThisApiAllowsIsDerivedFromTheKeyTheExtensionIsPinnedBy` — which is what makes writing the id here safe at all |
 
 
 ## The realm

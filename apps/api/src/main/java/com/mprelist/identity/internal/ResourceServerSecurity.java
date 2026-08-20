@@ -24,6 +24,7 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.security.oauth2.server.resource.web.BearerTokenAuthenticationEntryPoint;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import com.mprelist.identity.RoutesNeedingARole;
 
@@ -53,8 +54,8 @@ class ResourceServerSecurity {
 	 * start, and the message it would fail with names a type nobody looking for the cause has heard of
 	 */
 	@Bean
-	SecurityFilterChain everyRouteNeedsAToken(HttpSecurity http, ObjectProvider<RoutesNeedingARole> guarded)
-			throws Exception {
+	SecurityFilterChain everyRouteNeedsAToken(HttpSecurity http, ObjectProvider<RoutesNeedingARole> guarded,
+			UrlBasedCorsConfigurationSource browsersThatMayCall) throws Exception {
 		return http
 				// Default-deny, and deliberately not scoped to /api/**: a route added by a later ticket is
 				// then closed until that ticket opens it, rather than open until someone notices. #36's
@@ -70,6 +71,20 @@ class ResourceServerSecurity {
 				.oauth2ResourceServer(resourceServer -> resourceServer
 						.jwt(jwt -> jwt.jwtAuthenticationConverter(aTokenBecomesTheCallerItNames()))
 						.authenticationEntryPoint(UNAUTHENTICATED))
+				// The preflight a browser sends before every call this API takes — `Authorization` is
+				// never a safelisted header — is answered here, by a filter that runs *before*
+				// authentication and does not continue the chain. That ordering is the whole fix: a
+				// preflight carries no token by design, so a chain that authenticated it first would refuse
+				// it with the 401 above and the browser would report a missing CORS header. Which origins,
+				// and with what, is `CrossOriginCallers`.
+				//
+				// Handed the source rather than left to `Customizer.withDefaults()`, which looks for a bean
+				// *named* `corsConfigurationSource` and, finding none, silently falls back to whatever the
+				// MVC introspector knows — which is nothing, and answers a preflight `200` with no CORS
+				// headers on it at all. That is the shape of the bug this fixes, so it is not one to leave
+				// depending on a name — and the fallback is not hypothetical: Spring MVC publishes a
+				// `CorsConfigurationSource` of its own, which is what `withDefaults()` finds instead.
+				.cors(cors -> cors.configurationSource(browsersThatMayCall))
 				// Nothing is remembered between calls: the token is the whole of the caller's identity and it
 				// arrives on every request. It matters at the other end, where an MV3 worker has no cookie
 				// jar of its own for our origin and could not send one back. Said here rather than left to

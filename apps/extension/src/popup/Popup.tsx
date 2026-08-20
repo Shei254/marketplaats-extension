@@ -1,7 +1,8 @@
 import { UiStyles } from "@mprelist/ui";
 import { useCallback, useEffect, useState, type JSX } from "react";
 
-import { popupCss } from "./popup-styles";
+import { ADS_LOADING, describeAdsFailure, type AdsView } from "./ads";
+import { adListCss, popupCss } from "./popup-styles";
 import { LOADING, screenFor, type Screen, type WorkerPort } from "./screen";
 import { LoadingScreen, SignedInScreen, SignedOutScreen, UnavailableScreen } from "./screens";
 
@@ -21,11 +22,37 @@ import { LoadingScreen, SignedInScreen, SignedOutScreen, UnavailableScreen } fro
  */
 export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
   const [screen, setScreen] = useState<Screen>(LOADING);
+  const [ads, setAds] = useState<AdsView>(ADS_LOADING);
   const [busy, setBusy] = useState(false);
 
+  /**
+   * The plan first, then the ads — and the ads **only** when there is a session.
+   *
+   * Not an ordering preference: the ad list is a request to marktplaats.nl in the
+   * user's own session, and `docs/enforcement-contract.md` has a signed-out popup
+   * make none. Asking in parallel would be faster and would send that request on
+   * behalf of somebody who is not signed in.
+   */
   const load = useCallback(async () => {
     setBusy(true);
-    setScreen(screenFor(await worker.displayState()));
+    const answer = await worker.displayState();
+    setScreen(screenFor(answer));
+
+    if (answer.status !== "ready") {
+      setAds(ADS_LOADING);
+      setBusy(false);
+      return;
+    }
+
+    setAds(ADS_LOADING);
+    try {
+      setAds({ status: "ready", ads: await worker.ads() });
+    } catch (error) {
+      // The list failing does not take the plan down with it: the two come from
+      // different places — ours and Marktplaats's — and a user whose quota is
+      // fine should be told that, beside the reason their ads are missing.
+      setAds({ status: "failed", message: describeAdsFailure(error) });
+    }
     setBusy(false);
   }, [worker]);
 
@@ -61,8 +88,8 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
   return (
     <>
       <UiStyles />
-      <style dangerouslySetInnerHTML={{ __html: popupCss }} />
-      <div className="mp-root">{body(screen, { load, signIn, signOut, busy })}</div>
+      <style dangerouslySetInnerHTML={{ __html: `${popupCss}\n${adListCss}` }} />
+      <div className="mp-root">{body(screen, { load, signIn, signOut, busy, ads })}</div>
     </>
   );
 }
@@ -72,9 +99,10 @@ interface Handlers {
   signIn: () => void;
   signOut: () => void;
   busy: boolean;
+  ads: AdsView;
 }
 
-function body(screen: Screen, { load, signIn, signOut, busy }: Handlers): JSX.Element {
+function body(screen: Screen, { load, signIn, signOut, busy, ads }: Handlers): JSX.Element {
   switch (screen.screen) {
     case "loading":
       return <LoadingScreen />;
@@ -83,7 +111,7 @@ function body(screen: Screen, { load, signIn, signOut, busy }: Handlers): JSX.El
     case "unavailable":
       return <UnavailableScreen onRetry={load} busy={busy} />;
     case "signed-in":
-      return <SignedInScreen plan={screen.plan} onRefresh={load} onSignOut={signOut} busy={busy} />;
+      return <SignedInScreen plan={screen.plan} ads={ads} onRefresh={load} onSignOut={signOut} busy={busy} />;
   }
 }
 

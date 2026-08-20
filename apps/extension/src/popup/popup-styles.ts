@@ -96,3 +96,45 @@ body {
   color: var(--mp-muted);
 }
 `.trim();
+
+/**
+ * The ad list (T30a, #39). Appended as a second string rather than folded into
+ * the one above so that what the shell needs and what the list needs stay legible
+ * apart — the rows are the part T30b (#79) will add a button and a note to.
+ */
+export const adListCss = `
+.popup-ads { list-style: none; margin: 0; padding: 0; max-height: 420px; overflow-y: auto; }
+.popup-ad {
+  padding: 10px var(--mp-space-md);
+  border-bottom: 1px solid var(--mp-line);
+}
+.popup-ad:last-child { border-bottom: 0; }
+.popup-ad-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.popup-ad-info { min-width: 0; }
+.popup-ad-title {
+  display: block;
+  font: var(--mp-text-body) var(--mp-font-family);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.popup-ad-price {
+  display: block;
+  margin-top: 2px;
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  color: var(--mp-muted);
+  font-variant-numeric: tabular-nums;
+}
+.popup-ads-empty {
+  padding: 28px var(--mp-space-md);
+  text-align: center;
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  color: var(--mp-muted);
+}
+.popup-ads-failed { padding: 10px var(--mp-space-md) var(--mp-space-md); }
+`.trim();

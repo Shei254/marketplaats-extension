@@ -1,6 +1,7 @@
 import type { DisplayState } from "@mprelist/contracts";
 
 import type { DisplayStateAnswer } from "../api/display-state";
+import type { ListingSummary } from "../domain/types";
 
 /**
  * What the popup is showing, and the whole of it (T29, #38).
@@ -50,6 +51,11 @@ export function screenFor(answer: DisplayStateAnswer): Screen {
  */
 export interface WorkerPort {
   displayState(): Promise<DisplayStateAnswer>;
+  /**
+   * The user's own ads. Throws the typed error the relay raised — which one it is
+   * decides what the screen says, and only the popup knows how to say it.
+   */
+  ads(): Promise<ListingSummary[]>;
   signIn(): Promise<void>;
   signOut(): Promise<void>;
 }

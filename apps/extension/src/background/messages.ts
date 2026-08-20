@@ -1,6 +1,7 @@
 import type { DisplayStateAnswer } from "../api/display-state";
 import type { AuthState } from "../auth/session";
 import type { RelistOutcome } from "../domain/relist-orchestrator";
+import type { ListingSummary } from "../domain/types";
 import { toWireError, type WireError } from "../content/messages";
 
 /**
@@ -26,7 +27,14 @@ export type AuthRequest = { kind: "sign-in" } | { kind: "sign-out" } | { kind: "
  */
 export type DisplayStateRequest = { kind: "display-state" };
 
-export type BackgroundRequest = RelistRequest | AuthRequest | DisplayStateRequest;
+/**
+ * The user's own ads. Asked of the worker rather than fetched by the popup so
+ * that the relay client has one owner — and so that the popup, which is torn down
+ * whenever it loses focus, is never the thing holding a request to the page.
+ */
+export type AdsRequest = { kind: "list-ads" };
+
+export type BackgroundRequest = RelistRequest | AuthRequest | DisplayStateRequest | AdsRequest;
 
 /** A RelistOutcome with its `error: unknown` flattened to something serialisable. */
 export type WireRelistOutcome =
@@ -50,6 +58,12 @@ export interface BackgroundAnswers {
   "sign-out": AuthState;
   "auth-state": AuthState;
   "display-state": DisplayStateAnswer;
+  /**
+   * The ads themselves on success; a failure travels as the envelope's typed
+   * `WireError`, so the popup can still tell "no marktplaats.nl tab" from
+   * "Marktplaats refused the request" and say something different about each.
+   */
+  "list-ads": ListingSummary[];
 }
 
 export type BackgroundResponse<K extends BackgroundRequest["kind"] = BackgroundRequest["kind"]> =

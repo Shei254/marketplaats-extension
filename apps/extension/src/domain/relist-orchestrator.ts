@@ -1,6 +1,6 @@
 import { AdNotFoundError, type MarktplaatsClient } from "./marktplaats-client";
 import type { SnapshotStore } from "./snapshot-store";
-import type { AdSnapshot } from "./types";
+import type { AdSnapshot, ListingSummary } from "./types";
 
 /** Outcome of a relist attempt. */
 export type RelistOutcome =
@@ -26,9 +26,15 @@ export class RelistOrchestrator {
     console.log("Searched ads", ads)
   }
 
-  async listAds () {
-    const ads = await this.client.listMyAds();
-    console.log(ads);
+  /**
+   * The user's own ads, straight from their Marktplaats session.
+   *
+   * Returned rather than logged, which is what it did while its only caller was a
+   * console hook: the popup renders these now (T30a, #39), and it asks the worker
+   * rather than the content script so that one object owns the relay client.
+   */
+  async listAds(): Promise<ListingSummary[]> {
+    return this.client.listMyAds();
   }
 
   async relist(listingId: string): Promise<RelistOutcome> {

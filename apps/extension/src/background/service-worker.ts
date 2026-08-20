@@ -102,6 +102,8 @@ function answer(
       return authenticator.state();
     case "display-state":
       return api.displayState();
+    case "list-ads":
+      return orchestrator.listAds();
   }
 }
 

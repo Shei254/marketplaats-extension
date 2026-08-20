@@ -5,6 +5,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DisplayStateAnswer } from "../api/display-state";
+import type { ListingSummary } from "../domain/types";
+import { NoMarktplaatsTabError } from "../adapters/relay-marktplaats-client";
 import { SignInCancelledError, SignInFailedError } from "../auth/errors";
 import { Popup } from "./Popup";
 import type { WorkerPort } from "./screen";
@@ -30,13 +32,22 @@ const PLAN: DisplayState = {
   features: {},
 };
 
-function fakeWorker(answers: DisplayStateAnswer[] = [{ status: "ready", plan: PLAN }]) {
+export const ADS: ListingSummary[] = [
+  { id: "m1", title: "Vintage Eames lounge chair", priceCents: 125_000 },
+  { id: "m2", title: "Trek Marlin 7 mountainbike (M)", priceCents: 48_000 },
+];
+
+function fakeWorker(answers: DisplayStateAnswer[] = [{ status: "ready", plan: PLAN }], ads: ListingSummary[] = ADS) {
   const asked: string[] = [];
   const queue = [...answers];
   const worker: WorkerPort = {
     displayState: vi.fn(async () => {
       asked.push("display-state");
       return queue.length > 1 ? (queue.shift() as DisplayStateAnswer) : (queue[0] as DisplayStateAnswer);
+    }),
+    ads: vi.fn(async () => {
+      asked.push("list-ads");
+      return ads;
     }),
     signIn: vi.fn(async () => {
       asked.push("sign-in");
@@ -106,8 +117,62 @@ describe("signed in", () => {
     await show(worker);
     await click("Refresh");
 
-    expect(asked).toEqual(["display-state", "display-state"]);
+    expect(asked).toEqual(["display-state", "list-ads", "display-state", "list-ads"]);
     expect(text()).toContain("1 relist left");
+  });
+});
+
+describe("the ad list beneath the plan", () => {
+  it("is asked for once the plan says there is a session, and rendered", async () => {
+    const { worker, asked } = fakeWorker();
+
+    await show(worker);
+
+    expect(asked).toEqual(["display-state", "list-ads"]);
+    expect(text()).toContain("Vintage Eames lounge chair");
+    expect(text()).toContain("2 relists left");
+  });
+
+  it("is never asked for when nobody is signed in", async () => {
+    // The list is a request to marktplaats.nl in the user's own session, and the
+    // contract's gating table has a signed-out popup make none.
+    const { worker, asked } = fakeWorker([{ status: "signed-out" }]);
+
+    await show(worker);
+
+    expect(asked).toEqual(["display-state"]);
+    expect(worker.ads).not.toHaveBeenCalled();
+  });
+
+  it("and not when the backend could not be reached either", async () => {
+    const { worker, asked } = fakeWorker([{ status: "unavailable" }]);
+
+    await show(worker);
+
+    expect(asked).toEqual(["display-state"]);
+  });
+
+  it("failing does not take the plan down with it", async () => {
+    // Two different places — ours and Marktplaats's. A user whose quota is fine
+    // should be told that, beside the reason their ads are missing.
+    const { worker } = fakeWorker();
+    worker.ads = vi.fn(async () => {
+      throw new NoMarktplaatsTabError();
+    });
+
+    await show(worker);
+
+    expect(text()).toContain("2 relists left");
+    expect(text()).toContain("Could not load your ads.");
+    expect(text()).toContain("Open marktplaats.nl in a tab");
+  });
+
+  it("says so plainly when the account has none", async () => {
+    const { worker } = fakeWorker([{ status: "ready", plan: PLAN }], []);
+
+    await show(worker);
+
+    expect(text()).toContain("You have no active ads.");
   });
 });
 
@@ -134,7 +199,7 @@ describe("signed out", () => {
     await show(worker);
     await click("Sign in");
 
-    expect(asked).toEqual(["display-state", "sign-in", "display-state"]);
+    expect(asked).toEqual(["display-state", "sign-in", "display-state", "list-ads"]);
     expect(text()).toContain("2 relists left");
   });
 
@@ -196,7 +261,7 @@ describe("signing out", () => {
     await show(worker);
     await click("Sign out");
 
-    expect(asked).toEqual(["display-state", "sign-out"]);
+    expect(asked).toEqual(["display-state", "list-ads", "sign-out"]);
     expect(text()).toContain("Sign in");
     expect(text()).not.toContain("2 relists left");
   });

@@ -126,10 +126,11 @@ console you paste into an issue carries none of them.
 
 ### From the popup
 
-The popup is React now (#38, #39): sign in, the plan and what is left of it, and
-the user's own ads beneath it. **There is no Repost button yet** — the row's
-idle / busy / done / failed machine and the one-relist-at-a-time lock are T30b
-(#79), so until then a relist is run from the console below.
+The popup is React now (#38, #39, #79): sign in, the plan and what is left of it,
+the user's own ads beneath it, and a **Repost** button on each row. The button
+asks the background worker to run the relist — never the popup itself, since
+closing it mid-relist must not strand an ad between the delete and the re-create
+— and the worker authorizes with our API before anything happens (#35).
 
 What the popup shows, and what each one proves:
 
@@ -140,6 +141,11 @@ What the popup shows, and what each one proves:
 | the ads, with titles and prices | the content script reached Marktplaats in the user's own session |
 | **You have no active ads.** | it reached Marktplaats and the account has none — an answer, not a failure |
 | **Could not load your ads. Open marktplaats.nl in a tab…** | the relay had no tab to talk to. The other messages name a login, a pending spike's endpoint, or the HTTP status Marktplaats refused with |
+| a row saying *Reposting…*, with every other button locked | one relist at a time (#79). It is serialisation, **not** pacing — jitter is #54 and does not exist yet |
+| **Reposted** + *Reloading your ads…* | the ad was deleted and posted again, and the list and the quota are both being re-read |
+| *Nothing was reposted — your ad is untouched* + **Try again** | it failed before the delete. The unit is handed back (#35) |
+| *Your ad was removed but posting it again failed. It is saved in the extension* + **Retry** | the snapshot is holding the only copy (ADR-0003). **Retry resumes it rather than starting over**, which is what puts the ad back |
+| a locked button + *You have used your relists for this period* | the backend refused. The copy is provisional — the designed prompts are #41 |
 | **Can't reach {brand} right now** | *our* backend is down, or answered something unreadable. Never a plan — fail-closed applies to display |
 
 The last two are worth telling apart while testing: the ad list comes from

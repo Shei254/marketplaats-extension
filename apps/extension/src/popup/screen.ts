@@ -1,6 +1,7 @@
 import type { DisplayState } from "@mprelist/contracts";
 
 import type { DisplayStateAnswer } from "../api/display-state";
+import type { WireRelistOutcome } from "../background/messages";
 import type { ListingSummary } from "../domain/types";
 
 /**
@@ -56,6 +57,14 @@ export interface WorkerPort {
    * decides what the screen says, and only the popup knows how to say it.
    */
   ads(): Promise<ListingSummary[]>;
+  /**
+   * Relist an ad, or resume one the extension is holding a snapshot of. Both run
+   * in the worker for the reason ADR-0003 gives — a popup closed mid-relist must
+   * not strand an ad between the delete and the re-create — and both answer with
+   * an outcome rather than throwing, refusals included (T26, #35).
+   */
+  relist(listingId: string): Promise<WireRelistOutcome>;
+  retry(listingId: string): Promise<WireRelistOutcome>;
   signIn(): Promise<void>;
   signOut(): Promise<void>;
 }

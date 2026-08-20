@@ -49,6 +49,14 @@ function fakeWorker(answers: DisplayStateAnswer[] = [{ status: "ready", plan: PL
       asked.push("list-ads");
       return ads;
     }),
+    relist: vi.fn(async () => {
+      asked.push("relist");
+      return { status: "relisted" } as const;
+    }),
+    retry: vi.fn(async () => {
+      asked.push("retry");
+      return { status: "relisted" } as const;
+    }),
     signIn: vi.fn(async () => {
       asked.push("sign-in");
     }),

@@ -1,6 +1,6 @@
 import type { DisplayStateAnswer } from "../api/display-state";
 import type { ListingSummary } from "../domain/types";
-import type { BackgroundRequest, BackgroundResponse } from "../background/messages";
+import type { BackgroundRequest, BackgroundResponse, WireRelistOutcome } from "../background/messages";
 import { fromWireError } from "../content/messages";
 import type { WorkerPort } from "./screen";
 
@@ -31,6 +31,12 @@ export function workerPort(): WorkerPort {
      */
     async ads(): Promise<ListingSummary[]> {
       return ask({ kind: "list-ads" });
+    },
+    async relist(listingId: string): Promise<WireRelistOutcome> {
+      return ask({ kind: "relist", listingId });
+    },
+    async retry(listingId: string): Promise<WireRelistOutcome> {
+      return ask({ kind: "retry", listingId });
     },
     async signIn(): Promise<void> {
       await ask({ kind: "sign-in" });

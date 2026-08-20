@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState, type JSX } from "react";
 
 import { ADS_LOADING, describeAdsFailure, type AdsView } from "./ads";
 import { adListCss, popupCss } from "./popup-styles";
+import { AdList } from "./AdList";
 import { LOADING, screenFor, type Screen, type WorkerPort } from "./screen";
 import { LoadingScreen, SignedInScreen, SignedOutScreen, UnavailableScreen } from "./screens";
 
@@ -89,7 +90,7 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
     <>
       <UiStyles />
       <style dangerouslySetInnerHTML={{ __html: `${popupCss}\n${adListCss}` }} />
-      <div className="mp-root">{body(screen, { load, signIn, signOut, busy, ads })}</div>
+      <div className="mp-root">{body(screen, { load, signIn, signOut, busy, ads, worker })}</div>
     </>
   );
 }
@@ -100,9 +101,10 @@ interface Handlers {
   signOut: () => void;
   busy: boolean;
   ads: AdsView;
+  worker: WorkerPort;
 }
 
-function body(screen: Screen, { load, signIn, signOut, busy, ads }: Handlers): JSX.Element {
+function body(screen: Screen, { load, signIn, signOut, busy, ads, worker }: Handlers): JSX.Element {
   switch (screen.screen) {
     case "loading":
       return <LoadingScreen />;
@@ -111,7 +113,11 @@ function body(screen: Screen, { load, signIn, signOut, busy, ads }: Handlers): J
     case "unavailable":
       return <UnavailableScreen onRetry={load} busy={busy} />;
     case "signed-in":
-      return <SignedInScreen plan={screen.plan} ads={ads} onRefresh={load} onSignOut={signOut} busy={busy} />;
+      return (
+        <SignedInScreen plan={screen.plan} onRefresh={load} onSignOut={signOut} busy={busy}>
+          <AdList view={ads} worker={worker} onRelisted={load} />
+        </SignedInScreen>
+      );
   }
 }
 

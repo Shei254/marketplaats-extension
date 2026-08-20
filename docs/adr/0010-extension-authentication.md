@@ -86,6 +86,10 @@ Nothing in the repository, in `infra/README.md`, or in a developer's shell histo
 could go stale. The one place our derivation is checked against Chrome's is step 1 of
 [`../click-through.md`](../click-through.md) — a unit test can only prove we are self-consistent.
 
+**Confirmed 2026-08-20:** the extension was loaded unpacked and Chrome showed
+`dolloiambeojifmnofjchofbnepodiof`, matching `npm run extension-id`. So the derivation in
+`scripts/extension-key.mjs` is not merely self-consistent — it agrees with the implementation that matters.
+
 **The remaining risk is the one this ADR named:** forgetting the switch at publish. It is written into
 [#87 (T56 · Domain, TLS, and the production realm)](https://github.com/Shei254/marketplaats-extension/issues/87)
 rather than left to memory, because the production realm is built from scratch there and is the last moment

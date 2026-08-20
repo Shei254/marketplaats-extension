@@ -6,6 +6,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { readBrand } from "./brand.mjs";
+import { extensionIdFromKey } from "./extension-key.mjs";
 import { DEV_HOOK_NAMES } from "../src/background/dev-hooks";
 import { installChromeStub, type ChromeStub } from "../src/testing/chrome-stub";
 
@@ -151,5 +153,48 @@ describe("extension build", () => {
     for (const hook of DEV_HOOK_NAMES) {
       expect(typeof global[hook], `${hook} is not callable`).toBe("function");
     }
+  });
+
+  /**
+   * The brand is resolved at build time (T48, #78), so the emitted artefact is the
+   * only honest place to assert it — scripts/brand.test.ts proves the resolver, and
+   * a resolver nothing calls would pass every one of those tests.
+   */
+  it("resolves the brand into the emitted manifest and popup", async () => {
+    const brand = await readBrand();
+    const manifest = JSON.parse(await readFile(join(production.dir, "manifest.json"), "utf8")) as {
+      name: string;
+      description: string;
+      action: { default_title: string };
+    };
+
+    expect(manifest.name).toBe(brand.name);
+    expect(manifest.action.default_title).toBe(brand.name);
+    expect(manifest.description).toBe(brand.tagline);
+    expect(await readFile(join(production.dir, "popup.html"), "utf8")).toContain(brand.name);
+  });
+
+  it("leaves no unresolved token in anything it emits", async () => {
+    // A template token that shipped would reach the Web Store listing as the
+    // literal `{{brand.name}}`. Checked over every emitted file rather than the
+    // two we happen to template, so a third one added later is covered by default.
+    for (const name of production.files) {
+      const contents = await readFile(join(production.dir, name), "utf8");
+      expect(contents, `${name} carries an unresolved token`).not.toMatch(/\{\{\s*brand\./);
+    }
+  });
+
+  it("passes the pinned `key` through untouched", async () => {
+    // The key is the extension id (T44, #13), which is the Keycloak redirect URI,
+    // in a realm that imports once. Templating the manifest must not disturb it.
+    const template = JSON.parse(
+      await readFile(new URL("../public/manifest.template.json", import.meta.url), "utf8"),
+    ) as { key: string };
+    const built = JSON.parse(await readFile(join(production.dir, "manifest.json"), "utf8")) as {
+      key: string;
+    };
+
+    expect(built.key).toBe(template.key);
+    expect(extensionIdFromKey(built.key)).toMatch(/^[a-p]{32}$/);
   });
 });

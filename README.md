@@ -83,8 +83,10 @@ every checkout — not the path-derived one an unkeyed extension gets. `npm run 
 loaded. The Web Store will assign a different id at publish, which is a one-command switch
 (`extension-key … set`) and T56's job — see [`infra/README.md`](infra/README.md#your-extension-id).
 
-The extension's user-facing name comes from the root `brand.json` and is templated into the manifest at build
-time (T48), so renaming the product before launch is one edit and a rebuild. That is separate from
+The extension's user-facing name comes from the root [`brand.json`](brand.json). `public/manifest.template.json`
+and `popup.html` carry `{{brand.name}}` tokens that the build resolves, so renaming the product before launch
+is one edit and a rebuild — and a token that does not resolve **fails the build** rather than shipping as
+literal braces. That is separate from
 `mprelist`, the internal identifier frozen into `com.mprelist`, `@mprelist/*`, the Keycloak realm and the
 database. The brand must never lead with "Marktplaats" — Web Store policy forbids trademark use that implies
 endorsement, so it belongs in the description.

@@ -118,7 +118,7 @@ presents a spent token and the session dies. Refresh has to be serialised in the
 ### Your extension id
 
 The redirect URI needs an extension id, and **this repository now knows one**. T44 (#13) pinned it with a
-`key` in `apps/extension/public/manifest.json` — ADR-0010's second row — so the id no longer depends on which
+`key` in `apps/extension/public/manifest.template.json` — ADR-0010's second row — so the id no longer depends on which
 machine or which directory the extension was loaded from. It is **derived from that key on demand and never
 written down twice**:
 

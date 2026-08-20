@@ -60,7 +60,11 @@ the server.
 ## What T44 actually did (2026-08-20)
 The recommended sequence above was "start on the third row, move to the first before any shared environment".
 **We took the second row instead** — our own RSA key, generated locally, its public half committed as `key`
-in `apps/extension/public/manifest.json`. The id is `dolloiambeojifmnofjchofbnepodiof`.
+in `apps/extension/public/manifest.template.json`. The id is `dolloiambeojifmnofjchofbnepodiof`.
+
+(That file was `public/manifest.json` when T44 landed; T48 renamed it to a template and the build now resolves
+brand tokens into it. `key` passes through untouched, which `scripts/build.test.ts` asserts against the
+emitted manifest.)
 
 Why not the third row: it is per-machine and per-checkout, and the id is baked into a redirect URI in a realm
 that imports on **first start only**. "Free" is only free until the second machine, and the failure it

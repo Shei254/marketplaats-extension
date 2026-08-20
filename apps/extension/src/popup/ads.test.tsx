@@ -5,15 +5,17 @@ import { ApiRequestError, NoMarktplaatsTabError } from "../adapters/relay-marktp
 import { NotAuthenticatedError, SpikePendingError } from "../domain/marktplaats-client";
 import type { ListingSummary } from "../domain/types";
 import { describeAdsFailure, formatEuro } from "./ads";
-import { Ads } from "./screens";
+import { AdList } from "./AdList";
+import type { WorkerPort } from "./screen";
 
 const ADS: ListingSummary[] = [
   { id: "m1", title: "Vintage Eames lounge chair", priceCents: 125_000 },
   { id: "m2", title: "Trek Marlin 7 mountainbike (M)", priceCents: 48_000 },
 ];
 
-const render = (view: Parameters<typeof Ads>[0]["view"]): string =>
-  renderToStaticMarkup(<Ads view={view} />);
+/** The list, rendered without any of its behaviour — that is `AdList.test.tsx`. */
+const render = (view: Parameters<typeof AdList>[0]["view"]): string =>
+  renderToStaticMarkup(<AdList view={view} worker={{} as WorkerPort} onRelisted={() => {}} />);
 
 describe("the ads themselves", () => {
   it("are a row each, titled and priced", () => {
@@ -33,10 +35,13 @@ describe("the ads themselves", () => {
     expect(render({ status: "ready", ads: [long] })).toContain(`title="${"A".repeat(120)}"`);
   });
 
-  it("carry no Repost button yet, because pressing one would do nothing", () => {
-    // The row machine and the one-relist-at-a-time lock are T30b (#79). A button
-    // that looked live and did nothing is the worse half of this split.
-    expect(render({ status: "ready", ads: ADS })).not.toContain("<button");
+  it("each carry a Repost button that says what pressing it does", () => {
+    // Repost deletes the ad first (ADR-0002), and a button that says only
+    // "Repost" says so nowhere. The POC popup put it in the hover text.
+    const markup = render({ status: "ready", ads: ADS });
+
+    expect(markup).toContain("Repost</button>");
+    expect(markup).toContain("and post it again, so it lands back on top");
   });
 });
 

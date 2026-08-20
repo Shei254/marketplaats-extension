@@ -137,4 +137,7 @@ export const adListCss = `
   color: var(--mp-muted);
 }
 .popup-ads-failed { padding: 10px var(--mp-space-md) var(--mp-space-md); }
+
+/* The row that is running. One at a time (T30b, #79), so this is never two. */
+.popup-ad[data-state="busy"] { background: var(--mp-hover); }
 `.trim();

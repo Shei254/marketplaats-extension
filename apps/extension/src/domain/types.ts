@@ -207,6 +207,17 @@ export interface AdSnapshot {
   photos: Photo[];
   phase: SnapshotPhase;
   createdAt: number;
+  /**
+   * The reservation the backend took when it authorized this relist (T26, #35) —
+   * the `jti` its outcome is reported against.
+   *
+   * It rides in the snapshot because a relist can outlive the worker that started
+   * it: an MV3 worker is evicted mid-flight, and the resume hours later is still
+   * the same relist and still owes the same reservation an answer. Optional
+   * because a snapshot written before this existed has none, and because a resume
+   * that needs no fresh grant may have nothing to report against.
+   */
+  grantJti?: string | null;
 }
 
 export interface UploadPhoto {

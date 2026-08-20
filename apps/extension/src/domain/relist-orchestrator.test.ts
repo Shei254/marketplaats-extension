@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { RelistOrchestrator } from "./relist-orchestrator";
 import {
   FakeMarktplaatsClient,
+  FakeRelistPermission,
   InMemorySnapshotStore,
+  refusing,
   sampleAd,
   type FakeEvent,
 } from "./testing/fakes";
@@ -26,7 +28,8 @@ describe("RelistOrchestrator", () => {
   it("relists an ad by deleting the original and creating a fresh identical one", async () => {
     const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() } });
     const store = new InMemorySnapshotStore();
-    const orchestrator = new RelistOrchestrator(client, store);
+    const gate = new FakeRelistPermission();
+    const orchestrator = new RelistOrchestrator(client, store, gate);
 
     const outcome = await orchestrator.relist("ad-1");
 
@@ -40,7 +43,8 @@ describe("RelistOrchestrator", () => {
     const events: FakeEvent[] = [];
     const client = new FakeMarktplaatsClient(events, { ads: { "ad-1": sampleAd() } });
     const store = new InMemorySnapshotStore(events);
-    const orchestrator = new RelistOrchestrator(client, store);
+    const gate = new FakeRelistPermission();
+    const orchestrator = new RelistOrchestrator(client, store, gate);
 
     await orchestrator.relist("ad-1");
 
@@ -63,7 +67,8 @@ describe("RelistOrchestrator", () => {
       deleteError: new Error("network down"),
     });
     const store = new InMemorySnapshotStore();
-    const orchestrator = new RelistOrchestrator(client, store);
+    const gate = new FakeRelistPermission();
+    const orchestrator = new RelistOrchestrator(client, store, gate);
 
     const outcome = await orchestrator.relist("ad-1");
 
@@ -75,7 +80,8 @@ describe("RelistOrchestrator", () => {
   it("reports failure without saving a snapshot when the ad cannot be captured", async () => {
     const client = new FakeMarktplaatsClient([], { ads: {} });
     const store = new InMemorySnapshotStore();
-    const orchestrator = new RelistOrchestrator(client, store);
+    const gate = new FakeRelistPermission();
+    const orchestrator = new RelistOrchestrator(client, store, gate);
 
     const outcome = await orchestrator.relist("missing");
 
@@ -89,7 +95,8 @@ describe("RelistOrchestrator", () => {
       createFailures: 1, // first create throws, second succeeds
     });
     const store = new InMemorySnapshotStore();
-    const orchestrator = new RelistOrchestrator(client, store);
+    const gate = new FakeRelistPermission();
+    const orchestrator = new RelistOrchestrator(client, store, gate);
 
     const first = await orchestrator.relist("ad-1");
     expect(first.status).toBe("failed-recoverable");
@@ -108,6 +115,7 @@ describe("RelistOrchestrator", () => {
     const ad = sampleAd();
     const client = new FakeMarktplaatsClient([], { ads: {} });
     const store = new InMemorySnapshotStore();
+    const gate = new FakeRelistPermission();
     store.seed({
       listingId: "ad-1",
       draft: ad.draft,
@@ -115,7 +123,7 @@ describe("RelistOrchestrator", () => {
       phase: "deleted",
       createdAt: 1,
     });
-    const orchestrator = new RelistOrchestrator(client, store);
+    const orchestrator = new RelistOrchestrator(client, store, gate);
 
     const [outcome] = await orchestrator.resumeAll();
 
@@ -128,6 +136,7 @@ describe("RelistOrchestrator", () => {
     const ad = sampleAd();
     const client = new FakeMarktplaatsClient([], { ads: { "ad-1": ad } });
     const store = new InMemorySnapshotStore();
+    const gate = new FakeRelistPermission();
     store.seed({
       listingId: "ad-1",
       draft: ad.draft,
@@ -135,7 +144,7 @@ describe("RelistOrchestrator", () => {
       phase: "captured",
       createdAt: 1,
     });
-    const orchestrator = new RelistOrchestrator(client, store);
+    const orchestrator = new RelistOrchestrator(client, store, gate);
 
     const [outcome] = await orchestrator.resumeAll();
 

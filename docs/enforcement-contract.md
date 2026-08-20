@@ -281,6 +281,25 @@ Endpoint paths, CSRF extraction rules, and DOM anchors, overriding the extension
 The extension performs a relist **only** on a fresh `200` from `authorize`. Any of {network error, timeout,
 non-200} → **abort, do not relist**, surface the typed reason. No cached/offline grant exists.
 
+**Amended 2026-08-20 (#35) — what an *interrupted* relist needs.** An MV3 worker is evicted mid-flight, so a
+relist can be finished minutes or hours after the grant that started it expired. The rule is not "resume
+re-authorizes" but the narrower one that says why:
+
+| The snapshot says | Finishing it can | So it |
+|---|---|---|
+| `captured` — the delete may not have run | delete a listing | **needs a fresh `200`**, like any other relist |
+| `deleted` — the ad is already gone | only put the ad back | **does not** |
+
+Both halves matter. The snapshot store is `chrome.storage.local`, which under ADR-0007 the *user* can write,
+so a fabricated `captured` snapshot must not be a way to delete-and-recreate for nothing. And refusing the
+other half would leave somebody's listing deleted because their quota ran out mid-relist — the exact outcome
+ADR-0003 keeps a snapshot to prevent, and a fabricated `deleted` snapshot buys nothing anyway, since posting
+an ad is something anyone may do on Marktplaats for free.
+
+**The reservation rides in the snapshot**, so whichever grant paid for the attempt is the one its outcome is
+reported against — however long later, and whether or not reconciliation has already refunded it (a late
+report still wins, above).
+
 ## Extension gating states (UI)
 | Backend result | Control state |
 |---|---|

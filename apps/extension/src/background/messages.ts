@@ -1,5 +1,6 @@
 import type { DisplayStateAnswer } from "../api/display-state";
 import type { AuthState } from "../auth/session";
+import type { LockedState } from "../gate/authorization-gate";
 import type { RelistOutcome } from "../domain/relist-orchestrator";
 import type { ListingSummary } from "../domain/types";
 import { toWireError, type WireError } from "../content/messages";
@@ -42,7 +43,14 @@ export type WireRelistOutcome =
   /** Nothing was removed from Marktplaats; the original ad is intact. */
   | { status: "failed-before-delete"; error: WireError }
   /** The original was deleted but re-create failed; snapshot retained for retry. */
-  | { status: "failed-recoverable"; listingId: string; error: WireError };
+  | { status: "failed-recoverable"; listingId: string; error: WireError }
+  /**
+   * The backend refused, so nothing ran (#35). It crosses as it stands: a
+   * `LockedState` is a code and at most one number, and the row that renders it
+   * (T30b, #79) reads the same value the gate produced rather than a second
+   * spelling of it.
+   */
+  | { status: "refused"; locked: LockedState };
 
 /**
  * What each question is answered with — one table rather than a response union
@@ -71,6 +79,6 @@ export type BackgroundResponse<K extends BackgroundRequest["kind"] = BackgroundR
   | { ok: false; error: WireError };
 
 export function toWireOutcome(outcome: RelistOutcome): WireRelistOutcome {
-  if (outcome.status === "relisted") return outcome;
+  if (outcome.status === "relisted" || outcome.status === "refused") return outcome;
   return { ...outcome, error: toWireError(outcome.error) };
 }

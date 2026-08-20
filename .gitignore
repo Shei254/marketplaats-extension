@@ -11,3 +11,7 @@ ralf/
 # .dc.html sources beside it. Re-seed with docs/design/README.md rather than commit it.
 docs/design/*.html
 !docs/design/*.dc.html
+
+# The extension's private signing key. The *public* half is committed, in
+# apps/extension/public/manifest.json as `key` — that is what pins the id.
+apps/extension/keys/

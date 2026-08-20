@@ -56,3 +56,33 @@ golden-payload tests, monorepo move, and backend modules all proceed independent
 Central, immediate session revocation becomes a requirement, or a second IdP has to be supported without
 shipping an extension update → move to the backend-brokered (BFF) option, which confines that change to
 the server.
+
+## What T44 actually did (2026-08-20)
+The recommended sequence above was "start on the third row, move to the first before any shared environment".
+**We took the second row instead** — our own RSA key, generated locally, its public half committed as `key`
+in `apps/extension/public/manifest.json`. The id is `dolloiambeojifmnofjchofbnepodiof`.
+
+Why not the third row: it is per-machine and per-checkout, and the id is baked into a redirect URI in a realm
+that imports on **first start only**. "Free" is only free until the second machine, and the failure it
+produces then is an `Invalid parameter: redirect_uri` a long way from its cause.
+
+Why not the first: a Web Store developer account was not in hand, and the account is wanted for the listing
+anyway (T58) rather than for this. Deferring it costs one redirect-URI change at publish, which is the stated
+cost of this row.
+
+**That cost is paid for by making the switch one command rather than a hunt.** `scripts/extension-key.mjs`
+holds the id in exactly one place — it is *derived* from the manifest key, never stored — so:
+
+```bash
+npm run extension-key -w @mprelist/extension -- set <the Web Store public key>   # at publish
+MPRELIST_EXTENSION_ID=$(npm run -s extension-id -w @mprelist/extension)          # everywhere else
+```
+
+Nothing in the repository, in `infra/README.md`, or in a developer's shell history holds a literal copy that
+could go stale. The one place our derivation is checked against Chrome's is step 1 of
+[`../click-through.md`](../click-through.md) — a unit test can only prove we are self-consistent.
+
+**The remaining risk is the one this ADR named:** forgetting the switch at publish. It is written into
+[#87 (T56 · Domain, TLS, and the production realm)](https://github.com/Shei254/marketplaats-extension/issues/87)
+rather than left to memory, because the production realm is built from scratch there and is the last moment
+the id can be got right for free.

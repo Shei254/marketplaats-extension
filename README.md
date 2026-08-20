@@ -62,9 +62,12 @@ users — imported from [`infra/keycloak/`](infra/keycloak) on **first start onl
 id the redirect URI is built from has to be in the environment of that first `up`:
 
 ```bash
-MPRELIST_EXTENSION_ID=<your 32-character id> docker compose -f infra/docker-compose.yml up -d --wait
+MPRELIST_EXTENSION_ID=$(npm run -s extension-id -w @mprelist/extension) \
+  docker compose -f infra/docker-compose.yml up -d --wait
 ```
 
+That id is **derived, not stored**: T44 pinned it with a `key` in the extension manifest, and
+`npm run extension-id` recomputes it from that key rather than reading a copy somebody kept in sync by hand.
 Unset, sign-in from a real extension is refused rather than misrouted, and changing it afterwards means
 `down -v`. Development credentials, ports, the realm and how to reset are in
 [`infra/README.md`](infra/README.md).
@@ -73,6 +76,12 @@ Unset, sign-in from a real extension is refused rather than misrouted, and chang
 
 `npm run build` writes `apps/extension/dist/`. Load that directory unpacked at `chrome://extensions` with
 developer mode on.
+
+The id Chrome shows there is **pinned by the `key` in the manifest**, so it is the same on every machine and
+every checkout — not the path-derived one an unkeyed extension gets. `npm run extension-id -w
+@mprelist/extension` prints what it should be; if Chrome disagrees, the manifest is not the one that was
+loaded. The Web Store will assign a different id at publish, which is a one-command switch
+(`extension-key … set`) and T56's job — see [`infra/README.md`](infra/README.md#your-extension-id).
 
 The extension's user-facing name comes from the root `brand.json` and is templated into the manifest at build
 time (T48), so renaming the product before launch is one edit and a rebuild. That is separate from

@@ -1,4 +1,5 @@
 import type { DisplayStateAnswer } from "../api/display-state";
+import type { ListingSummary } from "../domain/types";
 import type { BackgroundRequest, BackgroundResponse } from "../background/messages";
 import { fromWireError } from "../content/messages";
 import type { WorkerPort } from "./screen";
@@ -21,6 +22,15 @@ export function workerPort(): WorkerPort {
       } catch {
         return { status: "unavailable" };
       }
+    },
+    /**
+     * Unlike the display state, a failure here is raised rather than flattened:
+     * the popup has different words for a missing marktplaats.nl tab and a
+     * Marktplaats that refused the request, and both are things the user can act
+     * on. The typed error survives the boundary through `fromWireError`.
+     */
+    async ads(): Promise<ListingSummary[]> {
+      return ask({ kind: "list-ads" });
     },
     async signIn(): Promise<void> {
       await ask({ kind: "sign-in" });

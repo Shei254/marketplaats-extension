@@ -59,6 +59,17 @@ mprelist:
   cors:
     allowed-origins: chrome-extension://${MPRELIST_EXTENSION_ID:dolloiambeojifmnofjchofbnepodiof}
 
+  # #82: the signing secret of the Stripe webhook endpoint, and the whole of the authentication on the one
+  # route here that no bearer token reaches. Stripe signs the exact bytes it sends with it.
+  #
+  # From the environment with an **empty** default, unlike the settings below, and the difference is that this
+  # one is a secret: it cannot be committed, it is different for every developer's `stripe listen` session and
+  # different again for each deployed endpoint. Unset, the application starts and says so at WARN, and every
+  # event is refused — which is the only safe reading of "we cannot tell whether this is Stripe", and keeps a
+  # developer who is working on something else from having to hold a Stripe secret to run the API at all.
+  stripe:
+    webhook-secret: ${MPRELIST_STRIPE_WEBHOOK_SECRET:}
+
   # #24: what to do about a relist that was authorized and never reported on. Both settings are here rather
   # than defaulted in code, and neither has a fallback — a missing one fails startup instead of running with
   # a window nobody chose, because the wrong value here is silent in both directions.

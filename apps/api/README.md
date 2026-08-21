@@ -91,11 +91,12 @@ Each is a direct sub-package of `com.mprelist`, which is what makes it an applic
 | `enforcement` | `authorize` / `complete`, the gate, and the reconciliation behind it | [#22](https://github.com/Shei254/marketplaats-extension/issues/22) — [below](#the-gate) — [#23](https://github.com/Shei254/marketplaats-extension/issues/23) — [below](#what-the-extension-reports-back) — and [#24](https://github.com/Shei254/marketplaats-extension/issues/24) — [below](#what-nobody-ever-reports-back) |
 | `display` | `GET /api/me`: the unsigned snapshot the popup and the dashboard render from, composed from the four above | [#26](https://github.com/Shei254/marketplaats-extension/issues/26) — [below](#what-the-caller-is-shown) |
 | `admin` | operator endpoints behind the `ADMIN` role | [#27](https://github.com/Shei254/marketplaats-extension/issues/27) — [below](#the-admin-guard) — which is the guard and no endpoint; the endpoints are [#84](https://github.com/Shei254/marketplaats-extension/issues/84) |
+| `billing` | what Stripe tells us: the webhook, and the only Stripe dependency in the application | [#82](https://github.com/Shei254/marketplaats-extension/issues/82) — [below](#where-a-plan-comes-from) — syncs a Price into a tier; [#30](https://github.com/Shei254/marketplaats-extension/issues/30) mirrors subscriptions, [#29](https://github.com/Shei254/marketplaats-extension/issues/29) and [#31](https://github.com/Shei254/marketplaats-extension/issues/31) hand out the redirects |
 
 Every module now holds at least one class, `admin` included since #27, which changes what its
 `@ApplicationModule` annotation is doing. Modulith's default detection takes every direct sub-package that
-*holds* a class, so on all six the annotation is now consistency rather than what makes them visible — and
-`allSixModulesAreVisibleToTheCheck` no longer fails if `admin`'s `package-info` loses it. It did until this
+*holds* a class, so on all seven the annotation is now consistency rather than what makes them visible — and
+`allSevenModulesAreVisibleToTheCheck` no longer fails if `admin`'s `package-info` loses it. It did until this
 ticket, because an empty package compiles to no class file at all and a module Modulith cannot see is a
 module it does not check; that was the one place the annotation was load-bearing, and the mutation table
 below records both readings and when each was true.
@@ -128,7 +129,7 @@ Mutation-verified — each of these was applied, observed, and reverted:
 |---|---|
 | `enforcement` references `identity.internal.TokenParser` | `noModuleReachesIntoAnothersInternals` |
 | the fixture's `beta` stops reaching into `alpha.internal` | `andTheCheckAboveIsWhatWouldCatchOneThatDid` |
-| `admin`'s `package-info` loses `@ApplicationModule` | **nothing, since #27** — the module now holds a class and is detected either way. It failed `allSixModulesAreVisibleToTheCheck` while the package was empty, which is what that row said before this ticket; re-run and observed on both sides of the change |
+| `admin`'s `package-info` loses `@ApplicationModule` | **nothing, since #27** — the module now holds a class and is detected either way. It failed `allSevenModulesAreVisibleToTheCheck` — `allSix…` as it was then called — while the package was empty, which is what that row said before this ticket; re-run and observed on both sides of the change |
 | `subscription` holds a field of type `enforcement.Quotas`, which is `/api/me` written in the module whose concept dominates it | `noModuleReachesIntoAnothersInternals`, by name: `Cycle detected: Slice enforcement -> Slice subscription -> Slice enforcement`. It is why `display` is a module of its own (#26) |
 | `catalog`'s `package-info` loses `@ApplicationModule` | **nothing** — corrected in #26. The row was recorded against the wrong module: a package holding classes is detected either way, and `display` shipped with the same mutation surviving before this was chased down |
 
@@ -1265,6 +1266,104 @@ Mutation-verified — each applied, observed, reverted:
 | one letter of the allowed origin's id changed | `theOriginThisApiAllowsIsDerivedFromTheKeyTheExtensionIsPinnedBy` — which is what makes writing the id here safe at all |
 
 
+## Where a plan comes from
+
+`POST /api/stripe/webhook`, and it is the first route here that no bearer token reaches
+([#82](https://github.com/Shei254/marketplaats-extension/issues/82), T51).
+
+[ADR-0019](../../docs/adr/0019-plans-are-stripe-first-and-webhook-synced.md) makes **Stripe the place a plan
+is created** and this catalog the place it is given a quota. The operator creates a Product and a Price in
+the Stripe dashboard, tagged `metadata.tier_code`; `price.created` and `price.updated` arrive here and upsert
+the tier that tag names. So the link between what a plan costs and what it grants is never typed twice, which
+is the whole reason the tag is the handle rather than a price id somebody pastes into a form.
+
+**Three rules, and the SQL in `TierRows.adopt` is the whole of the enforcement of them:**
+
+| | |
+|---|---|
+| A quota is never written | `relist_quota_per_period` appears only in the `insert`, and only as the `0` a draft starts at. The `do update` arm cannot raise or lower one, because it does not name the column. A Price tagged `pro` fills in the seeded row and leaves its 50 alone — the rule `V2__seed_tier_catalog.sql` already states for itself |
+| An unknown code drafts a tier | quota 0, `published = false`. A Price that exists before anybody has said what it grants sells nothing rather than selling everything |
+| Publication only ever rises | and only when a tier **with a quota** takes its **first** Price, which is what fills in the seeded `pro` and `power`. A later Price repoints the tier and leaves `published` alone, so a tier an operator took off sale does not come back on it because Stripe sent an update |
+
+**A Price with no `tier_code` is not a plan.** Stripe Prices get created for one-offs, coupons and
+experiments, and a sync that adopted all of them would turn a billing experiment into a tier. The cost is the
+one ADR-0019 names: a tag somebody forgot is **silent**. It is a log line here and it has to be a list in
+T53's admin screen ([#84](https://github.com/Shei254/marketplaats-extension/issues/84)), because absence is
+not a thing anybody notices.
+
+**The name comes from the Price's `nickname`, and only if it has one.** Stripe's nickname is optional and
+usually unset, so it travels as a suggestion: a Price with none leaves the tier called what an operator
+called it, and a draft with none is named after its own code until somebody renames it.
+
+### Why the route is open, and what closes it instead
+
+Stripe holds no account in our realm and could not present a bearer token. What it presents is an HMAC of the
+exact bytes it sent, keyed by a secret only the two ends hold, with a timestamp so a captured request cannot
+be replayed for ever. `SignedByStripe` checks it through Stripe's own library rather than a hand-rolled HMAC:
+the failure mode of getting the compare wrong is a timing oracle nobody would notice.
+
+- **The chain opens exactly this path**, by name, in `ResourceServerSecurity` — `POST` only. That is the rule
+  `RoutesNeedingARole` states for itself: a module may say its routes *need a role*, and **opening** one is a
+  decision that belongs in the chain where a reviewer meets it. The path is therefore spelled twice, and
+  `StripePriceSyncTest` is what holds the two copies together: every request it makes carries no token, so a
+  chain that opened some other path would refuse all of them with `401`.
+- **The body is read as a `String` and verified before anything parses it.** A signature is over bytes; a
+  body bound to a type is a body re-serialised, and re-serialising changes them.
+- **No secret configured refuses everything**, loudly at startup and then silently per event.
+  `mprelist.stripe.webhook-secret` has an *empty* default — unlike the pacing rails, which have no fallback
+  at all — because it is a secret, it cannot be committed, and it is different for every `stripe listen`
+  session. An API that would not boot without one would make every unrelated change need one.
+  `StripeWithoutAWebhookSecretTest` asserts both halves: it starts, and it refuses a perfectly well-formed
+  event.
+
+### What answers what
+
+`400` means we could not tell that this was Stripe, or could not read what it sent. `200` means the event was
+handled **or deliberately ignored** — and the second is the common case, since an endpoint hears about
+everything it is subscribed to and this ticket handles two types. Answering non-2xx to the rest would put the
+endpoint in a permanent retry loop over events it will never act on, which is the state that hides a real
+failure. An operator's mistake — a missing tag, a Price re-tagged onto a tier that would have to steal
+another's — is the same `200` and a log line, for the same reason: retrying cannot fix a tag.
+
+`V5__tier_publication.sql` adds `published`, and with it a constraint: **published implies a price**. Written
+into the schema rather than left to its two readers, so T53's publish button cannot offer a tier whose
+Checkout session could not be opened.
+
+### What is not here
+
+- **Idempotency on the event id.** Nothing needs it yet: an upsert on a tier code says the same thing however
+  often it is said and in whatever order, which `andTheSameEventTwiceIsTheSameRowOnce` asserts. The events
+  where repetition and order *do* change the answer are the subscription ones, so the event log belongs with
+  [#30](https://github.com/Shei254/marketplaats-extension/issues/30).
+- **Archiving.** A `price.updated` carrying `active: false` is adopted like any other: the tier keeps
+  pointing at it. Repointing is create-then-archive, so unpublishing on archive would fight the order the
+  events arrive in. An archived Price a tier still points at is T53's to notice.
+- **A second Price for one tier**, monthly and annual — `tier.stripe_price_id` is `UNIQUE` and single-valued,
+  so the second one repoints the tier rather than joining it. ADR-0019 names the `tier_price` table that
+  would be needed first.
+
+Mutation-verified — each applied, observed, reverted:
+
+| Mutation | Fails |
+|---|---|
+| adoption publishes every tier it touches | `aTierThatGrantsNothingIsNotPublishedByAPriceLandingOnIt`, `andDoesNotRepublishATierSomebodyUnpublished` |
+| the `do update` arm writes a quota too | `andNeverTouchesTheQuota` |
+| a Price with no nickname renames the tier anyway | `andLeavesTheTierNamedWhatItWasNamed` |
+| another tier's Price is taken rather than left | `aPriceAnotherTierHoldsIsLeftWhereItIs` |
+| an unconfigured secret verifies everything | `anEventCarryingNoSignatureIsRefused`, `andRefusesAnEventItCannotCheck` |
+| the signature is not checked at all | four, including `andOneSignedWithSomeOtherSecretIsRefused` |
+| the replay window widened to a year | `andAGenuineOneReplayedTomorrowIsRefused` |
+| the chain no longer opens the webhook | sixteen — every request in the suite comes back `401` |
+| `published` no longer implies a price | `aTierCannotBePublishedWithoutAPrice` |
+| `price.updated` is not synced, only `price.created` | `andDoesNotRepublishATierSomebodyUnpublished` |
+
+**Not verified: no Stripe account has ever sent one of these.** Every event in the suite is hand-built and
+hand-signed with a fake secret — which is the right way round for our end of a published algorithm, but says
+nothing about whether a real Price arrives shaped like these. That is
+[#28](https://github.com/Shei254/marketplaats-extension/issues/28), a runbook, and step 1 of slice C in
+[`docs/click-through.md`](../../docs/click-through.md).
+
+
 ## The realm
 
 `KeycloakRealmTest` and `KeycloakRealmWithoutAnExtensionIdTest` are the only places
@@ -1380,9 +1479,10 @@ Two mutations survive and are left surviving:
   a machine that has none — otherwise this build would fail for most people's default JDK.
 - **Gradle 9.7.0**, via the committed wrapper, pinned by `distributionSha256Sum`.
 - **Spring Boot 4.1.0**, stated once, in the `plugins` block; every Spring dependency takes its version from
-  Boot's BOM. Boot's BOM does not manage Spring Modulith, so **2.1.0** is the one version pinned by hand.
-  Flyway and Testcontainers it does manage, so neither is stated here or anywhere else — and the Postgres
-  *image* is not a version either, since it is read from `infra/docker-compose.yml`.
+  Boot's BOM. Boot's BOM manages neither Spring Modulith nor Stripe, so **2.1.0** and **stripe-java 29.2.0**
+  are the two versions pinned by hand. Flyway and Testcontainers it does manage, so neither is stated here or
+  anywhere else — and the Postgres *image* is not a version either, since it is read from
+  `infra/docker-compose.yml`.
 - Boot 4 splits auto-configuration into per-technology modules, which is why the Flyway dependency is
   `spring-boot-starter-flyway` and not `flyway-core`: the latter would put Flyway on the classpath and leave
   nothing to run it, and an application that quietly migrates nothing starts perfectly well.
@@ -1403,12 +1503,15 @@ next route to test whether `UnreadableRequests`' scope was worth naming.
 rails above refuse a relist that came too soon; making one *arrive* at a human-shaped moment is the
 extension's, and there is no jitter anywhere today — only serialisation.
 
-**What a tier costs.** `TierCatalog` now answers what a tier grants and what it is called — the second
-arrived with [#26](https://github.com/Shei254/marketplaats-extension/issues/26), which had a caller to render
-it to — but nothing about how to sell it. `stripe_price_id` waits for
-[#29](https://github.com/Shei254/marketplaats-extension/issues/29), which opens the Checkout session that
-needs it, and no tier carries one until [#28](https://github.com/Shei254/marketplaats-extension/issues/28)
-creates the Prices by hand.
+**What a tier costs.** `TierCatalog` answers what a tier grants and what it is called, and since
+[#82](https://github.com/Shei254/marketplaats-extension/issues/82) a tier can carry the `stripe_price_id` a
+Stripe Price landed on it — but nothing here reads an *amount*. That is
+[#80](https://github.com/Shei254/marketplaats-extension/issues/80)'s `GET /api/plans`, which joins each
+published tier with its Price and caches what Stripe says, and
+[#29](https://github.com/Shei254/marketplaats-extension/issues/29)'s Checkout session, which is what a price
+id is finally spent on. No tier carries one on any machine until
+[#28](https://github.com/Shei254/marketplaats-extension/issues/28) creates the Prices in the dashboard by
+hand — the sync has nothing to hear about until it does.
 
 Gradle, not npm, and so deliberately **not** an npm workspace — the root scripts skip a directory with no
 `package.json`, and CI runs `./gradlew` here in a job of its own that no npm job waits for

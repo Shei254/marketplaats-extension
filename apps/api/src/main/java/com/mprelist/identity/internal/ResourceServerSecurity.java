@@ -10,6 +10,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -61,6 +62,20 @@ class ResourceServerSecurity {
 				// then closed until that ticket opens it, rather than open until someone notices. #36's
 				// client config is the first that may want opening, and it can say so itself.
 				.authorizeHttpRequests(routes -> {
+					// The one route no token reaches, and it is named here rather than contributed from the
+					// module that serves it. That is the rule `RoutesNeedingARole` states for itself: a module
+					// may say its routes need a role, and opening one is a decision that belongs in the chain
+					// where a reviewer meets it.
+					//
+					// Stripe holds no account in our realm and could not present a bearer token; what it
+					// presents is an HMAC of the exact bytes it sent, keyed by a secret only the two ends
+					// hold, and `SignedByStripe` refuses everything that does not carry one — including every
+					// event, loudly, when no secret is configured. So this line moves the authentication of
+					// this one path rather than removing it.
+					//
+					// POST only, and the exact path: a GET to it is an unauthenticated caller reaching a route
+					// this application does not serve, which should be the 401 every other unknown path gets.
+					routes.requestMatchers(HttpMethod.POST, STRIPE_WEBHOOK).permitAll();
 					guarded.orderedStream()
 							.forEach(rule -> routes.requestMatchers(rule.pattern()).hasRole(rule.realmRole()));
 					routes.anyRequest().authenticated();
@@ -207,6 +222,15 @@ class ResourceServerSecurity {
 	 * refusal no request over a real port can arrange — see the second paragraph of {@link #unauthenticated}.
 	 */
 	static final AuthenticationEntryPoint UNAUTHENTICATED = ResourceServerSecurity::unauthenticated;
+
+	/**
+	 * Stripe's webhook (#82, T51), which {@code billing} serves and spells for itself. Two copies of one path,
+	 * deliberately — {@code identity} importing a constant from a module that already depends on it is the
+	 * cycle {@code RoutesNeedingARole} exists to avoid — and {@code StripePriceSyncTest} is what holds them to
+	 * each other: every request it makes carries no token, so a chain that opened some other path would refuse
+	 * all of them.
+	 */
+	private static final String STRIPE_WEBHOOK = "/api/stripe/webhook";
 
 	private static final AuthenticationEntryPoint CHALLENGE = new BearerTokenAuthenticationEntryPoint();
 

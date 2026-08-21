@@ -145,15 +145,19 @@ What the popup shows, and what each one proves:
 | **Reposted** + *Reloading your ads…* | the ad was deleted and posted again, and the list and the quota are both being re-read |
 | *Nothing was reposted — your ad is untouched* + **Try again** | it failed before the delete. The unit is handed back (#35) |
 | *Your ad was removed but posting it again failed. It is saved in the extension* + **Retry** | the snapshot is holding the only copy (ADR-0003). **Retry resumes it rather than starting over**, which is what puts the ad back |
-| a locked button + *You have used your relists for this period* | the backend refused. The copy is provisional — the designed prompts are #41 |
+| **0 of 3 relists left** on a warning strip, and a prompt saying when they come back | the period is spent (#41). The ads stay listed — a locked button beside them is the conversion surface, and the contract keeps the list ungated for exactly that |
+| **Pro · payment failed** on a red strip, and *your plan is still Pro* | dunning. Since ADR-0018 nobody who cancelled ever sees this, so the copy says "update your card" and never "resubscribe" |
+| a row counting **24s** down, with every other button locked | the pacing rails refused (#25). The rails are per user, so the whole list waits — and the buttons come back on their own when it reaches zero |
 | **Can't reach {brand} right now** | *our* backend is down, or answered something unreadable. Never a plan — fail-closed applies to display |
 
 The last two are worth telling apart while testing: the ad list comes from
 Marktplaats and the strip above it comes from our API, so one can fail while the
 other is fine, and the screen says so rather than collapsing both into one error.
 
-The strip says "2 relists left" rather than the canvas's "2 of 3": `/api/me`
-carries what is left and not what the tier grants. See #41.
+The strip reads "2 of 3 relists left". The denominator arrived with #41, which
+added `relistQuotaPerPeriod` to `/api/me` — a client holding only the numerator
+cannot draw that sentence. After a relist the strip moves **without a second
+`/api/me`**: `/complete` already answered with what the period has left.
 
 A create answers with 200/201/a redirect and no JSON, so `createAd` returns
 nothing: not throwing *is* the success signal, and there is no new-ad id anywhere

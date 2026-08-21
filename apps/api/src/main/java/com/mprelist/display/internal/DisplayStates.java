@@ -3,6 +3,7 @@ package com.mprelist.display.internal;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.mprelist.catalog.Entitlement;
 import com.mprelist.catalog.TierCatalog;
 import com.mprelist.enforcement.Quotas;
 import com.mprelist.enforcement.RemainingQuota;
@@ -31,7 +32,9 @@ import com.mprelist.subscription.Subscriptions;
  * <p>The tier is asked twice, for its name and for what it grants, and that is two statements against one row
  * rather than one. It keeps {@code entitlementOf} — which the gate calls on the authorize path — reading only
  * the columns a check is made of, and this is the display path: the count of statements it costs is a price
- * paid where nobody is waiting on a relist.
+ * paid where nobody is waiting on a relist. The entitlement is read <em>once</em> and asked twice, since #41
+ * needs what the tier grants as well as its flags and a second call would be a second chance for the two to
+ * disagree.
  */
 @Service
 class DisplayStates {
@@ -52,8 +55,9 @@ class DisplayStates {
 	DisplayState forCaller(UserRef caller) {
 		Subscription plan = this.subscriptions.currentFor(caller);
 		RemainingQuota left = this.quotas.leftFor(caller, plan);
+		Entitlement granted = this.tiers.entitlementOf(plan.tier());
 		return new DisplayState(plan.status(), this.tiers.nameOf(plan.tier()), left.quotaRemaining(),
-				left.resetAt(), this.tiers.entitlementOf(plan.tier()).features());
+				granted.relistsPerPeriod(), left.resetAt(), granted.features());
 	}
 
 	private final Subscriptions subscriptions;

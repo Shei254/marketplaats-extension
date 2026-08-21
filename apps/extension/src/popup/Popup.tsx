@@ -1,6 +1,7 @@
 import { UiStyles } from "@mprelist/ui";
 import { useCallback, useEffect, useState, type JSX } from "react";
 
+import type { WireRelistOutcome } from "../background/messages";
 import { ADS_LOADING, describeAdsFailure, type AdsView } from "./ads";
 import { adListCss, popupCss } from "./popup-styles";
 import { AdList } from "./AdList";
@@ -61,6 +62,40 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
     void load();
   }, [load]);
 
+  /** The ads alone — what a finished relist invalidates, since the ad has a new id. */
+  const reloadAds = useCallback(async () => {
+    setAds(ADS_LOADING);
+    try {
+      setAds({ status: "ready", ads: await worker.ads() });
+    } catch (error) {
+      setAds({ status: "failed", message: describeAdsFailure(error) });
+    }
+  }, [worker]);
+
+  /**
+   * What a finished attempt does to the screen.
+   *
+   * **The quota comes from `/complete`'s own answer, not from a second
+   * `/api/me`** (T32, #41): the call that spent the unit already told us what is
+   * left, and asking again would be a second read of the same subtraction — one
+   * that can disagree with the first if a relist lands in between. `/api/me` is
+   * still what the popup opens with; this is what keeps it true afterwards.
+   */
+  const onOutcome = useCallback(
+    (outcome: WireRelistOutcome) => {
+      if ("quota" in outcome && outcome.quota) {
+        const quota = outcome.quota;
+        setScreen((current) =>
+          current.screen === "signed-in"
+            ? { ...current, plan: { ...current.plan, ...quota } }
+            : current,
+        );
+      }
+      if (outcome.status === "relisted") void reloadAds();
+    },
+    [reloadAds],
+  );
+
   const signIn = useCallback(async () => {
     setBusy(true);
     try {
@@ -90,7 +125,7 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
     <>
       <UiStyles />
       <style dangerouslySetInnerHTML={{ __html: `${popupCss}\n${adListCss}` }} />
-      <div className="mp-root">{body(screen, { load, signIn, signOut, busy, ads, worker })}</div>
+      <div className="mp-root">{body(screen, { load, signIn, signOut, busy, ads, worker, onOutcome })}</div>
     </>
   );
 }
@@ -102,9 +137,10 @@ interface Handlers {
   busy: boolean;
   ads: AdsView;
   worker: WorkerPort;
+  onOutcome: (outcome: WireRelistOutcome) => void;
 }
 
-function body(screen: Screen, { load, signIn, signOut, busy, ads, worker }: Handlers): JSX.Element {
+function body(screen: Screen, { load, signIn, signOut, busy, ads, worker, onOutcome }: Handlers): JSX.Element {
   switch (screen.screen) {
     case "loading":
       return <LoadingScreen />;
@@ -115,7 +151,7 @@ function body(screen: Screen, { load, signIn, signOut, busy, ads, worker }: Hand
     case "signed-in":
       return (
         <SignedInScreen plan={screen.plan} onRefresh={load} onSignOut={signOut} busy={busy}>
-          <AdList view={ads} worker={worker} onRelisted={load} />
+          <AdList view={ads} worker={worker} onOutcome={onOutcome} />
         </SignedInScreen>
       );
   }

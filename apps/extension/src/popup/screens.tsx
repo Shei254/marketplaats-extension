@@ -139,6 +139,7 @@ export function SignedInScreen({
   busy: boolean;
 }): JSX.Element {
   const spent = plan.quotaRemaining === 0;
+  const paymentFailing = !ALLOWED_STATUSES.includes(plan.subscriptionStatus);
   return (
     <>
       <Header
@@ -153,29 +154,96 @@ export function SignedInScreen({
           </>
         }
       />
-      <div className={spent ? "popup-plan popup-plan--spent" : "popup-plan"}>
+      <div className={stripClass(spent, paymentFailing)}>
         <span>
-          <b>{plan.tier.name}</b> · {relistsLeft(plan.quotaRemaining)}
+          <b>{plan.tier.name}</b> ·{" "}
+          {paymentFailing ? "payment failed" : relistsLeft(plan.quotaRemaining, plan.relistQuotaPerPeriod)}
         </span>
-        <span>{resetsOn(plan.resetAt)}</span>
+        <span>
+          {paymentFailing
+            ? `${plan.relistQuotaPerPeriod} relist${plan.relistQuotaPerPeriod === 1 ? "" : "s"}`
+            : resetsOn(plan.resetAt)}
+        </span>
       </div>
+      {paymentFailing ? <DunningPrompt tier={plan.tier.name} /> : null}
+      {spent && !paymentFailing ? <ExhaustedPrompt resetAt={plan.resetAt} /> : null}
       {children}
     </>
   );
 }
 
 /**
- * "2 relists left".
- *
- * **Not "2 of 3"**, which is what the canvas draws — `GET /api/me` carries what is
- * left and never what the tier grants, so the denominator is a number this popup
- * does not have. Rendering the half it has is the honest reading; closing the gap
- * is a contract change, and it is written down on T32 (#41) rather than guessed
- * at here.
+ * The statuses that entitle their holder to relist (`docs/enforcement-contract.md`).
+ * Everything else is a card that is currently failing: since ADR-0018 a terminal
+ * end falls back to the free tier and is `ACTIVE`, so nobody who cancelled ever
+ * lands here — which is why the copy below says "update your card" and never
+ * "resubscribe".
  */
-export function relistsLeft(remaining: number): string {
-  if (remaining === 0) return "no relists left";
-  return `${remaining} relist${remaining === 1 ? "" : "s"} left`;
+const ALLOWED_STATUSES: readonly DisplayState["subscriptionStatus"][] = ["ACTIVE", "TRIALING"];
+
+function stripClass(spent: boolean, paymentFailing: boolean): string {
+  if (paymentFailing) return "popup-plan popup-plan--failing";
+  return spent ? "popup-plan popup-plan--spent" : "popup-plan";
+}
+
+/**
+ * Shown when the period is spent. It says when they come back, which is the only
+ * thing that makes "you have none left" actionable.
+ *
+ * **No button yet, deliberately.** The canvas puts "See plans" here and the plan
+ * cards are T52 (#83) — a button with nowhere to go is the thing #79 refused to
+ * ship, and the sentence is useful without one.
+ */
+function ExhaustedPrompt({ resetAt }: { resetAt: string }): JSX.Element {
+  return (
+    <div className="popup-prompt">
+      <span className="popup-prompt-mark">
+        <Icon name="bolt" />
+      </span>
+      <div>
+        <p className="popup-prompt-title">You’ve used your relists for this period</p>
+        <p className="popup-prompt-copy">
+          They come back {resetsOn(resetAt).replace("resets ", "on ") || "when the period rolls"}.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Shown while a card is failing. **"Your plan is still Pro" is the load-bearing
+ * half**: Stripe is still retrying, the tier has not been taken away, and a
+ * successful retry gives it straight back (ADR-0018).
+ *
+ * The Customer Portal link that belongs on it is T21 (#31).
+ */
+function DunningPrompt({ tier }: { tier: string }): JSX.Element {
+  return (
+    <div className="popup-prompt popup-prompt--failing">
+      <span className="popup-prompt-mark popup-prompt-mark--failing">
+        <Icon name="card" />
+      </span>
+      <div>
+        <p className="popup-prompt-title">Your payment didn’t go through</p>
+        <p className="popup-prompt-copy">
+          We’ll keep retrying. Update your card to start relisting again — your plan is still {tier}.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * "2 of 3 relists left" — the sentence the canvas draws, and the reason `/api/me`
+ * grew a `relistQuotaPerPeriod` in T32 (#41).
+ *
+ * The pair is what makes it legible: the first number alone says nothing about
+ * whether two is nearly all of them or nearly none. The plural agrees with the
+ * grant rather than the remainder, so "1 of 3 relists left" reads correctly and a
+ * one-relist tier still says "1 of 1 relist left".
+ */
+export function relistsLeft(remaining: number, granted: number): string {
+  return `${remaining} of ${granted} relist${granted === 1 ? "" : "s"} left`;
 }
 
 /**

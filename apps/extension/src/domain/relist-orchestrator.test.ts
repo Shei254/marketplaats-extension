@@ -9,6 +9,9 @@ import {
   type FakeEvent,
 } from "./testing/fakes";
 
+/** What the fake gate answers `/complete` with — see `FakeRelistPermission`. */
+const REPORTED_QUOTA = { quotaRemaining: 2, resetAt: "2026-09-14T08:31:22.101Z" };
+
 describe("RelistOrchestrator", () => {
   /**
    * The popup renders these (T30a, #39), so they have to come back rather than be
@@ -37,7 +40,7 @@ describe("RelistOrchestrator", () => {
 
     const outcome = await orchestrator.relist("ad-1");
 
-    expect(outcome).toEqual({ status: "relisted" });
+    expect(outcome).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
     expect(client.has("ad-1")).toBe(false); // original deleted
     expect(client.lastCreated()).toEqual(sampleAd()); // identical ad created
     expect(await store.get("ad-1")).toBeNull(); // snapshot cleared on success
@@ -109,7 +112,7 @@ describe("RelistOrchestrator", () => {
     expect(kept?.phase).toBe("deleted"); // snapshot retained for recovery
 
     const retried = await orchestrator.retry("ad-1");
-    expect(retried).toEqual({ status: "relisted" });
+    expect(retried).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
     expect(client.lastCreated()).toEqual(sampleAd()); // restored from the snapshot
     expect(await store.get("ad-1")).toBeNull();
   });

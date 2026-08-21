@@ -4,14 +4,16 @@ import { refusalNote, refusedTone, rowStateFor } from "./relisting";
 
 const WIRE_ERROR = { code: "NO_MARKTPLAATS_TAB", message: "No marktplaats.nl tab is open" } as const;
 
+const QUOTA = { quotaRemaining: 1, resetAt: "2026-09-14T08:31:22.101Z" };
+
 describe("what an outcome does to the row", () => {
   it("is done when the ad was reposted", () => {
-    expect(rowStateFor({ status: "relisted" })).toEqual({ kind: "done" });
+    expect(rowStateFor({ status: "relisted", quota: QUOTA })).toEqual({ kind: "done" });
   });
 
   it("offers to start over when nothing was removed", () => {
     // The ad is still there, so the button starts a fresh relist.
-    const state = rowStateFor({ status: "failed-before-delete", error: WIRE_ERROR });
+    const state = rowStateFor({ status: "failed-before-delete", error: WIRE_ERROR, quota: QUOTA });
 
     expect(state).toMatchObject({ kind: "failed", tone: "error", action: "relist" });
     expect(state).toHaveProperty("message", expect.stringContaining("your ad is untouched"));
@@ -25,6 +27,7 @@ describe("what an outcome does to the row", () => {
       status: "failed-recoverable",
       listingId: "m1",
       error: WIRE_ERROR,
+      quota: QUOTA,
     });
 
     expect(state).toMatchObject({ kind: "failed", tone: "warn", action: "retry" });
@@ -41,7 +44,7 @@ describe("what an outcome does to the row", () => {
   });
 
   it("carries the reason each failure came with, whatever it was", () => {
-    const state = rowStateFor({ status: "failed-before-delete", error: WIRE_ERROR });
+    const state = rowStateFor({ status: "failed-before-delete", error: WIRE_ERROR, quota: QUOTA });
 
     expect(state).toHaveProperty("message", expect.stringContaining("Open marktplaats.nl in a tab"));
   });

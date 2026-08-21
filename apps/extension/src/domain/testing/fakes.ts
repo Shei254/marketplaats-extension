@@ -1,4 +1,4 @@
-import type { RelistOutcomeCode } from "@mprelist/contracts";
+import type { RelistOutcomeCode, RemainingQuota } from "@mprelist/contracts";
 
 import type { GateDecision, LockedState } from "../../gate/authorization-gate";
 import type { RelistPermission } from "../../gate/relist-permission";
@@ -38,8 +38,12 @@ export class FakeRelistPermission implements RelistPermission {
     return this.answer(adId, this.authorized.length);
   }
 
-  async report(jti: string, outcome: RelistOutcomeCode): Promise<void> {
+  /** Answers with the quota `/complete` would, which the popup renders without asking again (#41). */
+  quotaAfterReporting: RemainingQuota | null = { quotaRemaining: 2, resetAt: "2026-09-14T08:31:22.101Z" };
+
+  async report(jti: string, outcome: RelistOutcomeCode): Promise<RemainingQuota | null> {
     this.reports.push({ jti, outcome });
+    return this.quotaAfterReporting;
   }
 }
 

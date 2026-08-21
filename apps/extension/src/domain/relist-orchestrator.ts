@@ -1,4 +1,4 @@
-import type { RelistOutcomeCode } from "@mprelist/contracts";
+import type { RelistOutcomeCode, RemainingQuota } from "@mprelist/contracts";
 
 import type { LockedState } from "../gate/authorization-gate";
 import type { RelistPermission } from "../gate/relist-permission";
@@ -6,13 +6,21 @@ import { AdNotFoundError, type MarktplaatsClient } from "./marktplaats-client";
 import type { SnapshotStore } from "./snapshot-store";
 import type { AdSnapshot, ListingSummary } from "./types";
 
-/** Outcome of a relist attempt. */
+/**
+ * Outcome of a relist attempt.
+ *
+ * Everything that reported carries `quota` — what the period has left **now**,
+ * from `/complete`'s own answer, so the popup can move its counter without asking
+ * `/api/me` again (T32, #41). `null` means the backend was not told or told us
+ * nothing readable, which a caller must not read as "unchanged": it is the
+ * difference between knowing the number and knowing that we do not.
+ */
 export type RelistOutcome =
-  | { status: "relisted" }
+  | { status: "relisted"; quota: RemainingQuota | null }
   /** Nothing was removed from Marktplaats; the original ad is intact. */
-  | { status: "failed-before-delete"; error: unknown }
+  | { status: "failed-before-delete"; error: unknown; quota: RemainingQuota | null }
   /** The original was deleted but re-create failed; snapshot retained for retry. */
-  | { status: "failed-recoverable"; listingId: string; error: unknown }
+  | { status: "failed-recoverable"; listingId: string; error: unknown; quota: RemainingQuota | null }
   /**
    * The backend did not authorize it, so **nothing ran at all** — no capture, no
    * photos fetched, and certainly no delete. `locked` is what the row shows: an
@@ -87,8 +95,7 @@ export class RelistOrchestrator {
       };
     } catch (error) {
       console.error("Failed when capturing data");
-      await this.report(grantJti, "FAILED_BEFORE_DELETE");
-      return { status: "failed-before-delete", error };
+      return { status: "failed-before-delete", error, quota: await this.report(grantJti, "FAILED_BEFORE_DELETE") };
     }
 
     // 2. Persist the durable snapshot BEFORE anything is deleted (ADR-0003).
@@ -96,8 +103,7 @@ export class RelistOrchestrator {
       await this.store.save(snapshot);
     } catch (error) {
       console.error("failed saving snapshot");
-      await this.report(grantJti, "FAILED_BEFORE_DELETE");
-      return { status: "failed-before-delete", error };
+      return { status: "failed-before-delete", error, quota: await this.report(grantJti, "FAILED_BEFORE_DELETE") };
     }
 
     // 3. Delete-first. A real delete failure means the original still exists, so
@@ -106,8 +112,11 @@ export class RelistOrchestrator {
     if (!deletion.ok) {
       await this.store.clear(listingId);
       console.error("Failed ensuring deletion");
-      await this.report(grantJti, "FAILED_BEFORE_DELETE");
-      return { status: "failed-before-delete", error: deletion.error };
+      return {
+        status: "failed-before-delete",
+        error: deletion.error,
+        quota: await this.report(grantJti, "FAILED_BEFORE_DELETE"),
+      };
     }
 
     // 4. Re-create the identical ad from the snapshot.
@@ -147,12 +156,16 @@ export class RelistOrchestrator {
    * reports on is refunded by reconciliation after a grace window (#24), and a
    * report that arrives late still wins — which is what makes giving up safe.
    */
-  private async report(jti: string | null | undefined, outcome: RelistOutcomeCode): Promise<void> {
-    if (!jti) return;
+  private async report(
+    jti: string | null | undefined,
+    outcome: RelistOutcomeCode,
+  ): Promise<RemainingQuota | null> {
+    if (!jti) return null;
     try {
-      await this.permission.report(jti, outcome);
+      return await this.permission.report(jti, outcome);
     } catch (error) {
       console.warn("[relist] outcome not reported", error);
+      return null;
     }
   }
 
@@ -209,8 +222,12 @@ export class RelistOrchestrator {
       if (!deletion.ok) {
         // Nothing of ours removed it, so the unit goes back — the ad the user
         // still has is the reason this is not a spent relist.
-        await this.report(resuming.grantJti, "FAILED_BEFORE_DELETE");
-        return { status: "failed-recoverable", listingId: resuming.listingId, error: deletion.error };
+        return {
+          status: "failed-recoverable",
+          listingId: resuming.listingId,
+          error: deletion.error,
+          quota: await this.report(resuming.grantJti, "FAILED_BEFORE_DELETE"),
+        };
       }
     }
 
@@ -221,13 +238,16 @@ export class RelistOrchestrator {
     try {
       await this.client.createAd(snapshot.draft, snapshot.photos);
       await this.store.clear(snapshot.listingId);
-      await this.report(snapshot.grantJti, "SUCCESS");
-      return { status: "relisted" };
+      return { status: "relisted", quota: await this.report(snapshot.grantJti, "SUCCESS") };
     } catch (error) {
       // The original is already gone; keep the snapshot so the user can retry/restore.
       // The unit stands: the destructive half happened, whatever came after it.
-      await this.report(snapshot.grantJti, "FAILED_AFTER_DELETE");
-      return { status: "failed-recoverable", listingId: snapshot.listingId, error };
+      return {
+        status: "failed-recoverable",
+        listingId: snapshot.listingId,
+        error,
+        quota: await this.report(snapshot.grantJti, "FAILED_AFTER_DELETE"),
+      };
     }
   }
 }

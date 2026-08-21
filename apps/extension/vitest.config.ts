@@ -8,7 +8,14 @@ export default defineConfig({
   // whatever a test asserting on it says it is — the real one comes from
   // brand.json at build time and `scripts/build.test.ts` asserts *that* against
   // the emitted bundle.
-  define: { __DEV__: "true", __BRAND_NAME__: JSON.stringify("Bumpr") },
+  define: {
+    __DEV__: "true",
+    __BRAND_NAME__: JSON.stringify("Bumpr"),
+    // A version, not *the* version: what the real one is comes from the manifest at
+    // build time, and `scripts/build.test.ts` asserts that against the emitted bundle.
+    // A test asserting on this one is asserting on a fixture, which is the point.
+    __CLIENT_VERSION__: JSON.stringify("9.9.9"),
+  },
   test: {
     globals: true,
     environment: "node",

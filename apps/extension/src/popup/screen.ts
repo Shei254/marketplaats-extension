@@ -17,18 +17,25 @@ import type { ListingSummary } from "../domain/types";
  * applies to display (`docs/enforcement-contract.md`): a stale "active" over a
  * backend that is down puts a live Repost button in front of a user the gate is
  * about to refuse.
+ *
+ * `outdated` is the fifth, and the reason it is not folded into `unavailable` is
+ * that the two ask for opposite things (T43, #52). "Unavailable" says wait and try
+ * again; this one says trying again is exactly what will not work, and names the
+ * one thing that will. A build the backend has stopped serving is refused on every
+ * route, so there is no plan to show and no ad list worth listing.
  */
 export type Screen =
   | { screen: "loading" }
   | { screen: "signed-out"; failure?: string }
   | { screen: "unavailable" }
+  | { screen: "outdated" }
   | { screen: "signed-in"; plan: DisplayState };
 
 export const LOADING: Screen = { screen: "loading" };
 
 /**
- * One answer, one screen. Pure, and total over the three answers, so a fourth
- * would not compile rather than falling through to whatever was on the screen.
+ * One answer, one screen. Pure, and total over the four answers, so a fifth would
+ * not compile rather than falling through to whatever was on the screen.
  */
 export function screenFor(answer: DisplayStateAnswer): Screen {
   switch (answer.status) {
@@ -38,6 +45,8 @@ export function screenFor(answer: DisplayStateAnswer): Screen {
       return { screen: "signed-out" };
     case "unavailable":
       return { screen: "unavailable" };
+    case "outdated":
+      return { screen: "outdated" };
   }
 }
 

@@ -272,9 +272,17 @@ and `./gradlew build` on the runner's Docker daemon. **No path filters**, becaus
 outside the directory they are named for and a stale filter fails silently. Node is pinned in `.nvmrc`, Java
 by the toolchain already in `build.gradle.kts`. See [the root README](../README.md#ci).
 
-#### [T43](https://github.com/Shei254/marketplaats-extension/issues/52) · API backward-compatibility policy · **S**
-Extension releases take days, API deploys take minutes. The version header, the minimum-supported-version
-response, and how the extension prompts an upgrade. Matters once extensions are in the wild.
+#### [T43](https://github.com/Shei254/marketplaats-extension/issues/52) · API backward-compatibility policy · **S** · **shipped**
+Extension releases take days, API deploys take minutes. Settled in
+[`enforcement-contract.md` § Which build is calling](enforcement-contract.md#which-build-is-calling):
+`X-Mprelist-Client: extension/<version>` on every call, a minimum supported version per surface shipped as
+`0`, and `426 Upgrade Required` with an empty body below it — the one answer a client reads by status, because
+it is about their software rather than about them.
+- **Built before it is needed, deliberately.** A lever added later cannot reach the builds that predate it, so
+  the header has to be in the first published release or the mechanism is useless for exactly the users it is
+  for.
+- The policy the rest of the time is **additive-by-default**; raising the minimum strands everybody who has
+  not updated, so it is for correctness and safety only.
 Refs: [ADR-0011](adr/0011-repository-layout.md).
 
 ---

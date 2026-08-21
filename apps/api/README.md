@@ -1265,6 +1265,40 @@ Mutation-verified — each applied, observed, reverted:
 | one letter of the allowed origin's id changed | `theOriginThisApiAllowsIsDerivedFromTheKeyTheExtensionIsPinnedBy` — which is what makes writing the id here safe at all |
 
 
+## Which build may call it
+
+`X-Mprelist-Client: extension/0.0.1`, on every call, and a lever for the day a build must stop
+([#52](https://github.com/Shei254/marketplaats-extension/issues/52), T43). The policy and the wire shape are
+[`docs/enforcement-contract.md` § Which build is calling](../../docs/enforcement-contract.md#which-build-is-calling);
+what is here is why the code looks the way it does.
+
+**Built before it is needed, and that is the argument rather than an admission.** An extension release takes
+days through a store review and cannot be forced onto anybody; this deploys in minutes. A lever added later
+cannot reach the builds that predate it — so the header has to be in the first published release, or the
+mechanism is useless for exactly the users it exists for.
+
+- **An interceptor, not a filter**, so it runs *after* the security chain: a caller with no token is answered
+  `401` first, and being signed out is not something updating fixes.
+- **`/api/**` as a whole**, including routes no ticket has written yet. Not the Stripe webhook in any
+  meaningful sense — Stripe sends no such header, and a request that names no release is never refused.
+- **`426` with an empty body**, which is the contract's rule for a `4xx` that is not a denial. The reason
+  codes are statements about the user; this is one about their software.
+- **Absent and malformed are the same answer, and the answer is "served".** `apps/web` sends none yet, `curl`
+  never will, and every extension built before this ticket cannot. Refusing what does not identify itself
+  would turn a diagnostic into a gate on traffic it was never meant to judge.
+- **The minimum ships as `0`** — every build there has ever been. It is the only value in `application.yml`
+  that is not a decision, and raising it is one with a cost: every user who has not updated is stranded until
+  Chrome gets to them.
+- `CrossOriginCallers` allows the header, and that is load-bearing: a header the preflight does not allow is
+  not dropped from the request, it makes the browser abandon the **whole call**. Forgetting it would break
+  every request in order to carry a diagnostic.
+
+`ClientVersionTest` sets the minimum to `1.2.0`, because a lever that is never pulled cannot be tested by
+pulling nothing. It asserts both directions of the boundary — the minimum itself is served, `1.1.9` is not —
+that a short version is the same release (`1.2` = `1.2.0`, Chrome's own rule), that a nameless or malformed
+caller is served, that another surface's version is not the extension's, and that no token still means `401`
+rather than `426`.
+
 ## The realm
 
 `KeycloakRealmTest` and `KeycloakRealmWithoutAnExtensionIdTest` are the only places

@@ -6,7 +6,13 @@ import { ADS_LOADING, describeAdsFailure, type AdsView } from "./ads";
 import { adListCss, popupCss } from "./popup-styles";
 import { AdList } from "./AdList";
 import { LOADING, screenFor, type Screen, type WorkerPort } from "./screen";
-import { LoadingScreen, SignedInScreen, SignedOutScreen, UnavailableScreen } from "./screens";
+import {
+  LoadingScreen,
+  OutdatedScreen,
+  SignedInScreen,
+  SignedOutScreen,
+  UnavailableScreen,
+} from "./screens";
 
 /**
  * The popup, which asks the worker one question and renders the answer.
@@ -148,6 +154,10 @@ function body(screen: Screen, { load, signIn, signOut, busy, ads, worker, onOutc
       return <SignedOutScreen onSignIn={signIn} busy={busy} failure={screen.failure} />;
     case "unavailable":
       return <UnavailableScreen onRetry={load} busy={busy} />;
+    case "outdated":
+      // No retry button, deliberately: nothing this popup can do makes an old build
+      // acceptable, and a button that cannot work is worse than none (T43, #52).
+      return <OutdatedScreen />;
     case "signed-in":
       return (
         <SignedInScreen plan={screen.plan} onRefresh={load} onSignOut={signOut} busy={busy}>

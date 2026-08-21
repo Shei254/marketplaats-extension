@@ -47,6 +47,17 @@ describe("asking for permission", () => {
     expect(calls[0]?.headers["authorization"]).toBe("Bearer an-access-token");
   });
 
+  it("names the build asking, on the route that spends a unit as much as on the one that reads", async () => {
+    // Both call sites carry it or the lever is half a lever (T43, #52): a backend
+    // that refused an old build's `/api/me` and served its `authorize` would have
+    // stopped the screen and not the deletes.
+    const { api, calls } = client();
+
+    await api.authorize("m2196000");
+
+    expect(calls[0]?.headers["X-Mprelist-Client"]).toBe("extension/9.9.9");
+  });
+
   it("hands the answer to the gate rather than reading it here", async () => {
     // One place decides what a denial means, and it is the pure function with a
     // suite of its own (#34). This file's job ends at the response.

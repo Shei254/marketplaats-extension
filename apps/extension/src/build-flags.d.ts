@@ -19,3 +19,16 @@ declare const __DEV__: boolean;
  * text, and this is a bundle.
  */
 declare const __BRAND_NAME__: string;
+
+/**
+ * The version of this build, from `public/manifest.template.json` — the number
+ * Chrome shows on the extensions page and the one the Web Store rolls out, which
+ * is the only version a user can do anything about.
+ *
+ * It travels to our API on every call, so the backend can say "the build you are
+ * running must stop" (T43, #52). Substituted rather than read from
+ * `chrome.runtime.getManifest()` for the reason `__BRAND_NAME__` is: the value is
+ * fixed at build time, and a bundle that reached for a Chrome API to learn its own
+ * version would be one the tests could not run without a browser.
+ */
+declare const __CLIENT_VERSION__: string;

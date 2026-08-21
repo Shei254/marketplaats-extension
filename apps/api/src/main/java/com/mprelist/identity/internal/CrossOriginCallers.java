@@ -63,7 +63,12 @@ class CrossOriginCallers {
 		allowed.setAllowedMethods(List.of("GET", "POST"));
 		// `Authorization` is never a safelisted header and `Content-Type: application/json` is not one
 		// either, so every call this API takes is preflighted and both have to be named here.
-		allowed.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept"));
+		//
+		// `X-Mprelist-Client` is the third, and it is the one that fails most confusingly if forgotten (T43,
+		// #52): a header a preflight does not allow is not stripped, it makes the *whole call* fail before it
+		// is sent, so leaving it out would break every request in order to carry a diagnostic.
+		allowed.setAllowedHeaders(
+				List.of("Authorization", "Content-Type", "Accept", RefuseOutdatedClients.CLIENT_HEADER));
 		// **No credentials.** Nothing here is authenticated by a cookie — the token is the whole of the
 		// caller's identity and it arrives in a header the caller's own code sets. Saying so keeps the grant
 		// as narrow as it can be, and keeps this from being the line that would let a third-party page make

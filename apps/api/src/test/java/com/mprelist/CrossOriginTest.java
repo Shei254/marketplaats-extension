@@ -78,6 +78,20 @@ class CrossOriginTest {
 		assertThat(header(preflight, "Access-Control-Allow-Headers").toLowerCase()).contains("content-type");
 	}
 
+	/**
+	 * And for the header every client now names itself with (T43, #52). This is the one that fails most
+	 * confusingly if it is forgotten: a header the preflight does not allow is not dropped from the request,
+	 * it makes the browser abandon the <em>whole call</em> — so every request would break in order to carry a
+	 * diagnostic nothing depends on.
+	 */
+	@Test
+	void andForTheHeaderTheClientNamesItselfWith() {
+		HttpResponse<String> preflight = preflight(EXTENSION, "GET", "authorization,x-mprelist-client");
+
+		assertThat(preflight.statusCode()).isEqualTo(200);
+		assertThat(header(preflight, "Access-Control-Allow-Headers").toLowerCase()).contains("x-mprelist-client");
+	}
+
 	/** The answer itself carries the header too, or the browser withholds a body this API did return. */
 	@Test
 	void andTheAnswerToTheRealCallCarriesTheHeaderThatLetsTheClientReadIt() {

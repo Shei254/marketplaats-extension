@@ -29,8 +29,16 @@ import org.springframework.test.context.DynamicPropertySource;
  * state an unconfigured key produces. What we *send* Stripe when it is configured is
  * {@code CheckoutSessionTest}, against a stub on a loopback port; a `200` over a real port would need a live
  * Stripe account, and that is the click-through's (slice C, step 4).
+ *
+ * <p><strong>Said as a property rather than left to the environment</strong>, which is the difference between
+ * a suite that is about an unconfigured key and one that merely runs on a machine that has none. The
+ * click-through tells you to export {@code MPRELIST_STRIPE_SECRET_KEY} to walk slice C, {@code .env} now
+ * holds one for {@code bootRun}, and test workers inherit both — without this line every assertion below
+ * would be answered by a <em>real</em> Stripe account, and `aPlanOnSaleGetsAsFarAsStripe` would open a live
+ * Checkout session rather than being refused for want of a key.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+		properties = "mprelist.stripe.secret-key=")
 @Import(PostgresFromCompose.class)
 class CheckoutTest {
 

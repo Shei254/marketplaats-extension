@@ -2,20 +2,28 @@
 
 Postgres and Keycloak, the two services the API needs to run at all
 ([ADR-0009](../docs/adr/0009-tech-stack.md), [ADR-0011](../docs/adr/0011-repository-layout.md)). One command,
-from the repo root — `-f` resolves against the working directory, so run it there or pass an absolute path:
+from the repo root — both `-f` and `--env-file` resolve against the working directory, so run it there or
+pass absolute paths:
 
 ```bash
-docker compose -f infra/docker-compose.yml up -d --wait
+cp .env.example .env      # once. Everything below is read from it; it is gitignored
+docker compose --env-file .env -f infra/docker-compose.yml up -d --wait
 ```
+
+**`--env-file` is not optional and naming a missing file is an error**, which is the safer half of the trade:
+the alternative is compose looking for a `.env` beside the compose file, finding none, and importing a realm
+whose redirect URI names no extension — an import that happens once and is undone only by `down -v`. What
+that file holds and why is [`.env.example`](../.env.example) and
+[the root README](../README.md#credentials-in-one-file); anything exported in your shell still wins over it.
 
 `--wait` returns only once both containers report healthy — Keycloak's own `/health/ready`, not merely a
 listening port. First start takes about a minute while Keycloak creates its schema; later starts, under
 half that.
 
 ```bash
-docker compose -f infra/docker-compose.yml ps        # what is running, and its health
-docker compose -f infra/docker-compose.yml logs -f   # follow both services
-docker compose -f infra/docker-compose.yml down      # stop, keeping the data
+docker compose --env-file .env -f infra/docker-compose.yml ps        # what is running, and its health
+docker compose --env-file .env -f infra/docker-compose.yml logs -f   # follow both services
+docker compose --env-file .env -f infra/docker-compose.yml down      # stop, keeping the data
 ```
 
 ## What you get
@@ -56,7 +64,7 @@ volume to drop.
 ## Resetting
 
 ```bash
-docker compose -f infra/docker-compose.yml down -v   # -v also drops the data
+docker compose --env-file .env -f infra/docker-compose.yml down -v   # -v also drops the data
 ```
 
 Keep `-v` in mind when editing [`postgres/init/`](postgres/init) **or [`keycloak/`](keycloak)**: the Postgres
@@ -117,16 +125,25 @@ real SMTP at Go-Live (T55/T56), where mail is always configured.
 Password reset sends an email, so the realm names an SMTP server: **Mailtrap's sandbox** by default, whose
 credentials are per-inbox and therefore not committable.
 
+Both live in your `.env`, where `.env.example` ships them commented out:
+
 ```bash
-export MPRELIST_SMTP_USER=<from your Mailtrap inbox>
-export MPRELIST_SMTP_PASSWORD=<from your Mailtrap inbox>
-docker compose -f infra/docker-compose.yml up -d --wait     # both are passed through
+# in .env — uncomment and fill in from your Mailtrap inbox
+MPRELIST_SMTP_USER=…
+MPRELIST_SMTP_PASSWORD=…
 ```
 
-Unset, everything still imports and every other flow works; only the reset mail fails to send, in Keycloak's
-logs rather than on the user's screen. `MPRELIST_SMTP_HOST`, `_PORT` and `_FROM` are passed through too and
-default to `sandbox.smtp.mailtrap.io`, `2525` and `no-reply@mprelist.local` — the internal identifier rather
-than the brand, which lives in `brand.json` and is provisional until T60.
+Then the ordinary `up` passes them through. Unset, everything still imports and every other flow works; only
+the reset mail fails to send, in Keycloak's logs rather than on the user's screen. `MPRELIST_SMTP_HOST`,
+`_PORT` and `_FROM` are passed through too and default to `sandbox.smtp.mailtrap.io`, `2525` and
+`no-reply@mprelist.local` — the internal identifier rather than the brand, which lives in `brand.json` and is
+provisional until T60.
+
+**Commented out rather than empty, and that is the difference between a default and no value at all.** An
+empty assignment reaches Keycloak as a variable that is *defined and empty*, and
+`${MPRELIST_SMTP_HOST:sandbox.smtp.mailtrap.io}` applies only where the variable is absent — so
+`MPRELIST_SMTP_HOST=` in your `.env` imports a realm with no mail host rather than the sandbox one.
+`EnvironmentFileTest` holds the committed example to that rule for every variable this realm substitutes.
 
 A test asserts the user and password in the realm file are **substitutions and not literals**, because that
 file is the natural place for someone to paste a working credential.
@@ -200,12 +217,14 @@ written down twice**:
 
 ```bash
 MPRELIST_EXTENSION_ID=$(npm run -s extension-id -w @mprelist/extension) \
-  docker compose -f infra/docker-compose.yml up -d --wait
+  docker compose --env-file .env -f infra/docker-compose.yml up -d --wait
 ```
 
-Today that command substitutes `dolloiambeojifmnofjchofbnepodiof`, but prefer the substitution to the literal:
-if the key is ever replaced — which it will be at publish time, see below — the literal is wrong and the
-command still is not.
+`.env.example` ships that same id as a value, so a copied `.env` already has it and the command above is the
+override rather than the ritual — the shell wins over the file, in compose and in Gradle alike. What keeps
+the committed literal honest is `EnvironmentFileTest`, which fails the build if it stops matching the default
+`application.yml` derives from the manifest key. Prefer the substitution when in doubt: if the key is ever
+replaced — which it will be at publish time, see below — a literal is wrong and the command still is not.
 
 The realm still takes it from the environment at import time, and the fallback below is still what you get if
 you forget.

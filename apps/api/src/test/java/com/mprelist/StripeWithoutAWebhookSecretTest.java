@@ -32,8 +32,15 @@ import org.springframework.jdbc.core.JdbcTemplate;
  *
  * <p>A class of its own because the setting is what the context is built from, in the shape
  * {@link KeycloakRealmWithoutAnExtensionIdTest} already uses for the same reason.
+ *
+ * <p><strong>Unconfigured is said here rather than assumed of the machine.</strong> A developer walking slice
+ * C exports {@code MPRELIST_STRIPE_WEBHOOK_SECRET}, and {@code .env} now holds one for {@code bootRun} and
+ * the test JVMs alike; inherited, it would leave this suite passing for the wrong reason — the event below is
+ * unsigned, so it is refused either way, and both claims above would quietly be about a configured
+ * application.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+		properties = "mprelist.stripe.webhook-secret=")
 @Import(PostgresFromCompose.class)
 class StripeWithoutAWebhookSecretTest {
 

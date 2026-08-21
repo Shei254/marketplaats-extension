@@ -66,30 +66,63 @@ for — the API suite reads `infra/docker-compose.yml` and the Keycloak realm ou
 extension build reads the root `brand.json` — so a filter would keep a second copy of both lists, and a
 stale filter fails *silently*: a green run that looked at nothing.
 
+## Credentials, in one file
+
+```bash
+cp .env.example .env     # once. `.env` is gitignored and is never committed
+```
+
+One file for the whole repository, read by everything that runs anything:
+
+| Reads it | How |
+|---|---|
+| `./gradlew bootRun`, `./gradlew test` | `apps/api/build.gradle.kts` loads it into the JVM each starts |
+| the local stack | `docker compose --env-file .env …`, as below |
+
+**Your shell still wins.** A variable you have exported is used as exported, in both — so a one-off
+`MPRELIST_STRIPE_SECRET_KEY= ./gradlew bootRun` is still one line rather than an edit and an undo.
+
+[`.env.example`](.env.example) is the documentation: every variable, what reads it, and what happens when it
+is unset. Nothing in it is needed to run the suites — they start their own Postgres and Keycloak and fake
+Stripe — and `apps/api` starts without any of it too, saying at WARN what it is missing. What the file is for
+is the parts that talk to somebody else's system: Stripe test mode, the mail the realm sends, and the
+extension id the realm is built around.
+
+**A variable you have no value for is commented out, never written empty.** Compose passes an empty
+assignment to Keycloak as a variable that is *defined and empty*, and the realm file's own defaults apply
+only where a variable is *absent* — so `MPRELIST_SMTP_HOST=` means "no mail host", not "the default one".
+A test holds the example to that rule, and to every variable `application.yml` and the compose file actually
+read.
+
 ## The local stack
 
 Nothing in `apps/extension` needs it — the extension talks to Marktplaats, not to us. The backend does:
 
 ```bash
-docker compose -f infra/docker-compose.yml up -d --wait   # Postgres on 5432, Keycloak on 8081
-docker compose -f infra/docker-compose.yml down           # -v to also drop the data
+docker compose --env-file .env -f infra/docker-compose.yml up -d --wait   # Postgres 5432, Keycloak 8081
+docker compose --env-file .env -f infra/docker-compose.yml down           # -v to also drop the data
 ```
 
 `apps/api` will not start without it: Flyway migrates `mprelist` on startup and there is nowhere else to
 point. Keycloak brings up the `mprelist` realm with it — three clients, the `ADMIN` role and two development
 users — imported from [`infra/keycloak/`](infra/keycloak) on **first start only**, which is why the extension
-id the redirect URI is built from has to be in the environment of that first `up`:
+id the redirect URI is built from has to be in the environment of that first `up`. That is what
+`--env-file .env` is carrying, and it is **not optional**: without it compose looks for a `.env` beside the
+compose file, finds none, and imports a realm whose redirect URI has no extension in it — fixable only by
+`down -v`. Naming a file that does not exist is an error rather than a shrug, which is why the flag is the
+safer half of that trade.
+
+That id is **derived, not stored**: T44 pinned it with a `key` in the extension manifest, `.env.example`
+ships what that key derives to, and a test fails the build if the two ever disagree. Recompute it yourself
+with `npm run -s extension-id -w @mprelist/extension`, or override it for one command the way the shell
+always wins:
 
 ```bash
 MPRELIST_EXTENSION_ID=$(npm run -s extension-id -w @mprelist/extension) \
-  docker compose -f infra/docker-compose.yml up -d --wait
+  docker compose --env-file .env -f infra/docker-compose.yml up -d --wait
 ```
 
-That id is **derived, not stored**: T44 pinned it with a `key` in the extension manifest, and
-`npm run extension-id` recomputes it from that key rather than reading a copy somebody kept in sync by hand.
-Unset, sign-in from a real extension is refused rather than misrouted, and changing it afterwards means
-`down -v`. Development credentials, ports, the realm and how to reset are in
-[`infra/README.md`](infra/README.md).
+Development credentials, ports, the realm and how to reset are in [`infra/README.md`](infra/README.md).
 
 ## Loading the extension
 

@@ -13,16 +13,22 @@ the failure is written down too — a script that only records the happy path re
 ## Before any of them
 
 ```bash
-export MPRELIST_EXTENSION_ID=$(npm run -s extension-id -w @mprelist/extension)
+cp .env.example .env                             # once — every credential below is read from it
 
-docker compose -f infra/docker-compose.yml up -d --wait
+docker compose --env-file .env -f infra/docker-compose.yml up -d --wait
 cd apps/api && ./gradlew bootRun
 npm run build -w @mprelist/extension             # dist/ — load unpacked
 ```
 
-The id comes from the `key` T44 pinned in the manifest, so the substitution above is always right and a
-literal you pasted last month may not be. The realm imports on **first start only**, so if it is wrong the fix
-is `down -v`, not a restart.
+`.env` is gitignored and is the one place this repository takes credentials from: `bootRun` and `./gradlew
+test` load it, and the stack gets it through `--env-file`. Anything exported in your shell still wins over
+it — which is how to override one value for one command.
+
+The extension id it ships with comes from the `key` T44 pinned in the manifest, and a test fails the build if
+the two disagree; recompute it yourself with `npm run -s extension-id -w @mprelist/extension` if you have
+replaced the key. The realm imports on **first start only**, so if the id is wrong the fix is `down -v`, not
+a restart — and the same is true of forgetting `--env-file`, which is why compose refuses to run when the
+file it names is missing rather than starting without it.
 
 `bootRun` does **not** need it: the API's allowed CORS origin defaults to that same pinned id, and a test
 derives it from the manifest's key so the default cannot go stale. Setting it anyway overrides both, which is
@@ -113,14 +119,14 @@ thread.
 
 ```bash
 stripe listen --forward-to localhost:8080/api/stripe/webhook
-# `stripe listen` prints a signing secret. The API refuses every event without it:
-export MPRELIST_STRIPE_WEBHOOK_SECRET=whsec_…      # then (re)start bootRun
-# And the API key `GET /api/plans` reads amounts with — the test-mode secret key from the dashboard:
-export MPRELIST_STRIPE_SECRET_KEY=sk_test_…
+# `stripe listen` prints a signing secret, and the API refuses every event without it. Both of these go in
+# .env — the same file the stack and `./gradlew test` read — and then (re)start bootRun:
+#   MPRELIST_STRIPE_WEBHOOK_SECRET=whsec_…
+#   MPRELIST_STRIPE_SECRET_KEY=sk_test_…          # the test-mode key `GET /api/plans` reads amounts with
 npm run dev -w @mprelist/web        # http://localhost:5173 — where steps 5 and 6 land
 ```
 
-The secret is per session, so a new `stripe listen` needs a new export and a restart. Unset, the API starts
+The secret is per session, so a new `stripe listen` needs a new line in `.env` and a restart. Unset, the API starts
 and says so at WARN — **"No Stripe webhook secret is configured, so every Stripe event will be refused"** —
 and every event below comes back `400` in the `stripe listen` output. That log line is the other end of the
 thread, since a refused webhook looks like nothing at all from the dashboard.
@@ -147,7 +153,8 @@ rather than a 404 — a host that does not (T55, #86) breaks this step *after* t
    publishes.
 3. With quota exhausted, open the popup and click the upgrade prompt.
    *Expect:* plan cards with **real amounts from Stripe**. The free tier is **not** among them, and neither
-   is the draft from step 2a. Unset `MPRELIST_STRIPE_SECRET_KEY` and restart to see the other half: `503`,
+   is the draft from step 2a. Comment `MPRELIST_STRIPE_SECRET_KEY` out of `.env` and restart to see the other
+   half: `503`,
    and "prices unavailable, retry" rather than a guessed amount.
 4. Click **Upgrade** on Pro.
    *Expect:* a Stripe Checkout tab opens. The popup closes — that is expected, not a bug.

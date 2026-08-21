@@ -3,7 +3,14 @@
 # Development only. Every credential below is a well-known default, committed on purpose so that
 # `docker compose up` needs no prior setup; nothing here is fit to deploy.
 #
-#   docker compose -f infra/docker-compose.yml up -d --wait
+#   cp .env.example .env      # once, from the repository root
+#   docker compose --env-file .env -f infra/docker-compose.yml up -d --wait
+#
+# `--env-file` is what fills in the variables further down that are declared with no value: the extension id
+# the realm is built around and the SMTP credentials. It names a file at the repository root rather than one
+# beside this file, because that same `.env` is what `apps/api`'s Gradle build loads into `bootRun` and its
+# tests — one file for the whole repository, and one place a credential can be wrong. Anything exported in
+# the shell still wins over it.
 #
 # See infra/README.md for ports, credentials and how to reset.
 
@@ -83,8 +90,9 @@ services:
       # Mailtrap's sandbox, for the mail a self-registered user's password reset sends. No values, for the
       # same reason as the id above — the realm file's own defaults are the host and port, and the two
       # credentials have no default worth having. Unset, Keycloak accepts the reset request and fails to
-      # send; nothing else in the realm needs mail. They are secrets, so they live in your shell and never
-      # in this file. See infra/README.md.
+      # send; nothing else in the realm needs mail. They are secrets, so they live in your gitignored `.env`
+      # (commented out until you have values, since an empty assignment arrives here *defined and empty* and
+      # defeats the realm's own defaults) and never in this file. See infra/README.md.
       MPRELIST_SMTP_HOST:
       MPRELIST_SMTP_PORT:
       MPRELIST_SMTP_FROM:

@@ -93,6 +93,58 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
+/**
+ * The repository's own `.env`, read into everything this build runs: `bootRun`, and the test JVMs.
+ *
+ * One file for the whole repository rather than a shell export per terminal — the same one
+ * `docker compose --env-file` is pointed at, so the Stripe keys, the extension id and the local stack are
+ * configured in one place and cannot drift apart. `.env.example` documents every variable; `.env` itself is
+ * gitignored.
+ *
+ * **The shell wins.** A variable already exported is left exactly as exported, which is what keeps a one-off
+ * `MPRELIST_STRIPE_SECRET_KEY= ./gradlew bootRun` working and matches what `docker compose --env-file` does
+ * with the same file.
+ *
+ * **What this must never do is decide a test's meaning.** Two suites are *about* a setting being absent —
+ * `CheckoutTest` (no Stripe key) and `StripeWithoutAWebhookSecretTest` (no webhook secret) — and both now
+ * pin theirs as a test property rather than inheriting whatever the environment happens to hold. That was
+ * true before this file was loaded here, since Gradle's test workers already inherit the daemon's
+ * environment and the click-through tells you to export both; this makes it routine rather than a trap.
+ */
+val dotenv: Map<String, String> = providers.fileContents(
+    rootProject.layout.projectDirectory.file("../../.env")
+).asText.map { text ->
+    text.lines()
+        .map(String::trim)
+        .filter { line -> !line.startsWith("#") && line.contains("=") }
+        .associate { line ->
+            line.substringBefore("=").removePrefix("export ").trim() to valueIn(line.substringAfter("="))
+        }
+        .filterKeys { name -> name.isNotEmpty() && System.getenv(name) == null }
+}.getOrElse(emptyMap())
+
+/**
+ * One assignment's value, read the way `docker compose --env-file` reads the same line — quotes around a
+ * value are stripped and protect what is inside them, and an unquoted value ends at ` #`.
+ *
+ * <p>Written out rather than left to a two-call approximation because the divergence would be silent: the
+ * stack and this build would take different values from one file, and the first symptom is a webhook secret
+ * that verifies nothing.
+ */
+fun valueIn(assignment: String): String {
+    val raw = assignment.trim()
+    if (raw.startsWith("\"") || raw.startsWith("'")) {
+        val quote = raw.first()
+        val closing = raw.indexOf(quote, 1)
+        return if (closing > 0) raw.substring(1, closing) else raw.substring(1)
+    }
+    return raw.substringBefore(" #").trim()
+}
+
+tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
+    environment(dotenv)
+}
+
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
 
@@ -110,5 +162,16 @@ tasks.withType<Test>().configureEach {
         repository.file("infra/keycloak/mprelist-realm.json"),
         // The extension's pinned key, which CrossOriginTest derives the allowed origin from.
         repository.file("apps/extension/public/manifest.template.json"),
+        // `.env.example`, which EnvironmentFileTest holds to the two files above and to application.yml —
+        // and `.env` itself, which is *not* read by any test but is loaded into every test JVM below, so an
+        // edit to it has to be able to change a verdict rather than leave the last one standing.
+        repository.file(".env.example"),
+        repository.file(".env"),
     ).withPropertyName("workingTreeFilesReadAtTestTime").withPathSensitivity(PathSensitivity.RELATIVE)
+
+    // The same file `bootRun` gets, so that running the suite and running the application read one
+    // configuration. Nothing here needs a credential today — every Stripe suite either fakes Stripe or is
+    // about its absence — and that is a property of the suites rather than of this line: what it buys is
+    // that the day one does, it is filled in from the same place as everything else.
+    environment(dotenv)
 }

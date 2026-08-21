@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DisplayStateAnswer } from "../api/display-state";
+import type { WireRelistOutcome } from "../background/messages";
 import type { ListingSummary } from "../domain/types";
 import { NoMarktplaatsTabError } from "../adapters/relay-marktplaats-client";
 import { SignInCancelledError, SignInFailedError } from "../auth/errors";
@@ -28,8 +29,14 @@ const PLAN: DisplayState = {
   subscriptionStatus: "ACTIVE",
   tier: { code: "free", name: "Free" },
   quotaRemaining: 2,
+  relistQuotaPerPeriod: 3,
   resetAt: "2026-09-14T08:31:22.101Z",
   features: {},
+};
+
+const RELISTED: WireRelistOutcome = {
+  status: "relisted",
+  quota: { quotaRemaining: 1, resetAt: "2026-09-14T08:31:22.101Z" },
 };
 
 export const ADS: ListingSummary[] = [
@@ -51,11 +58,11 @@ function fakeWorker(answers: DisplayStateAnswer[] = [{ status: "ready", plan: PL
     }),
     relist: vi.fn(async () => {
       asked.push("relist");
-      return { status: "relisted" } as const;
+      return RELISTED;
     }),
     retry: vi.fn(async () => {
       asked.push("retry");
-      return { status: "relisted" } as const;
+      return RELISTED;
     }),
     signIn: vi.fn(async () => {
       asked.push("sign-in");
@@ -112,8 +119,11 @@ describe("signed in", () => {
     await show(worker);
 
     expect(text()).toContain("Free");
-    expect(text()).toContain("2 relists left");
+    expect(text()).toContain("2 of 3 relists left");
     expect(text()).toContain("resets 14 Sep");
+    // And no prompt: a healthy plan is the case where the screen says nothing
+    // beyond what it is.
+    expect(container.querySelector(".popup-prompt")).toBeNull();
   });
 
   it("asks again when refreshed, rather than redrawing what it had", async () => {
@@ -126,7 +136,7 @@ describe("signed in", () => {
     await click("Refresh");
 
     expect(asked).toEqual(["display-state", "list-ads", "display-state", "list-ads"]);
-    expect(text()).toContain("1 relist left");
+    expect(text()).toContain("1 of 3 relists left");
   });
 });
 
@@ -138,7 +148,7 @@ describe("the ad list beneath the plan", () => {
 
     expect(asked).toEqual(["display-state", "list-ads"]);
     expect(text()).toContain("Vintage Eames lounge chair");
-    expect(text()).toContain("2 relists left");
+    expect(text()).toContain("2 of 3 relists left");
   });
 
   it("is never asked for when nobody is signed in", async () => {
@@ -170,7 +180,7 @@ describe("the ad list beneath the plan", () => {
 
     await show(worker);
 
-    expect(text()).toContain("2 relists left");
+    expect(text()).toContain("2 of 3 relists left");
     expect(text()).toContain("Could not load your ads.");
     expect(text()).toContain("Open marktplaats.nl in a tab");
   });
@@ -181,6 +191,89 @@ describe("the ad list beneath the plan", () => {
     await show(worker);
 
     expect(text()).toContain("You have no active ads.");
+  });
+});
+
+describe("the quota after a relist", () => {
+  it("comes from the call that spent it, not from a second /api/me", async () => {
+    // `/complete` already answered with what the period has left. Asking again
+    // would be a second read of the same subtraction — and one that can disagree
+    // with the first if another relist lands in between.
+    const { worker, asked } = fakeWorker();
+
+    await show(worker);
+    expect(text()).toContain("2 of 3 relists left");
+
+    await click("Repost");
+
+    expect(text()).toContain("1 of 3 relists left");
+    expect(asked.filter((question) => question === "display-state")).toHaveLength(1);
+  });
+
+  it("but the ad list is re-read, because the ad has a new id", async () => {
+    const { worker, asked } = fakeWorker();
+
+    await show(worker);
+    await click("Repost");
+
+    expect(asked).toEqual(["display-state", "list-ads", "relist", "list-ads"]);
+  });
+
+  it("is left alone when the backend could not be told what happened", async () => {
+    // `null` is "we do not know", which is not the same as unchanged — so the
+    // strip keeps the last number it was actually given.
+    const { worker } = fakeWorker();
+    worker.relist = vi.fn(async () => ({ status: "relisted", quota: null }) as const);
+
+    await show(worker);
+    await click("Repost");
+
+    expect(text()).toContain("2 of 3 relists left");
+  });
+});
+
+describe("a plan that cannot be relisted on", () => {
+  it("says the period is spent, and when it comes back", async () => {
+    const { worker } = fakeWorker([
+      { status: "ready", plan: { ...PLAN, quotaRemaining: 0 } },
+    ]);
+
+    await show(worker);
+
+    expect(text()).toContain("0 of 3 relists left");
+    expect(text()).toContain("You’ve used your relists for this period");
+    expect(text()).toContain("They come back on 14 Sep");
+  });
+
+  it("says a card is failing without saying the plan is gone", async () => {
+    // ADR-0018: dunning keeps the paid tier and Stripe is still retrying, so
+    // "your plan is still Pro" is the load-bearing half of this copy — and
+    // "resubscribe" would be addressed to somebody who has not cancelled.
+    const { worker } = fakeWorker([
+      {
+        status: "ready",
+        plan: { ...PLAN, subscriptionStatus: "PAST_DUE", tier: { code: "pro", name: "Pro" } },
+      },
+    ]);
+
+    await show(worker);
+
+    expect(text()).toContain("payment failed");
+    expect(text()).toContain("Your payment didn’t go through");
+    expect(text()).toContain("your plan is still Pro");
+    expect(text()).not.toContain("resubscribe");
+  });
+
+  it("and shows the ads all the same, because they are the conversion surface", async () => {
+    // The list is never subscription-gated (`docs/enforcement-contract.md`): a
+    // locked button beside the user's own ads is the strongest prompt there is.
+    const { worker } = fakeWorker([
+      { status: "ready", plan: { ...PLAN, quotaRemaining: 0 } },
+    ]);
+
+    await show(worker);
+
+    expect(text()).toContain("Vintage Eames lounge chair");
   });
 });
 
@@ -208,7 +301,7 @@ describe("signed out", () => {
     await click("Sign in");
 
     expect(asked).toEqual(["display-state", "sign-in", "display-state", "list-ads"]);
-    expect(text()).toContain("2 relists left");
+    expect(text()).toContain("2 of 3 relists left");
   });
 
   it("says nothing when the user closed the window themselves", async () => {
@@ -258,7 +351,7 @@ describe("unavailable", () => {
     await show(worker);
     await click("Try again");
 
-    expect(text()).toContain("2 relists left");
+    expect(text()).toContain("2 of 3 relists left");
   });
 });
 
@@ -271,7 +364,7 @@ describe("signing out", () => {
 
     expect(asked).toEqual(["display-state", "list-ads", "sign-out"]);
     expect(text()).toContain("Sign in");
-    expect(text()).not.toContain("2 relists left");
+    expect(text()).not.toContain("2 of 3 relists left");
   });
 
   it("still signs out when the worker could not finish the job", async () => {

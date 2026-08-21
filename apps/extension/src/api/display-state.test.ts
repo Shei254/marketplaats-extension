@@ -8,6 +8,7 @@ const PLAN: DisplayState = {
   subscriptionStatus: "ACTIVE",
   tier: { code: "free", name: "Free" },
   quotaRemaining: 2,
+  relistQuotaPerPeriod: 3,
   resetAt: "2026-09-14T08:31:22.101Z",
   features: {},
 };

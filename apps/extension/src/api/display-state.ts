@@ -86,11 +86,21 @@ export function asDisplayState(body: unknown): DisplayState | null {
   const status = fields["subscriptionStatus"];
   const tier = fields["tier"];
   const quotaRemaining = fields["quotaRemaining"];
+  const relistQuotaPerPeriod = fields["relistQuotaPerPeriod"];
   const resetAt = fields["resetAt"];
   const features = fields["features"];
 
   if (!isSubscriptionStatus(status)) return null;
   if (typeof quotaRemaining !== "number" || !Number.isInteger(quotaRemaining) || quotaRemaining < 0) {
+    return null;
+  }
+  // The grant, which is the other half of "2 of 3" (#41). Required like the rest:
+  // a snapshot missing it would render a sentence with a hole where a number goes.
+  if (
+    typeof relistQuotaPerPeriod !== "number" ||
+    !Number.isInteger(relistQuotaPerPeriod) ||
+    relistQuotaPerPeriod < 0
+  ) {
     return null;
   }
   if (typeof resetAt !== "string" || resetAt.length === 0) return null;
@@ -105,6 +115,7 @@ export function asDisplayState(body: unknown): DisplayState | null {
     subscriptionStatus: status,
     tier: { code, name },
     quotaRemaining,
+    relistQuotaPerPeriod,
     resetAt,
     features: features as Record<string, unknown>,
   };

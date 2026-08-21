@@ -7,26 +7,23 @@ const PLAN = {
   subscriptionStatus: "ACTIVE",
   tier: { code: "free", name: "Free" },
   quotaRemaining: 2,
+  relistQuotaPerPeriod: 3,
   resetAt: "2026-09-14T08:31:22.101Z",
   features: {},
 } as const;
 
 describe("what is left of the plan", () => {
-  it("counts down in the plural the number needs", () => {
-    expect(relistsLeft(2)).toBe("2 relists left");
-    expect(relistsLeft(1)).toBe("1 relist left");
+  it("is a fraction, because one number alone says nothing", () => {
+    // "2" does not say whether that is nearly all of them or nearly none. The
+    // denominator arrived with T32 (#41), which added `relistQuotaPerPeriod` to
+    // `/api/me` for exactly this sentence.
+    expect(relistsLeft(2, 3)).toBe("2 of 3 relists left");
+    expect(relistsLeft(0, 3)).toBe("0 of 3 relists left");
   });
 
-  it("says none rather than zero", () => {
-    expect(relistsLeft(0)).toBe("no relists left");
-  });
-
-  it("is what is left and not a fraction, because the total is not in the answer", () => {
-    // The canvas draws "3 of 3". `GET /api/me` carries `quotaRemaining` and never
-    // what the tier grants, so the denominator is a number this popup does not
-    // have — closing that gap is a contract change (noted on T32, #41), not
-    // something to guess at here.
-    expect(relistsLeft(3)).not.toContain(" of ");
+  it("agrees with the grant rather than the remainder", () => {
+    expect(relistsLeft(1, 3)).toBe("1 of 3 relists left");
+    expect(relistsLeft(1, 1)).toBe("1 of 1 relist left");
   });
 });
 
@@ -57,7 +54,7 @@ describe("the plan strip", () => {
   it("names the tier as the operator spells it, beside what is left", () => {
     const markup = render(2);
     expect(markup).toContain("<b>Free</b>");
-    expect(markup).toContain("2 relists left");
+    expect(markup).toContain("2 of 3 relists left");
     expect(markup).toContain("resets 14 Sep");
   });
 

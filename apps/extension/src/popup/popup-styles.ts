@@ -65,6 +65,29 @@ body {
 }
 .popup-plan b { color: var(--mp-fg); font-weight: 650; }
 .popup-plan--spent { background: var(--mp-warn-bg); color: var(--mp-warn); }
+.popup-plan--failing { background: var(--mp-err-bg); color: var(--mp-err); }
+
+/* The gated prompts: what happened, and what it means for the plan. */
+.popup-prompt {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px var(--mp-space-md);
+  border-bottom: 1px solid var(--mp-line);
+}
+.popup-prompt-mark { flex: none; margin-top: 1px; color: var(--mp-accent); }
+.popup-prompt-mark--failing { color: var(--mp-err); }
+.popup-prompt-title {
+  margin: 0 0 2px;
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  font-weight: 600;
+}
+.popup-prompt-copy {
+  margin: 0;
+  font: var(--mp-text-caption) var(--mp-font-family);
+  color: var(--mp-muted);
+  line-height: 1.45;
+}
 
 /* The screens with nothing but a message on them. */
 .popup-centred { padding: 34px 26px 30px; text-align: center; }

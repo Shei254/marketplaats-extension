@@ -15,7 +15,7 @@ const ADS: ListingSummary[] = [
 
 /** The list, rendered without any of its behaviour — that is `AdList.test.tsx`. */
 const render = (view: Parameters<typeof AdList>[0]["view"]): string =>
-  renderToStaticMarkup(<AdList view={view} worker={{} as WorkerPort} onRelisted={() => {}} />);
+  renderToStaticMarkup(<AdList view={view} worker={{} as WorkerPort} onOutcome={() => {}} />);
 
 describe("the ads themselves", () => {
   it("are a row each, titled and priced", () => {

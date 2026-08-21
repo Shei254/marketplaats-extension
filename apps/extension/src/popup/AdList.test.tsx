@@ -24,7 +24,10 @@ const ADS: ListingSummary[] = [
 
 const WIRE_ERROR = { code: "NO_MARKTPLAATS_TAB", message: "No marktplaats.nl tab is open" } as const;
 
-function fakeWorker(outcome: WireRelistOutcome = { status: "relisted" }) {
+const QUOTA = { quotaRemaining: 1, resetAt: "2026-09-14T08:31:22.101Z" };
+const RELISTED: WireRelistOutcome = { status: "relisted", quota: QUOTA };
+
+function fakeWorker(outcome: WireRelistOutcome = RELISTED) {
   let release: ((value: WireRelistOutcome) => void) | null = null;
   const worker = {
     relist: vi.fn(
@@ -61,9 +64,12 @@ afterEach(async () => {
   container.remove();
 });
 
-async function show(worker: WorkerPort, onRelisted: () => void = () => {}): Promise<void> {
+async function show(
+  worker: WorkerPort,
+  onOutcome: (outcome: WireRelistOutcome) => void = () => {},
+): Promise<void> {
   await act(async () => {
-    root.render(<AdList view={{ status: "ready", ads: ADS }} worker={worker} onRelisted={onRelisted} />);
+    root.render(<AdList view={{ status: "ready", ads: ADS }} worker={worker} onOutcome={onOutcome} />);
   });
 }
 
@@ -90,17 +96,17 @@ describe("reposting one ad", () => {
     expect(worker.retry).not.toHaveBeenCalled();
   });
 
-  it("says so on the row, and asks for a reload", async () => {
-    // The list is stale the moment one of them is reposted — the ad has a new id
-    // — and so is the quota above it.
-    const reloaded = vi.fn();
+  it("says so on the row, and hands the outcome up with the fresh quota on it", async () => {
+    // The screen above owns the plan strip and the list, and both moved: the ad
+    // has a new id, and `/complete` already said what the period has left (#41).
+    const outcomes: WireRelistOutcome[] = [];
     const { worker } = fakeWorker();
 
-    await show(worker, reloaded);
+    await show(worker, (outcome) => outcomes.push(outcome));
     await press(0);
 
     expect(text()).toContain("Reposted. Reloading your ads…");
-    expect(reloaded).toHaveBeenCalledTimes(1);
+    expect(outcomes).toEqual([RELISTED]);
   });
 });
 
@@ -117,7 +123,7 @@ describe("one relist at a time", () => {
     // And the running one cannot be pressed twice either.
     expect(buttons()[0]?.disabled).toBe(true);
 
-    await finish({ status: "relisted" });
+    await finish(RELISTED);
     expect(worker.relist).toHaveBeenCalledTimes(1);
   });
 
@@ -127,7 +133,7 @@ describe("one relist at a time", () => {
 
     await show(worker);
     await press(0);
-    await finish({ status: "failed-before-delete", error: WIRE_ERROR });
+    await finish({ status: "failed-before-delete", error: WIRE_ERROR, quota: QUOTA });
 
     expect(buttons()[1]?.disabled).toBe(false);
   });
@@ -135,7 +141,7 @@ describe("one relist at a time", () => {
 
 describe("when it does not work", () => {
   it("says the ad is untouched, and offers to start over", async () => {
-    const { worker } = fakeWorker({ status: "failed-before-delete", error: WIRE_ERROR });
+    const { worker } = fakeWorker({ status: "failed-before-delete", error: WIRE_ERROR, quota: QUOTA });
 
     await show(worker);
     await press(0);
@@ -151,7 +157,7 @@ describe("when it does not work", () => {
     // This row's ad is already deleted. Pressing the button must resume the
     // snapshot, not start a fresh relist — one puts the ad back, the other would
     // authorize and delete again.
-    const { worker } = fakeWorker({ status: "failed-recoverable", listingId: "m1", error: WIRE_ERROR });
+    const { worker } = fakeWorker({ status: "failed-recoverable", listingId: "m1", error: WIRE_ERROR, quota: QUOTA });
 
     await show(worker);
     await press(0);
@@ -164,14 +170,17 @@ describe("when it does not work", () => {
     expect(worker.relist).toHaveBeenCalledTimes(1);
   });
 
-  it("does not ask for a reload when nothing was reposted", async () => {
-    const reloaded = vi.fn();
-    const { worker } = fakeWorker({ status: "failed-before-delete", error: WIRE_ERROR });
+  it("still hands a failure up, because the refunded quota is news too", async () => {
+    // `FAILED_BEFORE_DELETE` gives the unit back, so the strip has moved even
+    // though the ad has not. What is *not* done here is reloading the list —
+    // that decision belongs to the screen above, and it has the outcome.
+    const outcomes: WireRelistOutcome[] = [];
+    const { worker } = fakeWorker({ status: "failed-before-delete", error: WIRE_ERROR, quota: QUOTA });
 
-    await show(worker, reloaded);
+    await show(worker, (outcome) => outcomes.push(outcome));
     await press(0);
 
-    expect(reloaded).not.toHaveBeenCalled();
+    expect(outcomes[0]).toMatchObject({ status: "failed-before-delete", quota: QUOTA });
   });
 
   it("survives a worker that does not answer at all", async () => {
@@ -186,6 +195,62 @@ describe("when it does not work", () => {
     await press(0);
 
     expect(text()).toContain("Nothing was reposted.");
+    expect(buttons()[1]?.disabled).toBe(false);
+  });
+});
+
+describe("a cooldown", () => {
+  it("counts down on the row, and locks every other one", async () => {
+    // The pacing rails are per user (ADR-0008), so the next ad would be refused
+    // for the same reason — a button that offered to try is a button that lies.
+    vi.useFakeTimers();
+    const { worker } = fakeWorker({ status: "refused", locked: { state: "cooldown", retryAfter: 3 } });
+
+    await show(worker);
+    await press(0);
+
+    expect(buttons()[0]?.textContent).toContain("3s");
+    expect(buttons()[1]?.disabled).toBe(true);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(buttons()[0]?.textContent).toContain("2s");
+
+    vi.useRealTimers();
+  });
+
+  it("gives the buttons back when it runs out, without anybody asking", async () => {
+    // A countdown that stopped at zero and stayed locked would be a cooldown the
+    // user has to guess the end of, which is the failure it exists to prevent.
+    vi.useFakeTimers();
+    const { worker } = fakeWorker({ status: "refused", locked: { state: "cooldown", retryAfter: 2 } });
+
+    await show(worker);
+    await press(0);
+    expect(buttons()[1]?.disabled).toBe(true);
+
+    await act(async () => {
+      vi.advanceTimersByTime(2100);
+    });
+
+    expect(buttons()[1]?.disabled).toBe(false);
+    expect(buttons()[1]?.textContent).toContain("Repost");
+
+    vi.useRealTimers();
+  });
+
+  it("locks nothing when the refusal named no seconds", async () => {
+    // Without a number there is nothing to count, and locking the list for an
+    // unknown time is worse than letting the next attempt be refused too.
+    const { worker } = fakeWorker({
+      status: "refused",
+      locked: { state: "cooldown", retryAfter: null },
+    });
+
+    await show(worker);
+    await press(0);
+
     expect(buttons()[1]?.disabled).toBe(false);
   });
 });

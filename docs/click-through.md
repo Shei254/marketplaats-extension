@@ -13,8 +13,9 @@ the failure is written down too — a script that only records the happy path re
 ## Before any of them
 
 ```bash
-MPRELIST_EXTENSION_ID=$(npm run -s extension-id -w @mprelist/extension) \
-  docker compose -f infra/docker-compose.yml up -d --wait
+export MPRELIST_EXTENSION_ID=$(npm run -s extension-id -w @mprelist/extension)
+
+docker compose -f infra/docker-compose.yml up -d --wait
 cd apps/api && ./gradlew bootRun
 npm run build -w @mprelist/extension             # dist/ — load unpacked
 ```
@@ -23,10 +24,18 @@ The id comes from the `key` T44 pinned in the manifest, so the substitution abov
 literal you pasted last month may not be. The realm imports on **first start only**, so if it is wrong the fix
 is `down -v`, not a restart.
 
+`bootRun` does **not** need it: the API's allowed CORS origin defaults to that same pinned id, and a test
+derives it from the manifest's key so the default cannot go stale. Setting it anyway overrides both, which is
+what a Web Store id will need at publish (#87). Whatever it resolves to, the API logs the origins it will
+accept as it starts — the browser's refusal names nothing about the API, so that line is the other end of the
+thread.
+
 > **A stack started before 2026-08-21 has the realm from before [#108](https://github.com/Shei254/marketplaats-extension/issues/108)**,
 > whose clients mint tokens carrying the signed-in user's name and email address. Nothing reads them and the
 > script below passes either way, so the only way to notice is to decode a token — `down -v` first and it
-> cannot come up. The same reset is what re-syncs a container whose realm was edited in the admin console.
+> cannot come up. The same reset is what re-syncs a container whose realm was edited in the admin console,
+> and it is what gives you the `sslRequired` compose now sets: without it Keycloak answers **403 "HTTPS
+> required"** to the browser on some daemons, and step 3 below never opens a login page.
 
 ---
 

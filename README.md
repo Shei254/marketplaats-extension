@@ -138,6 +138,9 @@ to answer `/success` with that file rather than a 404 — `vite dev` and `vite p
   when its script has been walked, not when its tickets close.**
 - [`docs/adr/`](docs/adr/README.md) — the decisions. If the backlog disagrees with an ADR, the ADR wins.
 - [`docs/enforcement-contract.md`](docs/enforcement-contract.md) — the wire contract between extension and API.
+- [`docs/internal-api-findings.md`](docs/internal-api-findings.md) — what the POC spikes found out about
+  Marktplaats's own internal API: the endpoints, the CSRF chain, why `createAd`'s field order is load-bearing,
+  and what each failure mode looks like from the outside. Read it the night relisting breaks.
 - [`docs/adr/0015-frozen-internal-api-golden-tests.md`](docs/adr/0015-frozen-internal-api-golden-tests.md) —
   why `apps/extension/src/content/marktplaats-api.golden.test.ts` asserts request bytes, and what you may
   not change without deliberately re-recording them.

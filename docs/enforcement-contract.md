@@ -183,6 +183,27 @@ about their **software**. It therefore carries none, exactly like every other `4
 - Consumed by the **popup**, which holds the access token and opens the Checkout URL in a tab; `apps/web`
   has no login and never calls this (ADR-0017).
 
+### `POST /api/checkout` — where a plan card becomes a payment
+- **Auth:** `Authorization: Bearer <Keycloak access token>`. Called by the **popup**, which holds one already;
+  `apps/web` has no login and never calls this (ADR-0017).
+- **Body:** `{ "tierCode": "pro" }` — the stable handle, never a Stripe price id, which is ours to resolve. A
+  client naming a price id could name one we never published.
+- **Returns `200`:** `{ "url": "https://checkout.stripe.com/…" }`. The popup opens it in a tab and is
+  destroyed the moment that tab takes focus — expected, and what T50's success page catches.
+- **A `200` is an offer to pay, not an entitlement.** What moves the plan is Stripe saying the money did,
+  through the webhook (T20, #30). Nothing here spends or grants anything.
+- **`404` with an empty body** when nothing is on sale under that code: unknown, unpublished, or a draft
+  synced at quota 0 (ADR-0019). A client holding yesterday's plan cards gets this, and it is not an error on
+  either side. The free tier is one of these — it has no Price, so it is not in the list this route buys from.
+- **`503` with an empty body** when Stripe could not be asked. The two refusals are different statuses on
+  purpose: one says the plan is gone, the other says come back in a minute, and only the second is worth a
+  retry. Neither carries a `reason` — they are not denials about the user.
+- **`400` with an empty body** for a body this API could not read, including one naming no tier.
+- **The session carries our own account id as `client_reference_id`**, which is how the webhook knows whose
+  subscription started: this API deliberately holds no email address to match on (#108). It carries an
+  existing `stripe_customer_id` when the account has one, so a subscriber who cancelled and came back
+  (ADR-0018) continues one billing history rather than starting a second.
+
 ### `GET /api/me` — display state, **never a grant**
 - **Auth:** `Authorization: Bearer <Keycloak access token>`.
 - **Returns `200`:** `{ subscriptionStatus, tier, quotaRemaining, relistQuotaPerPeriod, resetAt, features }`

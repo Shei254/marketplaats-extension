@@ -1,5 +1,7 @@
 package com.mprelist.subscription;
 
+import java.util.Optional;
+
 import com.mprelist.identity.UserRef;
 
 /**
@@ -43,5 +45,26 @@ public interface Subscriptions {
 	 * @throws IllegalStateException if that account holds no subscription
 	 */
 	Subscription currentFor(UserRef user);
+
+	/**
+	 * The Stripe customer this account has been billed as, if it ever has been (T19, #29).
+	 *
+	 * <p>A second question rather than a field on {@link Subscription}, because that record is read on the
+	 * authorize path by a gate that checks a quota — and a Stripe id travelling on the hot path is a column a
+	 * later reader could come to branch on. This one is asked by {@code billing}, once, when somebody is about
+	 * to be sent to Checkout.
+	 *
+	 * <p><strong>What it is for is not creating a second customer.</strong> ADR-0018 has a cancelled
+	 * subscriber fall back to the free tier with {@code stripe_customer_id} <em>kept</em> and
+	 * {@code stripe_subscription_id} cleared, precisely so that resubscribing is the same customer buying
+	 * again rather than a stranger with the same email. Opening a Checkout session without this would split
+	 * one person's billing history in two and leave the Customer Portal (T21, #31) pointing at whichever half
+	 * our row happened to name.
+	 *
+	 * @param user the account to answer about
+	 * @return the customer id, or nothing for an account that has never paid — which is every free user, and
+	 * is not a fault
+	 */
+	Optional<String> stripeCustomerFor(UserRef user);
 
 }

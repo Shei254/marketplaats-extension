@@ -152,7 +152,8 @@ class StripePriceCacheTest {
 	 */
 	@Test
 	void withNoApiKeyStripeIsNotEvenAsked() {
-		CachedStripePrices unconfigured = new CachedStripePrices("", REMEMBERED);
+		CachedStripePrices unconfigured = new CachedStripePrices(new StripeAccount(""), REMEMBERED,
+				() -> this.now);
 
 		assertThat(unconfigured.of("price_pro")).isEmpty();
 		assertThat(this.asked).hasValue(0);
@@ -174,7 +175,7 @@ class StripePriceCacheTest {
 				// One try, so a test about "asked once" is not counting the client's own retries.
 				.setMaxNetworkRetries(0)
 				.build();
-		return new CachedStripePrices(client, REMEMBERED, () -> this.now);
+		return new CachedStripePrices(new StripeAccount(client), REMEMBERED, () -> this.now);
 	}
 
 	private static String recurring(long amount, String currency, String interval) {

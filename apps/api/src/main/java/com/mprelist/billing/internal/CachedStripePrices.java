@@ -34,8 +34,7 @@ import com.stripe.model.Price;
  *
  * <p><strong>No API key configured is the same answer as Stripe being down</strong>, which is deliberate and
  * is what a developer's stack meets: the plan cards say "unavailable, retry" rather than rendering an
- * invented amount. Said once at startup, because the alternative is a screen that fails and a log that
- * mentions nothing.
+ * invented amount. {@link StripeAccount} is what says so at startup, once, for every caller in this module.
  */
 @Service
 class CachedStripePrices implements StripePrices {
@@ -46,27 +45,16 @@ class CachedStripePrices implements StripePrices {
 	 * class's actual problem.
 	 */
 	@Autowired
-	CachedStripePrices(@Value("${mprelist.stripe.secret-key:}") String secretKey,
-			@Value("${mprelist.stripe.price-cache}") Duration remembered) {
-		this.remembered = remembered;
-		this.now = Instant::now;
-		this.stripe = secretKey == null || secretKey.isBlank() ? null
-				: StripeClient.builder().setApiKey(secretKey.strip()).build();
-		if (this.stripe == null) {
-			LOG.warn("No Stripe API key is configured, so no price can be fetched and the plan cards will say "
-					+ "so. Set MPRELIST_STRIPE_SECRET_KEY to the test-mode secret key.");
-		}
-		else {
-			LOG.info("Stripe prices are fetched with the configured API key and remembered for {}", remembered);
-		}
+	CachedStripePrices(StripeAccount stripe, @Value("${mprelist.stripe.price-cache}") Duration remembered) {
+		this(stripe, remembered, Instant::now);
 	}
 
 	/**
-	 * Package-private, for the suite that points this at a stub standing in for Stripe. There is no other way
-	 * to exercise the real client: the alternative is a test that mocks the SDK and proves that our mock was
-	 * called, which would pass with the field mapping upside down.
+	 * Package-private, for the suite that points this at a stub standing in for Stripe and ages its cache
+	 * without sleeping. There is no other way to exercise the real client: the alternative is a test that
+	 * mocks the SDK and proves that our mock was called, which would pass with the field mapping upside down.
 	 */
-	CachedStripePrices(StripeClient stripe, Duration remembered, Supplier<Instant> now) {
+	CachedStripePrices(StripeAccount stripe, Duration remembered, Supplier<Instant> now) {
 		this.stripe = stripe;
 		this.remembered = remembered;
 		this.now = now;
@@ -74,14 +62,15 @@ class CachedStripePrices implements StripePrices {
 
 	@Override
 	public Optional<StripePrice> of(String stripePriceId) {
-		if (this.stripe == null || stripePriceId == null || stripePriceId.isBlank()) {
+		Optional<StripeClient> client = this.stripe.client();
+		if (client.isEmpty() || stripePriceId == null || stripePriceId.isBlank()) {
 			return Optional.empty();
 		}
 		Remembered held = this.prices.get(stripePriceId);
 		if (held != null && held.isFresh(this.now.get())) {
 			return Optional.of(held.price());
 		}
-		Optional<StripePrice> fetched = fetch(stripePriceId);
+		Optional<StripePrice> fetched = fetch(client.get(), stripePriceId);
 		// Only what came back. A Stripe outage must cost a retry, not a TTL: remembering the absence would
 		// turn a five-second blip into fifteen minutes of "prices unavailable" for everybody.
 		fetched.ifPresent(price -> this.prices.put(stripePriceId,
@@ -96,9 +85,9 @@ class CachedStripePrices implements StripePrices {
 	 * cannot be sold as a subscription. It is empty rather than an error for the same reason a missing id is:
 	 * the caller's question is "can this be rendered as a plan", and the answer is no.
 	 */
-	private Optional<StripePrice> fetch(String stripePriceId) {
+	private Optional<StripePrice> fetch(StripeClient stripe, String stripePriceId) {
 		try {
-			Price price = this.stripe.prices().retrieve(stripePriceId);
+			Price price = stripe.prices().retrieve(stripePriceId);
 			if (price.getUnitAmount() == null || price.getRecurring() == null
 					|| price.getRecurring().getInterval() == null) {
 				LOG.warn("Stripe Price {} is not something that can be sold as a plan: no amount, or no "
@@ -131,8 +120,7 @@ class CachedStripePrices implements StripePrices {
 	 */
 	private final Map<String, Remembered> prices = new ConcurrentHashMap<>();
 
-	/** Null when no API key is configured, which is every developer's stack and is not an error. */
-	private final StripeClient stripe;
+	private final StripeAccount stripe;
 
 	private final Duration remembered;
 

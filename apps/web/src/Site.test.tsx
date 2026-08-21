@@ -16,6 +16,16 @@ describe("what the site serves", () => {
     expect(render("/cancel")).toContain("No payment was taken");
   });
 
+  it("draws the privacy policy at the path the Web Store listing will carry", () => {
+    // T58 (#89) cannot go up without a hosted privacy URL, and this is it.
+    expect(render("/privacy")).toContain("Last updated");
+    expect(render("/privacy")).toContain("only ever receive the id");
+  });
+
+  it("draws the terms at theirs", () => {
+    expect(render("/terms")).toContain("the original ad is deleted");
+  });
+
   it("draws the not-found page everywhere else, including the root", () => {
     expect(render("/")).toContain("There’s nothing at this address");
     expect(render("/whatever")).toContain("There’s nothing at this address");
@@ -38,11 +48,28 @@ describe("the frame", () => {
     expect(markup).toContain('class="web-brand"');
   });
 
-  it("offers the support address and nothing else to click", () => {
-    // Privacy and terms are T36 (#45). The canvas draws links to them here; a link
-    // to a page that answers "there's nothing at this address" is worse than one
-    // that arrives with the page.
+  it("links to both documents and to the support address, and to nothing else", () => {
+    // Five links on the whole site: Privacy and Terms in the header, the same two
+    // and the support address in the footer. They arrived with T36 (#45), the
+    // ticket that wrote the pages — a link to an address answered with "there's
+    // nothing at this address" is worse than one that arrives with its page.
     expect(markup).toContain(`href="mailto:${BRAND.supportEmail}"`);
-    expect([...markup.matchAll(/<a\b/g)]).toHaveLength(1);
+    expect([...markup.matchAll(/href="\/privacy"/g)]).toHaveLength(2);
+    expect([...markup.matchAll(/href="\/terms"/g)]).toHaveLength(2);
+    expect([...markup.matchAll(/<a\b/g)]).toHaveLength(5);
+  });
+
+  it("marks the document being read rather than linking it to itself", () => {
+    // `aria-current` is what a screen reader announces and what the stylesheet
+    // hangs the canvas's emphasis off — one fact rather than two spellings of it.
+    const reading = render("/privacy");
+
+    expect(reading).toContain('href="/privacy" aria-current="page"');
+    expect(reading).not.toContain('href="/terms" aria-current="page"');
+  });
+
+  it("draws a document as a document, not as one centred sentence", () => {
+    expect(render("/terms")).toContain('class="web-doc"');
+    expect(render("/success")).not.toContain('class="web-doc"');
   });
 });

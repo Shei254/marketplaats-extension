@@ -1,4 +1,5 @@
 import type { DisplayStateAnswer } from "../api/display-state";
+import type { HandoffAnswer, PlansAnswer } from "../api/subscribing";
 import type { ListingSummary } from "../domain/types";
 import type { BackgroundRequest, BackgroundResponse, WireRelistOutcome } from "../background/messages";
 import { fromWireError } from "../content/messages";
@@ -49,6 +50,39 @@ export function workerPort(): WorkerPort {
         return await ask({ kind: "pace" });
       } catch {
         return 0;
+      }
+    },
+    /**
+     * Flattened to `unavailable` like the display state: a worker that cannot
+     * answer and a backend that cannot answer are the same event from the user's
+     * chair, and the plans screen has one line for both.
+     */
+    async plans(): Promise<PlansAnswer> {
+      try {
+        return await ask({ kind: "plans" });
+      } catch {
+        return { status: "unavailable" };
+      }
+    },
+    /**
+     * The tab is opened by the worker, so what comes back here is only ever news
+     * about a Stripe page that did *not* open — and often nothing comes back at
+     * all, because the popup is gone by then. Flattened for the same reason as
+     * above: there is no screen for an exception, and "we couldn't open it" is
+     * true of a worker that failed as much as of a Stripe that did.
+     */
+    async checkout(tierCode: string): Promise<HandoffAnswer> {
+      try {
+        return await ask({ kind: "checkout", tierCode });
+      } catch {
+        return { status: "unavailable" };
+      }
+    },
+    async portal(): Promise<HandoffAnswer> {
+      try {
+        return await ask({ kind: "portal" });
+      } catch {
+        return { status: "unavailable" };
       }
     },
     async signIn(): Promise<void> {

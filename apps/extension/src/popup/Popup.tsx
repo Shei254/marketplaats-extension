@@ -2,13 +2,24 @@ import { UiStyles } from "@mprelist/ui";
 import { useCallback, useEffect, useState, type JSX } from "react";
 
 import type { WireRelistOutcome } from "../background/messages";
+import type { HandoffAnswer } from "../api/subscribing";
 import { ADS_LOADING, describeAdsFailure, type AdsView } from "./ads";
-import { adListCss, popupCss } from "./popup-styles";
+import { adListCss, planCardCss, popupCss } from "./popup-styles";
 import { AdList } from "./AdList";
+import { PlanCards } from "./PlanCards";
+import {
+  handoffFailure,
+  MANAGING,
+  NOT_OPENING,
+  PLANS_LOADING,
+  type Handoff,
+  type PlansView,
+} from "./plans";
 import { LOADING, screenFor, type Screen, type WorkerPort } from "./screen";
 import {
   LoadingScreen,
   OutdatedScreen,
+  PlansScreen,
   SignedInScreen,
   SignedOutScreen,
   UnavailableScreen,
@@ -32,6 +43,8 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
   const [screen, setScreen] = useState<Screen>(LOADING);
   const [ads, setAds] = useState<AdsView>(ADS_LOADING);
   const [busy, setBusy] = useState(false);
+  const [plans, setPlans] = useState<PlansView>(PLANS_LOADING);
+  const [handoff, setHandoff] = useState<Handoff>(NOT_OPENING);
 
   /**
    * The plan first, then the ads — and the ads **only** when there is a session.
@@ -102,6 +115,76 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
     [reloadAds],
   );
 
+  /**
+   * The plan cards, and the screen they are on (T52, #83).
+   *
+   * The screen is switched **before** the answer arrives, so the cards load in
+   * front of the user rather than the button hanging until they do — the list is a
+   * network call and this popup has a loading state for exactly that.
+   *
+   * `signed-out` and `outdated` are not plans-screen states: they are the same
+   * events `/api/me` reports and get the same screens, through the same function.
+   * A token that expired between opening the popup and clicking here is the
+   * ordinary way that happens.
+   */
+  const seePlans = useCallback(async () => {
+    setHandoff(NOT_OPENING);
+    setPlans(PLANS_LOADING);
+    setScreen((current) =>
+      current.screen === "signed-in" ? { screen: "plans", plan: current.plan } : current,
+    );
+
+    const answer = await worker.plans();
+    if (answer.status === "signed-out" || answer.status === "outdated") {
+      setScreen(screenFor(answer));
+      return;
+    }
+    setPlans(answer.status === "ready" ? { status: "ready", plans: answer.plans } : { status: "failed" });
+  }, [worker]);
+
+  const backToAds = useCallback(() => {
+    setHandoff(NOT_OPENING);
+    setScreen((current) =>
+      current.screen === "plans" ? { screen: "signed-in", plan: current.plan } : current,
+    );
+  }, []);
+
+  /**
+   * Buying a plan, and managing one already bought — one function, because from
+   * here they are the same act: ask the worker for a Stripe page, and be destroyed
+   * by the tab it opens.
+   *
+   * **The busy state is set before the call and never cleared on success**, which
+   * is deliberate rather than an omission. The popup is gone by then (ADR-0017),
+   * so there is nothing to clear and no state a user will ever see; an answer that
+   * *does* come back is news that nothing opened, and that is the only thing this
+   * has left to render.
+   */
+  const openStripe = useCallback(
+    async (what: string, ask: () => Promise<HandoffAnswer>, asked: "checkout" | "portal") => {
+      setHandoff({ kind: "opening", what });
+      const answer = await ask();
+      if (answer.status === "signed-out" || answer.status === "outdated") {
+        setHandoff(NOT_OPENING);
+        setScreen(screenFor(answer));
+        return;
+      }
+      const failure = handoffFailure(answer, asked);
+      setHandoff(failure ? { kind: "failed", message: failure } : NOT_OPENING);
+    },
+    [],
+  );
+
+  const upgrade = useCallback(
+    (tierCode: string) => void openStripe(tierCode, () => worker.checkout(tierCode), "checkout"),
+    [openStripe, worker],
+  );
+
+  const manageBilling = useCallback(
+    () => void openStripe(MANAGING, () => worker.portal(), "portal"),
+    [openStripe, worker],
+  );
+
   const signIn = useCallback(async () => {
     setBusy(true);
     try {
@@ -130,8 +213,24 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
   return (
     <>
       <UiStyles />
-      <style dangerouslySetInnerHTML={{ __html: `${popupCss}\n${adListCss}` }} />
-      <div className="mp-root">{body(screen, { load, signIn, signOut, busy, ads, worker, onOutcome })}</div>
+      <style dangerouslySetInnerHTML={{ __html: `${popupCss}\n${adListCss}\n${planCardCss}` }} />
+      <div className="mp-root">
+        {body(screen, {
+          load,
+          signIn,
+          signOut,
+          busy,
+          ads,
+          worker,
+          onOutcome,
+          plans,
+          handoff,
+          seePlans,
+          backToAds,
+          upgrade,
+          manageBilling,
+        })}
+      </div>
     </>
   );
 }
@@ -144,9 +243,17 @@ interface Handlers {
   ads: AdsView;
   worker: WorkerPort;
   onOutcome: (outcome: WireRelistOutcome) => void;
+  plans: PlansView;
+  handoff: Handoff;
+  seePlans: () => void;
+  backToAds: () => void;
+  upgrade: (tierCode: string) => void;
+  manageBilling: () => void;
 }
 
-function body(screen: Screen, { load, signIn, signOut, busy, ads, worker, onOutcome }: Handlers): JSX.Element {
+function body(screen: Screen, handlers: Handlers): JSX.Element {
+  const { load, signIn, signOut, busy, ads, worker, onOutcome } = handlers;
+  const { plans, handoff, seePlans, backToAds, upgrade, manageBilling } = handlers;
   switch (screen.screen) {
     case "loading":
       return <LoadingScreen />;
@@ -160,9 +267,29 @@ function body(screen: Screen, { load, signIn, signOut, busy, ads, worker, onOutc
       return <OutdatedScreen />;
     case "signed-in":
       return (
-        <SignedInScreen plan={screen.plan} onRefresh={load} onSignOut={signOut} busy={busy}>
+        <SignedInScreen
+          plan={screen.plan}
+          onRefresh={load}
+          onSignOut={signOut}
+          onSeePlans={seePlans}
+          onManageBilling={manageBilling}
+          handoff={handoff}
+          busy={busy}
+        >
           <AdList view={ads} worker={worker} onOutcome={onOutcome} />
         </SignedInScreen>
+      );
+    case "plans":
+      return (
+        <PlansScreen onBack={backToAds} onManageBilling={manageBilling} handoff={handoff}>
+          <PlanCards
+            view={plans}
+            current={screen.plan}
+            handoff={handoff}
+            onUpgrade={upgrade}
+            onRetry={seePlans}
+          />
+        </PlansScreen>
       );
   }
 }

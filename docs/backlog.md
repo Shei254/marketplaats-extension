@@ -235,11 +235,26 @@ existed.
 - `/privacy` is the URL the Web Store listing carries, so once #89 is live the address is published somewhere
   we do not control. It is a string to choose and then leave alone.
 
-#### [T52](https://github.com/Shei254/marketplaats-extension/issues/83) · Plan cards and Checkout hand-off in the popup · **M** · T29, T49, T19
+#### [T52](https://github.com/Shei254/marketplaats-extension/issues/83) · Plan cards and Checkout hand-off in the popup · **M** · T29, T49, T19 · **shipped**
 Renders `GET /api/plans`, calls the Checkout endpoint with the popup's own token, opens the returned Stripe
 URL in a tab. **This is where the original T34 went** — the conversion click stays beside the locked button
 (ADR-0007/0017). The popup closes when the tab takes focus; that is expected, and the success page is what
 catches the user.
+- **The worker opens the tab, not the popup.** The popup is destroyed the moment the tab takes focus, so a
+  `chrome.tabs.create` awaited there is awaited in a page that no longer exists — the same shape of bug as a
+  sign-in awaited there (ADR-0010). What comes back to the popup is only ever news that nothing opened.
+- **The plan they are on is a card too**, and it carries no amount unless it is also on sale: a tier absent
+  from `/api/plans` is either free or one withdrawn under the people still paying for it (ADR-0019), and
+  nothing in the popup can tell those apart, so it shows what is left of it instead of a made-up €0.
+- **Two ways in, one of them not on the canvas.** The prompt beside a spent quota is the canvas's "See plans";
+  a quiet **Plans** in the header is the addition, because without it a subscriber who is *not* out of relists
+  could never reach their own billing — and [ADR-0017](adr/0017-web-surface-and-subscribing.md) makes this
+  popup the account surface ("the popup's quota display plus a Customer Portal link").
+- **The Portal (T21, #31) arrived with it**, since it is the same act — ask the backend for a Stripe URL, let
+  the worker open it. "Manage billing" is on the plans screen for everybody, and "Update card" is on the
+  dunning prompt, which is where ADR-0018 asks for it.
+- No tagline per card: `/api/plans` carries none, and one hardcoded per tier code would be wrong for the tier
+  T53 (#84) adds and stale for one it renames.
 
 #### [T21](https://github.com/Shei254/marketplaats-extension/issues/31) · Customer Portal session endpoint · **S** · T20 · **shipped**
 `POST /api/portal`, no body: a portal redirect URL for whoever the token names, which the popup opens the same

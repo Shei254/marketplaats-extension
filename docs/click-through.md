@@ -151,13 +151,17 @@ rather than a 404 — a host that does not (T55, #86) breaks this step *after* t
 2a. Create a Price tagged with a code no tier carries — `metadata.tier_code = starter`.
    *Expect:* a **draft**: the tier exists at quota 0, unpublished, and is on no plan card. It is what T53
    publishes.
-3. With quota exhausted, open the popup and click the upgrade prompt.
-   *Expect:* plan cards with **real amounts from Stripe**. The free tier is **not** among them, and neither
-   is the draft from step 2a. Comment `MPRELIST_STRIPE_SECRET_KEY` out of `.env` and restart to see the other
-   half: `503`,
-   and "prices unavailable, retry" rather than a guessed amount.
+3. With quota exhausted, open the popup and click **See plans** on the prompt.
+   *Expect:* plan cards with **real amounts from Stripe**, and the plan you are on shown as a card of its own
+   marked **Current**. Pro and Power carry an amount; **Free does not** — a tier `/api/plans` does not sell is
+   one this popup knows no price for, so it shows what is left of it instead. The draft from step 2a is not
+   there either. Comment `MPRELIST_STRIPE_SECRET_KEY` out of `.env` and restart to see the other half: `503`,
+   and "Prices couldn't be loaded" rather than a guessed amount.
+   *Also:* **Plans** in the header reaches the same screen without being out of relists, which is the only way
+   in for somebody who is paying and wants to cancel.
 4. Click **Upgrade** on Pro.
-   *Expect:* a Stripe Checkout tab opens. The popup closes — that is expected, not a bug.
+   *Expect:* a Stripe Checkout tab opens. The popup closes — that is expected, not a bug. The tab is opened by
+   the **service worker**, so if nothing happens the worker console is where to look, not the popup's.
 5. Pay with `4242 4242 4242 4242`.
    *Expect:* redirect to `apps/web`'s success page, which asks you to reopen the extension and **does not
    ask you to log in**.
@@ -166,8 +170,9 @@ rather than a 404 — a host that does not (T55, #86) breaks this step *after* t
    than a month from signing up. Relist once to confirm.
    *If it still says Free:* the webhook is where to look, not the popup — `stripe listen` shows the
    `customer.subscription.created` delivery and its status, and a `400` there is the signing secret.
-7. Open the Customer Portal from the popup and cancel **immediately** (not at period end, which is what the
-   Portal offers by default — "cancel now" is in the test dashboard's own subscription view).
+7. Open the Customer Portal from the popup — **Plans → Manage billing** — and cancel **immediately** (not at
+   period end, which is what the Portal offers by default — "cancel now" is in the test dashboard's own
+   subscription view).
    *First time only:* the Portal has to be **saved once in the Stripe dashboard** (Settings → Billing →
    Customer portal) before `POST /api/portal` can open a session at all. Until it is, Stripe answers *"No
    configuration provided and your test mode default configuration has not been created"*, the API logs that
@@ -181,9 +186,11 @@ rather than a 404 — a host that does not (T55, #86) breaks this step *after* t
    dashboard shows one customer with two subscriptions, not two customers.
 8. Force a failed payment (`4000 0000 0000 0341`) on a fresh subscription.
    *Expect:* during dunning the popup keeps the **paid tier**, shows locked buttons, and the copy is
-   **"update your card"** with a Portal link — not "resubscribe".
+   **"update your card"** with an **Update card** button that opens the Portal — not "resubscribe".
 9. Stop the API, then open the plan cards.
-   *Expect:* "prices unavailable, retry". Never a guessed amount, never a free plan.
+   *Expect:* "Prices couldn't be loaded", with **Try again** beside it. Never a guessed amount, never a free
+   plan. A user who has never paid clicking **Manage billing** gets "you haven't paid for anything yet" rather
+   than an error — that one is a `404` and is the ordinary answer.
 
 ---
 

@@ -5,11 +5,13 @@ import { ChromeSnapshotStore } from "../adapters/chrome-snapshot-store";
 import { RelayMarktplaatsClient } from "../adapters/relay-marktplaats-client";
 import { MprelistApi } from "../api/display-state";
 import { RelistAuthorizations } from "../api/relist-authorizations";
+import { Subscribing } from "../api/subscribing";
 import { Authenticator } from "../auth/authenticator";
 import { toWireError } from "../content/messages";
 import { RelistOrchestrator } from "../domain/relist-orchestrator";
 import { HUMAN_PACE, RelistPacer } from "../domain/relist-pace";
 import type { DevHook, DevHookName } from "./dev-hooks";
+import { openStripePage } from "./stripe-tab";
 import { loadEndpointConfig, saveEndpointOverrides } from "../shared/endpoint-config";
 import {
   toWireOutcome,
@@ -50,6 +52,14 @@ const authenticator = new Authenticator({
  * that outlives a popup being closed.
  */
 const api = new MprelistApi({ tokens: authenticator });
+
+/**
+ * What can be bought, buying it, and managing what was bought (T52, #83). The
+ * same token as everything else, and here for the same reason `api` is: the popup
+ * that starts a Checkout is destroyed by the tab that Checkout opens, so the call
+ * cannot be held there.
+ */
+const subscribing = new Subscribing({ tokens: authenticator });
 
 /**
  * The human-shaped gap between relists (T46, #54). The window is handed in rather
@@ -127,8 +137,21 @@ function answer(
       return api.displayState();
     case "list-ads":
       return orchestrator.listAds();
+    case "plans":
+      return subscribing.plans();
+    case "checkout":
+      return openStripePage(subscribing.checkout(request.tierCode), inANewTab);
+    case "portal":
+      return openStripePage(subscribing.portal(), inANewTab);
   }
 }
+
+/**
+ * The one line of Chrome that hand-off needs. `chrome.tabs.create` wants no
+ * `tabs` permission — that one gates *reading* a tab's url and title, which
+ * nothing here does.
+ */
+const inANewTab = (url: string): Promise<unknown> => chrome.tabs.create({ url });
 
 /** An error's message and nothing else — never a token, never a redirect URL. */
 function describe(error: unknown): string {
@@ -185,6 +208,14 @@ if (__DEV__) {
      */
     __accessToken: () => authenticator.accessToken(),
     __apiMe: () => api.displayState(),
+    __plans: () => subscribing.plans(),
+    /**
+     * Opens a real Stripe Checkout tab for a tier code, which is the one hook
+     * here that can lead to money moving — in test mode, against `4242…`, which
+     * is what slice C step 4 walks.
+     */
+    __checkout: (tierCode: string) => subscribing.checkout(tierCode),
+    __portal: () => subscribing.portal(),
   };
   Object.assign(globalThis, hooks);
 }

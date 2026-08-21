@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import { NOT_OPENING } from "./plans";
 import { OutdatedScreen, SignedInScreen, relistsLeft, resetsOn } from "./screens";
 
 const PLAN = {
@@ -47,6 +48,9 @@ describe("the plan strip", () => {
         plan={{ ...PLAN, quotaRemaining }}
         onRefresh={() => {}}
         onSignOut={() => {}}
+        onSeePlans={() => {}}
+        onManageBilling={() => {}}
+        handoff={NOT_OPENING}
         busy={false}
       />,
     );
@@ -63,10 +67,22 @@ describe("the plan strip", () => {
     expect(render(1)).not.toContain("popup-plan--spent");
   });
 
-  it("offers refresh and sign-out, which is the whole of what this screen does", () => {
+  it("offers refresh, the plans and sign-out, which is the whole of what this screen does", () => {
+    // "Plans" arrived with T52 (#83) and is the second departure from the canvas,
+    // for the reason the file's docstring gives: without a way in that does not
+    // depend on being out of relists, a paying subscriber could never reach their
+    // own billing — and ADR-0017 makes this popup the account surface.
     const markup = render(2);
     expect(markup).toContain('aria-label="Refresh"');
+    expect(markup).toContain("Plans");
     expect(markup).toContain("Sign out");
+  });
+
+  it("puts the way to the plans on the prompt as well, once the quota is spent", () => {
+    // Beside the ad list, which ADR-0007 leaves ungated precisely so the
+    // conversion click is next to the user's own locked ads.
+    expect(render(0)).toContain("See plans");
+    expect(render(2)).not.toContain("See plans");
   });
 });
 

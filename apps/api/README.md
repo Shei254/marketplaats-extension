@@ -20,6 +20,18 @@ cd apps/api
 ./gradlew bootRun   # http://localhost:8080 — 401 without a token, and the gate below with one
 ```
 
+`bootRun` also needs **`MPRELIST_EXTENSION_ID` in its environment**, or no browser client can call it:
+
+```bash
+export MPRELIST_EXTENSION_ID=$(npm run -s extension-id -w @mprelist/extension)   # from the repo root
+```
+
+That id is what [`mprelist.cors.allowed-origins`](#which-origins-may-call-it) substitutes into the origin the
+extension calls from. Unset, it falls back to the same `unset-extension-id` the realm file does — a valid
+origin no browser will ever send — and the popup shows "unavailable" while this application answers every
+request correctly. The startup log names the origins it accepted, which is the only place in *our* logs that
+failure appears at all.
+
 `bootRun` needs [the local stack](../../infra/README.md) up: it migrates `postgres://localhost:5432/mprelist`
 on startup and will not start without it. Keycloak it does **not** need to start — discovery from
 `issuer-uri` is deferred until the first token arrives, so the stack has to be up for anyone to get *in*, not
@@ -1183,6 +1195,70 @@ Mutation-verified — each applied, observed, reverted:
 | `hasRole(...)` becomes `authenticated()` | `andSoIsOneHoldingSomeOtherRole` (+1) — every signed-in user is an operator |
 | the pattern loses its `/**` | `aPathNobodyHasWrittenYetIsAlreadyClosed` — the guard then covers one path and not the space |
 | the guard is scoped to `/**` instead | `andEverywhereElseIsUntouched` — one rule, and the whole application is operators-only |
+
+
+## Which origins may call it
+
+Every client of this API is cross-origin — the extension from `chrome-extension://<id>`, `apps/web` from its
+own host — so `mprelist.cors.allowed-origins` is what stands between a working popup and one that says
+"unavailable" over a backend answering perfectly well. **Found by running it**, not by a test: this suite
+drives the application over a real port and never sent an `Origin` header, so it could not see CORS at all.
+`CrossOriginTest` sends one now.
+
+The important half is the **preflight**. `Authorization` is never a safelisted header and neither is a JSON
+content type, so *every* call the contract describes is preceded by an `OPTIONS` that carries **no token** —
+by design, browsers send none. A chain that authenticated it first would answer the contract's `401`, and the
+browser would report a missing `Access-Control-Allow-Origin` rather than anything about a token. So the CORS
+filter runs before authentication and answers the preflight itself, which is what `.cors(...)` in
+`ResourceServerSecurity` buys.
+
+**It is handed the configuration source rather than left to `Customizer.withDefaults()`.** That default looks
+for a bean *named* `corsConfigurationSource` and, finding none, falls back to Spring MVC's own
+`CorsConfigurationSource` — which knows nothing about our origins and answers a preflight `200` with no CORS
+headers on it whatsoever. That is exactly the bug this section exists about, and it is not one to leave
+resting on a bean name. The bean is declared as the concrete `UrlBasedCorsConfigurationSource` for the same
+reason: asking for the interface finds two.
+
+| | |
+|---|---|
+| Origins | exactly what is configured. No patterns, no `*` |
+| Methods | `GET`, `POST` — the two the contract uses. `OPTIONS` needs no entry: a preflight is answered, not routed |
+| Headers | `Authorization`, `Content-Type`, `Accept` |
+| Credentials | **not allowed.** Nothing here is authenticated by a cookie, so a browser is never invited to send one |
+| Max age | 30 minutes, so a popup opening five times costs one preflight rather than five |
+
+**This is not the security boundary and is not written as one.** CORS decides which page's script may read an
+answer; the token decides who is answered at all. What it prevents is a site the user happens to be visiting
+reading their plan out of this API in the background — not anything a caller holding a valid token could not
+do anyway.
+
+**The origin defaults to the id rather than to an environment variable, and that was the second attempt.**
+The first spelled it as a substitution of `MPRELIST_EXTENSION_ID`, exactly as `infra/keycloak`'s realm file
+does, so that neither held a literal copy of an id that is supposed to be derived (T44). Every developer then
+met the same failure — a browser refusing an answer, naming nothing about this application, with the fix
+living in a shell they had already opened. So the trade was inverted: this file is re-read on every start, and
+a value that is wrong here costs a restart, while the realm imports **once** and a wrong value there costs a
+`down -v`. The realm keeps the substitution; this defaults.
+
+What keeps the literal honest is not care but
+`theOriginThisApiAllowsIsDerivedFromTheKeyTheExtensionIsPinnedBy`, which derives the id from the `key` in
+`apps/extension/public/manifest.template.json` — SHA-256, first sixteen bytes, each nibble as a letter `a`–`p`,
+which is Chrome's own and `npm run extension-id`'s — and fails the build if `application.yml` disagrees. The
+variable still wins where it is set, which is what the Web Store's own id will need at publish (#87).
+
+`andTheRealmRegistersThatSameOriginAsTheExtensionsWebOrigin` holds the two files to each other — they break in
+different halves of the same sign-in otherwise, and the symptom names whichever was asked first.
+
+Mutation-verified — each applied, observed, reverted:
+
+| Mutation | Fails |
+|---|---|
+| `.cors(...)` dropped from the chain | every test in `CrossOriginTest` bar the file-parity one — the preflight comes back `200` with no headers, which is the reported bug exactly |
+| `Customizer.withDefaults()` in place of the explicit source | the same, and for the reason above: MVC's own source is found and it allows nothing |
+| the allowed origins widened to `*` | `anOriginNobodyConfiguredIsNotAnsweredAtAll` |
+| `Authorization` dropped from the allowed headers | `theBrowsersQuestionIsAnsweredBeforeAnybodyIsAskedForAToken` |
+| credentials allowed | `andNoBrowserIsInvitedToSendCredentialsWithIt` |
+| one letter of the allowed origin's id changed | `theOriginThisApiAllowsIsDerivedFromTheKeyTheExtensionIsPinnedBy` — which is what makes writing the id here safe at all |
 
 
 ## The realm

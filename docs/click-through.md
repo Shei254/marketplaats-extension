@@ -13,8 +13,9 @@ the failure is written down too — a script that only records the happy path re
 ## Before any of them
 
 ```bash
-MPRELIST_EXTENSION_ID=$(npm run -s extension-id -w @mprelist/extension) \
-  docker compose -f infra/docker-compose.yml up -d --wait
+export MPRELIST_EXTENSION_ID=$(npm run -s extension-id -w @mprelist/extension)
+
+docker compose -f infra/docker-compose.yml up -d --wait
 cd apps/api && ./gradlew bootRun
 npm run build -w @mprelist/extension             # dist/ — load unpacked
 ```
@@ -22,6 +23,12 @@ npm run build -w @mprelist/extension             # dist/ — load unpacked
 The id comes from the `key` T44 pinned in the manifest, so the substitution above is always right and a
 literal you pasted last month may not be. The realm imports on **first start only**, so if it is wrong the fix
 is `down -v`, not a restart.
+
+`bootRun` does **not** need it: the API's allowed CORS origin defaults to that same pinned id, and a test
+derives it from the manifest's key so the default cannot go stale. Setting it anyway overrides both, which is
+what a Web Store id will need at publish (#87). Whatever it resolves to, the API logs the origins it will
+accept as it starts — the browser's refusal names nothing about the API, so that line is the other end of the
+thread.
 
 ---
 

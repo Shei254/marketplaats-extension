@@ -65,6 +65,16 @@ export interface WorkerPort {
    */
   relist(listingId: string): Promise<WireRelistOutcome>;
   retry(listingId: string): Promise<WireRelistOutcome>;
+  /**
+   * How long the worker will pace before the relist it is about to be asked for
+   * actually starts, in milliseconds (T46, #54).
+   *
+   * The popup does not enforce it — the worker waits whoever asked, and would
+   * still wait if this were never called. What it is for is the fourth thing the
+   * ticket asks: a deliberate wait a user can see, rather than a button that
+   * says "Reposting…" for a minute and looks hung.
+   */
+  msBeforeNextRelist(): Promise<number>;
   signIn(): Promise<void>;
   signOut(): Promise<void>;
 }

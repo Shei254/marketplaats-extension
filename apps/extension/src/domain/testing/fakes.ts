@@ -6,6 +6,7 @@ import {
   AdNotFoundError,
   type MarktplaatsClient,
 } from "../marktplaats-client";
+import type { RelistPacing } from "../relist-pace";
 import type { SnapshotStore } from "../snapshot-store";
 import type {
   AdSnapshot,
@@ -31,10 +32,12 @@ export class FakeRelistPermission implements RelistPermission {
       decision: "proceed",
       grant: { authToken: `token-${nth}`, expiresAt: "2026-08-20T10:00:45.000Z", jti: `grant-${nth}` },
     }),
+    private readonly events: FakeEvent[] = [],
   ) {}
 
   async authorize(adId: string): Promise<GateDecision> {
     this.authorized.push(adId);
+    this.events.push({ type: "authorize", listingId: adId });
     return this.answer(adId, this.authorized.length);
   }
 
@@ -48,8 +51,38 @@ export class FakeRelistPermission implements RelistPermission {
 }
 
 /** A gate that refuses everything, with the state the row would show. */
-export function refusing(locked: LockedState = { state: "upgrade", resetAt: null }): FakeRelistPermission {
-  return new FakeRelistPermission(() => ({ decision: "refuse", locked }));
+export function refusing(
+  locked: LockedState = { state: "upgrade", resetAt: null },
+  events: FakeEvent[] = [],
+): FakeRelistPermission {
+  return new FakeRelistPermission(() => ({ decision: "refuse", locked }), events);
+}
+
+/**
+ * The pace, faked (T46, #54): it records rather than sleeps, so a suite about
+ * ordering does not take a minute and a half per relist.
+ *
+ * `waitMs` is what the real one would have slept for, and is 0 by default —
+ * every test that is not about pacing gets a pacer that waits for nothing, which
+ * is the same shape the real one has when enough time has already passed.
+ */
+export class FakePace implements RelistPacing {
+  constructor(
+    private readonly events: FakeEvent[] = [],
+    public waitMs = 0,
+  ) {}
+
+  async pause(): Promise<void> {
+    this.events.push({ type: "pace", waited: this.waitMs });
+  }
+
+  async startedRelisting(): Promise<void> {
+    this.events.push({ type: "paced" });
+  }
+
+  async msBeforeNextRelist(): Promise<number> {
+    return this.waitMs;
+  }
 }
 
 /** An ordered log of boundary interactions, so tests can assert delete-first ordering. */
@@ -57,7 +90,18 @@ export type FakeEvent =
   | { type: "save"; phase: SnapshotPhase; listingId: string }
   | { type: "clear"; listingId: string }
   | { type: "delete"; listingId: string }
-  | { type: "create"; newId: string };
+  | { type: "create"; newId: string }
+  /** The gap was waited out, and how long it would have been (T46, #54). */
+  | { type: "pace"; waited: number }
+  /** A relist took its turn, which is what the next gap is measured from. */
+  | { type: "paced" }
+  /**
+   * Permission was asked for. Here rather than only in
+   * {@link FakeRelistPermission#authorized} so that the pace and the
+   * authorization can be put in one order — which is the whole of what T46
+   * changed about this flow.
+   */
+  | { type: "authorize"; listingId: string };
 
 export class InMemorySnapshotStore implements SnapshotStore {
   private readonly map = new Map<string, AdSnapshot>();

@@ -38,6 +38,19 @@ export function workerPort(): WorkerPort {
     async retry(listingId: string): Promise<WireRelistOutcome> {
       return ask({ kind: "retry", listingId });
     },
+    /**
+     * Flattened to "no wait" when the worker cannot say, like the display state
+     * and unlike the two above: this number only decides whether a countdown is
+     * drawn, and a popup that refused to start a relist because it could not find
+     * out how long the wait was would be worse than one that shows none.
+     */
+    async msBeforeNextRelist(): Promise<number> {
+      try {
+        return await ask({ kind: "pace" });
+      } catch {
+        return 0;
+      }
+    },
     async signIn(): Promise<void> {
       await ask({ kind: "sign-in" });
     },

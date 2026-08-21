@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { RelistOrchestrator } from "./relist-orchestrator";
 import {
   FakeMarktplaatsClient,
+  FakePace,
   FakeRelistPermission,
   InMemorySnapshotStore,
   refusing,
@@ -18,7 +19,7 @@ import {
  * ticket. What is asserted here is the pair of calls around it — and, mostly,
  * what does **not** happen when the first of them says no.
  */
-function relisting(options: { gate?: FakeRelistPermission; createFailures?: number } = {}) {
+function relisting(options: { gate?: FakeRelistPermission; pace?: FakePace; createFailures?: number } = {}) {
   const events: FakeEvent[] = [];
   const client = new FakeMarktplaatsClient(events, {
     ads: { "ad-1": sampleAd() },
@@ -26,7 +27,8 @@ function relisting(options: { gate?: FakeRelistPermission; createFailures?: numb
   });
   const store = new InMemorySnapshotStore(events);
   const gate = options.gate ?? new FakeRelistPermission();
-  return { orchestrator: new RelistOrchestrator(client, store, gate), client, store, gate, events };
+  const pace = options.pace ?? new FakePace();
+  return { orchestrator: new RelistOrchestrator(client, store, gate, pace), client, store, gate, pace, events };
 }
 
 /** What the fake gate answers `/complete` with — see `FakeRelistPermission`. */

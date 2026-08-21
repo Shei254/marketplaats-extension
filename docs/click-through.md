@@ -168,6 +168,11 @@ rather than a 404 — a host that does not (T55, #86) breaks this step *after* t
    `customer.subscription.created` delivery and its status, and a `400` there is the signing secret.
 7. Open the Customer Portal from the popup and cancel **immediately** (not at period end, which is what the
    Portal offers by default — "cancel now" is in the test dashboard's own subscription view).
+   *First time only:* the Portal has to be **saved once in the Stripe dashboard** (Settings → Billing →
+   Customer portal) before `POST /api/portal` can open a session at all. Until it is, Stripe answers *"No
+   configuration provided and your test mode default configuration has not been created"*, the API logs that
+   message at WARN and answers `503` — which the popup shows as unavailable, with nothing to say it is a
+   dashboard setting rather than an outage. That log line is the only place the two are told apart.
    *Expect:* when Stripe reports the end, the popup shows **`Free · 3`** — not a lockout, and **not** a 402.
    `stripe_customer_id` is still on the row and `stripe_subscription_id` is gone, which is what makes step 7a
    one billing history. That is [ADR-0018](adr/0018-lapse-falls-back-to-the-default-tier.md).

@@ -2,9 +2,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { BRAND } from "../brand";
-import { CancelPage, NotFoundPage, SuccessPage } from "./pages";
+import { BillingPage, CancelPage, NotFoundPage, SuccessPage } from "./pages";
 
-const PAGES = { success: <SuccessPage />, cancel: <CancelPage />, "not-found": <NotFoundPage /> };
+const PAGES = {
+  success: <SuccessPage />,
+  cancel: <CancelPage />,
+  billing: <BillingPage />,
+  "not-found": <NotFoundPage />,
+};
 
 describe("the success page", () => {
   const markup = renderToStaticMarkup(PAGES.success);
@@ -33,6 +38,28 @@ describe("the cancel page", () => {
 
   it("does not congratulate anybody", () => {
     expect(markup).not.toContain("all set");
+  });
+});
+
+describe("the billing page", () => {
+  const markup = renderToStaticMarkup(PAGES.billing);
+
+  it("says the change is with Stripe and that it takes a moment to arrive", () => {
+    // The webhook (T20, #30) is what moves the plan, so a user who cancelled and
+    // reopens the popup immediately may still see the old one. Saying so here is
+    // cheaper than a support ticket.
+    expect(markup).toContain("saved with Stripe");
+    expect(markup).toContain("take a moment");
+    expect(markup).toContain("icon in your toolbar");
+  });
+
+  it("does not guess what they did", () => {
+    // The same link is clicked by somebody who cancelled, somebody who changed a
+    // card and somebody who only read an invoice. Congratulating or commiserating
+    // would be wrong for two of the three.
+    expect(markup).not.toContain("payment went through");
+    expect(markup).not.toContain("all set");
+    expect(markup).not.toContain("cancelled your");
   });
 });
 

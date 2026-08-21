@@ -241,9 +241,19 @@ URL in a tab. **This is where the original T34 went** — the conversion click s
 (ADR-0007/0017). The popup closes when the tab takes focus; that is expected, and the success page is what
 catches the user.
 
-#### [T21](https://github.com/Shei254/marketplaats-extension/issues/31) · Customer Portal session endpoint · **S** · T20
-Returns a portal redirect URL for the current user; the popup opens it the same way it opens Checkout. **This
-is where the original T35 went** — the account page is the popup's quota display plus this link.
+#### [T21](https://github.com/Shei254/marketplaats-extension/issues/31) · Customer Portal session endpoint · **S** · T20 · **shipped**
+`POST /api/portal`, no body: a portal redirect URL for whoever the token names, which the popup opens the same
+way it opens Checkout. **This is where the original T35 went** — the account page is the popup's quota display
+plus this link.
+- **The question is whether Stripe holds a customer, and nothing else.** `404` when it does not, which is
+  every free user who never bought anything. A subscriber who cancelled is **not** one of those: ADR-0018
+  keeps `stripe_customer_id` precisely so their invoices and their card stay reachable, and neither is
+  somebody in dunning, who is the likeliest caller of all. **The subscription's status is never consulted.**
+- **`503` when Stripe could not be asked** — including a Stripe account whose Portal has never been configured
+  in the dashboard, which is what a fresh test-mode account answers and is a step in T22 (#28).
+- Stripe returns the browser to `apps/web`'s **`/billing`**, a page of its own rather than `/success`: the
+  commonest reason to be in the Portal is cancelling. The three paths `apps/api` sends Stripe now live in one
+  `WebPages`, held to `apps/web/src/routes.ts` by a test that reads it.
 
 ---
 

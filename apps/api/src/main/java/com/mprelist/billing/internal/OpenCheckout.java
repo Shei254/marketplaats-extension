@@ -4,7 +4,6 @@ import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import com.mprelist.catalog.SellablePlan;
@@ -46,13 +45,11 @@ import com.stripe.param.checkout.SessionCreateParams;
 @Service
 class OpenCheckout {
 
-	OpenCheckout(TierCatalog catalog, Subscriptions subscriptions, StripeAccount stripe,
-			@Value("${mprelist.web.base-url}") String webBaseUrl) {
+	OpenCheckout(TierCatalog catalog, Subscriptions subscriptions, StripeAccount stripe, WebPages web) {
 		this.catalog = catalog;
 		this.subscriptions = subscriptions;
 		this.stripe = stripe;
-		this.webBaseUrl = webBaseUrl.endsWith("/") ? webBaseUrl.substring(0, webBaseUrl.length() - 1)
-				: webBaseUrl;
+		this.web = web;
 	}
 
 	Checkout open(UserRef buyer, String tierCode) {
@@ -88,9 +85,9 @@ class OpenCheckout {
 	 *
 	 * <p>{@code success_url} and {@code cancel_url} point at {@code apps/web}'s public pages (T50, #81), which
 	 * carry no authentication at all — the browser Stripe redirects is not one this application knows
-	 * anything about, and the page it lands on deliberately learns nothing either (ADR-0017). The paths are
-	 * spelled here and in {@code apps/web/src/routes.ts}, which is one copy each side of a boundary that has
-	 * no shared anything; {@code CheckoutTest} is what holds them together.
+	 * anything about, and the page it lands on deliberately learns nothing either (ADR-0017). Which pages
+	 * those are is {@link WebPages}', so that this module's copy of {@code apps/web/src/routes.ts} is one
+	 * copy rather than one per call site.
 	 */
 	private SessionCreateParams sessionFor(UserRef buyer, SellablePlan plan) {
 		SessionCreateParams.Builder session = SessionCreateParams.builder()
@@ -99,8 +96,8 @@ class OpenCheckout {
 						.setPrice(plan.stripePriceId())
 						.setQuantity(1L)
 						.build())
-				.setSuccessUrl(this.webBaseUrl + SUCCESS_PATH)
-				.setCancelUrl(this.webBaseUrl + CANCEL_PATH)
+				.setSuccessUrl(this.web.paymentLanded())
+				.setCancelUrl(this.web.paymentAbandoned())
 				.setClientReferenceId(buyer.id().toString())
 				// Copied by Stripe onto the subscription this session creates, and carried by every event
 				// about it from then on — which is what lets the mirror (T20, #30) know whose plan moved
@@ -119,7 +116,7 @@ class OpenCheckout {
 
 	private final StripeAccount stripe;
 
-	private final String webBaseUrl;
+	private final WebPages web;
 
 	/**
 	 * The metadata key our own account id travels under, defined where it is written and read from where it
@@ -129,11 +126,6 @@ class OpenCheckout {
 	 * a subscription in the Stripe dashboard and then at a row in our own database.
 	 */
 	static final String ACCOUNT_TAG = "app_user_id";
-
-	/** `apps/web`'s own `PATHS`, on the other side of a Java/TypeScript boundary. */
-	private static final String SUCCESS_PATH = "/success";
-
-	private static final String CANCEL_PATH = "/cancel";
 
 	private static final Logger LOG = LoggerFactory.getLogger(OpenCheckout.class);
 

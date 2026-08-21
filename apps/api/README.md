@@ -1555,6 +1555,62 @@ resubscribed — is this repository talking to itself. What a real subscription 
 click-through's, slice C steps 5 to 8, and it needs [#28](https://github.com/Shei254/marketplaats-extension/issues/28)
 first.
 
+## Where somebody manages what they are paying
+
+`POST /api/portal` ([#31](https://github.com/Shei254/marketplaats-extension/issues/31), T21): a token in, a
+Stripe Customer Portal URL out. The popup opens it in a tab exactly as it opens a Checkout one.
+
+**Nothing about billing is built here, and that is the decision rather than a shortcut.** ADR-0006 chose
+Stripe for the hosted lifecycle and the Portal is the whole of it — payment methods, invoices, proration and
+cancellation are pages Stripe serves and the dashboard configures. What this API contributes is the one thing
+nobody else can: which Stripe customer the caller's token belongs to.
+
+**The customer id is the whole of the question, and the subscription's status is never consulted.** That
+column is on the row because Checkout put it there (#29) and the webhook keeps it there (#30) — including
+through a cancellation, since ADR-0018 clears `stripe_subscription_id` and *keeps* `stripe_customer_id`. So
+somebody who cancelled last month still reaches their invoices, and somebody in dunning still reaches the card
+form, which matters because that person is the likeliest caller of all: the `402 SUBSCRIPTION_INACTIVE` copy
+ADR-0018 asks for is "update your card" beside this very link. A status gate here would close the door on both
+of the people most likely to knock.
+
+**`404` is not an error.** An account Stripe holds no customer for has genuinely nothing to manage, which is
+every free user who never bought anything — most accounts. It is separate from `503` for `/api/checkout`'s
+reason: only one of the two is worth a retry, and telling a paying subscriber their billing does not exist
+would be a support ticket. The likeliest `503` on a fresh stack is not an outage at all but a Stripe account
+whose Portal has never been saved in the dashboard, which is why the exception's own message is logged rather
+than a line of ours.
+
+**Stripe returns the browser to `/billing`, a page of `apps/web`'s own.** Not `/success`, which congratulates
+somebody on a payment: the commonest reason to be in the Portal is cancelling, and the page cannot know which
+of the three things the visitor did — so it says the change is with Stripe, that the plan takes a moment to
+catch up, and points at the toolbar.
+
+**The three paths this module sends Stripe now live in one `WebPages`** — `/success`, `/cancel` and
+`/billing` — with the trailing slash trimmed once rather than at each call site. Stripe holds the only other
+copy of them, since they travel in an API call rather than in anything a client fetches, so `apps/web`'s
+`routes.test.ts` reads `WebPages.java` out of the working tree and fails if a path here is one that site does
+not answer. That is the same arrangement `packages/contracts` has with this application's enums, and it exists
+because the symptom otherwise appears to somebody who has just paid.
+
+Mutation-verified — each applied, observed, reverted:
+
+| Mutation | Fails |
+|---|---|
+| the two refusals collapsed to one status | two, both `NothingToManage` cases in `PortalTest` |
+| the session names no customer | `andItIsOpenedForTheirOwnStripeCustomer`, `nothingElseAboutThemIsSent` |
+| the Portal returns a browser to the success page | `andStripeSendsThemBackToALoginlessPageOfOurOwn` (+1) |
+| an account that never paid sent to Stripe anyway | four, across both suites |
+| the trailing slash no longer trimmed | `aBaseUrlWithATrailingSlashDoesNotBecomeADoubleOne`, in both suites |
+| the route declared a `GET` | five — every call in `PortalTest` that carries a token |
+| only a live subscription names a customer (ADR-0018 undone) | three, including `andSoDoesSomebodyWhoCancelled` |
+| `/billing` renamed in `apps/web` only | four, in that workspace's own suites |
+
+**Not verified: no Customer Portal session has ever been opened against Stripe.** `PortalSessionTest` asserts
+what we send against the bytes on a loopback stub, and `PortalTest` drives the route with **no Stripe
+configured**, which is what makes both refusals testable — each is decided before Stripe would be asked. A
+`200` over a real port needs a live account *with its Portal configured*, and that is the click-through's
+(slice C, step 7).
+
 ## Which build may call it
 
 `X-Mprelist-Client: extension/0.0.1`, on every call, and a lever for the day a build must stop

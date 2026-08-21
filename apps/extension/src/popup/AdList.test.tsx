@@ -35,10 +35,16 @@ function fakeWorker(outcome: WireRelistOutcome = RELISTED) {
         pending ? new Promise((resolve) => (release = resolve)) : Promise.resolve(outcome),
     ),
     retry: vi.fn(async (): Promise<WireRelistOutcome> => outcome),
+    msBeforeNextRelist: vi.fn(async () => waitMs),
   } as unknown as WorkerPort;
   let pending = false;
+  let waitMs = 0;
   return {
     worker,
+    /** Make the worker say it will pace this one, so the countdown can be looked at. */
+    pacing: (ms: number) => {
+      waitMs = ms;
+    },
     /** Make the next relist hang, so the busy state can be looked at. */
     hang: () => {
       pending = true;
@@ -189,6 +195,11 @@ describe("when it does not work", () => {
         throw new Error("The extension's background worker did not answer.");
       }),
       retry: vi.fn(),
+      // A worker that is not there cannot say how long it would pace either. The
+      // row still has to start and still has to end up saying what happened.
+      msBeforeNextRelist: vi.fn(async () => {
+        throw new Error("The extension's background worker did not answer.");
+      }),
     } as unknown as WorkerPort;
 
     await show(worker);
@@ -252,6 +263,127 @@ describe("a cooldown", () => {
     await press(0);
 
     expect(buttons()[1]?.disabled).toBe(false);
+  });
+});
+
+describe("a wait the extension chose", () => {
+  /**
+   * T46 (#54). The worker paces a relist before it starts; what this list has to
+   * do is make that legible — a button reading "Reposting…" for a minute is the
+   * shape of a hang, and the ticket's fourth criterion is that a user can tell the
+   * two apart.
+   */
+  it("counts the wait down on the row that is waiting", async () => {
+    vi.useFakeTimers();
+    const { worker, pacing, hang } = fakeWorker();
+    pacing(45_000);
+    hang();
+
+    await show(worker);
+    await press(0);
+
+    expect(buttons()[0]?.textContent).toContain("45s");
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(buttons()[0]?.textContent).toContain("44s");
+
+    vi.useRealTimers();
+  });
+
+  it("and says why it is waiting, in the user's own interest", async () => {
+    // The reason is theirs: ADR-0008 paces relists because a run of them arriving
+    // as fast as a worker can loop is machine-shaped against *their* Marktplaats
+    // account, which is the one that gets flagged.
+    const { worker, pacing, hang } = fakeWorker();
+    pacing(45_000);
+    hang();
+
+    await show(worker);
+    await press(0);
+
+    expect(text()).toContain("look like clicks rather than a script");
+  });
+
+  it("leaves every other row locked while it waits", async () => {
+    // The relist is already in flight from the list's point of view — one at a
+    // time is #79's rule and a wait does not suspend it.
+    const { worker, pacing, hang } = fakeWorker();
+    pacing(45_000);
+    hang();
+
+    await show(worker);
+    await press(0);
+
+    expect(buttons()[1]?.disabled).toBe(true);
+  });
+
+  it("says Reposting… once the wait is over, without being asked again", async () => {
+    vi.useFakeTimers();
+    const { worker, pacing, hang } = fakeWorker();
+    pacing(2_000);
+    hang();
+
+    await show(worker);
+    await press(0);
+    expect(buttons()[0]?.textContent).toContain("2s");
+
+    await act(async () => {
+      vi.advanceTimersByTime(2100);
+    });
+
+    expect(buttons()[0]?.textContent).toContain("Reposting");
+    expect(text()).not.toContain("look like clicks");
+
+    vi.useRealTimers();
+  });
+
+  it("draws no countdown when there is no wait to draw", async () => {
+    // The common case, and the first relist of any session: enough time has
+    // passed, the worker sleeps for nothing, and the row goes straight to work.
+    const { worker, hang } = fakeWorker();
+    hang();
+
+    await show(worker);
+    await press(0);
+
+    expect(buttons()[0]?.textContent).toContain("Reposting");
+    expect(text()).not.toContain("look like clicks");
+  });
+
+  it("does not hand its countdown to the relist after it", async () => {
+    // The clock has to be put away when the attempt ends, not left to run out on
+    // its own: an answer that arrives before the wait does — a worker that died,
+    // a refusal — would otherwise leave a deadline ticking, and the *next* row
+    // pressed would inherit a countdown for a wait nobody is waiting.
+    vi.useFakeTimers();
+    const { worker, pacing, hang } = fakeWorker({ status: "refused", locked: { state: "upgrade", resetAt: null } });
+    pacing(45_000);
+
+    await show(worker);
+    await press(0);
+
+    pacing(0);
+    hang();
+    await press(1);
+
+    expect(buttons()[1]?.textContent).toContain("Reposting");
+
+    vi.useRealTimers();
+  });
+
+  it("stops counting the moment the attempt is over", async () => {
+    // A worker that answered early — one that could not pace at all, or refused —
+    // must not leave a clock ticking on a row that has finished.
+    const { worker, pacing } = fakeWorker({ status: "refused", locked: { state: "upgrade", resetAt: null } });
+    pacing(45_000);
+
+    await show(worker);
+    await press(0);
+
+    expect(text()).not.toContain("look like clicks");
+    expect(text()).toContain("used your relists");
   });
 });
 

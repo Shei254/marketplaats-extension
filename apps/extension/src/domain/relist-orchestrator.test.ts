@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { RelistOrchestrator } from "./relist-orchestrator";
 import {
   FakeMarktplaatsClient,
+  FakePace,
   FakeRelistPermission,
   InMemorySnapshotStore,
   refusing,
@@ -25,6 +26,7 @@ describe("RelistOrchestrator", () => {
       client,
       new InMemorySnapshotStore(),
       new FakeRelistPermission(),
+      new FakePace(),
     );
 
     const ads = await orchestrator.listAds();
@@ -36,7 +38,7 @@ describe("RelistOrchestrator", () => {
     const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() } });
     const store = new InMemorySnapshotStore();
     const gate = new FakeRelistPermission();
-    const orchestrator = new RelistOrchestrator(client, store, gate);
+    const orchestrator = new RelistOrchestrator(client, store, gate, new FakePace());
 
     const outcome = await orchestrator.relist("ad-1");
 
@@ -51,7 +53,7 @@ describe("RelistOrchestrator", () => {
     const client = new FakeMarktplaatsClient(events, { ads: { "ad-1": sampleAd() } });
     const store = new InMemorySnapshotStore(events);
     const gate = new FakeRelistPermission();
-    const orchestrator = new RelistOrchestrator(client, store, gate);
+    const orchestrator = new RelistOrchestrator(client, store, gate, new FakePace());
 
     await orchestrator.relist("ad-1");
 
@@ -75,7 +77,7 @@ describe("RelistOrchestrator", () => {
     });
     const store = new InMemorySnapshotStore();
     const gate = new FakeRelistPermission();
-    const orchestrator = new RelistOrchestrator(client, store, gate);
+    const orchestrator = new RelistOrchestrator(client, store, gate, new FakePace());
 
     const outcome = await orchestrator.relist("ad-1");
 
@@ -88,7 +90,7 @@ describe("RelistOrchestrator", () => {
     const client = new FakeMarktplaatsClient([], { ads: {} });
     const store = new InMemorySnapshotStore();
     const gate = new FakeRelistPermission();
-    const orchestrator = new RelistOrchestrator(client, store, gate);
+    const orchestrator = new RelistOrchestrator(client, store, gate, new FakePace());
 
     const outcome = await orchestrator.relist("missing");
 
@@ -103,7 +105,7 @@ describe("RelistOrchestrator", () => {
     });
     const store = new InMemorySnapshotStore();
     const gate = new FakeRelistPermission();
-    const orchestrator = new RelistOrchestrator(client, store, gate);
+    const orchestrator = new RelistOrchestrator(client, store, gate, new FakePace());
 
     const first = await orchestrator.relist("ad-1");
     expect(first.status).toBe("failed-recoverable");
@@ -130,7 +132,7 @@ describe("RelistOrchestrator", () => {
       phase: "deleted",
       createdAt: 1,
     });
-    const orchestrator = new RelistOrchestrator(client, store, gate);
+    const orchestrator = new RelistOrchestrator(client, store, gate, new FakePace());
 
     const [outcome] = await orchestrator.resumeAll();
 
@@ -151,7 +153,7 @@ describe("RelistOrchestrator", () => {
       phase: "captured",
       createdAt: 1,
     });
-    const orchestrator = new RelistOrchestrator(client, store, gate);
+    const orchestrator = new RelistOrchestrator(client, store, gate, new FakePace());
 
     const [outcome] = await orchestrator.resumeAll();
 

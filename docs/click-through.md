@@ -85,7 +85,14 @@ thread.
 2. *Expect:* the header now reads **`2 of 3`**, from `/complete`'s response — **without** a second `/api/me`
    call.
 3. Immediately click **Repost** on another ad.
-   *Expect:* refused with a **cooldown countdown**, not an error. The 30s minimum interval is #25's rail.
+   *Expect:* the row **counts down 45–90 seconds** and says *"…so your reposts look like clicks rather than
+   a script"* — the pace (#54), not a refusal. When it reaches zero the relist runs and **succeeds**. That is
+   the point of pacing: it keeps you under #25's 30s rail rather than discovering it, so this step no longer
+   produces the cooldown it used to.
+3a. To see the rail itself, set `mprelist.safety.minimum-interval: 5m` in `application.yml`, restart the API,
+   and repost twice.
+   *Expect:* the second is refused with a **cooldown countdown**, and every row locks — the rails are per
+   user. Put the setting back afterwards.
 4. Wait it out, then spend the remaining two.
    *Expect:* the header reads **`0 of 3`**.
 5. Click **Repost** again.

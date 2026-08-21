@@ -249,14 +249,19 @@ name every origin and redirect URI *before* it is first started — the extensio
 Live keys, Stripe Tax, VAT registration, iDEAL and SEPA in live mode, webhook endpoint pointed at the
 deployed API. ADR-0006 is explicit that **Stripe Tax calculates and does not file**.
 
-#### [T46](https://github.com/Shei254/marketplaats-extension/issues/54) · Client-side pacing and jitter between relists · **M** · T26
-**Moved here from "deferred", deliberately.** Today there is no delay or jitter anywhere — only serialisation
-(`popup.ts:186`), which is not the same thing. Fine while you are the only user on your own Marktplaats
-account; **not acceptable once strangers relist**, because ADR-0008 wants human-like pacing precisely because
-internal-API calls already lack the interaction signals of real clicks.
-- Randomised, not fixed, delay between consecutive relists.
+#### [T46](https://github.com/Shei254/marketplaats-extension/issues/54) · Client-side pacing and jitter between relists · **M** · T26 · **shipped**
+**Moved here from "deferred", deliberately**, because serialisation (one relist at a time) is not a gap
+between them — and ADR-0008 wants human-like pacing precisely because internal-API calls already lack the
+interaction signals of real clicks.
+- A randomised **45–90s** gap between consecutive relists, drawn per relist and never a fixed interval,
+  waited out in the worker before the authorization — which is where the backend's own rail starts counting.
 - Cannot be the backend's: it can refuse a call that came too soon, it cannot make one arrive at a
   human-shaped moment.
+- The floor sits above `mprelist.safety.minimum-interval` (30s), so consecutive relists stop *discovering*
+  that rail. The burst cap stays the backend's — no usable gap keeps somebody under ten an hour.
+- The window is **handed to the pacer** rather than read by it, which is the seam
+  [T27](https://github.com/Shei254/marketplaats-extension/issues/36)'s served config arrives through. Until
+  it does, tuning is a release — the one acceptance criterion this ticket left open.
 
 #### [T58](https://github.com/Shei254/marketplaats-extension/issues/89) · Chrome Web Store listing · **M** · T36, T46, T60
 Name, icons, screenshots, description naming Marktplaats **in the copy and not the title**, privacy policy

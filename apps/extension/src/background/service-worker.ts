@@ -1,5 +1,6 @@
 import { ChromeAuthFlow } from "../adapters/chrome-auth-flow";
 import { ChromeSessionStore } from "../adapters/chrome-session-store";
+import { ChromePaceStore } from "../adapters/chrome-pace-store";
 import { ChromeSnapshotStore } from "../adapters/chrome-snapshot-store";
 import { RelayMarktplaatsClient } from "../adapters/relay-marktplaats-client";
 import { MprelistApi } from "../api/display-state";
@@ -7,6 +8,7 @@ import { RelistAuthorizations } from "../api/relist-authorizations";
 import { Authenticator } from "../auth/authenticator";
 import { toWireError } from "../content/messages";
 import { RelistOrchestrator } from "../domain/relist-orchestrator";
+import { HUMAN_PACE, RelistPacer } from "../domain/relist-pace";
 import type { DevHook, DevHookName } from "./dev-hooks";
 import { loadEndpointConfig, saveEndpointOverrides } from "../shared/endpoint-config";
 import {
@@ -49,6 +51,13 @@ const authenticator = new Authenticator({
  */
 const api = new MprelistApi({ tokens: authenticator });
 
+/**
+ * The human-shaped gap between relists (T46, #54). The window is handed in rather
+ * than read, which is the seam #36's served config will arrive through — it is
+ * this line that changes then, and nothing in `relist-pace.ts` does.
+ */
+const pace = new RelistPacer(new ChromePaceStore(), HUMAN_PACE);
+
 const orchestrator = new RelistOrchestrator(
   new RelayMarktplaatsClient(),
   new ChromeSnapshotStore(),
@@ -56,6 +65,7 @@ const orchestrator = new RelistOrchestrator(
   // reports after it finishes, and this is the only thing in the extension that
   // may say "proceed".
   new RelistAuthorizations({ tokens: authenticator }),
+  pace,
 );
 
 chrome.runtime.onStartup.addListener(() => void resumeInterruptedRelists());
@@ -105,6 +115,8 @@ function answer(
       return orchestrator.relist(request.listingId).then(toWireOutcome);
     case "retry":
       return orchestrator.retry(request.listingId).then(toWireOutcome);
+    case "pace":
+      return pace.msBeforeNextRelist();
     case "sign-in":
       return authenticator.signIn();
     case "sign-out":

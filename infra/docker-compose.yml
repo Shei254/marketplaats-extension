@@ -73,6 +73,13 @@ services:
       # default. Setting it here to "" would defeat that — the variable would be *defined and empty*,
       # and the realm would register a redirect URI with no host in it. See infra/README.md.
       MPRELIST_EXTENSION_ID:
+      # This stack is the laptop, and on a laptop plain HTTP has to work. Keycloak's `external` demands
+      # HTTPS from every client whose address is not loopback or private — and a request published
+      # through Docker Desktop's port forwarder reaches the container from a *public* address, so the
+      # browser's own sign-in is refused with 403 "HTTPS required". Set here rather than in the realm
+      # file, which keeps `external` as its default: a production import that never sets this variable
+      # is the one that must not be relaxed. See infra/README.md.
+      MPRELIST_SSL_REQUIRED: none
     ports:
       # 8081, because 8080 is Spring Boot's default and apps/api (#16) runs on the host.
       - "8081:8080"

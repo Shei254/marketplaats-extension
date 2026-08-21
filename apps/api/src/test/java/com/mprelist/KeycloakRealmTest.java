@@ -397,6 +397,31 @@ class KeycloakRealmTest {
 	}
 
 	/**
+	 * And the realm file demands HTTPS of anybody who did not say otherwise, while compose says otherwise.
+	 * Under {@code external} — Keycloak's default, and this file's — plain HTTP is refused from any client
+	 * address Keycloak does not consider local, and a request published through Docker Desktop's port
+	 * forwarder reaches the container from a public one: the browser's own sign-in is answered
+	 * {@code 403 "HTTPS required"}, which is a failure of the stack that reads nothing like one.
+	 *
+	 * <p>So the laptop relaxes it and the file does not. A production realm built from this file with the
+	 * variable unset keeps {@code external}, which is the whole reason the value is a substitution rather
+	 * than the {@code none} a dev realm reaches for — the same trade as the extension id one line above,
+	 * inverted: there the environment must be right, here it must be absent.
+	 *
+	 * <p>Asserted as text, unlike everything else in this class, because the behaviour is not a property of
+	 * the realm: whether {@code external} refuses a given request depends on the address the machine presents
+	 * to a container, so a test that signed in and expected a refusal would pass on this laptop, fail in CI,
+	 * and say nothing about the file either time. What can be got wrong here is the default, and that is a
+	 * literal.
+	 */
+	@Test
+	void whileTheFileItselfStillRequiresHttpsOfAnyRealmBuiltFromItElsewhere() {
+		assertThat(InfraFiles.textOf(InfraFiles.keycloakRealm()))
+				.contains("\"sslRequired\": \"${MPRELIST_SSL_REQUIRED:external}\"");
+		assertThat(ComposeFile.setting("MPRELIST_SSL_REQUIRED")).isEqualTo("none");
+	}
+
+	/**
 	 * Everything the realm file records about a user besides their id, as the strings a token carrying any of
 	 * it would contain. Read out of the file rather than spelled here: an address changed there would
 	 * otherwise leave the two tests above asserting the absence of something nobody has any more.

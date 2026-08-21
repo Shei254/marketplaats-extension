@@ -48,19 +48,23 @@ it does need a Docker daemon for that.
 > curl -s http://localhost:18099/realms/master/.well-known/openid-configuration   # 200, or "HTTPS required"
 > ```
 >
-> Nothing in this repository can move that address, and the one change that would paper over it —
-> `sslRequired: none` in the realm — is the one
-> [#15](https://github.com/Shei254/marketplaats-extension/issues/15) deliberately did not make, because it
-> would be wrong in every environment except a laptop. It is the daemon that has to be put back.
+> **Settled since #108: the realm relaxes it, and the suites follow the stack.** `sslRequired` is
+> `${MPRELIST_SSL_REQUIRED:external}` in `infra/keycloak/mprelist-realm.json`, compose sets that variable to
+> `none`, and `KeycloakFromCompose` reads the value out of compose — so both suites start the realm your
+> stack starts and neither depends on the address any more. This paragraph stays because the failure is worth
+> recognising: a daemon whose forwarder looks external refused **the browser's sign-in too**, not just the
+> tests, and the extension reported it as `403` on the discovery URL with nothing about TLS in it.
+>
+> What #15 refused was `sslRequired: none` **in the file**, on the grounds that it would be wrong everywhere
+> but a laptop — and that still holds, which is why the file's own default is untouched. A production realm
+> (T56, #87) sets no such variable and imports as `external`. `infra/README.md` has the whole trade.
 >
 > **The address is not the whole story**, observed while running #21: the reproduction above answered `403`,
 > and then `200` thirteen minutes later with nothing changed and no daemon restart, on a host where an
 > `nginx` container in between logged the host's own requests as arriving from `192.168.65.1` — site-local,
 > which by the paragraph above should always have worked. So treat "which address" as a symptom rather than
-> the cause, and **re-run before concluding anything**: what is known is that it flaps on one daemon within
-> minutes. The mechanism is still unexplained, and the harness fix #15's own notes propose —
-> `KC_PROXY_HEADERS=xforwarded` on the container plus `X-Forwarded-Proto: https` on the wait strategy and on
-> `KeycloakFromCompose`'s requests — would make the suites independent of it either way.
+> the cause. It flaps on one daemon within minutes, and that flapping is exactly what the compose value now
+> takes out of the suites' path.
 
 ## The modules
 

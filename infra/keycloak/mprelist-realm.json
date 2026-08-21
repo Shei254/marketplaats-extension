@@ -2,6 +2,7 @@
   "realm": "mprelist",
   "displayName": "Marktplaats Relist (development)",
   "enabled": true,
+  "sslRequired": "${MPRELIST_SSL_REQUIRED:external}",
   "revokeRefreshToken": true,
   "refreshTokenMaxReuse": 0,
   "accessTokenLifespan": 300,

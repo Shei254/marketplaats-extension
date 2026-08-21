@@ -152,6 +152,11 @@ it says Pro. Then cancel in the Portal and land back on Free.
 **Test mode** for iteration 1. iDEAL and SEPA enabled. **No trial days** — the free tier is the trial
 ([ADR-0006](adr/0006-billing.md), amended). Each Price tagged **`metadata.tier_code`** (`pro`, `power`),
 which is what T51 syncs on. Amounts are decided here, not in code.
+- **The Price's `nickname` is what names the tier**, and only if it has one — T51 writes it through a
+  `coalesce`, so a Price with no nickname leaves Pro called Pro rather than renaming it to nothing. A tier
+  the catalog has never heard of and whose Price has no nickname is named after its own code.
+- The endpoint's **signing secret** is what the API verifies every event against; it is per `stripe listen`
+  session locally and per endpoint once deployed, and unset it refuses everything.
 
 #### [T51](https://github.com/Shei254/marketplaats-extension/issues/82) · `tier.published` + Price → Tier sync webhook · **M** · T08, T22
 Migration adding `published boolean not null default false`, plus `price.created`/`price.updated` handling.

@@ -60,6 +60,17 @@ dependencies {
     runtimeOnly("org.flywaydb:flyway-database-postgresql")
     runtimeOnly("org.postgresql:postgresql")
 
+    // Stripe, for one thing today: verifying that a webhook really came from Stripe (#82, T51). Signature
+    // verification is HMAC over the raw body with a timestamp tolerance and a constant-time compare, and a
+    // hand-rolled one is a security-sensitive reimplementation of a published algorithm — this library is
+    // Stripe's own account of it. The event itself is read with Jackson rather than deserialised into this
+    // library's model, so the API version Stripe stamps an event with cannot decide whether we can read it.
+    //
+    // It arrives now and stays: #29 opens a Checkout session with it, #30 mirrors subscriptions from it, #31
+    // hands out a Customer Portal link and #80 reads the amounts. Boot's BOM does not manage it, so this is
+    // the second version pinned by hand in this file.
+    implementation("com.stripe:stripe-java:29.2.0")
+
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.modulith:spring-modulith-core")
     // Postgres for the tests, started by them. The schema uses partial indexes, jsonb and expression

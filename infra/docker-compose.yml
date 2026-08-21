@@ -80,6 +80,16 @@ services:
       # file, which keeps `external` as its default: a production import that never sets this variable
       # is the one that must not be relaxed. See infra/README.md.
       MPRELIST_SSL_REQUIRED: none
+      # Mailtrap's sandbox, for the mail a self-registered user's password reset sends. No values, for the
+      # same reason as the id above — the realm file's own defaults are the host and port, and the two
+      # credentials have no default worth having. Unset, Keycloak accepts the reset request and fails to
+      # send; nothing else in the realm needs mail. They are secrets, so they live in your shell and never
+      # in this file. See infra/README.md.
+      MPRELIST_SMTP_HOST:
+      MPRELIST_SMTP_PORT:
+      MPRELIST_SMTP_FROM:
+      MPRELIST_SMTP_USER:
+      MPRELIST_SMTP_PASSWORD:
     ports:
       # 8081, because 8080 is Spring Boot's default and apps/api (#16) runs on the host.
       - "8081:8080"

@@ -25,7 +25,12 @@ docker compose -f infra/docker-compose.yml down      # stop, keeping the data
 | App database | `postgres://localhost:5432/mprelist` | `mprelist` / `mprelist` |
 | Keycloak | http://localhost:8081 | admin console `admin` / `admin` |
 | Keycloak's database | `postgres://localhost:5432/keycloak` | `keycloak` / `keycloak` |
-| The `mprelist` realm | http://localhost:8081/realms/mprelist | `dev` / `dev`, `dev-admin` / `dev-admin` |
+| The `mprelist` realm | http://localhost:8081/realms/mprelist | `dev` and `dev-admin`, both `local-dev-password` |
+
+**The dev password is no longer the username**, which it was until the realm gained a password policy.
+Keycloak validates *imported* credentials against the policy and refuses to start otherwise — `dev` / `dev`
+now aborts the container with `ERROR: invalidPasswordMinLengthMessage` and no realm at all, which is the
+policy working and an alarming way to find out. Test code takes it from `KeycloakFromCompose.PASSWORD`.
 
 **Development only.** Every credential is a well-known default, committed on purpose so that the stack needs
 no setup step before it runs. Nothing here is fit to deploy: `start-dev` turns off TLS and hostname
@@ -79,6 +84,52 @@ issuer — every client in the realm shares that.
 
 The `ADMIN` realm role is defined and held by `dev-admin`, for
 [#27 (T18 · `admin` module + role guard)](https://github.com/Shei254/marketplaats-extension/issues/27).
+
+### Strangers make their own accounts
+
+```jsonc
+"registrationAllowed": true,      // the login page offers "Register"
+"resetPasswordAllowed": true,     // …and "Forgot password?"
+"bruteForceProtected": true,
+"passwordPolicy": "length(12) and notUsername and notEmail"
+```
+
+All four are **off or absent in a default realm**, which was survivable while the only accounts were the two
+this file writes. It is not once the accounts belong to customers: with no policy Keycloak accepts a
+one-character password at sign-up, and with no brute-force protection it will let a script guess at one
+forever.
+
+A self-registered user is **granted the realm's default roles**, unlike an imported one — so they arrive with
+the array-shaped `aud` and the populated `realm_access` that #19 and #27 have to read, which until now only
+`dev-admin` produced and only because this file grants it `default-roles-mprelist` by hand. Our API
+provisions them a free-tier subscription on their first call ([#20](https://github.com/Shei254/marketplaats-extension/issues/20)).
+
+**Nothing they type into that form reaches us.** The registration page asks for a first name, a last name and
+an email address — Keycloak's own form, not ours to shorten — and none of it is in the token, because the
+clients name their own scopes (above). `KeycloakRealmTest` registers a stranger and asserts exactly that.
+
+**Email verification is deliberately off.** With `verifyEmail` on, a new account cannot sign in until a mailed
+link is clicked — so on a stack whose SMTP credentials are unset, every sign-up dead-ends. It belongs with
+real SMTP at Go-Live (T55/T56), where mail is always configured.
+
+### Mail, and the two variables that are yours
+
+Password reset sends an email, so the realm names an SMTP server: **Mailtrap's sandbox** by default, whose
+credentials are per-inbox and therefore not committable.
+
+```bash
+export MPRELIST_SMTP_USER=<from your Mailtrap inbox>
+export MPRELIST_SMTP_PASSWORD=<from your Mailtrap inbox>
+docker compose -f infra/docker-compose.yml up -d --wait     # both are passed through
+```
+
+Unset, everything still imports and every other flow works; only the reset mail fails to send, in Keycloak's
+logs rather than on the user's screen. `MPRELIST_SMTP_HOST`, `_PORT` and `_FROM` are passed through too and
+default to `sandbox.smtp.mailtrap.io`, `2525` and `no-reply@mprelist.local` — the internal identifier rather
+than the brand, which lives in `brand.json` and is provisional until T60.
+
+A test asserts the user and password in the realm file are **substitutions and not literals**, because that
+file is the natural place for someone to paste a working credential.
 
 ### What a token carries, which is not what the client asked for
 

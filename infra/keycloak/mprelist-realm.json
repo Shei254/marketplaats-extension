@@ -3,6 +3,20 @@
   "displayName": "Marktplaats Relist (development)",
   "enabled": true,
   "sslRequired": "${MPRELIST_SSL_REQUIRED:external}",
+  "registrationAllowed": true,
+  "resetPasswordAllowed": true,
+  "bruteForceProtected": true,
+  "passwordPolicy": "length(12) and notUsername and notEmail",
+  "smtpServer": {
+    "host": "${MPRELIST_SMTP_HOST:sandbox.smtp.mailtrap.io}",
+    "port": "${MPRELIST_SMTP_PORT:2525}",
+    "from": "${MPRELIST_SMTP_FROM:no-reply@mprelist.local}",
+    "auth": "true",
+    "user": "${MPRELIST_SMTP_USER:}",
+    "password": "${MPRELIST_SMTP_PASSWORD:}",
+    "starttls": "true",
+    "ssl": "false"
+  },
   "revokeRefreshToken": true,
   "refreshTokenMaxReuse": 0,
   "accessTokenLifespan": 300,
@@ -131,7 +145,7 @@
       "credentials": [
         {
           "type": "password",
-          "value": "dev",
+          "value": "local-dev-password",
           "temporary": false
         }
       ]
@@ -146,7 +160,7 @@
       "credentials": [
         {
           "type": "password",
-          "value": "dev-admin",
+          "value": "local-dev-password",
           "temporary": false
         }
       ],

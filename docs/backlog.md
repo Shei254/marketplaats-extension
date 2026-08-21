@@ -168,11 +168,16 @@ Migration adding `published boolean not null default false`, plus `price.created
 - Backfills `published = true` for the seeded `pro` and `power` once their Prices land.
 - Refs: [ADR-0019](adr/0019-plans-are-stripe-first-and-webhook-synced.md).
 
-#### [T49](https://github.com/Shei254/marketplaats-extension/issues/80) · `GET /api/plans` · **M** · T12, T51
+#### [T49](https://github.com/Shei254/marketplaats-extension/issues/80) · `GET /api/plans` · **M** · T12, T51 · **shipped**
 Published tiers with a price id, each joined with its Stripe Price — quota and flags ours, amount and
 currency and interval Stripe's, **cached and never stored**.
 - The free tier and every draft are absent; there is nothing there to buy.
-- Stripe unreachable → "prices unavailable, retry". Never a guessed amount, never a free plan.
+- Stripe unreachable → **`503` with an empty body**, rendered as "prices unavailable, retry". Never a guessed
+  amount, never a free plan — and **all of them or none of them**, because a plan screen is a comparison and
+  a buyer cannot tell a plan that is missing from a plan that does not exist. An empty list is a different
+  thing and is a `200`: nothing is on sale.
+- The cache is safe for an unusual reason: Stripe Prices are **immutable** (ADR-0019), so a cached amount
+  cannot go stale. What changes is which id a tier points at, and that is read from our own table every time.
 - `authorize` still never calls Stripe — this is display, not the hot path.
 
 #### [T19](https://github.com/Shei254/marketplaats-extension/issues/29) · Stripe Checkout session endpoint · **M** · T12, T51

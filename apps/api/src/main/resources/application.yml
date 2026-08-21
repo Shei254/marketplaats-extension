@@ -69,6 +69,18 @@ mprelist:
   # developer who is working on something else from having to hold a Stripe secret to run the API at all.
   stripe:
     webhook-secret: ${MPRELIST_STRIPE_WEBHOOK_SECRET:}
+    # #80: the API key `GET /api/plans` reads amounts with, and the same empty default for the same reason —
+    # it is a secret, and a developer working on something else should not need one to run this application.
+    # Unset, every price lookup fails and the plan cards say "unavailable, retry", which is the fail-closed
+    # answer and never an invented amount.
+    secret-key: ${MPRELIST_STRIPE_SECRET_KEY:}
+    # How long an amount fetched from Stripe is remembered. **Not a freshness setting**: Stripe Prices are
+    # immutable (ADR-0019), so a cached amount for a given id cannot go stale — what changes is which id a
+    # tier points at, and that is read from our own table on every request. What this bounds is how long a
+    # mistake could go on being shown, which is why it is minutes rather than never.
+    #
+    # No fallback, like the rails below: the wrong value is silent in both directions.
+    price-cache: 15m
 
   # #52: the oldest extension build this API still serves, named in the `X-Mprelist-Client` header every
   # client sends. `0` is every build there has ever been, and it is the only value here that is not a

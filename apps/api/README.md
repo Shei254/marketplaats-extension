@@ -1363,6 +1363,39 @@ nothing about whether a real Price arrives shaped like these. That is
 [#28](https://github.com/Shei254/marketplaats-extension/issues/28), a runbook, and step 1 of slice C in
 [`docs/click-through.md`](../../docs/click-through.md).
 
+## What can be bought
+
+`GET /api/plans` ([#80](https://github.com/Shei254/marketplaats-extension/issues/80), T49): the published
+tiers that carry a Stripe Price, each joined with what Stripe says it costs.
+
+**Two halves, and neither module can see the other's.** What a tier grants is `catalog`'s and comes from our
+table; the amount is `billing`'s and comes from Stripe. The join is in `display`, which is what that module is
+for — a view over other modules' answers, put there because the alternative points a dependency the wrong way
+(ADR-0014 keeps Stripe out of `catalog` entirely, and `catalog` never learns what anything costs).
+
+**The cache is safe here for an unusual reason.** Stripe Prices are **immutable** (ADR-0019) — €9.99 never
+becomes €11.99, a new Price is created and the tier repointed — so a cached amount for a given id cannot go
+stale the way cached money usually does. What changes is *which* id a tier points at, and that is read from
+our own table on every request, uncached. The TTL is therefore not about keeping a number true; it bounds how
+long a mistake could go on being shown. **Failures are not cached**: a Stripe outage must cost a retry, not
+fifteen minutes of "unavailable" for everybody.
+
+**All of them or none of them.** One price that could not be fetched takes the whole answer with it — `503`,
+empty body — rather than rendering the plans that did resolve. A plan screen is a *comparison*, and a buyer
+cannot tell a plan that is missing from a plan that does not exist, which is a wrong picture of the offer at
+the moment somebody is deciding what to pay for. An **empty list** is a different thing and is a `200`:
+nothing is on sale, which is true of every stack whose Stripe Prices have not been created yet.
+
+**No API key configured is the same answer as Stripe being down**, deliberately: the plan cards say
+"unavailable, retry" rather than rendering an invented amount, and the application says so once at startup
+because otherwise the only symptom is a screen that fails and a log that mentions nothing.
+
+`PlansTest` drives the route over a real port with Stripe as a fake bean — the join, the exclusions and the
+refusals. `StripePriceCacheTest` is the only thing here that talks to something Stripe-shaped: it serves
+Stripe's own JSON on a loopback port and points the real client at it, because what is at risk is the field
+mapping (`unit_amount` is not `amount`, the interval is nested under `recurring`) and a mocked SDK would pass
+with every one of those upside down.
+
 ## Which build may call it
 
 `X-Mprelist-Client: extension/0.0.1`, on every call, and a lever for the day a build must stop

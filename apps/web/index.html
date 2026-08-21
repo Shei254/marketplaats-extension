@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      The site follows the browser's theme, which is what the token sheet in
+      @mprelist/ui does. Said here too so the frame the browser paints before the
+      bundle runs is the right colour rather than a white flash on the way into a
+      dark page.
+    -->
+    <meta name="color-scheme" content="light dark" />
+    <!--
+      The brand tokens below are resolved at build time by the plugin in
+      vite.config.ts — the same ones the extension's manifest and popup.html carry
+      (T48, #78). A token that does not resolve fails the build rather than being
+      read as literal braces by a Web Store reviewer. This comment says it in
+      words rather than showing one, because the check does not read comments and
+      an example here would fail the build as readily as a mistake.
+    -->
+    <title>{{brand.name}}</title>
+    <meta name="description" content="{{brand.tagline}}" />
+  </head>
+  <body>
+    <!--
+      Everything below this line is rendered by src/main.tsx. The styles come with
+      it — @mprelist/ui's token sheet and this surface's own rules are strings
+      injected by the components, so there is no stylesheet to link and one way of
+      doing it across both surfaces.
+    -->
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

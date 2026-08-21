@@ -112,6 +112,13 @@ export const text = {
   // controls it shares a sheet with. Kept rather than rounded away, because the
   // alternative is a component that quietly redecides a size the canvas set.
   "control-large": "600 14px/1.2",
+  // The page heading, and the one step added after the sheet was drawn (T50, #81).
+  // The Type sheet is the popup's scale and tops out at 15.5px, because until
+  // `apps/web` existed nothing in this product was bigger than a 360px panel; the
+  // `Success` and `Cancel` artboards draw their heading at 24px on an 824px card.
+  // It lives here rather than as a `font-size` in one page's rules for the reason
+  // the note above gives — a size kept in a component is a scale nobody agreed to.
+  display: "650 24px/1.25",
 } as const;
 
 /** The sheet's step: "gaps on a 6 / 9 / 14 / 20 step". 14 is also the popup's horizontal padding. */

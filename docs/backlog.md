@@ -236,6 +236,9 @@ Had **no ticket at all** in the 2026-08-13 plan. Nothing here is optional before
 API, Postgres, Keycloak, `apps/web`. **One API instance only** — `authToken` is signed with an RSA key
 generated per process, so a second instance signs with a second key; making that key configuration is the
 prerequisite for scaling out (see `enforcement-contract.md`, resolved build questions).
+- **Whatever serves `apps/web` must answer every public path with its one `index.html`.** T50 is one build
+  and the router runs in the browser, so a host left on its default returns 404 for `/success` — which is
+  the page a customer lands on *after* the money has moved. `vite dev` and `vite preview` already fall back.
 
 #### [T56](https://github.com/Shei254/marketplaats-extension/issues/87) · Domain, TLS, and the production realm · **M** · T55, T60
 `www.` and `admin.` for `apps/web`. The realm imports on **first start only**, so the production realm must

@@ -9,14 +9,14 @@ Monorepo, one deployable per workspace ([ADR-0011](docs/adr/0011-repository-layo
 |---|---|---|
 | `apps/extension` | Chrome MV3 extension (esbuild, TypeScript) | the POC, working; signing in — Authorization Code + PKCE against the realm, driven from the service worker, with the session in `chrome.storage.local` and renewed at call time rather than on a timer, one refresh in flight at a time ([ADR-0010](docs/adr/0010-extension-authentication.md)); and the authorization gate — the pure function that decides whether a relist may happen, and fails closed on everything but a fresh `200`; the popup is React now, on `packages/ui`, routing between sign-in, the plan `GET /api/me` answers with, "unavailable", and the user's own ads beneath it, each with a Repost button that runs one relist at a time and shows what became of it, over a strip reading "2 of 3 relists left" that moves from `/complete`'"'"'s own answer rather than a second `GET /api/me` |
 | `apps/api` | Spring Boot, Gradle, Java 21, Flyway | six modules with the boundary check, the schema, the seeded tier catalog and what each of its tiers grants, the resource server every route is closed behind, the account and free subscription a first sign-in provisions, both ends of the gate — `POST /api/relist/authorize` reserves a unit before anything is deleted and `POST /api/relist/complete` settles or refunds it against what the extension reports, with pacing rails saying how fast one account may relist and a scheduled reconciliation handing back the units nobody ever reports on — and `GET /api/me`, the unsigned snapshot both clients render after signing in — what the tier grants beside what is left of it — which grants nothing and spends nothing; and the `ADMIN` guard over `/api/admin/**`, a rule the `admin` module publishes and the filter chain applies, so the routes T53 adds are closed by being written there; `GET /api/plans` is next |
-| `apps/web` | React SPA: public pages (Stripe success/cancel, privacy, terms) + an authenticated `/admin` corner. **No customer login** — plans and Checkout are in the popup ([ADR-0017](docs/adr/0017-web-surface-and-subscribing.md)) | reserved — T50 |
+| `apps/web` | React SPA: public pages (Stripe success/cancel, privacy, terms) + an authenticated `/admin` corner. **No customer login** — plans and Checkout are in the popup ([ADR-0017](docs/adr/0017-web-surface-and-subscribing.md)) | React + Vite, one build: the frame, the route table, and the two pages Stripe redirects to — the payment landed, or nothing was charged — plus what an address nobody claimed gets. Nothing on them asks who the visitor is, and a test walks the directory to say so. Privacy and terms are T36; `/admin` is T54 |
 | `packages/contracts` | API types shared by both clients | the enforcement contract's wire shapes — denial reasons, `authorize`, `complete`, `/api/me` — held to [`docs/enforcement-contract.md`](docs/enforcement-contract.md) and to the API's own enums by its tests |
-| `packages/ui` | design tokens + components (popup and `apps/web`) | the token sheet, generated as CSS, and the base controls — `Button`, `IconButton`, `Icon`, `Note`, `Skeleton`, `Spinner`. Light and dark, held to [`docs/design/`](docs/design/README.md) by its tests. No consumer yet; the popup is T29 |
+| `packages/ui` | design tokens + components (popup and `apps/web`) | the token sheet, generated as CSS, and the base controls — `Button`, `IconButton`, `Icon`, `Note`, `Skeleton`, `Spinner`. Light and dark, held to [`docs/design/`](docs/design/README.md) by its tests. Both surfaces are built from it — the popup and `apps/web` |
 | `infra` | docker-compose: Postgres + Keycloak | working, and the `mprelist` realm imports on first start |
 | `docs` | ADRs, specs, glossary, backlog | — |
 
-Each reserved directory holds a README and nothing else, naming the ticket or tickets that fill it — or,
-where none owns it yet, the first tickets expected to create it, as with `packages/contracts`.
+None of them is reserved any more — `apps/web` was the last, and T50 (#81) filled it. The pattern, if
+another is ever added: the directory holds a README and nothing else, naming the ticket that fills it.
 
 ## Working on it
 
@@ -115,6 +115,19 @@ which additionally defines `__DEV__` and so keeps the service worker's manual te
 `__setEndpoints`, …). They are *eliminated* from the default build, not merely inert in it — hooks that can
 delete a user's ad have no business in a published extension.
 [`docs/live-testing.md`](docs/live-testing.md) drives the whole flow through them.
+
+## Running the site
+
+```bash
+npm run dev -w @mprelist/web       # http://localhost:5173/success and /cancel
+```
+
+`apps/web` is where Stripe lands a browser after Checkout, and the pages it lands on ask nobody to sign in —
+the popup holds the only session this product has ([ADR-0017](docs/adr/0017-web-surface-and-subscribing.md)).
+It reads the same `brand.json` as the extension and is built from the same `packages/ui`, so the two surfaces
+are one look. **One build, one `index.html`**: the router runs in the browser, so whatever serves `dist/` has
+to answer `/success` with that file rather than a 404 — `vite dev` and `vite preview` already do, and T55
+(#86) is where a real host is told to.
 
 ## Where to start reading
 

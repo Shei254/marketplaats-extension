@@ -106,7 +106,13 @@ thread.
 
 ```bash
 stripe listen --forward-to localhost:8080/api/stripe/webhook
+npm run dev -w @mprelist/web        # http://localhost:5173 — where steps 5 and 6 land
 ```
+
+The Checkout session (T19, #29) has to be created with **`http://localhost:5173/success`** and
+`/cancel`; those two paths are `PATHS` in `apps/web/src/routes.ts` and Stripe holds the only other copy of
+them. The dev server answers every path with the one `index.html`, which is what makes `/success` a page
+rather than a 404 — a host that does not (T55, #86) breaks this step *after* the money has moved.
 
 1. In the Stripe **test** dashboard create a Product and a recurring Price, tagged
    `metadata.tier_code = pro`.

@@ -195,8 +195,15 @@ Rename `apps/dashboard` → `apps/web`. React + Vite, one build, consuming `pack
 - `/admin` arrives in slice D. Subdomains are DNS at Go-Live.
 - Refs: [ADR-0017](adr/0017-web-surface-and-subscribing.md).
 
-#### [T36](https://github.com/Shei254/marketplaats-extension/issues/45) · Privacy and terms pages · **S** · T50
-Required for the Web Store listing, which needs a hosted privacy policy URL. Public, loginless.
+#### [T36](https://github.com/Shei254/marketplaats-extension/issues/45) · Privacy and terms pages · **S** · T50 · **shipped**
+Required for the Web Store listing, which needs a hosted privacy policy URL. Public, loginless — `/privacy`
+and `/terms`, linked from the header and footer of every page, which is what T50 held back until they
+existed.
+- The words are the canvas's and every claim on them is one the schema can keep. **They render
+  `[PLACEHOLDER]` on their own face**: the binding text needs a lawyer before T58 (#89), and a reader of the
+  deployed page has to be able to tell.
+- `/privacy` is the URL the Web Store listing carries, so once #89 is live the address is published somewhere
+  we do not control. It is a string to choose and then leave alone.
 
 #### [T52](https://github.com/Shei254/marketplaats-extension/issues/83) · Plan cards and Checkout hand-off in the popup · **M** · T29, T49, T19
 Renders `GET /api/plans`, calls the Checkout endpoint with the popup's own token, opens the returned Stripe
@@ -254,14 +261,19 @@ name every origin and redirect URI *before* it is first started — the extensio
 Live keys, Stripe Tax, VAT registration, iDEAL and SEPA in live mode, webhook endpoint pointed at the
 deployed API. ADR-0006 is explicit that **Stripe Tax calculates and does not file**.
 
-#### [T46](https://github.com/Shei254/marketplaats-extension/issues/54) · Client-side pacing and jitter between relists · **M** · T26
-**Moved here from "deferred", deliberately.** Today there is no delay or jitter anywhere — only serialisation
-(`popup.ts:186`), which is not the same thing. Fine while you are the only user on your own Marktplaats
-account; **not acceptable once strangers relist**, because ADR-0008 wants human-like pacing precisely because
-internal-API calls already lack the interaction signals of real clicks.
-- Randomised, not fixed, delay between consecutive relists.
+#### [T46](https://github.com/Shei254/marketplaats-extension/issues/54) · Client-side pacing and jitter between relists · **M** · T26 · **shipped**
+**Moved here from "deferred", deliberately**, because serialisation (one relist at a time) is not a gap
+between them — and ADR-0008 wants human-like pacing precisely because internal-API calls already lack the
+interaction signals of real clicks.
+- A randomised **45–90s** gap between consecutive relists, drawn per relist and never a fixed interval,
+  waited out in the worker before the authorization — which is where the backend's own rail starts counting.
 - Cannot be the backend's: it can refuse a call that came too soon, it cannot make one arrive at a
   human-shaped moment.
+- The floor sits above `mprelist.safety.minimum-interval` (30s), so consecutive relists stop *discovering*
+  that rail. The burst cap stays the backend's — no usable gap keeps somebody under ten an hour.
+- The window is **handed to the pacer** rather than read by it, which is the seam
+  [T27](https://github.com/Shei254/marketplaats-extension/issues/36)'s served config arrives through. Until
+  it does, tuning is a release — the one acceptance criterion this ticket left open.
 
 #### [T58](https://github.com/Shei254/marketplaats-extension/issues/89) · Chrome Web Store listing · **M** · T36, T46, T60
 Name, icons, screenshots, description naming Marktplaats **in the copy and not the title**, privacy policy
@@ -294,7 +306,7 @@ Refs: [ADR-0011](adr/0011-repository-layout.md).
 | [T38](https://github.com/Shei254/marketplaats-extension/issues/47) · SPIKE: stable Marktplaats account identifier | Blocks `maxMpAccounts` as a sellable entitlement and multi-account |
 | T39/T40 · SPIKEs: ownership detection, injected-UI runtime | Feed T41 |
 | T41/T42 · In-page injection | The second surface. The popup has to be good first |
-| [T45](https://github.com/Shei254/marketplaats-extension/issues/53) · Findings note for the internal-API spikes | Documentation debt, no dependants |
+| [T45](https://github.com/Shei254/marketplaats-extension/issues/53) · Findings note for the internal-API spikes | **Shipped** — [`internal-api-findings.md`](internal-api-findings.md). It had no dependants and one dependent moment: the night something breaks |
 
 **Dissolved by [ADR-0017](adr/0017-web-surface-and-subscribing.md):** T33 (SPA login → the admin route guard,
 T54), T34 (plans page → the popup, T52), T35 (account page → the popup's quota display plus the Portal link,

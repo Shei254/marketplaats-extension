@@ -64,6 +64,21 @@ body {
 }
 .web-mark { display: inline-flex; color: var(--mp-accent); }
 
+/* Privacy and Terms, on every page (T36, #45). The one being read is marked with
+   aria-current rather than with a class, so the emphasis and the thing a screen
+   reader announces are one fact rather than two that can disagree. */
+.web-nav {
+  display: flex;
+  gap: var(--mp-space-lg);
+}
+.web-nav a {
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  color: var(--mp-muted);
+  text-decoration: none;
+}
+.web-nav a:hover { color: var(--mp-fg); }
+.web-nav a[aria-current="page"] { color: var(--mp-fg); font-weight: 650; }
+
 /* The page itself: one centred column, whatever the page is. */
 .web-page {
   padding: 56px 30px 52px;
@@ -129,6 +144,57 @@ body {
   font: var(--mp-text-caption) var(--mp-font-family);
   color: var(--mp-muted);
 }
+.web-footer-links { display: inline-flex; flex-wrap: wrap; gap: var(--mp-space-xs); }
 .web-footer a { color: var(--mp-accent); text-decoration: none; }
 .web-footer a:hover { color: var(--mp-accent-hover); text-decoration: underline; }
+
+/* A document rather than a message: read left to right, in a column narrow enough
+   to read at all, inside the frame's own padding. The canvas draws the two legal
+   pages 16px tighter at the top than the pages that carry one sentence; the
+   difference is not a token and not worth a second block of padding. */
+.web-doc {
+  max-width: 640px;
+  margin: 0 auto;
+  text-align: left;
+}
+.web-doc-title {
+  margin: 0 0 5px;
+  font: var(--mp-text-display) var(--mp-font-family);
+  letter-spacing: -0.02em;
+}
+.web-doc-updated {
+  margin: 0;
+  font: var(--mp-text-caption) var(--mp-font-family);
+  color: var(--mp-muted);
+}
+.web-doc-rule {
+  height: 1px;
+  margin: 22px 0 0;
+  background: var(--mp-line);
+}
+.web-doc-heading {
+  margin: 26px 0 7px;
+  font: var(--mp-text-title) var(--mp-font-family);
+  letter-spacing: -0.01em;
+}
+.web-doc-body {
+  margin: 0;
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  color: var(--mp-muted);
+  line-height: 1.65;
+}
+
+/* The dashed box that says this text is not a lawyer's. Dashed on purpose: it is
+   the one thing on the page that is about the page rather than about the product,
+   and it should not read as another section of it. */
+.web-placeholder {
+  margin: 30px 0 0;
+  padding: 12px 14px;
+  border: 1px dashed var(--mp-line);
+  border-radius: var(--mp-radius-card);
+  font: var(--mp-text-caption) var(--mp-font-family);
+  color: var(--mp-muted);
+  line-height: 1.6;
+}
+.web-placeholder b { color: var(--mp-fg); }
 `;

@@ -18,6 +18,12 @@
  *
  * An endpoint that is somehow unset surfaces as a SpikePendingError at call time
  * rather than failing to construct.
+ *
+ * **Before changing a path here, read `docs/internal-api-findings.md`** (T45, #53).
+ * It records what the spikes actually found — which of these are HTML rather than
+ * JSON, why `createAdPage` is pinned to one category's form, where the CSRF token
+ * really comes from, and a table mapping each failure to the thing most likely to
+ * have moved. The symptom is rarely at the endpoint whose name is in the error.
  */
 export type CsrfMode = "meta" | "cookie" | "none" | "fetch";
 

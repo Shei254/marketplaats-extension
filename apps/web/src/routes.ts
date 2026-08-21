@@ -6,24 +6,27 @@
  * without a browser — the same split the popup has between `screen.ts` and
  * `screens.tsx`. `Site.tsx` renders what this returns.
  *
- * **Two public paths today, and Stripe holds copies of both.** `/success` and
- * `/cancel` are what the Checkout session (T19, #29) is created with, so renaming
- * one here renames it in a Stripe API call as well — which is why they are
- * exported rather than spelled again at the call site.
+ * **Four public paths, and two of them are held elsewhere as well.** `/success`
+ * and `/cancel` are what the Checkout session (T19, #29) is created with, so
+ * renaming one here renames it in a Stripe API call too — which is why they are
+ * exported rather than spelled again at the call site. `/privacy` is the URL the
+ * Chrome Web Store listing carries (T58, #89): once that listing is live the
+ * address is published in a place we do not control, so it is one to choose and
+ * then leave alone.
  *
- * Privacy and terms are T36 (#45) and `/admin` is T54 (#85); both add entries
- * here. Everything else — including `/` — is `not-found` on purpose: there is no
- * landing page designed on the canvas, and inventing one is a decision for the
- * ticket that also decides the Web Store listing (T58, #89).
+ * `/admin` is T54 (#85) and adds an entry here. Everything else — including `/` —
+ * is `not-found` on purpose: there is no landing page designed on the canvas, and
+ * inventing one is a decision for the ticket that also writes the Web Store
+ * listing.
  */
-export type Page = "success" | "cancel" | "not-found";
+export type Page = "success" | "cancel" | "privacy" | "terms" | "not-found";
 
 /** Every page that has an address of its own — which is every page but the fallback. */
 type Routable = Exclude<Page, "not-found">;
 
 /**
- * The paths Stripe redirects to. `apps/api` builds `success_url`/`cancel_url` from
- * its own copy, since it is Java and this is not.
+ * Every address this site answers. `apps/api` builds `success_url`/`cancel_url`
+ * from its own copy of the first two, since it is Java and this is not.
  *
  * `satisfies` rather than a cast, so the table and the union are held to each
  * other in both directions: a page added above without a path here does not
@@ -32,7 +35,21 @@ type Routable = Exclude<Page, "not-found">;
 export const PATHS = {
   success: "/success",
   cancel: "/cancel",
+  privacy: "/privacy",
+  terms: "/terms",
 } as const satisfies Record<Routable, string>;
+
+/**
+ * The two long-form documents, which are laid out as documents rather than as the
+ * one centred message the other pages are (T36, #45).
+ *
+ * Here rather than as a check on the page name at the one call site, because it is
+ * a fact about the pages and there will be more of them — a cookie notice, an
+ * imprint — the day a jurisdiction asks for one.
+ */
+export function isDocument(page: Page): boolean {
+  return page === "privacy" || page === "terms";
+}
 
 const BY_PATH = new Map<string, Page>(
   (Object.entries(PATHS) as [Routable, string][]).map(([page, path]) => [path, page]),

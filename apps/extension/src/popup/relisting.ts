@@ -59,6 +59,18 @@ export function rowStateFor(outcome: WireRelistOutcome): RowState {
 }
 
 /**
+ * What a deliberate wait says (T46, #54).
+ *
+ * It has to say *why*, not just that: a button counting down with no explanation
+ * reads as the extension being slow or broken, and the fourth thing the ticket
+ * asks for is that the user can tell a wait apart from a hang. And the reason is
+ * true and is theirs — ADR-0008 paces relists because a run of them arriving as
+ * fast as a worker can loop is machine-shaped against *their* Marktplaats
+ * account, which is the account that gets flagged.
+ */
+export const PACING_NOTE = "Waiting a moment before this one, so your reposts look like clicks rather than a script.";
+
+/**
  * What a refusal says on the row, **provisionally**.
  *
  * The designed version of each of these is T32 (#41): the header's quota, a "See

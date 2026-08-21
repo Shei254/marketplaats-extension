@@ -3,6 +3,7 @@ import type { RelistOutcomeCode, RemainingQuota } from "@mprelist/contracts";
 import type { LockedState } from "../gate/authorization-gate";
 import type { RelistPermission } from "../gate/relist-permission";
 import { AdNotFoundError, type MarktplaatsClient } from "./marktplaats-client";
+import type { RelistPacing } from "./relist-pace";
 import type { SnapshotStore } from "./snapshot-store";
 import type { AdSnapshot, ListingSummary } from "./types";
 
@@ -40,12 +41,20 @@ export type RelistOutcome =
  * before and one after, and the one after cannot change the outcome: reporting is
  * how a reservation settles or is refunded, and a relist that already happened is
  * not undone by our failing to say so.
+ *
+ * **And in front of all of it, the pace** (T46, #54). Every path that authorizes
+ * waits its turn first and takes it after, so a run of relists arrives at
+ * human-shaped intervals rather than as fast as a worker can loop. The wait is
+ * here rather than in the popup because every surface goes through this object —
+ * the popup today, the injected buttons of #51 next — and a rule kept in one
+ * caller is a rule the second caller does not have.
  */
 export class RelistOrchestrator {
   constructor(
     private readonly client: MarktplaatsClient,
     private readonly store: SnapshotStore,
     private readonly permission: RelistPermission,
+    private readonly pace: RelistPacing,
   ) {}
 
   async captureAd (listingId: string) {
@@ -70,17 +79,32 @@ export class RelistOrchestrator {
   }
 
   async relist(listingId: string): Promise<RelistOutcome> {
-    // 0. Permission first. Before the capture, because the capture is the attempt
-    //    the backend's pacing rails count and it fetches every photo of the ad;
-    //    and before everything else, because the next steps delete somebody's
-    //    listing and fail-closed means that never happens on a stale grant.
+    // 0. Wait for the gap, before the authorization rather than after it (T46,
+    //    #54). The backend's rails count from the reservation `authorize` takes,
+    //    so a gap that ran after it would be measured against a clock that had
+    //    already started — and a request that is going to be refused for arriving
+    //    too soon should not be sent at all.
+    //
+    //    Nothing has happened yet at this point: no grant, no capture, no delete.
+    //    So a worker that is torn down mid-wait — which Chrome may do once the
+    //    popup that asked has closed — costs the user their click and nothing else.
+    await this.pace.pause();
+
+    // 1. Permission. Before the capture, because the capture is the attempt the
+    //    backend's pacing rails count and it fetches every photo of the ad; and
+    //    before everything else, because the next steps delete somebody's listing
+    //    and fail-closed means that never happens on a stale grant.
     const decision = await this.permission.authorize(listingId);
     if (decision.decision === "refuse") {
+      // Nothing reached Marktplaats, so nothing is paced: a refusal is not an
+      // action to space out, and spacing it would make the cooldown the user is
+      // already being shown longer than the backend said.
       return { status: "refused", locked: decision.locked };
     }
+    await this.pace.startedRelisting();
     const grantJti = decision.grant.jti;
 
-    // 1. Capture the full ad. A failure here removed nothing — the unit goes back.
+    // 2. Capture the full ad. A failure here removed nothing — the unit goes back.
     let snapshot: AdSnapshot;
     try {
       const captured = await this.client.captureAd(listingId);
@@ -98,7 +122,7 @@ export class RelistOrchestrator {
       return { status: "failed-before-delete", error, quota: await this.report(grantJti, "FAILED_BEFORE_DELETE") };
     }
 
-    // 2. Persist the durable snapshot BEFORE anything is deleted (ADR-0003).
+    // 3. Persist the durable snapshot BEFORE anything is deleted (ADR-0003).
     try {
       await this.store.save(snapshot);
     } catch (error) {
@@ -106,7 +130,7 @@ export class RelistOrchestrator {
       return { status: "failed-before-delete", error, quota: await this.report(grantJti, "FAILED_BEFORE_DELETE") };
     }
 
-    // 3. Delete-first. A real delete failure means the original still exists, so
+    // 4. Delete-first. A real delete failure means the original still exists, so
     //    abandon cleanly with no orphan snapshot.
     const deletion = await this.ensureDeleted(snapshot);
     if (!deletion.ok) {
@@ -119,7 +143,7 @@ export class RelistOrchestrator {
       };
     }
 
-    // 4. Re-create the identical ad from the snapshot.
+    // 5. Re-create the identical ad from the snapshot.
     return this.createFromSnapshot(snapshot);
   }
 
@@ -203,12 +227,20 @@ export class RelistOrchestrator {
     let resuming = snapshot;
 
     if (resuming.phase === "captured") {
+      // Paced like any other attempt, and for the same reason: this one may still
+      // delete a listing, so it is an action against Marktplaats rather than the
+      // tail of one. The `deleted` phase below is not paced — putting somebody's
+      // ad back is recovery, and making them wait for it is making the ADR-0003
+      // snapshot slower to redeem than the failure it exists for.
+      await this.pace.pause();
       const decision = await this.permission.authorize(resuming.listingId);
       if (decision.decision === "refuse") {
         // Nothing is touched and the snapshot stays: the ad is still there, and
         // the user can try again when whatever refused them has passed.
         return { status: "refused", locked: decision.locked };
       }
+
+      await this.pace.startedRelisting();
 
       // The new grant is the one this attempt owes an answer to. The old
       // reservation, if there was one, is the backend's to reconcile (#24).

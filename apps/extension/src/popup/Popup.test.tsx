@@ -64,6 +64,8 @@ function fakeWorker(answers: DisplayStateAnswer[] = [{ status: "ready", plan: PL
       asked.push("retry");
       return RELISTED;
     }),
+    /** No gap to wait out, which is what a first relist of the session meets (T46, #54). */
+    msBeforeNextRelist: vi.fn(async () => 0),
     signIn: vi.fn(async () => {
       asked.push("sign-in");
     }),

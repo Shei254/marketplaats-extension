@@ -14,12 +14,21 @@
  * decision that belongs in the chain where a reviewer will see it, rather than one contributed from here.
  *
  * <p><strong>Stripe stays out of every other module.</strong> {@code catalog} is handed a
- * {@link com.mprelist.catalog.TaggedPrice} — three strings — and never a Stripe type, which is what keeps
- * ADR-0014's "no Stripe dependency in the catalog" true now that a Stripe event is what fills it in.
+ * {@link com.mprelist.catalog.TaggedPrice} — three strings — and never a Stripe type, and
+ * {@code subscription} is handed our own normalized status, a window and two ids. That is what keeps
+ * ADR-0014's "no Stripe dependency in the catalog" true now that a Stripe event is what fills it in, and what
+ * makes this the one module a change of payment provider would touch (ADR-0012).
  *
- * <p>#82 (T51) ships the Price half: {@code price.created} and {@code price.updated} adopt a Price into the
- * tier it names. The subscription half is #30 (T20), and it is the one that needs a log of event ids —
- * mirroring a status is order-dependent and repeat-sensitive in a way an upsert on a tier code is not.
+ * <p>Two halves arrive on that one route. #82 (T51) is the Price half: {@code price.created} and
+ * {@code price.updated} adopt a Price into the tier it names. #30 (T20) is the subscription half, and it is
+ * what turns a payment into an entitlement — {@code customer.subscription.created}, {@code .updated} and
+ * {@code .deleted} become the plan somebody is on. That half is order-dependent and repeat-sensitive in a way
+ * an upsert on a tier code is not, which is handled where the row is written: a subscription remembers how
+ * far through Stripe's telling it is, and an event older than that is not applied.
+ *
+ * <p>What is <em>not</em> here is a Stripe call on any hot path. This module asks Stripe for a Price amount
+ * when the plan cards are drawn and opens a Checkout session when somebody buys; the gate reads our own
+ * mirror and never Stripe (ADR-0006, ADR-0007).
  */
 @ApplicationModule
 package com.mprelist.billing;

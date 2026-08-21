@@ -30,9 +30,13 @@ import com.stripe.param.checkout.SessionCreateParams;
  * billing history instead of starting a second. So an existing customer id is passed to Stripe when we have
  * one, and only somebody who has never paid arrives at Checkout as a stranger.
  *
- * <p><strong>Every session carries our own account id as {@code client_reference_id}.</strong> That is the
- * thread the webhook (T20, #30) pulls to know whose subscription just started: the alternative is matching on
- * an email address, which this application deliberately does not hold (#108). Nothing else about the person
+ * <p><strong>Every session carries our own account id, twice.</strong> Once as {@code client_reference_id},
+ * which is what the Stripe dashboard shows beside the payment, and once as {@code metadata.app_user_id} on the
+ * <em>subscription</em> the session creates — which is the one the webhook (T20, #30) actually pulls on. The
+ * difference is how long each lasts: a session is a moment and is reported once, while the subscription's own
+ * metadata rides every event about it for the whole of its life, including the cancellation three months later
+ * when there is no session left to look at. Either way it is our own id, because the alternative is matching
+ * on an email address, which this application deliberately does not hold (#108). Nothing else about the person
  * is sent — not their name, not their address, and Stripe collects what it needs itself.
  *
  * <p>Which payment methods are offered — iDEAL and SEPA for a Dutch marketplace (ADR-0006) — is a setting on
@@ -97,7 +101,14 @@ class OpenCheckout {
 						.build())
 				.setSuccessUrl(this.webBaseUrl + SUCCESS_PATH)
 				.setCancelUrl(this.webBaseUrl + CANCEL_PATH)
-				.setClientReferenceId(buyer.id().toString());
+				.setClientReferenceId(buyer.id().toString())
+				// Copied by Stripe onto the subscription this session creates, and carried by every event
+				// about it from then on — which is what lets the mirror (T20, #30) know whose plan moved
+				// without holding anything about the person and without depending on the order Stripe
+				// happens to deliver a purchase's events in.
+				.setSubscriptionData(SessionCreateParams.SubscriptionData.builder()
+						.putMetadata(ACCOUNT_TAG, buyer.id().toString())
+						.build());
 		this.subscriptions.stripeCustomerFor(buyer).ifPresent(session::setCustomer);
 		return session.build();
 	}
@@ -109,6 +120,15 @@ class OpenCheckout {
 	private final StripeAccount stripe;
 
 	private final String webBaseUrl;
+
+	/**
+	 * The metadata key our own account id travels under, defined where it is written and read from where it
+	 * is read ({@code StripeEvent}) — one fact with one home, like ADR-0019's {@code tier_code}.
+	 *
+	 * <p>Spelled as the column it names, because the person who will one day read it is an operator looking at
+	 * a subscription in the Stripe dashboard and then at a row in our own database.
+	 */
+	static final String ACCOUNT_TAG = "app_user_id";
 
 	/** `apps/web`'s own `PATHS`, on the other side of a Java/TypeScript boundary. */
 	private static final String SUCCESS_PATH = "/success";

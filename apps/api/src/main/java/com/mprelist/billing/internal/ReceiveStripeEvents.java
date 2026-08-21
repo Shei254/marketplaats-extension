@@ -15,8 +15,12 @@ import com.mprelist.catalog.TaggedPrice;
 import tools.jackson.core.JacksonException;
 
 /**
- * {@code POST /api/stripe/webhook} — where a Price created in the Stripe dashboard becomes a tier in our
- * catalog (#82, T51, ADR-0019).
+ * {@code POST /api/stripe/webhook} — the one place Stripe tells this application anything.
+ *
+ * <p>Two things arrive here and each has a ticket. A Price created in the Stripe dashboard becomes a tier in
+ * our catalog (#82, T51, ADR-0019); a subscription starting, changing or ending becomes the plan somebody is
+ * on (#30, T20). The second is what makes a payment an entitlement — no other code in this application moves
+ * anybody onto a paid tier.
  *
  * <p><strong>What answers what.</strong> A {@code 400} means we could not tell that this was Stripe, or could
  * not read what it sent; Stripe shows those on the endpoint's own page and retries. A {@code 200} means the
@@ -34,9 +38,10 @@ import tools.jackson.core.JacksonException;
 @RestController
 class ReceiveStripeEvents {
 
-	ReceiveStripeEvents(SignedByStripe stripe, PriceAdoptions catalog) {
+	ReceiveStripeEvents(SignedByStripe stripe, PriceAdoptions catalog, MirrorSubscriptions subscriptions) {
 		this.stripe = stripe;
 		this.catalog = catalog;
+		this.subscriptions = subscriptions;
 	}
 
 	/**
@@ -67,6 +72,9 @@ class ReceiveStripeEvents {
 							+ "was meant to be one, tag it in the Stripe dashboard and save it again.",
 					event.type()));
 		}
+		else if (event.isAboutASubscription()) {
+			this.subscriptions.apply(event);
+		}
 		return ResponseEntity.ok().build();
 	}
 
@@ -93,13 +101,16 @@ class ReceiveStripeEvents {
 
 	private final PriceAdoptions catalog;
 
+	private final MirrorSubscriptions subscriptions;
+
 	private static final Logger LOG = LoggerFactory.getLogger(ReceiveStripeEvents.class);
 
 	/**
 	 * Spelled here and, separately, in the filter chain that opens it — {@code identity} holds no constant of
 	 * this module's, and this module contributes no rule to that chain (see the package documentation). The
-	 * two copies are held to each other by {@code StripePriceSyncTest}, which posts to this path with no token
-	 * at all: if the chain ever stops opening exactly this one, every test in that suite is refused with 401.
+	 * two copies are held to each other by {@code StripePriceSyncTest} and {@code StripeSubscriptionMirrorTest},
+	 * which post to this path with no token at all: if the chain ever stops opening exactly this one, every
+	 * test in both suites is refused with 401.
 	 */
 	private static final String PATH = "/api/stripe/webhook";
 

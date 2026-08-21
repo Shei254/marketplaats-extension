@@ -2,6 +2,7 @@ package com.mprelist.catalog.internal;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -121,6 +122,24 @@ class TierRows implements TierCatalog, PriceAdoptions {
 						new Entitlement(row.getInt("relist_quota_per_period"),
 								row.getInt("max_marktplaats_accounts"), flagsIn(row.getString("features")))))
 				.list();
+	}
+
+	/**
+	 * Which tier a Price belongs to, which is one index hit on {@code tier_stripe_price_id_key}.
+	 *
+	 * <p>No {@code published} clause, deliberately, and it is the one place in this class where that is worth
+	 * saying: a subscriber renewing on a tier an operator has taken off sale is still on it, and a filter here
+	 * would answer "no such tier" for exactly those people — whose next webhook would then grant them nothing
+	 * (T20, #30). What is on sale is {@link #published()} and is a different question asked by a different
+	 * caller.
+	 */
+	@Override
+	public Optional<TierId> tierSoldAs(String stripePriceId) {
+		return this.db.sql("select id from tier where stripe_price_id = ?")
+				.param(stripePriceId)
+				.query(UUID.class)
+				.optional()
+				.map(TierId::new);
 	}
 
 	/**

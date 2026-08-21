@@ -140,13 +140,17 @@ Mutation-verified — each of these was applied, observed, and reverted:
 what it has already applied, so a correction to that file once it has run anywhere is a new `V2` — never an
 edit to `V1`.
 
-Three migrations follow it, each named for what it adds rather than for the ticket that wanted it:
+Five migrations follow it, each named for what it adds rather than for the ticket that wanted it:
 `V2__seed_tier_catalog.sql` (the catalog, below), `V3__index_abandoned_reservations.sql` (the index #24's
-sweep reads — see [What nobody ever reports back](#what-nobody-ever-reports-back)) and
+sweep reads — see [What nobody ever reports back](#what-nobody-ever-reports-back)),
 `V4__index_relists_by_when_they_were_taken.sql` (the one the pacing rail reads — see
-[How fast, as well as how much](#how-fast-as-well-as-how-much)). Both index files carry the whole argument for
-why they do not collapse into V1's, which is the same argument twice: an index partial on a status serves only
-a statement that says something about status.
+[How fast, as well as how much](#how-fast-as-well-as-how-much)), `V5__tier_publication.sql` (whether a tier
+may be sold, and the constraint that published implies a price — see
+[Where a plan comes from](#where-a-plan-comes-from)) and `V6__subscription_mirror.sql` (how far through
+Stripe's telling a subscription is, which is what makes a redelivered or overtaken webhook harmless — see
+[Where a payment becomes an entitlement](#where-a-payment-becomes-an-entitlement)). Both index files carry the
+whole argument for why they do not collapse into V1's, which is the same argument twice: an index partial on a
+status serves only a statement that says something about status.
 
 > If startup fails with **`Migration checksum mismatch for migration version 1`**, your Postgres volume
 > predates the rename `keycloak_subject` → `idp_subject` in [#17](https://github.com/Shei254/marketplaats-extension/issues/17),
@@ -1331,10 +1335,11 @@ Checkout session could not be opened.
 
 ### What is not here
 
-- **Idempotency on the event id.** Nothing needs it yet: an upsert on a tier code says the same thing however
+- **Idempotency on the event id.** Nothing here needs it: an upsert on a tier code says the same thing however
   often it is said and in whatever order, which `andTheSameEventTwiceIsTheSameRowOnce` asserts. The events
-  where repetition and order *do* change the answer are the subscription ones, so the event log belongs with
-  [#30](https://github.com/Shei254/marketplaats-extension/issues/30).
+  where repetition and order *do* change the answer are the subscription ones —
+  [#30](https://github.com/Shei254/marketplaats-extension/issues/30) handles them, and it turned out to need
+  a timestamp rather than a log of ids. See [below](#where-a-payment-becomes-an-entitlement).
 - **Archiving.** A `price.updated` carrying `active: false` is adopted like any other: the tier keeps
   pointing at it. Repointing is create-then-archive, so unpublishing on archive would fight the order the
   events arrive in. An archived Price a tier still points at is T53's to notice.
@@ -1434,6 +1439,112 @@ accept it missing. `CheckoutTest` drives the route with **no Stripe configured**
 refusals testable: every one of them is decided before Stripe would be asked, and the unconfigured key
 produces the one that is not. A `200` over a real port needs a live Stripe account and is the click-through's
 (slice C, step 4).
+
+## Where a payment becomes an entitlement
+
+`POST /api/stripe/webhook` again, and the other half of what arrives there
+([#30](https://github.com/Shei254/marketplaats-extension/issues/30), T20): `customer.subscription.created`,
+`.updated` and `.deleted` become the plan somebody is on. **Nothing else in this application moves anybody
+onto a paid tier.** A `200` from `POST /api/checkout` is an offer to pay; this is what happens when Stripe
+says the money moved.
+
+**The thread is our own id on the subscription, not on the session.** `OpenCheckout` writes
+`subscription_data.metadata.app_user_id`, which Stripe copies onto the subscription it creates, so every
+event about it names the account — the first one, and the cancellation three months later. The alternative
+was `checkout.session.completed` and its `client_reference_id`, and it does not work on its own: that event
+carries no status, no Price and no period, and Stripe usually sends it *after* the subscription was created,
+so the mirror would need two events in an order nobody guarantees. `client_reference_id` stays on the session
+because it is what the Stripe dashboard shows beside a payment.
+
+**A terminal end falls back to the default tier**
+([ADR-0018](../../docs/adr/0018-lapse-falls-back-to-the-default-tier.md)), and that is the decision this
+ticket is arranged around rather than a detail of it:
+
+| Stripe says | What the row becomes | Why |
+|---|---|---|
+| `active`, `trialing` | that tier, that status, Stripe's window | the ordinary case; a trial is mirrored with no special case anywhere |
+| `past_due`, `unpaid`, `incomplete` | **the paid tier, kept**, and the status denied | dunning. Stripe is still retrying the card and a successful retry gives the tier straight back; taking it away mid-retry takes away something the next event returns |
+| `canceled`, `incomplete_expired` | **the default tier**, `active`, our monthly roll, `stripe_subscription_id` cleared and `stripe_customer_id` kept | mirroring `canceled` onto a row still pointing at Pro leaves somebody who paid three months with strictly less than a stranger who never paid — the gate checks status before quota, so every relist would be `402` for ever |
+
+So `SUBSCRIPTION_INACTIVE` means **a card that is currently failing** and nothing else. Somebody who ended
+their subscription never sees it; they see the free tier's `QUOTA_EXCEEDED` and the plan cards.
+
+**Order and repetition are one column, not a table of event ids.** `subscription.mirrored_through` holds the
+`created` of the newest event applied to the row — Stripe's clock, because the order they arrive in is the one
+not to be trusted — and an event older than that is not applied. Stripe delivers at least once and retries for
+three days, so this is what stops Monday's cancellation from undoing Tuesday's resubscription. It also makes a
+redelivery a no-op, which is what "idempotent on the event id" was asking for: the mirror is a statement of
+the current state, so applying the newest one twice writes the same row twice. A log of ids would have added a
+table nothing could tell the difference about, which is the precedent
+[#41](https://github.com/Shei254/marketplaats-extension/issues/41) set. Equal timestamps **are** applied:
+Stripe stamps whole seconds and a Checkout generates `created` and `updated` inside one of them, so refusing
+them would leave a paid-up subscriber on whatever the first of the pair said.
+
+**Whose row it is: the tag, then the customer.** The tag names an account directly, which is what makes a
+purchase land whichever order the events arrive in. The customer id is the fallback, and is ours only once an
+earlier event stored it — it is what finds a subscription created in the Stripe dashboard for somebody we
+already bill. A third clause on `stripe_subscription_id` was left out rather than kept as a line no test could
+tell the difference about: both ids are written in the same statement, so a row that knows a subscription
+knows its customer. An event matching neither is a **`200` and a log line**, because one Stripe account can
+serve more than one deployment and guessing would move a stranger's plan.
+
+**Three things it refuses to guess**, each leaving the plan exactly as it was:
+
+- **A status this application does not store.** Stripe adds statuses — `paused` is one nothing here asks for
+  and could still arrive — and the column is held to seven by a check constraint, so the alternatives are
+  inventing a status Stripe did not report or failing the write inside a webhook.
+- **A Price no tier carries.** Somebody is paying for something this catalog does not sell, which is what a
+  Price created without a `metadata.tier_code` tag and then sold looks like (ADR-0019). The tier is looked up
+  **published or not**, because unpublishing stops new purchases and the people already on a tier keep
+  renewing until they cancel.
+- **An event with no billing period.** Neither shape of it — see below — leaves nothing to write rather than a
+  window made up here.
+
+**The period is read from the item first and the subscription second.** Stripe moved `current_period_start`
+and `current_period_end` off the subscription and onto each of its items in the 2025 API versions, and the
+pinned `stripe-java` has no accessor for the old place at all. Reading the event as a tree is what lets both
+shapes work, and is the same argument the Price half makes: a typed model returns *nothing* when the API
+version an event was created under differs from the one it was built against, which on a webhook is a silent
+no-op.
+
+**The window is Stripe's while they are paying and ours again afterwards.** `Subscriptions.currentFor` rolls a
+free window that has closed and never a mirrored one (#20), so a payer's window only ever moves here — and the
+fallback clears `stripe_subscription_id`, which is what puts it back on the roll anchored on the day the
+account was provisioned rather than on the day they cancelled.
+
+`StripeSubscriptionMirrorTest` drives this as a **lifecycle rather than as arranged rows**: every subscriber
+in it signs in through `/api/me`, is put on their tier by the same event a completed Checkout produces, and is
+then renewed, dunned, cancelled and resubscribed by the events Stripe sends for those. So a mirror that wrote
+the right row from the wrong event has nowhere to hide. Two of the assertions go through `/authorize` rather
+than reading the row — dunning is refused `402 SUBSCRIPTION_INACTIVE`, and a cancelled subscriber can still
+relist — because "denied" and "not locked out" are things the gate decides, and a suite reading a status
+column would be claiming them rather than showing them. One goes through `/api/me`, because the row is not the
+product.
+
+Mutation-verified — each applied, observed, reverted:
+
+| Mutation | Fails |
+|---|---|
+| subscription events not dispatched at all | eighteen — every lifecycle assertion in the suite |
+| a cancellation mirrored as `canceled` on the paid tier | six, ending at `andTheyCanStillRelistOnTheFreeTierRatherThanBeingLockedOut` |
+| dunning treated as an end | four, including `andTheGateRefusesThemWithTheCodeThatMeansAFailingCard` |
+| `stripe_subscription_id` left in place on the fallback | `andTheirCustomerIsKeptWhileTheSubscriptionIsGone` |
+| the ordering guard removed | `andAnEventThatHasBeenOvertakenIsNotApplied` |
+| the guard refusing an equal timestamp too | `andOneStampedInTheSameSecondAsTheLastStillDoes` |
+| the tag no longer written into the Checkout session | `CheckoutSessionTest.andTheSubscriptionItCreatesCarriesItToo` |
+| the tag no longer read, only the customer | eighteen — a first purchase is a customer nothing here has stored yet |
+| the customer no longer read, only the tag | `andOneWithNoTagIsFoundByTheCustomerItIsFor` |
+| the period read only off the subscription | sixteen — the shape Stripe sends today is the item's |
+| the window written the other way round | seventeen — `subscription_period_runs_forward` refuses every mirrored row |
+| an unknown status mirrored as `active` | `aStatusStripeAddedLaterLeavesThePlanExactlyAsItWas` |
+| a Price no tier carries falling back to the default tier | `aPriceNoTierCarriesGrantsNothing` |
+| `tierSoldAs` filtered on `published` | `aTierTakenOffSaleStillGrantsWhatItsSubscribersBought` |
+
+**Not verified: no Stripe account has ever sent one of these.** Every event in `StripeSubscriptionMirrorTest`
+is hand-built and hand-signed, and the whole lifecycle it drives — bought, renewed, dunned, cancelled,
+resubscribed — is this repository talking to itself. What a real subscription looks like is the
+click-through's, slice C steps 5 to 8, and it needs [#28](https://github.com/Shei254/marketplaats-extension/issues/28)
+first.
 
 ## Which build may call it
 

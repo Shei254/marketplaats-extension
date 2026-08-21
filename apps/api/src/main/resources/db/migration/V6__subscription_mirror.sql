@@ -1,0 +1,23 @@
+-- What Stripe has told us about a subscription, and how far through its telling we are (#30, T20).
+--
+-- Stripe delivers a webhook **at least once and in no guaranteed order**: a retry of Monday's cancellation
+-- can arrive after Tuesday's renewal, and the same event can arrive twice while the first delivery is still
+-- being handled. Both are ordinary, and both are decided here rather than in the code that writes the row:
+-- an event is applied only when it is not older than the newest one already reflected, which makes a
+-- redelivery a no-op and a late arrival harmless in the same clause.
+--
+-- It holds the event's own `created` — Stripe's clock, not ours. Ours would say when the delivery reached
+-- this machine, which is exactly the order that is not to be trusted; theirs is the order the events were
+-- generated in, which is the one worth mirroring. A retry therefore carries the timestamp of the original
+-- rather than of the retry, which is the whole point.
+--
+-- Null on every row until the first Stripe event lands on it, which is every free account that has never
+-- paid — "nothing has been mirrored here" rather than a zero timestamp that would sort like one.
+--
+-- Seconds, because that is Stripe's granularity: two events stamped in the same second are applied in the
+-- order they arrive, which is Stripe's usual order and the best available. It is why the comparison below is
+-- "older than", not "not newer than" — refusing an equal timestamp would drop the second of a pair that
+-- Stripe generated together, and `customer.subscription.created` followed by `.updated` inside one second is
+-- exactly what a Checkout produces.
+alter table subscription
+    add column mirrored_through timestamptz;

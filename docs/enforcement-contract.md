@@ -199,10 +199,32 @@ about their **software**. It therefore carries none, exactly like every other `4
   purpose: one says the plan is gone, the other says come back in a minute, and only the second is worth a
   retry. Neither carries a `reason` — they are not denials about the user.
 - **`400` with an empty body** for a body this API could not read, including one naming no tier.
-- **The session carries our own account id as `client_reference_id`**, which is how the webhook knows whose
-  subscription started: this API deliberately holds no email address to match on (#108). It carries an
-  existing `stripe_customer_id` when the account has one, so a subscriber who cancelled and came back
-  (ADR-0018) continues one billing history rather than starting a second.
+- **The session carries our own account id twice**: as `client_reference_id`, which is what the Stripe
+  dashboard shows beside the payment, and as `subscription_data.metadata.app_user_id`, which Stripe copies
+  onto the subscription and is what the webhook below actually pulls on. This API deliberately holds no email
+  address to match on (#108). It carries an existing `stripe_customer_id` when the account has one, so a
+  subscriber who cancelled and came back (ADR-0018) continues one billing history rather than starting a
+  second.
+
+### `POST /api/stripe/webhook` — what Stripe tells us
+Not a client route: no bearer token reaches it, and no client calls it. It is here because what it writes is
+what every other answer in this document is read from.
+
+- **Auth:** the `Stripe-Signature` header, verified against the endpoint's signing secret
+  (`MPRELIST_STRIPE_WEBHOOK_SECRET`), with Stripe's own timestamp tolerance so a captured request cannot be
+  replayed. Unset, every event is refused.
+- **The events to subscribe the endpoint to:** `price.created` and `price.updated` (T51, #82 — a Price becomes
+  a tier), and `customer.subscription.created`, `.updated` and `.deleted` (T20, #30 — a subscription becomes
+  the plan somebody is on). Anything else is answered `200` and ignored.
+- **`400`** when the signature is missing, wrong, or stale, and when a signed body is not JSON.
+- **`200` for everything else, including what it deliberately ignored.** A non-2xx is retried for three days,
+  so answering one over an event no retry can fix — an untagged Price, a subscription belonging to another
+  deployment, a status this API does not store — would bury the events that matter. Those are log lines.
+- **Order and repetition are the API's problem, not Stripe's.** Delivery is at-least-once and unordered; a
+  subscription event older than the newest one already mirrored onto that row is not applied.
+- **What a subscription event moves** is the table in the "Subscription status" section above: the tier, the
+  status and `periodStart`/`periodEnd`. A terminal end moves the row back to the `isDefault` tier
+  (ADR-0018).
 
 ### `GET /api/me` — display state, **never a grant**
 - **Auth:** `Authorization: Bearer <Keycloak access token>`.

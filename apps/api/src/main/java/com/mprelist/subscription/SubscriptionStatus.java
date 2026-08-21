@@ -46,6 +46,28 @@ public enum SubscriptionStatus {
 		return this.allowsRelisting;
 	}
 
+	/**
+	 * Whether Stripe is finished with this subscription: it is over, and no retry of theirs is going to
+	 * revive it. The two that are — {@code canceled} and {@code incomplete_expired} — are what ADR-0018 calls
+	 * a terminal end, and what {@code SubscriptionMirror.ended} turns back into a free user (#30, T20).
+	 *
+	 * <p><strong>Dunning is not an end</strong>, which is the distinction this method exists to hold.
+	 * {@code past_due}, {@code unpaid} and {@code incomplete} are a card being retried: the customer still
+	 * believes they are a subscriber, Stripe still believes it can charge them, and a successful retry gives
+	 * the tier straight back. Dropping them to free mid-retry would take away something the next event
+	 * returns — and is why {@code SUBSCRIPTION_INACTIVE} means a failing card and nothing else.
+	 *
+	 * <p>A switch over every constant rather than two equality checks, so that Stripe adding a status is a
+	 * compilation failure here — where somebody has to decide which side of the line it falls on — rather than
+	 * a silent {@code false} that keeps a dead subscription on a paid tier.
+	 */
+	public boolean endsTheSubscription() {
+		return switch (this) {
+			case CANCELED, INCOMPLETE_EXPIRED -> true;
+			case ACTIVE, TRIALING, PAST_DUE, UNPAID, INCOMPLETE -> false;
+		};
+	}
+
 	SubscriptionStatus(boolean allowsRelisting) {
 		this.allowsRelisting = allowsRelisting;
 	}

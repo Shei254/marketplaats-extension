@@ -8,9 +8,9 @@
  * `Date` here would make this package a decoder with an opinion about clocks, and
  * the one thing every consumer does with `resetAt` is render it.
  *
- * Not here yet, and named so nobody has to guess: `GET /api/plans` (T49, #80) and
- * `GET /api/client-config` (T27, #36). Both are still unbuilt, and a type written
- * ahead of the endpoint it describes is a guess that later reads as a contract.
+ * Not here yet, and named so nobody has to guess: `GET /api/client-config` (T27,
+ * #36). It is still unbuilt, and a type written ahead of the endpoint it describes
+ * is a guess that later reads as a contract.
  */
 
 /**
@@ -137,4 +137,55 @@ export interface DisplayState {
   resetAt: string;
   /** The tier's flags as stored. `{}` on every tier today, and sent rather than omitted. */
   features: Record<string, unknown>;
+}
+
+/**
+ * What a Stripe Price costs, as `GET /api/plans` renders it (T49, #80).
+ *
+ * **The amount comes from Stripe and is never stored** (ADR-0014/0019): the API
+ * caches what Stripe said and holds no second copy of record. A client rendering
+ * one is rendering something borrowed.
+ */
+export interface PlanPrice {
+  /**
+   * In the currency's smallest unit, as Stripe counts it — 999 is €9.99. Carried
+   * as an integer rather than a decimal, because turning it into one is a rounding
+   * decision and the place to make it is next to the currency's own rules.
+   */
+  amount: number;
+  /** ISO 4217, lower case, as Stripe writes it. */
+  currency: string;
+  /** How often it recurs — `month` or `year` in Stripe's vocabulary. */
+  interval: string;
+}
+
+/**
+ * One plan card: our half joined with Stripe's.
+ *
+ * `maxMarktplaatsAccounts` is deliberately not here. No tier sells more than one
+ * until #47 finds a stable Marktplaats account identifier, so a card advertising
+ * it would be selling something nothing can yet tell apart.
+ */
+export interface Plan {
+  tier: TierName;
+  /** What a period grants, which is the number the card compares plans on. */
+  relistQuotaPerPeriod: number;
+  /** The tier's flags as stored. `{}` on every tier today, and sent rather than omitted. */
+  features: Record<string, unknown>;
+  price: PlanPrice;
+}
+
+/**
+ * `GET /api/plans`. **Only what can be bought**: the published tiers carrying a
+ * Stripe Price, so the free tier is absent and so is every draft the sync created
+ * at quota 0 (ADR-0019).
+ *
+ * An empty list is an answer — nothing is on sale, which is every stack whose
+ * Stripe Prices have not been created yet. It is **not** what a client sees when
+ * Stripe could not be reached: that is a `503` with no body at all, rendered as
+ * "prices unavailable, retry", because a card whose button opens a Checkout for an
+ * amount we guessed is the failure this route is written against.
+ */
+export interface Plans {
+  plans: Plan[];
 }

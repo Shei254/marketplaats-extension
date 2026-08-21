@@ -1,5 +1,6 @@
 package com.mprelist.catalog.internal;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -10,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.mprelist.catalog.Adoption;
 import com.mprelist.catalog.Entitlement;
 import com.mprelist.catalog.PriceAdoptions;
+import com.mprelist.catalog.SellablePlan;
 import com.mprelist.catalog.TaggedPrice;
 import com.mprelist.catalog.TierCatalog;
 import com.mprelist.catalog.TierId;
@@ -89,6 +91,36 @@ class TierRows implements TierCatalog, PriceAdoptions {
 						+ "nothing to name. A subscription references its tier behind a foreign key with no delete "
 						+ "rule, so this is an id the catalog never issued rather than a tier that has been "
 						+ "retired."));
+	}
+
+	/**
+	 * The five columns a plan card needs, in one statement and one round trip.
+	 *
+	 * <p>Ordered by what it grants, so the cards come back in the order a buyer reads them — cheapest first —
+	 * rather than in whatever order Postgres happened to store them. That is a rendering decision made here
+	 * because it is a `order by` rather than a sort in three clients.
+	 *
+	 * <p><strong>{@code published} alone is the whole filter, and that is not an omission.</strong> The other
+	 * half of "sellable" is a price to charge against, and {@code V5__tier_publication.sql} makes a published
+	 * tier without one <em>unwriteable</em> — so a second clause here would be a second place deciding the
+	 * same thing, and one no test could tell the difference about. What would notice a row that broke the
+	 * constraint anyway is {@link SellablePlan}'s own constructor, loudly, rather than a query quietly
+	 * returning one fewer plan.
+	 */
+	@Override
+	public List<SellablePlan> published() {
+		return this.db.sql("""
+				select code, name, relist_quota_per_period, max_marktplaats_accounts, features::text,
+				       stripe_price_id
+				  from tier
+				 where published
+				 order by relist_quota_per_period, code
+				""")
+				.query((row, number) -> new SellablePlan(new TierName(row.getString("code"), row.getString("name")),
+						row.getString("stripe_price_id"),
+						new Entitlement(row.getInt("relist_quota_per_period"),
+								row.getInt("max_marktplaats_accounts"), flagsIn(row.getString("features")))))
+				.list();
 	}
 
 	/**

@@ -168,9 +168,18 @@ about their **software**. It therefore carries none, exactly like every other `4
 - **The free tier is absent**, and every unpublished tier with it. A tier with no price id is not something a
   buyer can choose, and a **draft** — synced by webhook at quota 0 before anyone said what it grants — must
   not be sellable (ADR-0019).
-- **Stripe unreachable → the plan cards render "prices unavailable, retry".** Never a free plan, never a
-  stale-but-unlabelled price, and never a card whose button would open a Checkout for an amount we guessed.
-  Fail-closed applies to display, as it does for `/api/me`.
+- **Stripe unreachable → `503` with an empty body**, which the plan cards render as "prices unavailable,
+  retry". Never a free plan, never a stale-but-unlabelled price, and never a card whose button would open a
+  Checkout for an amount we guessed. Fail-closed applies to display, as it does for `/api/me`. No `reason`,
+  for the rule every non-denial refusal here follows: the codes are statements about the *user*, and this is
+  one about our ability to answer at all.
+- **All of them or none of them.** One price that could not be fetched takes the whole answer with it, rather
+  than rendering the plans that did resolve: a plan screen is a *comparison*, and a buyer cannot tell a plan
+  that is missing from a plan that does not exist. In practice it is all-or-nothing anyway — an unreachable
+  Stripe fails every call, not one.
+- **An empty list is a different thing and is a `200`**: nothing is on sale, which is true of every stack
+  whose Stripe Prices have not been created yet (T22, #28). Answering "unavailable" there would report a
+  fault that is not there.
 - Consumed by the **popup**, which holds the access token and opens the Checkout URL in a tab; `apps/web`
   has no login and never calls this (ADR-0017).
 

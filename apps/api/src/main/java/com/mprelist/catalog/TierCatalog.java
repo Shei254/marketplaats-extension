@@ -1,5 +1,7 @@
 package com.mprelist.catalog;
 
+import java.util.List;
+
 /**
  * What this module answers about the tiers, read from our own table and never from Stripe (ADR-0014).
  *
@@ -64,5 +66,24 @@ public interface TierCatalog {
 	 * @throws IllegalStateException if no tier carries that id
 	 */
 	TierName nameOf(TierId tier);
+
+	/**
+	 * Everything a buyer could choose: the tiers that are {@code published} <em>and</em> carry a
+	 * {@code stripe_price_id} (T49, #80).
+	 *
+	 * <p>Both halves are true of every row this returns, and {@code published} is the only one it has to
+	 * check: {@code V5__tier_publication.sql} makes a published tier with no price unwriteable, so the flag
+	 * already implies the id. What each half excludes is different, though — the flag keeps out the drafts
+	 * ADR-0019's webhook creates at quota 0 for a Price nobody has decided about yet, and the price keeps out
+	 * the free tier, an ordinary row that happens to have nothing to charge against. A catalog where either
+	 * slipped through would put a card on the plan screen whose button opens a Checkout for nothing.
+	 *
+	 * <p>A list rather than a stream or a page: the catalog is a handful of rows an operator maintains by
+	 * hand, and the caller renders all of them.
+	 *
+	 * @return the sellable tiers, empty if nothing is on sale — which is a real state and not a fault, since
+	 * a stack whose Stripe Prices have not been created yet ({@code T22}, #28) has published nothing
+	 */
+	List<SellablePlan> published();
 
 }

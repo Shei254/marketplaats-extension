@@ -115,6 +115,8 @@ thread.
 stripe listen --forward-to localhost:8080/api/stripe/webhook
 # `stripe listen` prints a signing secret. The API refuses every event without it:
 export MPRELIST_STRIPE_WEBHOOK_SECRET=whsec_…      # then (re)start bootRun
+# And the API key `GET /api/plans` reads amounts with — the test-mode secret key from the dashboard:
+export MPRELIST_STRIPE_SECRET_KEY=sk_test_…
 npm run dev -w @mprelist/web        # http://localhost:5173 — where steps 5 and 6 land
 ```
 
@@ -139,7 +141,9 @@ rather than a 404 — a host that does not (T55, #86) breaks this step *after* t
    *Expect:* a **draft**: the tier exists at quota 0, unpublished, and is on no plan card. It is what T53
    publishes.
 3. With quota exhausted, open the popup and click the upgrade prompt.
-   *Expect:* plan cards with **real amounts from Stripe**. The free tier is **not** among them.
+   *Expect:* plan cards with **real amounts from Stripe**. The free tier is **not** among them, and neither
+   is the draft from step 2a. Unset `MPRELIST_STRIPE_SECRET_KEY` and restart to see the other half: `503`,
+   and "prices unavailable, retry" rather than a guessed amount.
 4. Click **Upgrade** on Pro.
    *Expect:* a Stripe Checkout tab opens. The popup closes — that is expected, not a bug.
 5. Pay with `4242 4242 4242 4242`.

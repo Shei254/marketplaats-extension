@@ -289,7 +289,7 @@ Refs: [ADR-0011](adr/0011-repository-layout.md).
 | [T38](https://github.com/Shei254/marketplaats-extension/issues/47) · SPIKE: stable Marktplaats account identifier | Blocks `maxMpAccounts` as a sellable entitlement and multi-account |
 | T39/T40 · SPIKEs: ownership detection, injected-UI runtime | Feed T41 |
 | T41/T42 · In-page injection | The second surface. The popup has to be good first |
-| [T45](https://github.com/Shei254/marketplaats-extension/issues/53) · Findings note for the internal-API spikes | Documentation debt, no dependants |
+| [T45](https://github.com/Shei254/marketplaats-extension/issues/53) · Findings note for the internal-API spikes | **Shipped** — [`internal-api-findings.md`](internal-api-findings.md). It had no dependants and one dependent moment: the night something breaks |
 
 **Dissolved by [ADR-0017](adr/0017-web-surface-and-subscribing.md):** T33 (SPA login → the admin route guard,
 T54), T34 (plans page → the popup, T52), T35 (account page → the popup's quota display plus the Portal link,

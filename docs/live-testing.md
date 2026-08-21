@@ -6,6 +6,12 @@ box. They stay **runtime config**: when Marktplaats moves one, you paste the new
 path in from the console — no source edit or rebuild needed to retune. (Backend-served
 config replaces that console hook — [ADR-0013](adr/0013-remote-client-configuration.md), #36.)
 
+**What the spikes found is written down separately**:
+[`internal-api-findings.md`](internal-api-findings.md) — every endpoint, the CSRF chain, why `createAd`'s
+field order is load-bearing, and a table of failure modes with their symptoms. This file is how to
+*discover* what Marktplaats is doing now; that one is what it was doing when the mechanic was proved, which
+is what lets you tell what changed.
+
 > ⚠️ delete + re-create is destructive and against Marktplaats's terms (ADR-0002).
 > Use a **throwaway ad on a test account**.
 
@@ -22,7 +28,9 @@ build time rather than merely hidden (`apps/extension/scripts/build.mjs`).
 
 ## 2. Re-discover an endpoint (DevTools)
 Only needed when something breaks — a call 404s, or the CSRF token stops being
-found. Log in to marktplaats.nl, open **Mijn Advertenties**, DevTools → **Network** →
+found. **Read [`internal-api-findings.md`](internal-api-findings.md) first**: its failure table maps the
+error you are looking at to the thing most likely to have moved, which is usually not the endpoint the
+message names. Log in to marktplaats.nl, open **Mijn Advertenties**, DevTools → **Network** →
 filter **Fetch/XHR**, then do the action by hand and record method + URL + headers
 + request/response body:
 

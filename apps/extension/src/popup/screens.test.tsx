@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { SignedInScreen, relistsLeft, resetsOn } from "./screens";
+import { OutdatedScreen, SignedInScreen, relistsLeft, resetsOn } from "./screens";
 
 const PLAN = {
   subscriptionStatus: "ACTIVE",
@@ -67,5 +67,25 @@ describe("the plan strip", () => {
     const markup = render(2);
     expect(markup).toContain('aria-label="Refresh"');
     expect(markup).toContain("Sign out");
+  });
+});
+
+describe("the update screen", () => {
+  const markup = renderToStaticMarkup(<OutdatedScreen />);
+
+  it("says the build is the problem, and names the product doing the saying", () => {
+    expect(markup).toContain("needs updating");
+    expect(markup).toContain("Bumpr");
+  });
+
+  it("offers no button, because there is nothing a button could do", () => {
+    // Every other screen here hands the user their next move. This one has none:
+    // the extension cannot update itself and a retry cannot help, so it says what
+    // will fix it — Chrome, within a few hours — instead of miming a control.
+    expect(markup).not.toContain("<button");
+  });
+
+  it("says the ads are untouched, which is what somebody locked out most needs to read", () => {
+    expect(markup).toContain("Nothing has been changed on Marktplaats");
   });
 });

@@ -45,6 +45,17 @@ describe("asking the backend what the caller is shown", () => {
     expect(calls[0]?.headers["authorization"]).toBe("Bearer an-access-token");
   });
 
+  it("names the build making the call, so the backend can refuse an old one", async () => {
+    // T43 (#52). The version is `__CLIENT_VERSION__`, which vitest defines as a
+    // fixture; that the *real* one is the manifest's is asserted against the
+    // emitted bundle in scripts/build.test.ts.
+    const { client, calls } = api();
+
+    await client.displayState();
+
+    expect(calls[0]?.headers["X-Mprelist-Client"]).toBe("extension/9.9.9");
+  });
+
   it("asks nothing at all when there is no session", async () => {
     const { client, calls } = api({ token: { status: "signed-out" } });
 
@@ -101,6 +112,26 @@ describe("fail-closed, which applies to display too", () => {
     const { client } = api({ answer: () => json({ reason: "UNAUTHENTICATED" }, 401) });
 
     await expect(client.displayState()).resolves.toEqual({ status: "signed-out" });
+  });
+});
+
+describe("a build the backend has stopped serving", () => {
+  it("is its own answer, and not `unavailable`", async () => {
+    // The two ask for opposite things (T43, #52): "unavailable" says wait and try
+    // again, and this one says trying again is the one thing that will not work.
+    const { client } = api({ answer: () => new Response(null, { status: 426 }) });
+
+    await expect(client.displayState()).resolves.toEqual({ status: "outdated" });
+  });
+
+  it("is read from the status, since a refusal about the software carries no reason", async () => {
+    // The contract's codes are statements about the *user* — quota, card, pace — so
+    // a 426 carries none, exactly like every other 4xx that is not a denial. Asserted
+    // with an empty body for that reason: a reader that needed one would be reading
+    // something the API does not send.
+    const { client } = api({ answer: () => new Response("", { status: 426 }) });
+
+    await expect(client.displayState()).resolves.toEqual({ status: "outdated" });
   });
 });
 

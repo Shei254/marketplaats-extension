@@ -91,6 +91,40 @@ export function LoadingScreen(): JSX.Element {
  * **nothing has been changed on Marktplaats**, which is the question somebody
  * whose relist just failed actually has.
  */
+/**
+ * The build is older than the oldest the backend still serves (T43, #52).
+ *
+ * **No button.** Every other screen here offers the user their next move, and this
+ * one has none to offer: the extension cannot update itself, a retry cannot help,
+ * and the store's own page is not something a popup can usefully link into. What
+ * it can do is say plainly what happened, that it is not their fault, and that
+ * their ads are untouched — which is the sentence somebody who has just been
+ * locked out of a paid product most needs to read.
+ *
+ * Chrome updates extensions on its own within a few hours, so "it will fix itself"
+ * is true, and saying so is more useful than a button that reloads a refusal.
+ */
+export function OutdatedScreen(): JSX.Element {
+  return (
+    <>
+      <Header />
+      <div className="popup-centred">
+        <div className="popup-warning">
+          <Icon name="warning" />
+        </div>
+        <h1 className="popup-title">{__BRAND_NAME__} needs updating</h1>
+        <p className="popup-copy">
+          This version is too old to keep reposting safely, so it has stopped. Chrome usually updates
+          extensions within a few hours — reopen this then.
+        </p>
+        <p className="popup-micro">
+          Nothing has been changed on Marktplaats, and your ads are exactly where you left them.
+        </p>
+      </div>
+    </>
+  );
+}
+
 export function UnavailableScreen({
   onRetry,
   busy,

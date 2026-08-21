@@ -70,6 +70,17 @@ mprelist:
   stripe:
     webhook-secret: ${MPRELIST_STRIPE_WEBHOOK_SECRET:}
 
+  # #52: the oldest extension build this API still serves, named in the `X-Mprelist-Client` header every
+  # client sends. `0` is every build there has ever been, and it is the only value here that is not a
+  # decision: raising it strands every user who has not updated, and a store review takes days, so it is for
+  # correctness and safety only — never for tidiness. The policy the rest of the time is that this API stays
+  # additive, which is what makes a lever this blunt something you almost never pull.
+  #
+  # Stated rather than defaulted in code, like the rails below and for the same reason: the wrong value is
+  # silent in both directions. There is no line for apps/web because it does not call this API yet (T54, #85).
+  clients:
+    minimum-extension-version: 0
+
   # #24: what to do about a relist that was authorized and never reported on. Both settings are here rather
   # than defaulted in code, and neither has a fallback — a missing one fails startup instead of running with
   # a window nobody chose, because the wrong value here is silent in both directions.

@@ -174,6 +174,22 @@ describe("extension build", () => {
     expect(await readFile(join(production.dir, "popup.html"), "utf8")).toContain(brand.name);
   });
 
+  /**
+   * The version the manifest declares is the version the bundles name themselves
+   * with (T43, #52). Two places read one file, and if they ever disagreed the
+   * backend would be refusing a build by a number nobody could see in Chrome —
+   * which is the one thing that would make the compatibility lever unusable.
+   */
+  it("names its own version in the bundle it ships, and it is the manifest's", async () => {
+    const manifest = JSON.parse(await readFile(join(production.dir, "manifest.json"), "utf8")) as {
+      version: string;
+    };
+
+    expect(manifest.version).toMatch(/^\d+(\.\d+){0,3}$/);
+    expect(await readFile(join(production.dir, "background.js"), "utf8"))
+      .toContain(`extension/${manifest.version}`);
+  });
+
   it("leaves no unresolved token in anything it emits", async () => {
     // A template token that shipped would reach the Web Store listing as the
     // literal `{{brand.name}}`. Checked over every emitted file rather than the

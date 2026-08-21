@@ -105,6 +105,48 @@ One route is exempt and it is not ours: Spring Security publishes RFC 9728 prote
 It answers `200` to an unauthenticated caller, disclosing the base URL that caller has just used and naming no
 authorization server.
 
+## Which build is calling
+Every client names itself on every call:
+
+    X-Mprelist-Client: extension/0.0.1
+
+One header, because the two facts are useless apart — a version with no surface cannot be compared against
+anything, and this API has more than one client. The version is Chrome's kind, not semver's: one to four
+dot-separated integers, compared component-wise with a missing component read as zero, so `1.2` and `1.2.0`
+are one release. The extension takes it from its own manifest, which is the number Chrome shows and the Web
+Store rolls out — the only version a user can act on.
+
+**The policy is additive-by-default** (T43, #52; refines [ADR-0011](adr/0011-repository-layout.md)). An
+extension release takes days through a store review and cannot be forced on anybody; this API deploys in
+minutes. So several builds are always talking to one backend, and the rule that makes that survivable is that
+new fields may appear in responses and new routes beside old ones, while existing fields keep their meaning. A
+client that ignores what it does not recognise keeps working — which is how `relistQuotaPerPeriod` arrived
+(#41), and what the rule about unknown denial codes above is for.
+
+**The exception is a minimum supported version**, configured per surface and shipped as `0`: every build there
+has ever been. Raising it strands every user who has not updated yet, so it is for correctness and safety
+only — a build that would delete an ad wrongly, or one holding something it must not — and never for tidiness.
+
+**Below the minimum, `426 Upgrade Required` with an empty body.** This is the one answer a client reads by
+*status* rather than by a reason code, and the reason is the same one that makes the codes worth having: a
+`reason` is a statement about the **user** — their quota, their card, their pace — and this is a statement
+about their **software**. It therefore carries none, exactly like every other `4xx` that is not a denial.
+
+- The refusal applies to **every** route under `/api`, so a stopped build has no plan to render and no ad list
+  worth listing. The extension shows one screen: what happened, that Chrome will fix it within a few hours,
+  and that nothing on Marktplaats has changed. No retry button — there is nothing a retry could do.
+- A client too old to understand `426` falls into "unavailable, retry", which is the right outcome for a build
+  that has just been refused: it stops.
+- The gate needs no arm for it. `426` is not a `200`, and `authorize` grants only on a `200`.
+- **A caller that names no release is served** — `apps/web` does not send one yet, `curl` never will, and every
+  extension built before T43 cannot. That is the honest limit of the mechanism: the lever only reaches builds
+  that already identify themselves, which is the whole argument for shipping the header before there are users
+  rather than after.
+- It is identification, **not authentication**. A client could lie about its version; one modified enough to
+  bother is not running our code at all.
+- `X-Mprelist-Client` must be in the CORS allow-list or nothing works: a header the preflight does not allow is
+  not dropped, it makes the browser abandon the whole call.
+
 ## Endpoints
 
 ### `GET /api/plans` — what can be bought

@@ -5,6 +5,7 @@ import type { AccessTokens } from "./display-state";
 import { decide, type AuthorizeAttempt, type GateDecision } from "../gate/authorization-gate";
 import type { RelistPermission } from "../gate/relist-permission";
 import { DEFAULT_API_CONFIG, type ApiConfig } from "./api-config";
+import { clientHeaders } from "./client-release";
 
 /**
  * The two ends of the gate, over HTTP (T26, #35): `POST /api/relist/authorize`
@@ -85,6 +86,12 @@ export class RelistAuthorizations implements RelistPermission {
           authorization: `Bearer ${token}`,
           "content-type": "application/json",
           accept: "application/json",
+          // Which build is asking (T43, #52). The gate needs no arm for the answer:
+          // a `426` is not a `200`, and `decide` refuses everything that is not one
+          // — which is the right thing for a build the backend has just stopped
+          // serving. What says so to the user is the popup's own screen, since a
+          // client this old is refused on every route including `/api/me`.
+          ...clientHeaders(),
         },
         body: JSON.stringify(body),
       });

@@ -3,22 +3,29 @@ import { SUBSCRIPTION_STATUSES, type DisplayState } from "@mprelist/contracts";
 import type { AccessToken } from "../auth/session";
 import type { Http } from "../auth/discovery";
 import { DEFAULT_API_CONFIG, type ApiConfig } from "./api-config";
+import { clientHeaders } from "./client-release";
 
 /**
  * `GET /api/me` — the snapshot both clients render after signing in
  * (`docs/enforcement-contract.md`). It grants nothing and spends nothing, so the
  * popup may ask for it as often as it is opened.
  *
- * **Fail-closed applies to display too.** There are three answers and one of them
- * is not "active": a backend that cannot be reached, or one whose answer cannot be
- * read, is `unavailable`. Rendering a stale or guessed plan would put a live
- * Repost button in front of a user the gate is about to refuse — which is the
- * failure ADR-0007 is written against, arriving through the display instead of
- * through the gate.
+ * **Fail-closed applies to display too.** Only one of the four answers is a plan:
+ * a backend that cannot be reached, or one whose answer cannot be read, is
+ * `unavailable`. Rendering a stale or guessed plan would put a live Repost button
+ * in front of a user the gate is about to refuse — which is the failure ADR-0007
+ * is written against, arriving through the display instead of through the gate.
  */
 export type DisplayStateAnswer =
   | { status: "ready"; plan: DisplayState }
   | { status: "signed-out" }
+  /**
+   * This build is older than the oldest the backend still serves (T43, #52). It is
+   * a screen of its own because it is the one refusal a *retry* cannot fix and the
+   * user can: everything else this API answers is refused the same way, so there is
+   * no plan to show and no ad list worth listing — only one instruction.
+   */
+  | { status: "outdated" }
   | { status: "unavailable" };
 
 export interface AccessTokens {
@@ -47,7 +54,11 @@ export class MprelistApi {
     let response: Response;
     try {
       response = await this.http(`${this.config.baseUrl}/api/me`, {
-        headers: { authorization: `Bearer ${token.token}`, accept: "application/json" },
+        headers: {
+          authorization: `Bearer ${token.token}`,
+          accept: "application/json",
+          ...clientHeaders(),
+        },
       });
     } catch {
       return UNAVAILABLE;
@@ -62,6 +73,16 @@ export class MprelistApi {
      * cannot work.
      */
     if (response.status === 401) return { status: "signed-out" };
+    /**
+     * `426 Upgrade Required` is the one answer this client reads by *status* rather
+     * than by a reason code, and the contract says why: the codes are statements
+     * about the user — their quota, their card, their pace — and this is a statement
+     * about their software, which carries no reason for the same rule every other
+     * non-denial `4xx` follows. Read before `!response.ok`, or it would be one more
+     * "unavailable" and the one thing the user could have done about it would never
+     * be said (T43, #52).
+     */
+    if (response.status === 426) return { status: "outdated" };
     if (!response.ok) return UNAVAILABLE;
 
     const plan = asDisplayState(await response.json().catch(() => null));

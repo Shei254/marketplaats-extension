@@ -58,9 +58,18 @@ await mkdir(outdir, { recursive: true });
 // file the manifest and popup.html take theirs from, so a rename is still one
 // edit and a rebuild. `src/build-flags.d.ts` declares both constants.
 const brand = await readBrand();
+
+// Read here rather than beside the manifest it is written from, because one of its
+// fields has to be *in* the bundles below: every call to our own API names the build
+// making it (T43, #52), and the version a user can act on is the one Chrome shows —
+// which is this one. Parsed once and re-used for the manifest itself further down, so
+// the two cannot disagree about the file they came from.
+const manifestTemplate = JSON.parse(await readFile("public/manifest.template.json", "utf8"));
+
 const define = {
   __DEV__: String(dev),
   __BRAND_NAME__: JSON.stringify(brand.name),
+  __CLIENT_VERSION__: JSON.stringify(manifestTemplate.version),
   // React ships two implementations of itself behind `process.env.NODE_ENV`: a
   // development one carrying warnings and dev-only bookkeeping, and a production
   // one. Nothing substitutes that for us — and `process` does not exist in a page
@@ -106,7 +115,7 @@ await build({
 // resolved as text with HTML escaping. That asymmetry is the point — see
 // scripts/brand.mjs. `key` passes through untouched: it is the pinned extension
 // id (T44, #13) and nothing about the brand may disturb it.
-const manifest = resolveJson(JSON.parse(await readFile("public/manifest.template.json", "utf8")), brand);
+const manifest = resolveJson(manifestTemplate, brand);
 await writeFile(`${outdir}/manifest.json`, `${JSON.stringify(manifest, null, 2)}\n`);
 
 const popup = resolveTokens(await readFile("src/popup/popup.html", "utf8"), brand, escapeHtml);

@@ -85,7 +85,14 @@ thread.
 2. *Expect:* the header now reads **`2 of 3`**, from `/complete`'s response — **without** a second `/api/me`
    call.
 3. Immediately click **Repost** on another ad.
-   *Expect:* refused with a **cooldown countdown**, not an error. The 30s minimum interval is #25's rail.
+   *Expect:* the row **counts down 45–90 seconds** and says *"…so your reposts look like clicks rather than
+   a script"* — the pace (#54), not a refusal. When it reaches zero the relist runs and **succeeds**. That is
+   the point of pacing: it keeps you under #25's 30s rail rather than discovering it, so this step no longer
+   produces the cooldown it used to.
+3a. To see the rail itself, set `mprelist.safety.minimum-interval: 5m` in `application.yml`, restart the API,
+   and repost twice.
+   *Expect:* the second is refused with a **cooldown countdown**, and every row locks — the rails are per
+   user. Put the setting back afterwards.
 4. Wait it out, then spend the remaining two.
    *Expect:* the header reads **`0 of 3`**.
 5. Click **Repost** again.
@@ -106,8 +113,15 @@ thread.
 
 ```bash
 stripe listen --forward-to localhost:8080/api/stripe/webhook
+# `stripe listen` prints a signing secret. The API refuses every event without it:
+export MPRELIST_STRIPE_WEBHOOK_SECRET=whsec_…      # then (re)start bootRun
 npm run dev -w @mprelist/web        # http://localhost:5173 — where steps 5 and 6 land
 ```
+
+The secret is per session, so a new `stripe listen` needs a new export and a restart. Unset, the API starts
+and says so at WARN — **"No Stripe webhook secret is configured, so every Stripe event will be refused"** —
+and every event below comes back `400` in the `stripe listen` output. That log line is the other end of the
+thread, since a refused webhook looks like nothing at all from the dashboard.
 
 The Checkout session (T19, #29) has to be created with **`http://localhost:5173/success`** and
 `/cancel`; those two paths are `PATHS` in `apps/web/src/routes.ts` and Stripe holds the only other copy of
@@ -115,11 +129,15 @@ them. The dev server answers every path with the one `index.html`, which is what
 rather than a 404 — a host that does not (T55, #86) breaks this step *after* the money has moved.
 
 1. In the Stripe **test** dashboard create a Product and a recurring Price, tagged
-   `metadata.tier_code = pro`.
+   `metadata.tier_code = pro`. Give the Price a **nickname** if you want the tier renamed; without one it
+   keeps the name it has.
    *Expect:* the sync webhook fires and the seeded `pro` row gains a `stripe_price_id` and `published`
    — **and its quota is still 50**, not overwritten.
 2. Create a Price with **no** `tier_code`.
    *Expect:* nothing is adopted. No tier appears. (It shows up in slice D's unadopted list.)
+2a. Create a Price tagged with a code no tier carries — `metadata.tier_code = starter`.
+   *Expect:* a **draft**: the tier exists at quota 0, unpublished, and is on no plan card. It is what T53
+   publishes.
 3. With quota exhausted, open the popup and click the upgrade prompt.
    *Expect:* plan cards with **real amounts from Stripe**. The free tier is **not** among them.
 4. Click **Upgrade** on Pro.

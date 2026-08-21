@@ -1,0 +1,411 @@
+package com.mprelist;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import java.net.URI;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
+
+import tools.jackson.databind.json.JsonMapper;
+
+/**
+ * The Price → Tier sync (#82, T51): a Price created in the Stripe dashboard becomes a tier in our catalog,
+ * and the three things ADR-0019 says must not happen do not.
+ *
+ * <p>Driven over a real port with real signatures rather than by calling a bean, because two of the claims
+ * are only true of the running application: that this one route is reachable <em>without a bearer token</em>,
+ * which is a filter chain in another module, and that an event which is not signed by Stripe is refused,
+ * which is the whole of the authentication on it. Every request below carries no token at all — so a chain
+ * that stopped opening exactly this path would fail every test here with a 401 rather than in one place.
+ *
+ * <p>The events are hand-built and signed with the suite's own secret, which is what Stripe's CLI and its
+ * servers both do: HMAC-SHA256 over {@code timestamp.payload}, hex, in a {@code Stripe-Signature} header. No
+ * Stripe account is involved and none is needed — what is asserted is our end of a published algorithm.
+ * Whether a real Price arrives shaped like these is the click-through's, and it is T22 (#28).
+ *
+ * <p>Not {@code @Transactional}: the application writes on its own connection. Each test starts from the
+ * catalog {@code V2__seed_tier_catalog.sql} left behind, restored by {@link #aCatalogNobodyHasSyncedYet()}.
+ */
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+		properties = "mprelist.stripe.webhook-secret=" + StripePriceSyncTest.SECRET)
+@Import(PostgresFromCompose.class)
+class StripePriceSyncTest {
+
+	/** Shaped like Stripe's, and a fake: `stripe listen` prints a real one per session and it is never committed. */
+	static final String SECRET = "whsec_thisIsNotARealSigningSecret0123456789";
+
+	@LocalServerPort
+	private int port;
+
+	@Autowired
+	private JdbcTemplate db;
+
+	@BeforeEach
+	void aCatalogNobodyHasSyncedYet() {
+		this.db.update("delete from tier where code not in ('free', 'pro', 'power')");
+		this.db.update("update tier set stripe_price_id = null, published = false");
+		this.db.update("update tier set name = 'Pro', relist_quota_per_period = 50 where code = 'pro'");
+		this.db.update("update tier set name = 'Power', relist_quota_per_period = 200 where code = 'power'");
+	}
+
+	// --- What a tagged Price does to the tier it names -------------------------------------------------
+
+	@Test
+	void aPriceTaggedProFillsInTheSeededTier() {
+		assertThat(signedPost(priceEvent("price.created", "price_pro_monthly", "pro", null)).statusCode())
+				.isEqualTo(200);
+
+		assertThat(stringOf("pro", "stripe_price_id")).isEqualTo("price_pro_monthly");
+		assertThat(publishedIs("pro")).isTrue();
+	}
+
+	/**
+	 * And leaves the 50 alone, which is the rule ADR-0019 states and the one this whole ticket is arranged
+	 * around: money is Stripe's, limits are ours, and a webhook that could rewrite a quota would make the
+	 * dashboard the place two of them are decided.
+	 */
+	@Test
+	void andNeverTouchesTheQuota() {
+		this.db.update("update tier set relist_quota_per_period = 7 where code = 'pro'");
+
+		signedPost(priceEvent("price.created", "price_pro_monthly", "pro", null));
+
+		assertThat(quotaOf("pro")).isEqualTo(7);
+	}
+
+	/**
+	 * A Price with no nickname leaves the tier called what an operator called it. Stripe's nickname is
+	 * optional and usually unset, so the alternative — writing it through unconditionally — renames Pro to
+	 * nothing on the first sync.
+	 */
+	@Test
+	void andLeavesTheTierNamedWhatItWasNamed() {
+		signedPost(priceEvent("price.created", "price_pro_monthly", "pro", null));
+
+		assertThat(stringOf("pro", "name")).isEqualTo("Pro");
+	}
+
+	@Test
+	void unlessThePriceGivesOneOfItsOwn() {
+		signedPost(priceEvent("price.created", "price_pro_monthly", "pro", "Pro, monthly"));
+
+		assertThat(stringOf("pro", "name")).isEqualTo("Pro, monthly");
+	}
+
+	// --- What an unknown tag does ---------------------------------------------------------------------
+
+	@Test
+	void aPriceTaggedWithACodeNoTierCarriesIsADraft() {
+		assertThat(signedPost(priceEvent("price.created", "price_starter", "starter", null)).statusCode())
+				.isEqualTo(200);
+
+		assertThat(quotaOf("starter")).isZero();
+		assertThat(publishedIs("starter")).isFalse();
+		assertThat(stringOf("starter", "stripe_price_id")).isEqualTo("price_starter");
+	}
+
+	/**
+	 * A draft is unbuyable and stays that way until somebody says what it grants (T53, #84). Asserted as the
+	 * pair {@code GET /api/plans} (#80) will read, because a draft that were published at quota 0 would be a
+	 * plan card offering nothing for money.
+	 */
+	@Test
+	void andIsNotOnSaleEvenThoughItHasAPrice() {
+		signedPost(priceEvent("price.created", "price_starter", "starter", null));
+
+		assertThat(this.db.queryForList("select code from tier where published", String.class)).isEmpty();
+	}
+
+	@Test
+	void andIsNamedAfterItsOwnCodeUntilSomebodyRenamesIt() {
+		signedPost(priceEvent("price.created", "price_starter", "starter", null));
+
+		assertThat(stringOf("starter", "name")).isEqualTo("starter");
+	}
+
+	// --- What is ignored ------------------------------------------------------------------------------
+
+	/**
+	 * ADR-0019: "A Price without one is not a plan." Stripe Prices get created for one-offs, coupons and
+	 * experiments, and a sync that adopted all of them would turn a billing experiment into a tier — so an
+	 * untagged Price leaves the catalog exactly as it was, and the endpoint still answers 200.
+	 */
+	@Test
+	void aPriceWithNoTierCodeIsNotAPlan() {
+		assertThat(signedPost(priceEvent("price.created", "price_one_off", null, "A one-off")).statusCode())
+				.isEqualTo(200);
+
+		assertThat(codesInTheCatalog()).containsExactlyInAnyOrder("free", "pro", "power");
+		assertThat(this.db.queryForList("select code from tier where stripe_price_id is not null", String.class))
+				.isEmpty();
+	}
+
+	/**
+	 * An endpoint hears about everything it is subscribed to, and this ticket handles two types. The rest are
+	 * answered 200 rather than refused: a non-2xx would put the endpoint into a retry loop over events it will
+	 * never act on, which is the state that hides the ones that matter.
+	 */
+	@Test
+	void andAnEventThisTicketDoesNotHandleIsAnsweredRatherThanRetried() {
+		String subscription = event("customer.subscription.updated",
+				new LinkedHashMap<>(Map.of("id", "sub_123", "status", "active")));
+
+		assertThat(signedPost(subscription).statusCode()).isEqualTo(200);
+		assertThat(codesInTheCatalog()).containsExactlyInAnyOrder("free", "pro", "power");
+	}
+
+	// --- What happens the second time -----------------------------------------------------------------
+
+	/**
+	 * Stripe Prices are immutable, so changing what Pro costs means creating a second Price and repointing the
+	 * tier at it (ADR-0019). That is this event, and the tier follows.
+	 */
+	@Test
+	void aSecondPriceForTheSameTierRepointsIt() {
+		signedPost(priceEvent("price.created", "price_pro_monthly", "pro", null));
+
+		signedPost(priceEvent("price.created", "price_pro_monthly_v2", "pro", null));
+
+		assertThat(stringOf("pro", "stripe_price_id")).isEqualTo("price_pro_monthly_v2");
+	}
+
+	/**
+	 * And does not put a tier an operator took off sale back on it. Publication rises once, when a tier with a
+	 * quota takes its first Price; after that it is the admin's (T53) and Stripe has nothing to say about it.
+	 */
+	@Test
+	void andDoesNotRepublishATierSomebodyUnpublished() {
+		signedPost(priceEvent("price.created", "price_pro_monthly", "pro", null));
+		this.db.update("update tier set published = false where code = 'pro'");
+
+		signedPost(priceEvent("price.updated", "price_pro_monthly", "pro", "Pro, monthly"));
+
+		assertThat(publishedIs("pro")).isFalse();
+		assertThat(stringOf("pro", "name")).isEqualTo("Pro, monthly");
+	}
+
+	/**
+	 * Stripe delivers at least once, so the same event arriving twice has to leave the same row. It does,
+	 * because an upsert on the tier code says the same thing however often it is said — which is why this
+	 * ticket keeps no log of event ids and #30's subscription mirror will have to.
+	 */
+	@Test
+	void andTheSameEventTwiceIsTheSameRowOnce() {
+		String repeated = priceEvent("price.created", "price_starter", "starter", null);
+
+		signedPost(repeated);
+		signedPost(repeated);
+
+		assertThat(this.db.queryForObject("select count(*) from tier where code = 'starter'", Integer.class))
+				.isEqualTo(1);
+	}
+
+	/**
+	 * A Price belongs to one tier: {@code tier.stripe_price_id} is unique, so adopting one that another tier
+	 * holds would either fail the constraint or quietly leave that tier with nothing to sell. Neither is a
+	 * choice a webhook should make, so nothing changes and the operator is told.
+	 */
+	@Test
+	void aPriceAnotherTierHoldsIsLeftWhereItIs() {
+		signedPost(priceEvent("price.created", "price_pro_monthly", "pro", null));
+
+		assertThat(signedPost(priceEvent("price.updated", "price_pro_monthly", "power", null)).statusCode())
+				.isEqualTo(200);
+
+		assertThat(stringOf("pro", "stripe_price_id")).isEqualTo("price_pro_monthly");
+		assertThat(stringOf("power", "stripe_price_id")).isNull();
+		assertThat(publishedIs("power")).isFalse();
+	}
+
+	/**
+	 * "No free tier" is quota 0 on a tier (ADR-0019), and a tier granting nothing is not something to put on
+	 * sale because a Price landed on it. Publication needs both halves.
+	 */
+	@Test
+	void aTierThatGrantsNothingIsNotPublishedByAPriceLandingOnIt() {
+		this.db.update("update tier set relist_quota_per_period = 0 where code = 'pro'");
+
+		signedPost(priceEvent("price.created", "price_pro_monthly", "pro", null));
+
+		assertThat(stringOf("pro", "stripe_price_id")).isEqualTo("price_pro_monthly");
+		assertThat(publishedIs("pro")).isFalse();
+	}
+
+	// --- The signature, which is the whole of the authentication --------------------------------------
+
+	@Test
+	void anEventCarryingNoSignatureIsRefused() {
+		HttpResponse<String> refused = post(priceEvent("price.created", "price_pro_monthly", "pro", null), null);
+
+		assertThat(refused.statusCode()).isEqualTo(400);
+		assertThat(stringOf("pro", "stripe_price_id")).isNull();
+	}
+
+	/**
+	 * The one that matters: a stranger who knows the shape of the event but not the secret cannot publish a
+	 * tier into the catalog every subscriber is priced by.
+	 */
+	@Test
+	void andOneSignedWithSomeOtherSecretIsRefused() {
+		String payload = priceEvent("price.created", "price_pro_monthly", "pro", null);
+
+		HttpResponse<String> refused = post(payload, signatureOf(payload, "whsec_someoneElsesSecret", Instant.now()));
+
+		assertThat(refused.statusCode()).isEqualTo(400);
+		assertThat(stringOf("pro", "stripe_price_id")).isNull();
+	}
+
+	/**
+	 * And a genuine event replayed a day later is refused too, which is what the timestamp in the header is
+	 * for — a signature with no window on it is a request anybody who ever saw one can send again.
+	 */
+	@Test
+	void andAGenuineOneReplayedTomorrowIsRefused() {
+		String payload = priceEvent("price.created", "price_pro_monthly", "pro", null);
+		Instant yesterday = Instant.now().minus(1, ChronoUnit.DAYS);
+
+		HttpResponse<String> refused = post(payload, signatureOf(payload, SECRET, yesterday));
+
+		assertThat(refused.statusCode()).isEqualTo(400);
+		assertThat(stringOf("pro", "stripe_price_id")).isNull();
+	}
+
+	/**
+	 * Signed and unreadable is answered the same way, and is the one pairing that should never happen: it says
+	 * our secret is held by something that is not Stripe.
+	 */
+	@Test
+	void andSomethingSignedThatIsNotJsonAtAll() {
+		assertThat(signedPost("not json, but signed").statusCode()).isEqualTo(400);
+	}
+
+	/**
+	 * The route is open to Stripe and to nobody else — every other route still needs a token, which is what
+	 * says the chain opened one path rather than a prefix.
+	 */
+	@Test
+	void andTheRestOfTheApiIsStillClosed() {
+		HttpResponse<String> refused = Http.send(HttpRequest.newBuilder(uri("/api/me")).GET().build());
+
+		assertThat(refused.statusCode()).isEqualTo(401);
+	}
+
+	/** A GET to the webhook is not the webhook, so it is refused like any other route nobody may reach. */
+	@Test
+	void andSoIsTheWebhookPathItselfToAnythingButAPost() {
+		HttpResponse<String> refused = Http.send(HttpRequest.newBuilder(uri(WEBHOOK)).GET().build());
+
+		assertThat(refused.statusCode()).isEqualTo(401);
+	}
+
+	// --- The invariant the schema now carries ---------------------------------------------------------
+
+	/**
+	 * Published means buyable and buying needs a Price, so the pair is unwriteable rather than merely agreed
+	 * between the two readers of it. It is what stops T53's publish button from offering a tier whose Checkout
+	 * session could not be opened.
+	 */
+	@Test
+	void aTierCannotBePublishedWithoutAPrice() {
+		assertThatThrownBy(() -> this.db.update("update tier set published = true where code = 'pro'"))
+				.hasMessageContaining("tier_is_published_only_with_a_price");
+	}
+
+	// --- The suite's own machinery --------------------------------------------------------------------
+
+	/** An event as Stripe sends one, cut down to the fields ADR-0019 names. */
+	private static String priceEvent(String type, String priceId, String tierCode, String nickname) {
+		Map<String, Object> price = new LinkedHashMap<>();
+		price.put("id", priceId);
+		price.put("object", "price");
+		price.put("active", true);
+		price.put("nickname", nickname);
+		price.put("metadata", tierCode == null ? Map.of() : Map.of("tier_code", tierCode));
+		return event(type, price);
+	}
+
+	private static String event(String type, Map<String, Object> object) {
+		Map<String, Object> event = new HashMap<>();
+		event.put("id", "evt_" + type.replace('.', '_'));
+		event.put("object", "event");
+		event.put("type", type);
+		event.put("data", Map.of("object", object));
+		return JSON.writeValueAsString(event);
+	}
+
+	/**
+	 * Stripe's scheme, spelled out rather than taken from its library: HMAC-SHA256 over
+	 * {@code timestamp.payload}, hex, under {@code v1}. Written by hand here on purpose — a test that signed
+	 * with the same code the application verifies with would pass however wrong both were.
+	 */
+	private static String signatureOf(String payload, String secret, Instant when) {
+		long timestamp = when.getEpochSecond();
+		try {
+			Mac hmac = Mac.getInstance("HmacSHA256");
+			hmac.init(new SecretKeySpec(secret.getBytes(UTF_8), "HmacSHA256"));
+			byte[] signed = hmac.doFinal((timestamp + "." + payload).getBytes(UTF_8));
+			return "t=" + timestamp + ",v1=" + java.util.HexFormat.of().formatHex(signed);
+		}
+		catch (java.security.GeneralSecurityException impossible) {
+			throw new IllegalStateException("HmacSHA256 is required of every JVM", impossible);
+		}
+	}
+
+	private HttpResponse<String> signedPost(String payload) {
+		return post(payload, signatureOf(payload, SECRET, Instant.now()));
+	}
+
+	private HttpResponse<String> post(String payload, String signature) {
+		HttpRequest.Builder request = HttpRequest.newBuilder(uri(WEBHOOK))
+				.header("Content-Type", "application/json")
+				.POST(HttpRequest.BodyPublishers.ofString(payload, UTF_8));
+		if (signature != null) {
+			request.header("Stripe-Signature", signature);
+		}
+		return Http.send(request.build());
+	}
+
+	private URI uri(String path) {
+		return URI.create("http://localhost:" + this.port + path);
+	}
+
+	private java.util.List<String> codesInTheCatalog() {
+		return this.db.queryForList("select code from tier", String.class);
+	}
+
+	private String stringOf(String code, String column) {
+		return this.db.queryForObject("select " + column + " from tier where code = ?", String.class, code);
+	}
+
+	private int quotaOf(String code) {
+		return this.db.queryForObject("select relist_quota_per_period from tier where code = ?", Integer.class,
+				code);
+	}
+
+	private boolean publishedIs(String code) {
+		return this.db.queryForObject("select published from tier where code = ?", Boolean.class, code);
+	}
+
+	private static final String WEBHOOK = "/api/stripe/webhook";
+
+	private static final JsonMapper JSON = JsonMapper.builder().build();
+
+}

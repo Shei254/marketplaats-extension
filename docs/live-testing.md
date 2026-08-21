@@ -6,6 +6,12 @@ box. They stay **runtime config**: when Marktplaats moves one, you paste the new
 path in from the console — no source edit or rebuild needed to retune. (Backend-served
 config replaces that console hook — [ADR-0013](adr/0013-remote-client-configuration.md), #36.)
 
+**What the spikes found is written down separately**:
+[`internal-api-findings.md`](internal-api-findings.md) — every endpoint, the CSRF chain, why `createAd`'s
+field order is load-bearing, and a table of failure modes with their symptoms. This file is how to
+*discover* what Marktplaats is doing now; that one is what it was doing when the mechanic was proved, which
+is what lets you tell what changed.
+
 > ⚠️ delete + re-create is destructive and against Marktplaats's terms (ADR-0002).
 > Use a **throwaway ad on a test account**.
 
@@ -22,7 +28,9 @@ build time rather than merely hidden (`apps/extension/scripts/build.mjs`).
 
 ## 2. Re-discover an endpoint (DevTools)
 Only needed when something breaks — a call 404s, or the CSRF token stops being
-found. Log in to marktplaats.nl, open **Mijn Advertenties**, DevTools → **Network** →
+found. **Read [`internal-api-findings.md`](internal-api-findings.md) first**: its failure table maps the
+error you are looking at to the thing most likely to have moved, which is usually not the endpoint the
+message names. Log in to marktplaats.nl, open **Mijn Advertenties**, DevTools → **Network** →
 filter **Fetch/XHR**, then do the action by hand and record method + URL + headers
 + request/response body:
 
@@ -141,14 +149,21 @@ What the popup shows, and what each one proves:
 | the ads, with titles and prices | the content script reached Marktplaats in the user's own session |
 | **You have no active ads.** | it reached Marktplaats and the account has none — an answer, not a failure |
 | **Could not load your ads. Open marktplaats.nl in a tab…** | the relay had no tab to talk to. The other messages name a login, a pending spike's endpoint, or the HTTP status Marktplaats refused with |
-| a row saying *Reposting…*, with every other button locked | one relist at a time (#79). It is serialisation, **not** pacing — jitter is #54 and does not exist yet |
+| a row saying *Reposting…*, with every other button locked | one relist at a time (#79). That is serialisation, and it is not the gap below |
+| a row counting **45s**–**90s** down with *…so your reposts look like clicks rather than a script* | the pace (#54). Randomised, drawn per relist, and only between them — the first repost of a session waits for nothing |
 | **Reposted** + *Reloading your ads…* | the ad was deleted and posted again, and the list and the quota are both being re-read |
 | *Nothing was reposted — your ad is untouched* + **Try again** | it failed before the delete. The unit is handed back (#35) |
 | *Your ad was removed but posting it again failed. It is saved in the extension* + **Retry** | the snapshot is holding the only copy (ADR-0003). **Retry resumes it rather than starting over**, which is what puts the ad back |
 | **0 of 3 relists left** on a warning strip, and a prompt saying when they come back | the period is spent (#41). The ads stay listed — a locked button beside them is the conversion surface, and the contract keeps the list ungated for exactly that |
 | **Pro · payment failed** on a red strip, and *your plan is still Pro* | dunning. Since ADR-0018 nobody who cancelled ever sees this, so the copy says "update your card" and never "resubscribe" |
-| a row counting **24s** down, with every other button locked | the pacing rails refused (#25). The rails are per user, so the whole list waits — and the buttons come back on their own when it reaches zero |
+| a row counting **24s** down, with every other button locked | the pacing rails refused (#25). The rails are per user, so the whole list waits — and the buttons come back on their own when it reaches zero. Different from the pace above: this one is the backend turning the account away, that one is the extension deliberately not going yet, and only the running row shows it |
 | **Can't reach {brand} right now** | *our* backend is down, or answered something unreadable. Never a plan — fail-closed applies to display |
+
+**Two reposts in a row is the way to see the pace**, and it is the one thing here
+that needs waiting for: relist one ad, then press another, and the second row
+counts down before it starts. Closing the popup during that countdown is the
+known edge — the worker may be torn down before the wait is out, in which case
+nothing happens at all and nothing was touched. Reopen and press again.
 
 The last two are worth telling apart while testing: the ad list comes from
 Marktplaats and the strip above it comes from our API, so one can fail while the

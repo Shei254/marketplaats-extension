@@ -12,7 +12,7 @@ src/
   Site.tsx        the frame, and the switch that picks a page
   brand.ts        the root brand.json, and index.html's token substitution
   site-styles.ts  this surface's rules, as a string
-  public/         success · cancel · not-found            — no auth code reached
+  public/         success · cancel · privacy · terms · not-found   — no auth code reached
   admin/          tier management                          — Keycloak PKCE + ADMIN role, T54 (#85)
 ```
 
@@ -23,20 +23,23 @@ npm run build -w @mprelist/web      # dist/
 npm run preview -w @mprelist/web    # dist/, served the way a host would
 ```
 
-## What is here after T50 (#81)
+## What is here
 
 | Path | |
 |---|---|
 | `/success` | Stripe's `success_url`. The payment landed; open the extension. |
 | `/cancel` | Stripe's `cancel_url`. Nothing was charged and nothing changed. |
+| `/privacy` | The privacy policy. **The Chrome Web Store listing (T58, #89) requires this URL**, so once that listing is live the address is published somewhere we do not control. |
+| `/terms` | What the product does, and that relisting deletes the ad first. |
 | anything else, `/` included | "There's nothing at this address", pointing back at the toolbar |
 
 **`/` is deliberately the fallback.** There is no landing page on the design canvas, and inventing one is a
 decision for the ticket that also writes the Web Store listing (T58, #89) and settles the name (T60, #91).
 
-**Privacy and terms are T36 (#45)**, and until they exist nothing links to them — the canvas draws those
-links in the header and the footer, and a link to an address this site answers with "there's nothing here" is
-worse than a link that arrives with its page. Adding them is a route-table entry, a page, and the two links.
+**The legal copy is marked `[PLACEHOLDER]` on the page itself**, not only in a comment. It is the canvas's
+structure and an honest description of what this product does — every claim on the privacy page is one the
+schema can keep — but the binding text needs a lawyer before #89 goes up, and somebody reading the deployed
+page has to be able to tell that without reading this repository.
 
 ## Three things worth knowing
 

@@ -19,7 +19,15 @@ import { toWireError, type WireError } from "../content/messages";
  */
 export type RelistRequest =
   | { kind: "relist"; listingId: string }
-  | { kind: "retry"; listingId: string };
+  | { kind: "retry"; listingId: string }
+  /**
+   * How long the worker will wait before the next relist actually starts (T46,
+   * #54). Asked, not told: the worker does the waiting whoever calls it, and this
+   * is only so a surface can show a countdown instead of a button that looks
+   * stuck. Both read the same stored deadline, so the number on the screen is the
+   * one being waited out rather than a second draw.
+   */
+  | { kind: "pace" };
 
 export type AuthRequest = { kind: "sign-in" } | { kind: "sign-out" } | { kind: "auth-state" };
 
@@ -64,6 +72,8 @@ export type WireRelistOutcome =
 export interface BackgroundAnswers {
   relist: WireRelistOutcome;
   retry: WireRelistOutcome;
+  /** Milliseconds, and 0 when a relist may start now. */
+  pace: number;
   "sign-in": AuthState;
   "sign-out": AuthState;
   "auth-state": AuthState;

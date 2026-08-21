@@ -5,7 +5,7 @@ import type { WireRelistOutcome } from "../background/messages";
 
 import type { ListingSummary } from "../domain/types";
 import { formatEuro, type AdsView } from "./ads";
-import { IDLE, refusalNote, refusedTone, rowStateFor, type RowState } from "./relisting";
+import { IDLE, PACING_NOTE, refusalNote, refusedTone, rowStateFor, type RowState } from "./relisting";
 import type { WorkerPort } from "./screen";
 
 /**
@@ -15,9 +15,11 @@ import type { WorkerPort } from "./screen";
  * locked, which is the POC popup's behaviour and the reason it had it: a
  * distracted click on three rows in a row is three ads deleted before the first
  * has been posted again, and delete-first (ADR-0003) makes that irreversible in a
- * way a slow queue would not. It is serialisation and **not pacing** — putting a
- * human-shaped gap between relists is T46 (#54), and a backend can refuse a call
- * that came too soon but cannot make one arrive at a plausible moment.
+ * way a slow queue would not. That is serialisation and **not pacing**: the
+ * human-shaped gap between relists arrived with T46 (#54) and is the worker's,
+ * because a backend can refuse a call that came too soon but cannot make one
+ * arrive at a plausible moment. What this list does with it is *show* it — a
+ * wait nobody explained is indistinguishable from a hang.
  *
  * The row state lives here rather than in each row, for the same reason: the lock
  * is a property of the list, and a row that owned its own state could not know
@@ -47,11 +49,33 @@ export function AdList({
    */
   const [cooldownUntil, setCooldownUntil] = useState<number | null>(null);
   const secondsLeft = useCountdown(cooldownUntil, () => setCooldownUntil(null));
+  /**
+   * When the relist that is running will actually start, if the worker is pacing
+   * it (T46, #54). **Only the running row shows this** — unlike a cooldown, which
+   * is the account's and locks the list, this is one attempt waiting its turn, and
+   * every other button is already locked because a relist is in flight.
+   */
+  const [pacingUntil, setPacingUntil] = useState<number | null>(null);
+  const pacingSeconds = useCountdown(pacingUntil, () => setPacingUntil(null));
 
   const start = useCallback(
     async (listingId: string, action: "relist" | "retry") => {
       setRunning(listingId);
       setStates((current) => ({ ...current, [listingId]: { kind: "busy" } }));
+
+      // The worker paces a relist before it starts (T46, #54); this asks how long
+      // so the row can count it down. It is a question, not the wait itself — the
+      // worker waits whether or not anybody asked, and would still wait if this
+      // answer never came, which is why a failure to get one is 0 rather than a
+      // reason not to start.
+      //
+      // Only for a fresh relist. A retry is usually a resume of an ad that is
+      // already deleted, which is recovery and is not paced at all; asking would
+      // draw a countdown for a wait that is not going to happen.
+      if (action === "relist") {
+        const waitMs = await worker.msBeforeNextRelist().catch(() => 0);
+        if (waitMs > 0) setPacingUntil(Date.now() + waitMs);
+      }
 
       let state: RowState;
       let outcome: WireRelistOutcome | null = null;
@@ -71,6 +95,10 @@ export function AdList({
 
       setStates((current) => ({ ...current, [listingId]: state }));
       setRunning(null);
+      // Whatever the countdown still said, the attempt is over: an answer that
+      // arrived early — a worker that could not pace, a refusal — must not leave
+      // a clock ticking on a row that has finished.
+      setPacingUntil(null);
       if (state.kind === "refused" && state.locked.state === "cooldown") {
         // A refusal carrying no seconds locks nothing: there is nothing to count,
         // and a lock for an unknown length is worse than letting the next attempt
@@ -107,6 +135,7 @@ export function AdList({
           state={states[ad.id] ?? IDLE}
           locked={(running !== null && running !== ad.id) || secondsLeft !== null}
           secondsLeft={secondsLeft}
+          pacingSeconds={running === ad.id ? pacingSeconds : null}
           onStart={start}
         />
       ))}
@@ -126,6 +155,7 @@ export function AdRow({
   state,
   locked,
   secondsLeft,
+  pacingSeconds,
   onStart,
 }: {
   ad: ListingSummary;
@@ -134,9 +164,19 @@ export function AdRow({
   locked: boolean;
   /** Seconds until the account's cooldown ends, when one is running. */
   secondsLeft?: number | null;
+  /**
+   * Seconds until this row's own relist starts, while the worker is pacing it
+   * (T46, #54). Different from the cooldown above in what it means and in who it
+   * applies to: that one is the backend refusing the account, this one is us
+   * deliberately not going yet.
+   */
+  pacingSeconds?: number | null;
   onStart: (listingId: string, action: "relist" | "retry") => void;
 }): JSX.Element {
   const action = state.kind === "failed" ? state.action : "relist";
+  // The row's own wait wins over the account's: this row is the one running, and
+  // what it is waiting for is the number it should be counting down.
+  const counting = pacingSeconds ?? secondsLeft ?? null;
   return (
     <li className="popup-ad" data-state={state.kind}>
       <div className="popup-ad-row">
@@ -147,14 +187,14 @@ export function AdRow({
           <span className="popup-ad-price">{formatEuro(ad.priceCents)}</span>
         </div>
         <Button
-          tone={secondsLeft != null ? "cooldown" : toneFor(state, locked)}
+          tone={counting != null ? "cooldown" : toneFor(state, locked)}
           title={tooltipFor(state, ad.title)}
           onClick={() => onStart(ad.id, action)}
         >
-          {secondsLeft != null ? `${secondsLeft}s` : labelFor(state)}
+          {counting != null ? `${counting}s` : labelFor(state)}
         </Button>
       </div>
-      <RowNote state={state} />
+      <RowNote state={state} pacing={pacingSeconds != null} />
     </li>
   );
 }
@@ -188,7 +228,10 @@ function useCountdown(until: number | null, onElapsed: () => void): number | nul
   return left;
 }
 
-function RowNote({ state }: { state: RowState }): JSX.Element | null {
+function RowNote({ state, pacing }: { state: RowState; pacing?: boolean }): JSX.Element | null {
+  // Said before anything else, because while it is true the row is "busy" and a
+  // busy row says nothing at all — which is the hang this note exists to not be.
+  if (pacing) return <Note tone="warn">{PACING_NOTE}</Note>;
   switch (state.kind) {
     case "done":
       return <Note tone="ok">Reposted. Reloading your ads…</Note>;

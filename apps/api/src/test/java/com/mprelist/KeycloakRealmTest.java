@@ -6,6 +6,7 @@ import static com.mprelist.KeycloakFromCompose.DASHBOARD_REDIRECT_URI;
 import static com.mprelist.KeycloakFromCompose.EXTENSION_CLIENT;
 import static com.mprelist.KeycloakFromCompose.EXTENSION_ID;
 import static com.mprelist.KeycloakFromCompose.EXTENSION_REDIRECT_URI;
+import static com.mprelist.KeycloakFromCompose.PASSWORD;
 import static com.mprelist.KeycloakFromCompose.WELL_FORMED_CHALLENGE;
 import static com.mprelist.KeycloakFromCompose.pkce;
 import static com.mprelist.KeycloakFromCompose.redirectedError;
@@ -16,6 +17,7 @@ import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.AfterAll;
@@ -41,6 +43,12 @@ class KeycloakRealmTest {
 
 	private static KeycloakFromCompose keycloak;
 
+	/** Numbers {@link #someUsername()}, so no two registrations in this class collide. */
+	private static final AtomicInteger REGISTRATIONS = new AtomicInteger();
+
+	/** Long enough for {@code length(12)} and not a username, which is the whole of what the policy asks. */
+	private static final String A_GOOD_PASSWORD = "a-perfectly-fine-password";
+
 	@BeforeAll
 	static void startKeycloak() {
 		keycloak = KeycloakFromCompose.withTheExtensionIdSet();
@@ -57,7 +65,7 @@ class KeycloakRealmTest {
 	 */
 	@Test
 	void theRealmIsImportedUnderTheNameTheIssuerCarries() {
-		assertThat(keycloak.signIn("dev", "dev").get("iss").asString())
+		assertThat(keycloak.signIn("dev", PASSWORD).get("iss").asString())
 				.isEqualTo(keycloak.baseUrl() + "/realms/mprelist");
 	}
 
@@ -212,7 +220,7 @@ class KeycloakRealmTest {
 	 */
 	@Test
 	void aTokenTheExtensionMintsNamesTheApiAsItsAudience() {
-		assertThat(audiencesOf(keycloak.signIn("dev", "dev"))).contains(API_CLIENT);
+		assertThat(audiencesOf(keycloak.signIn("dev", PASSWORD))).contains(API_CLIENT);
 	}
 
 	/**
@@ -228,7 +236,7 @@ class KeycloakRealmTest {
 	 */
 	@Test
 	void andIsAListAsSoonAsItsUserHoldsTheRealmsDefaultRoles() {
-		assertThat(audiencesOf(keycloak.signIn("dev-admin", "dev-admin"))).contains(API_CLIENT, "account");
+		assertThat(audiencesOf(keycloak.signIn("dev-admin", PASSWORD))).contains(API_CLIENT, "account");
 	}
 
 	/**
@@ -238,7 +246,7 @@ class KeycloakRealmTest {
 	 */
 	@Test
 	void andCarriesTheAdminRoleForAnOperatorWhoHasIt() {
-		JsonNode claims = keycloak.signIn("dev-admin", "dev-admin");
+		JsonNode claims = keycloak.signIn("dev-admin", PASSWORD);
 
 		assertThat(claims.get("realm_access").get("roles").valueStream().map(JsonNode::asString)).contains("ADMIN");
 	}
@@ -263,7 +271,7 @@ class KeycloakRealmTest {
 	 */
 	@Test
 	void andCarriesNothingAboutTheUserBeyondTheIdOurApiIdentifiesThemBy() {
-		JsonNode claims = keycloak.signIn("dev", "dev");
+		JsonNode claims = keycloak.signIn("dev", PASSWORD);
 
 		assertThat(claims.get("sub").asString()).isNotBlank();
 		assertThat(claims.toString()).doesNotContain(whatTheRealmKnowsAbout("dev"));
@@ -277,7 +285,7 @@ class KeycloakRealmTest {
 	 */
 	@Test
 	void asIsWhatTheDashboardMints() {
-		JsonNode claims = keycloak.signIn(DASHBOARD_CLIENT, DASHBOARD_REDIRECT_URI, "dev", "dev");
+		JsonNode claims = keycloak.signIn(DASHBOARD_CLIENT, DASHBOARD_REDIRECT_URI, "dev", PASSWORD);
 
 		assertThat(claims.get("sub").asString()).isNotBlank();
 		assertThat(claims.toString()).doesNotContain(whatTheRealmKnowsAbout("dev"));
@@ -307,6 +315,131 @@ class KeycloakRealmTest {
 	}
 
 	/**
+	 * The realm this product needs rather than the one three dev users needed: strangers make their own
+	 * accounts, so the login page has to offer that and Keycloak has to accept it. Both are off by default.
+	 *
+	 * <p>Driven through the form rather than the admin API for the usual reason — a realm with
+	 * {@code registrationAllowed} imported and a registration flow that refuses everybody reads, from the
+	 * outside, exactly like a working one.
+	 */
+	@Test
+	void aStrangerCanMakeAnAccountAndIsSignedInByMakingIt() {
+		JsonNode claims = KeycloakFromCompose.claimsOf(keycloak.register(someUsername(), A_GOOD_PASSWORD)
+				.orElseThrow(() -> new AssertionError("Keycloak refused the registration: "
+						+ keycloak.whyRegistrationWasRefused()))
+				.get("access_token").asString());
+
+		assertThat(claims.get("sub").asString()).isNotBlank();
+		assertThat(audiencesOf(claims)).contains(API_CLIENT);
+	}
+
+	/**
+	 * And what they get is the <em>array</em> shape of {@code aud} and a populated {@code realm_access}, which
+	 * until now only {@code dev-admin} produced and only because the file grants it {@code default-roles-mprelist}
+	 * by hand. A registered user is granted the realm's defaults the way any real user is — so this is the
+	 * shape #19 and #27 will actually meet, arriving in the suite from the flow that will actually produce it
+	 * rather than from a fixture written to imitate it.
+	 */
+	@Test
+	void andHoldsTheRealmsDefaultRolesTheWayEveryRealUserWill() {
+		JsonNode claims = KeycloakFromCompose.claimsOf(keycloak.register(someUsername(), A_GOOD_PASSWORD)
+				.orElseThrow(AssertionError::new).get("access_token").asString());
+
+		assertThat(audiencesOf(claims)).contains(API_CLIENT, "account");
+		assertThat(claims.get("realm_access").get("roles").valueStream().map(JsonNode::asString))
+				.contains("default-roles-mprelist").doesNotContain("ADMIN");
+	}
+
+	/**
+	 * And nothing they typed into that form reaches our API. The registration page asks for a first name, a
+	 * last name and an email address — Keycloak's own form, and not ours to shorten — so the boundary #108
+	 * drew is worth proving against the one flow that collects all three at once, rather than only against
+	 * users an import wrote.
+	 */
+	@Test
+	void andNothingTheyTypedIntoThatFormReachesOurApi() {
+		String username = someUsername();
+
+		JsonNode claims = KeycloakFromCompose.claimsOf(keycloak.register(username, A_GOOD_PASSWORD)
+				.orElseThrow(AssertionError::new).get("access_token").asString());
+
+		assertThat(claims.toString()).doesNotContain(username, username + "@example.invalid", "Test", "Person");
+	}
+
+	/**
+	 * The password policy, at the only moment it is felt: a stranger choosing one. Keycloak ships with no
+	 * policy at all, so a realm that takes public registrations without one accepts a single character.
+	 *
+	 * <p>Both halves are asserted because they fail differently and a length rule alone would let the second
+	 * through: {@code notUsername} is what stops the password that is the account name, which is long enough
+	 * to pass {@code length(12)} whenever the username is.
+	 */
+	@Test
+	void andTheirPasswordHasToSurviveThePolicyTheRealmSets() {
+		String username = someUsername();
+
+		assertThat(keycloak.register(username, "short")).isEmpty();
+		assertThat(keycloak.whyRegistrationWasRefused()).contains("minimum length 12");
+
+		assertThat(keycloak.register(username, username)).isEmpty();
+		assertThat(keycloak.whyRegistrationWasRefused()).contains("must not be equal to the username");
+	}
+
+	/**
+	 * And guessing at one is answered by the account closing rather than by another prompt. Brute-force
+	 * protection is off in a default realm, which is survivable while the only accounts are two the file
+	 * wrote and becomes something else entirely the day the accounts belong to strangers.
+	 *
+	 * <p>Three wrong answers is enough here and 30 is the configured limit, which looks like a contradiction
+	 * and is not: Keycloak counts failures arriving faster than {@code quickLoginCheckMilliSeconds} as one
+	 * attack rather than as attempts, and locks on those separately. That is the rule this asserts, because
+	 * it is the rule a script meets — a human typing their own password wrong three times does not trip it.
+	 *
+	 * <p>Its own registered user, and not {@code dev}: the assertion is that the account stops working, and
+	 * an account this suite signs in as elsewhere is not one to leave locked.
+	 */
+	@Test
+	void andGuessingAtItLocksTheAccountRatherThanInvitingAnotherGuess() {
+		String username = someUsername();
+		keycloak.register(username, A_GOOD_PASSWORD).orElseThrow(AssertionError::new);
+
+		for (int guess = 0; guess < 3; guess++) {
+			assertThat(keycloak.signInSucceeds(username, "definitely-not-the-password")).isFalse();
+		}
+
+		assertThat(keycloak.signInSucceeds(username, A_GOOD_PASSWORD)).isFalse();
+		assertThat(keycloak.signInSucceeds("dev", PASSWORD)).isTrue();
+	}
+
+	/**
+	 * And somebody who forgets theirs is offered the way back in. The link is on the login page only when the
+	 * realm allows it, so its presence is the setting — and its absence is a user with no route to their own
+	 * account but our support address.
+	 *
+	 * <p>What it does <em>not</em> prove is that the mail arrives: that needs the Mailtrap credentials, which
+	 * are the developer's and never this repository's. `infra/README.md` says which two variables, and the
+	 * click-through is where a mail is actually read.
+	 */
+	@Test
+	void andSomebodyWhoForgotTheirsIsOfferedTheWayBackIn() {
+		HttpResponse<String> loginPage = keycloak.authorizationRequest(EXTENSION_CLIENT, EXTENSION_REDIRECT_URI,
+				pkce());
+
+		assertThat(loginPage.body()).contains("reset-credentials");
+	}
+
+	/**
+	 * And the two credentials that mail needs are not in this repository. They are a secret, and the realm
+	 * file is the one place in the stack that would otherwise be a natural home for them.
+	 */
+	@Test
+	void whileTheCredentialsThatMailNeedsStayOutOfTheFile() {
+		String realm = InfraFiles.textOf(InfraFiles.keycloakRealm());
+
+		assertThat(realm).contains("\"user\": \"${MPRELIST_SMTP_USER", "\"password\": \"${MPRELIST_SMTP_PASSWORD");
+	}
+
+	/**
 	 * And the shape a role check has to survive: a user holding <em>no realm role at all</em> gets no
 	 * {@code realm_access} claim rather than an empty one, so #27 reading {@code realm_access.roles} straight
 	 * through throws where it meant to deny.
@@ -319,7 +452,7 @@ class KeycloakRealmTest {
 	 */
 	@Test
 	void whileAUserHoldingNoRealmRoleAtAllCarriesNoRealmAccess() {
-		assertThat(keycloak.signIn("dev", "dev").get("realm_access")).isNull();
+		assertThat(keycloak.signIn("dev", PASSWORD).get("realm_access")).isNull();
 	}
 
 	/**
@@ -330,7 +463,7 @@ class KeycloakRealmTest {
 	 */
 	@Test
 	void aRefreshTokenIsSpentByTheRefreshThatUsesIt() {
-		String issued = keycloak.tokensFor("dev", "dev").get("refresh_token").asString();
+		String issued = keycloak.tokensFor("dev", PASSWORD).get("refresh_token").asString();
 
 		assertThat(keycloak.refresh(issued).statusCode()).isEqualTo(200);
 		assertThat(KeycloakFromCompose.errorOf(keycloak.refresh(issued))).isEqualTo("invalid_grant");
@@ -346,7 +479,7 @@ class KeycloakRealmTest {
 	@Test
 	void andOutlivesAnMv3WorkerThatSleptBetweenCalls() {
 		JsonNode refreshToken = KeycloakFromCompose
-				.claimsOf(keycloak.tokensFor("dev", "dev").get("refresh_token").asString());
+				.claimsOf(keycloak.tokensFor("dev", PASSWORD).get("refresh_token").asString());
 
 		assertThat(lifespanOf(refreshToken)).isEqualTo(Duration.ofDays(30));
 	}
@@ -362,7 +495,7 @@ class KeycloakRealmTest {
 	 */
 	@Test
 	void whileTheAccessTokenStaysAsShortLivedAsRevocationNeeds() {
-		assertThat(lifespanOf(keycloak.signIn("dev", "dev"))).isEqualTo(Duration.ofMinutes(5));
+		assertThat(lifespanOf(keycloak.signIn("dev", PASSWORD))).isEqualTo(Duration.ofMinutes(5));
 	}
 
 	/**
@@ -435,9 +568,22 @@ class KeycloakRealmTest {
 				.filter(value -> !value.isEmpty()).toArray(String[]::new);
 	}
 
+	/**
+	 * A username no other test in this class has used. Registration is not undoable through the endpoints
+	 * this suite speaks, so every test that registers gets an account of its own rather than sharing one and
+	 * depending on the order they ran in.
+	 *
+	 * <p>Longer than twelve characters on purpose: one test offers the username <em>as</em> the password, and
+	 * a short one would be refused for its length before {@code notUsername} was ever consulted — leaving that
+	 * half of the policy unasserted while the test passed.
+	 */
+	private static String someUsername() {
+		return "stranger-number-" + REGISTRATIONS.incrementAndGet();
+	}
+
 	/** A sign-in of its own each time: a logout ends the session, so the second one needs a second session. */
 	private static String freshIdToken() {
-		return keycloak.tokensFor("dev", "dev").get("id_token").asString();
+		return keycloak.tokensFor("dev", PASSWORD).get("id_token").asString();
 	}
 
 	/**
@@ -458,7 +604,7 @@ class KeycloakRealmTest {
 
 	private static String passwordGrantFor(String clientId) {
 		return KeycloakFromCompose.errorOf(keycloak.tokenRequest(
-				Map.of("grant_type", "password", "client_id", clientId, "username", "dev", "password", "dev"),
+				Map.of("grant_type", "password", "client_id", clientId, "username", "dev", "password", PASSWORD),
 				Map.of()));
 	}
 

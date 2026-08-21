@@ -51,7 +51,13 @@ thread.
 2. Click the toolbar icon **while signed out**.
    *Expect:* a sign-in screen and **nothing else**. No ad list, no quota, no plan.
 3. Click sign in.
-   *Expect:* a Keycloak window on the realm's login page. Sign in as a dev user.
+   *Expect:* a Keycloak window on the realm's login page, offering **Register** and **Forgot password?** as
+   well as the form. Sign in as `dev` / `local-dev-password` (infra/README.md — the password is no longer the
+   username, since the realm gained a policy).
+3a. Sign out and click **Register** instead. Make an account with a password under twelve characters.
+   *Expect:* refused, on the form, saying why. A real one is accepted and signs you straight in — and the
+   popup shows **`Free · 3 of 3`**, because the API provisions a stranger on their first call like anyone
+   else. This is the path every customer takes and the only one nobody has walked.
 4. *Expect:* the window closes on its own and the popup shows the signed-in state.
 5. Read the header.
    *Expect:* **`Free · 3 of 3 relists left`** and a reset date about a month out. That number came from

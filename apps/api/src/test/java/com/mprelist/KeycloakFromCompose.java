@@ -14,6 +14,7 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -55,6 +56,16 @@ final class KeycloakFromCompose implements AutoCloseable {
 	static final String EXTENSION_ID = "abcdefghijklmnopabcdefghijklmnop";
 
 	static final String REALM = "mprelist";
+
+	/**
+	 * The password both dev users hold, spelled once because it is no longer guessable from the username.
+	 *
+	 * <p>It used to be the username — {@code dev}/{@code dev} — and it cannot be, since the realm gained a
+	 * password policy: Keycloak validates <em>imported</em> credentials against it and refuses to start
+	 * otherwise, with {@code ERROR: invalidPasswordMinLengthMessage} and no realm. Which is the policy
+	 * working, and worth knowing before the next short password is added to that file.
+	 */
+	static final String PASSWORD = "local-dev-password";
 
 	static final String EXTENSION_CLIENT = "mprelist-extension";
 
@@ -142,10 +153,42 @@ final class KeycloakFromCompose implements AutoCloseable {
 	}
 
 	/**
+	 * The page Keycloak serves a stranger who wants an account, reached the way the "Register" link on the
+	 * login page reaches it — the same authorization request, at the registration endpoint.
+	 */
+	HttpResponse<String> registrationPage() {
+		return Http.send(HttpRequest.newBuilder(URI.create(realmUrl("/protocol/openid-connect/registrations?"
+				+ encode(authorizationQuery(EXTENSION_CLIENT, EXTENSION_REDIRECT_URI, pkce()))))).GET().build());
+	}
+
+	/**
+	 * A sign-in attempt that gets as far as submitting the login form, and no further: {@code true} when
+	 * Keycloak answered with a code, {@code false} when it answered with the form again. Every attempt starts
+	 * a session of its own, which is what a stranger guessing passwords would do.
+	 */
+	boolean signInSucceeds(String username, String password) {
+		Cookies cookies = new Cookies();
+		HttpResponse<String> loginPage = Http.send(cookies.on(HttpRequest.newBuilder(URI.create(
+				authorizationUrl(EXTENSION_CLIENT, EXTENSION_REDIRECT_URI, pkce()))).GET()).build());
+		cookies.harvest(loginPage);
+
+		HttpResponse<String> submitted = Http.send(cookies
+				.on(formRequest(loginFormAction(loginPage.body()), Map.of("username", username, "password", password)))
+				.build());
+		return submitted.headers().firstValue("location").filter(location -> location.contains("code=")).isPresent();
+	}
+
+	/**
 	 * The URL of that same request, for the one caller that has to build the request itself rather than send
 	 * it as it stands — {@link #tokensFor} carries a cookie jar through the login form that follows.
 	 */
 	private String authorizationUrl(String clientId, String redirectUri, Map<String, String> parameters) {
+		return realmUrl("/protocol/openid-connect/auth?" + encode(authorizationQuery(clientId, redirectUri,
+				parameters)));
+	}
+
+	private Map<String, String> authorizationQuery(String clientId, String redirectUri,
+			Map<String, String> parameters) {
 		Map<String, String> query = new LinkedHashMap<>();
 		query.put("client_id", clientId);
 		query.put("response_type", "code");
@@ -153,7 +196,7 @@ final class KeycloakFromCompose implements AutoCloseable {
 		query.put("redirect_uri", redirectUri);
 		query.put("state", "a-state");
 		query.putAll(parameters);
-		return realmUrl("/protocol/openid-connect/auth?" + encode(query));
+		return query;
 	}
 
 	/**
@@ -171,6 +214,39 @@ final class KeycloakFromCompose implements AutoCloseable {
 		HttpRequest.Builder request = formRequest(realmUrl("/protocol/openid-connect/token"), fields);
 		headers.forEach(request::header);
 		return Http.send(request.build());
+	}
+
+	/**
+	 * A stranger creating an account through the realm's own registration form, and the code exchange that
+	 * follows it — Keycloak signs a new user in as part of registering them, so this returns the same thing
+	 * {@link #tokensFor} does.
+	 *
+	 * <p>Returns {@link Optional#empty()} when the form comes back instead of a redirect, which is how
+	 * Keycloak refuses a registration: the password policy is the reason it does so here, and
+	 * {@link #whyRegistrationWasRefused} reads the reason out of that page.
+	 */
+	Optional<JsonNode> register(String username, String password) {
+		String verifier = randomVerifier();
+		Cookies cookies = new Cookies();
+
+		HttpResponse<String> form = Http.send(cookies.on(HttpRequest.newBuilder(URI.create(
+				realmUrl("/protocol/openid-connect/registrations?" + encode(authorizationQuery(EXTENSION_CLIENT,
+						EXTENSION_REDIRECT_URI, s256(challengeFor(verifier))))))).GET()).build());
+		cookies.harvest(form);
+
+		HttpResponse<String> submitted = Http.send(cookies.on(formRequest(loginFormAction(form.body()), Map.of(
+				"firstName", "Test", "lastName", "Person", "email", username + "@example.invalid",
+				"username", username, "password", password, "password-confirm", password))).build());
+		this.lastRegistrationPage = submitted.body();
+
+		return submitted.headers().firstValue("location").map(location -> exchange(EXTENSION_CLIENT,
+				EXTENSION_REDIRECT_URI, parameterOf(location, "code"), verifier));
+	}
+
+	/** What Keycloak said on the page a refused {@link #register} came back with. */
+	String whyRegistrationWasRefused() {
+		Matcher message = Pattern.compile("Invalid password:([^<]*)").matcher(this.lastRegistrationPage);
+		return message.find() ? message.group(1).trim() : this.lastRegistrationPage;
 	}
 
 	/** The claims of the access token a full sign-in mints, as the extension. */
@@ -223,10 +299,19 @@ final class KeycloakFromCompose implements AutoCloseable {
 				.orElseThrow(() -> new IllegalStateException("Keycloak did not redirect after the login form; it "
 						+ "answered " + submitted.statusCode() + " with " + submitted.body()));
 
+		return exchange(clientId, redirectUri, parameterOf(location, "code"), verifier);
+	}
+
+	/**
+	 * The last leg both a sign-in and a registration end with: the code, spent with the verifier that was
+	 * never in the URL. A refusal here is never the subject of a test — the requests that are refused are
+	 * refused earlier — so it throws rather than returning one.
+	 */
+	private JsonNode exchange(String clientId, String redirectUri, String code, String verifier) {
 		HttpResponse<String> exchanged = tokenRequest(Map.of(
 				"grant_type", "authorization_code",
 				"client_id", clientId,
-				"code", parameterOf(location, "code"),
+				"code", code,
 				"redirect_uri", redirectUri,
 				"code_verifier", verifier), Map.of());
 		if (exchanged.statusCode() != 200) {
@@ -348,5 +433,8 @@ final class KeycloakFromCompose implements AutoCloseable {
 	}
 
 	private final GenericContainer<?> container;
+
+	/** The page a refused registration came back with, kept so a test can say why it was refused. */
+	private String lastRegistrationPage = "";
 
 }

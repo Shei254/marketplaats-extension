@@ -1304,7 +1304,12 @@ test that spends something to prove it:
   shorter than the worker sleeps between one relist and the next; the on-demand refresh ADR-0010 chose then
   fails and [#32](https://github.com/Shei254/marketplaats-extension/issues/32) has to re-run
   `launchWebAuthFlow`, interactively. The test reads the refresh token's own `exp - iat`, which is where a
-  realm setting is actually felt.
+  realm setting is actually felt — **to the minute, not to the second**
+  ([#116](https://github.com/Shei254/marketplaats-extension/issues/116)). Those two claims do not come from
+  one clock reading: `exp` is the *session's* start plus `ssoSessionMaxLifespan` and `iat` is when the token
+  was minted, so a runner slow enough to cross a second boundary reported `719H59M59S` and failed a pull
+  request that had touched neither. The tolerance is far outside that race and far inside what it catches —
+  drop either setting and Keycloak's own defaults are thirty minutes and ten hours.
 
 The two dev users exist to cover the **two token shapes** a real user can produce, which one user cannot.
 `dev` holds no realm role, so Keycloak omits `realm_access` rather than sending it empty — the edge

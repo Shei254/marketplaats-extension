@@ -475,13 +475,26 @@ class KeycloakRealmTest {
 	 * relist and the next: the refresh then fails, and the extension has to re-run {@code launchWebAuthFlow}
 	 * — interactively, since it needs a user gesture. That is the failure "on demand at call time, never on
 	 * a timer" was chosen to avoid, and defaulting the timeout reintroduces it.
+	 *
+	 * <p><strong>To the minute rather than to the second, and that is not slack</strong> (#116). Keycloak does
+	 * not compute the two claims from one instant: a refresh token's {@code exp} is the <em>session's</em>
+	 * start plus {@code ssoSessionMaxLifespan}, while {@code iat} is the moment the token was minted — later,
+	 * by however long the request took. A runner slow enough to cross a second boundary between the two makes
+	 * the difference {@code 719H59M59S}, which is how this failed a pull request whose diff was a web page and
+	 * some documentation.
+	 *
+	 * <p>The tolerance is far outside that race and far inside the thing being caught: delete either realm
+	 * setting and Keycloak's own defaults are thirty minutes idle and ten hours maximum, so the assertion
+	 * still fails by a factor of seventy. What this test is about is the <em>magnitude</em> — a session that
+	 * outlives a sleeping worker — and asserting a magnitude to the second is how a suite acquires a failure
+	 * that means nothing.
 	 */
 	@Test
 	void andOutlivesAnMv3WorkerThatSleptBetweenCalls() {
 		JsonNode refreshToken = KeycloakFromCompose
 				.claimsOf(keycloak.tokensFor("dev", PASSWORD).get("refresh_token").asString());
 
-		assertThat(lifespanOf(refreshToken)).isEqualTo(Duration.ofDays(30));
+		assertThat(lifespanOf(refreshToken)).isCloseTo(Duration.ofDays(30), Duration.ofMinutes(1));
 	}
 
 	/**
@@ -492,6 +505,10 @@ class KeycloakRealmTest {
 	 * five minutes is also Keycloak's default, so there is no mutation to catch. It is kept because
 	 * {@link ComposeFile} takes the image tag from compose: the day that default moves under an upgrade, this
 	 * runs on the new version and reports it. The subject is the revocation window, not the line.
+	 *
+	 * <p>And it stays exact where the refresh token above cannot: an access token's {@code exp} is its own
+	 * {@code iat} plus a number, both taken from one clock reading, so there is no session start to race
+	 * against and nothing here to loosen.
 	 */
 	@Test
 	void whileTheAccessTokenStaysAsShortLivedAsRevocationNeeds() {

@@ -190,8 +190,15 @@ Rename `apps/dashboard` → `apps/web`. React + Vite, one build, consuming `pack
 - `/admin` arrives in slice D. Subdomains are DNS at Go-Live.
 - Refs: [ADR-0017](adr/0017-web-surface-and-subscribing.md).
 
-#### [T36](https://github.com/Shei254/marketplaats-extension/issues/45) · Privacy and terms pages · **S** · T50
-Required for the Web Store listing, which needs a hosted privacy policy URL. Public, loginless.
+#### [T36](https://github.com/Shei254/marketplaats-extension/issues/45) · Privacy and terms pages · **S** · T50 · **shipped**
+Required for the Web Store listing, which needs a hosted privacy policy URL. Public, loginless — `/privacy`
+and `/terms`, linked from the header and footer of every page, which is what T50 held back until they
+existed.
+- The words are the canvas's and every claim on them is one the schema can keep. **They render
+  `[PLACEHOLDER]` on their own face**: the binding text needs a lawyer before T58 (#89), and a reader of the
+  deployed page has to be able to tell.
+- `/privacy` is the URL the Web Store listing carries, so once #89 is live the address is published somewhere
+  we do not control. It is a string to choose and then leave alone.
 
 #### [T52](https://github.com/Shei254/marketplaats-extension/issues/83) · Plan cards and Checkout hand-off in the popup · **M** · T29, T49, T19
 Renders `GET /api/plans`, calls the Checkout endpoint with the popup's own token, opens the returned Stripe

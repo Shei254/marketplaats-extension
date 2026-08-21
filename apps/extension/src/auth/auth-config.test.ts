@@ -29,6 +29,8 @@ interface RealmClient {
   directAccessGrantsEnabled?: boolean;
   redirectUris?: string[];
   webOrigins?: string[];
+  defaultClientScopes?: string[];
+  optionalClientScopes?: string[];
   attributes?: Record<string, string>;
 }
 
@@ -71,6 +73,30 @@ describe("the realm this build signs into", () => {
     // trailing slash included; Keycloak matches redirect URIs exactly.
     expect(client?.redirectUris ?? []).toHaveLength(1);
     expect(client?.redirectUris?.[0]).toMatch(/^https:\/\/\S+\.chromiumapp\.org\/$/);
+  });
+
+  it("names its own default scopes, so `openid` is answered with `openid`", () => {
+    // The scope this module asks for does not decide what comes back: Keycloak adds
+    // a client's default client scopes to every token whatever the request said, and
+    // `profile` and `email` are attached to every client a realm creates unless the
+    // client names its own. So `scope: "openid"` above was answered with the user's
+    // name, username and email address, in a bearer we send to our own API and keep
+    // in `chrome.storage.local` (#108) — the boundary ADR-0001/0005 draw.
+    //
+    // Named here because this file is where a reader of `auth-config.ts` looks. What
+    // a token actually carries can only be seen by minting one, which `apps/api`'s
+    // `KeycloakRealmTest` does against a real Keycloak.
+    expect(client?.defaultClientScopes).toBeDefined();
+    expect(client?.defaultClientScopes).not.toContain("profile");
+    expect(client?.defaultClientScopes).not.toContain("email");
+  });
+
+  it("and assigns no optional ones, so nothing can ask for them back", () => {
+    // A realm's own optional scopes include `address` and `phone`, which map straight
+    // off the user profile, and `microprofile-jwt`, which carries the username. This
+    // module requests none of them; assigning none means a request that did would be
+    // refused with `invalid_scope` rather than answered.
+    expect(client?.optionalClientScopes).toEqual([]);
   });
 
   it("registers the extension as a web origin, which is what makes the token call legal", () => {

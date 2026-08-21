@@ -30,6 +30,13 @@ what a Web Store id will need at publish (#87). Whatever it resolves to, the API
 accept as it starts — the browser's refusal names nothing about the API, so that line is the other end of the
 thread.
 
+> **A stack started before 2026-08-21 has the realm from before [#108](https://github.com/Shei254/marketplaats-extension/issues/108)**,
+> whose clients mint tokens carrying the signed-in user's name and email address. Nothing reads them and the
+> script below passes either way, so the only way to notice is to decode a token — `down -v` first and it
+> cannot come up. The same reset is what re-syncs a container whose realm was edited in the admin console,
+> and it is what gives you the `sslRequired` compose now sets: without it Keycloak answers **403 "HTTPS
+> required"** to the browser on some daemons, and step 3 below never opens a login page.
+
 ---
 
 ## Slice A · I can sign in

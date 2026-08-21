@@ -36,6 +36,14 @@ import tools.jackson.databind.JsonNode;
  * <p>{@code KC_HOSTNAME} is deliberately not set, unlike in compose: without it Keycloak derives the issuer
  * from the request, which is what lets this run on whatever port Docker maps rather than on a fixed 8081.
  *
+ * <p>{@code MPRELIST_SSL_REQUIRED} <em>is</em> taken from compose, and it is the one setting here that has to
+ * be. Every request below is plain HTTP to a published port, and under {@code external} — Keycloak's default,
+ * and the realm file's when the variable is unset — Keycloak refuses that from any client address it does not
+ * consider local, answering {@code 403 "HTTPS required"} before a single test runs. Whether the address it
+ * sees is local is a property of the machine, not of this repository: through Docker Desktop's port forwarder
+ * it is public, on a rootful daemon it is the bridge gateway. Reading the value compose sets means the suite
+ * starts the realm the local stack starts, rather than one that happens to work on the reviewer's laptop.
+ *
  * <p>Which realm starts is a choice: {@link #withTheExtensionIdSet()} is what a developer who set
  * {@code MPRELIST_EXTENSION_ID} gets, {@link #withNoExtensionIdSet()} what one who never did gets. Both are
  * shipped states — until #13 pins an id, the second is every developer's — so both are proven, by
@@ -96,9 +104,12 @@ final class KeycloakFromCompose implements AutoCloseable {
 	}
 
 	private KeycloakFromCompose(Map<String, String> environment) {
+		Map<String, String> imported = new LinkedHashMap<>(environment);
+		imported.put("MPRELIST_SSL_REQUIRED", ComposeFile.setting("MPRELIST_SSL_REQUIRED"));
+
 		this.container = new GenericContainer<>(ComposeFile.image("quay.io/keycloak/keycloak"))
 				.withCommand("start-dev", "--import-realm")
-				.withEnv(environment)
+				.withEnv(imported)
 				.withCopyFileToContainer(MountableFile.forHostPath(InfraFiles.keycloakRealm()),
 						"/opt/keycloak/data/import/mprelist-realm.json")
 				.withExposedPorts(8080)
@@ -162,9 +173,17 @@ final class KeycloakFromCompose implements AutoCloseable {
 		return Http.send(request.build());
 	}
 
-	/** The claims of the access token a full sign-in mints. */
+	/** The claims of the access token a full sign-in mints, as the extension. */
 	JsonNode signIn(String username, String password) {
-		return claimsOf(tokensFor(username, password).get("access_token").asString());
+		return signIn(EXTENSION_CLIENT, EXTENSION_REDIRECT_URI, username, password);
+	}
+
+	/**
+	 * And as whichever client is asked for, which is how the dashboard's tokens are read: it holds a user's
+	 * session too and sends what it mints to the same API, so what its tokens carry is the same question.
+	 */
+	JsonNode signIn(String clientId, String redirectUri, String username, String password) {
+		return claimsOf(tokensFor(clientId, redirectUri, username, password).get("access_token").asString());
 	}
 
 	/**
@@ -176,20 +195,25 @@ final class KeycloakFromCompose implements AutoCloseable {
 				refreshToken), Map.of());
 	}
 
+	/** That sign-in as the extension, which is the client these tests mostly speak as. */
+	JsonNode tokensFor(String username, String password) {
+		return tokensFor(EXTENSION_CLIENT, EXTENSION_REDIRECT_URI, username, password);
+	}
+
 	/**
-	 * A full Authorization Code + PKCE sign-in, driven the way the extension will drive it: authorization
+	 * A full Authorization Code + PKCE sign-in, driven the way a public client drives it: authorization
 	 * request, the login form Keycloak answers with, then the code exchanged with the verifier. Returns the
 	 * token endpoint's whole answer — the access token, and the refresh token beside it.
 	 *
-	 * <p>Nothing here is a shortcut around the realm — a password grant would be, and the extension client
-	 * refuses it — so what this proves is what a token minted through the configured flow actually carries.
+	 * <p>Nothing here is a shortcut around the realm — a password grant would be, and both public clients
+	 * refuse it — so what this proves is what a token minted through the configured flow actually carries.
 	 */
-	JsonNode tokensFor(String username, String password) {
+	JsonNode tokensFor(String clientId, String redirectUri, String username, String password) {
 		String verifier = randomVerifier();
 		Cookies cookies = new Cookies();
 
 		HttpResponse<String> loginPage = Http.send(cookies.on(HttpRequest.newBuilder(URI.create(authorizationUrl(
-				EXTENSION_CLIENT, EXTENSION_REDIRECT_URI, s256(challengeFor(verifier))))).GET()).build());
+				clientId, redirectUri, s256(challengeFor(verifier))))).GET()).build());
 		cookies.harvest(loginPage);
 
 		HttpResponse<String> submitted = Http.send(cookies
@@ -201,9 +225,9 @@ final class KeycloakFromCompose implements AutoCloseable {
 
 		HttpResponse<String> exchanged = tokenRequest(Map.of(
 				"grant_type", "authorization_code",
-				"client_id", EXTENSION_CLIENT,
+				"client_id", clientId,
 				"code", parameterOf(location, "code"),
-				"redirect_uri", EXTENSION_REDIRECT_URI,
+				"redirect_uri", redirectUri,
 				"code_verifier", verifier), Map.of());
 		if (exchanged.statusCode() != 200) {
 			throw new IllegalStateException("Keycloak refused the code exchange with " + exchanged.statusCode() + ": "

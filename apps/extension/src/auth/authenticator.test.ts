@@ -79,8 +79,11 @@ describe("signing in", () => {
   });
 
   it("asks for `openid` and nothing else", async () => {
-    // Keycloak's default scopes would put a name and an email in the token we send
-    // to our own API, which ADR-0001/0005 draw the boundary against.
+    // ADR-0001/0005 draw the boundary at not sending personal data to our own API,
+    // and this is the half of it a request can state. The other half is the realm's:
+    // Keycloak adds a client's default scopes whatever was asked for, so until
+    // `mprelist-extension` named its own, this exact request came back with the
+    // user's name and address in it (#108). `auth-config.test.ts` covers that half.
     const { auth, flow } = authenticator();
 
     await auth.signIn();

@@ -80,6 +80,31 @@ issuer — every client in the realm shares that.
 The `ADMIN` realm role is defined and held by `dev-admin`, for
 [#27 (T18 · `admin` module + role guard)](https://github.com/Shei254/marketplaats-extension/issues/27).
 
+### What a token carries, which is not what the client asked for
+
+Both public clients name their own **`defaultClientScopes`** — `basic`, `acr`, `roles`, `web-origins` — and
+assign **no optional ones**. That is Keycloak's own default list with `profile` and `email` taken out, and it
+is the fix for [#108](https://github.com/Shei254/marketplaats-extension/issues/108).
+
+**A client's default scopes are added to every token whatever the authorization request asks for.** The
+extension asks for `scope=openid` and nothing else ([ADR-0010](../docs/adr/0010-extension-authentication.md)),
+which was believed to be the whole story; it is not. Until this was named, a token minted here came back with
+`"scope": "openid email profile"` and the user's address, full name and username in it — travelling to our
+API, sitting in `chrome.storage.local`, and printed in full by any log line that ever logs a raw token.
+Nothing reads it (`identity` takes `sub` and nothing else), which is exactly why it went unnoticed.
+
+Assigning no optional scopes closes the other half: a realm's own optional list is `address`, `phone`,
+`offline_access`, `microprofile-jwt` and `organization`, of which the first two map straight off the user
+profile and the third carries the username as `upn`. Neither client requests any of them, so a request that
+did is now refused with `invalid_scope` rather than answered.
+
+What is left is `sub`, the `aud` the audience mapper writes, `realm_access` for a user who holds a role, and
+`allowed-origins`. `KeycloakRealmTest` mints real tokens through the full flow and asserts both halves — that
+nothing the realm records about a user appears in one, and that the admin role still does.
+
+**Changing this needs a `down -v`**, like every other line in the file: the realm imports on first start only,
+so a stack that is already up keeps the clients it imported with.
+
 The two dev users are shaped to cover both token shapes a real user can produce, which one user cannot:
 
 | | Realm roles | `realm_access` | `aud` |
@@ -177,22 +202,50 @@ than the same URI spelled a second time. The sign-in and sign-out sides then can
 regrow a wildcard the other dropped. `KeycloakRealmTest` proves all of it the only way it can be proven: it
 asks for a path *beneath* the registered URI and is refused, and logs out to one and is refused.
 
-### No `sslRequired`, deliberately
+### `sslRequired` is `external` in the file and `none` on your laptop
 
-The file does not set it, so the realm keeps Keycloak's default of `external`: plain HTTP is served to a
-client address Keycloak considers local — which includes every private range — and refused to anything else.
-Through Docker's published port a request from the host arrives from exactly such an address, so the whole
-flow works over `http://localhost:8081` with the default left alone. That is not a guess: the realm as it
-stands was imported into the stack and signed into from the host, discovery through token.
+```jsonc
+// keycloak/mprelist-realm.json
+"sslRequired": "${MPRELIST_SSL_REQUIRED:external}"
+```
+```yaml
+# docker-compose.yml
+MPRELIST_SSL_REQUIRED: none
+```
 
-**`sslRequired: none` is what a dev realm reaches for here, and it is deliberately absent.** It is the one
-field that would be wrong everywhere except a laptop, and the file it is added to for convenience is the file
-that later gets copied to a deployed realm. If a machine ever does answer `HTTPS required` — reaching
-Keycloak across a network rather than from the host would do it, and there the refusal is *correct* — the
-answer is to serve it over TLS or to reach it from the host, not to edit this file.
+Under `external` — Keycloak's own default — plain HTTP is served to a client address Keycloak considers
+local, meaning loopback and the private ranges, and **refused to everything else with
+`403 {"error_description":"HTTPS required"}`**.
 
-The `master` realm keeps the same default and needs nothing either: the admin console answers over plain HTTP
-from the host for the same reason.
+**Whether your machine is "local" is a property of the machine, not of this file.** On a rootful Docker
+daemon a request to a published port reaches the container from the bridge gateway, `172.17.0.1`, and
+`external` never bites. Through **Docker Desktop's port forwarder it arrives from a public address** — on the
+machine this was found on, `172.66.152.246` — and `external` refuses every request the browser makes,
+starting with the discovery document. The symptom is the extension reporting
+
+```
+The sign-in server answered 403 for http://localhost:8081/realms/mprelist/.well-known/openid-configuration.
+```
+
+which names the URL, the status, and nothing about TLS. It is worth knowing the shape of that failure even
+after this: `curl` it from the host, and if you get 403 while the same URL answers 200 from inside the Docker
+VM (`docker run --rm --network host curlimages/curl -s -o /dev/null -w '%{http_code}' <url>`), this is what
+you are looking at.
+
+**Which is why the relaxation lives in compose and the default lives in the file.** This stack is the laptop
+and a laptop has no TLS; a production realm built from this file (T56, #87) sets no such variable and so
+imports as `external`, which is the value that must not be relaxed by inheritance. That is the extension-id
+trade inverted — there the environment has to be *right* at import time, here it has to be *absent*.
+
+`KeycloakRealmTest` asserts both halves as text, which is the one assertion in that suite made against a file
+rather than a running Keycloak, and deliberately: a behavioural version would pass on a laptop, fail in CI,
+and say nothing about the default either time. `KeycloakFromCompose` reads the value out of compose rather
+than hardcoding it, so the suite starts the realm the stack starts — and stops with a named failure if that
+line is ever deleted.
+
+The `master` realm is **not** covered by this: it keeps Keycloak's default, so the admin console at
+`http://localhost:8081/admin` answers `HTTPS required` on a machine where the forwarder looks external. The
+console is reachable from inside the container (`kcadm.sh`) regardless.
 
 ### What proves it
 

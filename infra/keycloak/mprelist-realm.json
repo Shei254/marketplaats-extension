@@ -2,6 +2,7 @@
   "realm": "mprelist",
   "displayName": "Marktplaats Relist (development)",
   "enabled": true,
+  "sslRequired": "${MPRELIST_SSL_REQUIRED:external}",
   "revokeRefreshToken": true,
   "refreshTokenMaxReuse": 0,
   "accessTokenLifespan": 300,
@@ -34,6 +35,13 @@
       "webOrigins": [
         "chrome-extension://${MPRELIST_EXTENSION_ID:unset-extension-id}"
       ],
+      "defaultClientScopes": [
+        "basic",
+        "acr",
+        "roles",
+        "web-origins"
+      ],
+      "optionalClientScopes": [],
       "attributes": {
         "pkce.code.challenge.method": "S256",
         "post.logout.redirect.uris": "+"
@@ -71,6 +79,13 @@
       "webOrigins": [
         "http://localhost:5173"
       ],
+      "defaultClientScopes": [
+        "basic",
+        "acr",
+        "roles",
+        "web-origins"
+      ],
+      "optionalClientScopes": [],
       "attributes": {
         "pkce.code.challenge.method": "S256",
         "post.logout.redirect.uris": "+"

@@ -302,10 +302,22 @@ drifts.
   rows are `catalog`'s through a third port (`TierEdits`) beside the gate's and the webhook's, and the Prices
   are `billing`'s through `UnadoptedPrices`.
 
-#### [T54](https://github.com/Shei254/marketplaats-extension/issues/85) · `/admin` routes in `apps/web` · **M** · T50, T53
+#### [T54](https://github.com/Shei254/marketplaats-extension/issues/85) · `/admin` routes in `apps/web` · **M** · T50, T53 · **shipped**
 Keycloak redirect PKCE against the existing `mprelist-dashboard` client, guarded on the `ADMIN` role. Tier
 list, tier form, unadopted-Price list. **The only authenticated part of `apps/web`** — this is where the
 original T33 went.
+- **A surface, not a page.** `main.tsx` chooses it before the public route table is consulted, so
+  `pageFor("/admin")` still answers `not-found` and every page in that table stays public.
+- **The redirect lands on `/`.** The realm registers exactly `http://localhost:5173/` and Keycloak matches
+  exactly, so an arrival is recognised by the `code` in the query and the address bar is rewritten
+  afterwards — no realm change, and the shape T56 (#87) wants anyway, since `admin.<domain>`'s root is this.
+- **The token lives in memory and nowhere else**, so a reload signs in again through the IdP session and
+  signing out of Keycloak signs you out here. No refresh token: a `401` is one redirect.
+- **The role decides a screen, never a permission** — the API enforces it (#27). Somebody signed in as the
+  wrong person is told so and offered the only thing that helps, which is being somebody else; without that
+  the click-through's step 2 is a trap.
+- **`isDefault` has no control**, because the API has no request for one. Only "make default", on the tiers
+  that are not it.
 
 ---
 

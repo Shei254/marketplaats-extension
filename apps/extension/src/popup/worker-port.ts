@@ -71,9 +71,9 @@ export function workerPort(): WorkerPort {
      * above: there is no screen for an exception, and "we couldn't open it" is
      * true of a worker that failed as much as of a Stripe that did.
      */
-    async checkout(tierCode: string): Promise<HandoffAnswer> {
+    async checkout(tierCode: string, interval: string): Promise<HandoffAnswer> {
       try {
-        return await ask({ kind: "checkout", tierCode });
+        return await ask({ kind: "checkout", tierCode, interval });
       } catch {
         return { status: "unavailable" };
       }

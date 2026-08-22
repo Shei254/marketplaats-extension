@@ -93,7 +93,7 @@ class TierCatalogSeedTest {
 	 */
 	@Test
 	void andNoTierCarriesAStripePriceUntilOneExists() {
-		assertThat(db.queryForList("select code from tier where stripe_price_id is not null", String.class)).isEmpty();
+		assertThat(db.queryForList("select stripe_price_id from tier_price", String.class)).isEmpty();
 	}
 
 	/**
@@ -133,7 +133,7 @@ class TierCatalogSeedTest {
 	private List<Map<String, Object>> catalog() {
 		return db.queryForList("""
 				select id, code, name, relist_quota_per_period, max_marktplaats_accounts, features::text,
-				       is_default, stripe_price_id
+				       is_default
 				from tier order by code
 				""");
 	}

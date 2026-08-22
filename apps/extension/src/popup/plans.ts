@@ -102,10 +102,25 @@ export function priceOf(price: PlanPrice): string {
  * card that called it monthly would be off by twelve. Anything else is rendered as
  * Stripe spelled it — a new interval should read oddly rather than be silently
  * called a month.
+ *
+ * Since T62 (#128) the rhythm is passed in rather than taken off the plan: a plan
+ * has several, and what a quota line describes is the one being looked at.
  */
-export function grantOf(plan: Plan): string {
+export function grantOf(plan: Plan, interval: string): string {
   const relists = `${plan.relistQuotaPerPeriod} relist${plan.relistQuotaPerPeriod === 1 ? "" : "s"}`;
-  return `${relists} ${every(plan.price.interval)}`;
+  return `${relists} ${every(interval)}`;
+}
+
+/**
+ * "€ 9,99 a month" — one of a plan's rhythms, as its own button says it (T62,
+ * #128).
+ *
+ * A plan may be sold monthly and annually, and what a buyer is choosing between is
+ * two amounts against two rhythms — so each price says both, rather than a card
+ * saying one amount and a toggle elsewhere deciding which.
+ */
+export function priceAndRhythmOf(price: PlanPrice): string {
+  return `${priceOf(price)} ${every(price.interval)}`;
 }
 
 function every(interval: string): string {

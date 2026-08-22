@@ -18,14 +18,14 @@ const PRO: Plan = {
   tier: { code: "pro", name: "Pro" },
   relistQuotaPerPeriod: 50,
   features: {},
-  price: { amount: 999, currency: "eur", interval: "month" },
+  prices: [{ amount: 999, currency: "eur", interval: "month" }],
 };
 
 const POWER: Plan = {
   tier: { code: "power", name: "Power" },
   relistQuotaPerPeriod: 200,
   features: {},
-  price: { amount: 1999, currency: "eur", interval: "month" },
+  prices: [{ amount: 1999, currency: "eur", interval: "month" }],
 };
 
 const ON_SALE: PlansView = { status: "ready", plans: [PRO, POWER] };
@@ -62,8 +62,28 @@ describe("the cards", () => {
     expect(markup.indexOf("Pro")).toBeLessThan(markup.indexOf("Power"));
   });
 
-  it("offer an upgrade on every plan that is not the one they are on", () => {
-    expect([...markup.matchAll(/Upgrade/g)]).toHaveLength(2);
+  it("offer a button per rhythm on every plan that is not the one they are on", () => {
+    // One button per price, each saying its own amount (T62, #128) — rather than a
+    // toggle above the cards, which would hide a plan that is monthly-only.
+    expect(markup).toContain("9,99");
+    expect(markup).toContain("19,99");
+    // Two buyable buttons, one per plan — the third card is the one they are on.
+    expect([...markup.matchAll(/mp-btn--primary/g)]).toHaveLength(2);
+  });
+
+  it("and one per rhythm where a plan is sold at two", () => {
+    // The whole of the ticket at the card level: monthly and annual Pro are one
+    // plan a buyer chooses a rhythm for, not two plans to compare.
+    const both: Plan = { ...PRO, prices: [...PRO.prices, { amount: 9900, currency: "eur", interval: "year" }] };
+    // The buyer is on Free, which is not on sale, so its card is the synthetic one
+    // and Pro's is the only one with buttons.
+    const shown = render({ status: "ready", plans: [both] });
+
+    expect(shown).toContain("9,99");
+    expect(shown).toContain("99,00");
+    expect([...shown.matchAll(/mp-btn--primary/g)]).toHaveLength(2);
+    // Still one card for the plan, with one name and one quota line.
+    expect([...shown.matchAll(/50 relists/g)]).toHaveLength(1);
   });
 });
 
@@ -97,17 +117,20 @@ describe("the plan they are already on", () => {
 
     expect(markup).toContain("Current");
     expect(markup).toContain("Your plan");
-    // One Upgrade, on Power. Not on the plan they hold.
-    expect([...markup.matchAll(/Upgrade/g)]).toHaveLength(1);
-    expect(markup).toContain("9,99");
+    // One buyable rhythm, on Power. Not on the plan they hold.
+    expect(markup).toContain("19,99");
+    expect(markup).toContain("Your plan");
   });
 });
 
 describe("while a Checkout tab is being opened", () => {
-  const opening = render(ON_SALE, FREE, { kind: "opening", what: "pro" });
+  const opening = render(ON_SALE, FREE, { kind: "opening", what: "pro:month" });
 
-  it("says so on the card that was clicked", () => {
+  it("says so on the rhythm that was clicked", () => {
+    // Keyed by tier *and* rhythm: a plan with two buttons would otherwise light
+    // both when one was pressed.
     expect(opening).toContain("Opening…");
+    expect([...opening.matchAll(/Opening…/g)]).toHaveLength(1);
   });
 
   it("and locks every other one", () => {
@@ -145,13 +168,13 @@ describe("when there is nothing to show", () => {
 
     expect(markup).toContain("Prices couldn’t be loaded");
     expect(markup).toContain("Try again");
-    expect(markup).not.toContain("Upgrade");
+    expect(markup).not.toContain("a month");
   });
 
   it("shows the shape of the answer while it is loading", () => {
     const markup = render({ status: "loading" });
 
     expect(markup).toContain("mp-skeleton");
-    expect(markup).not.toContain("Upgrade");
+    expect(markup).not.toContain("a month");
   });
 });

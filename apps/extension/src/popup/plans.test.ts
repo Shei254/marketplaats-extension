@@ -3,19 +3,22 @@ import { describe, expect, it } from "vitest";
 
 import { grantOf, handoffFailure, priceOf } from "./plans";
 
+/** The one rhythm this fixture is sold at, named because several assertions want it. */
+const FIRST_PRICE = { amount: 999, currency: "eur", interval: "month" } as const;
+
 const PRO: Plan = {
   tier: { code: "pro", name: "Pro" },
   relistQuotaPerPeriod: 50,
   features: {},
-  price: { amount: 999, currency: "eur", interval: "month" },
+  prices: [FIRST_PRICE],
 };
 
 describe("what a plan costs", () => {
   it("is Dutch money, like every other amount on this surface", () => {
     // `formatEuro` one file over renders a Marktplaats price the same way. Two
     // spellings of money in one popup would be the popup disagreeing with itself.
-    expect(priceOf(PRO.price)).toMatch(/9,99/);
-    expect(priceOf(PRO.price)).toContain("€");
+    expect(priceOf(FIRST_PRICE)).toMatch(/9,99/);
+    expect(priceOf(FIRST_PRICE)).toContain("€");
   });
 
   it("is read in the currency's smallest unit, as Stripe counts it", () => {
@@ -40,24 +43,24 @@ describe("what a plan costs", () => {
 
 describe("what a plan grants", () => {
   it("is the quota over the period it is billed for", () => {
-    expect(grantOf(PRO)).toBe("50 relists a month");
+    expect(grantOf(PRO, "month")).toBe("50 relists a month");
   });
 
   it("reads the interval rather than assuming a month", () => {
     // A yearly Price is a thing the Stripe dashboard can create, and a card that
     // called it monthly would be off by twelve.
-    expect(grantOf({ ...PRO, price: { ...PRO.price, interval: "year" } })).toBe("50 relists a year");
-    expect(grantOf({ ...PRO, price: { ...PRO.price, interval: "week" } })).toBe("50 relists a week");
+    expect(grantOf(PRO, "year")).toBe("50 relists a year");
+    expect(grantOf(PRO, "week")).toBe("50 relists a week");
   });
 
   it("spells an interval it has never heard of rather than calling it a month", () => {
-    expect(grantOf({ ...PRO, price: { ...PRO.price, interval: "quarter" } })).toBe(
+    expect(grantOf(PRO, "quarter")).toBe(
       "50 relists every quarter",
     );
   });
 
   it("agrees with the number it is describing", () => {
-    expect(grantOf({ ...PRO, relistQuotaPerPeriod: 1 })).toBe("1 relist a month");
+    expect(grantOf({ ...PRO, relistQuotaPerPeriod: 1 }, "month")).toBe("1 relist a month");
   });
 });
 

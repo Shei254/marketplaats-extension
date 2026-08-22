@@ -101,16 +101,18 @@ export class Subscribing {
   /**
    * Turn a tier code into a Stripe Checkout URL.
    *
-   * **The code, never a price id** — it is the stable handle ADR-0014 makes the
-   * thing anything references, and resolving it is the backend's, which is what
-   * stops a client naming a Price nobody published.
+   * **The code and the rhythm, never a price id** — the code is the stable handle
+   * ADR-0014 makes the thing anything references, and resolving it is the
+   * backend's, which is what stops a client naming a Price nobody published. The
+   * rhythm is as required as the code since T62 (#128): a tier may be sold monthly
+   * and annually, so the code alone names two prices.
    *
    * A `200` is an offer to pay and **not** an entitlement: what moves the plan is
    * Stripe telling the backend the money did, through the webhook (T20, #30). So
    * nothing here or above it redraws a plan on the strength of this answer.
    */
-  async checkout(tierCode: string): Promise<HandoffAnswer> {
-    return this.handoff("/api/checkout", JSON.stringify({ tierCode }));
+  async checkout(tierCode: string, interval: string): Promise<HandoffAnswer> {
+    return this.handoff("/api/checkout", JSON.stringify({ tierCode, interval }));
   }
 
   /**
@@ -207,10 +209,10 @@ function asPlan(entry: unknown): Plan | null {
   const features = fields["features"];
   if (typeof features !== "object" || features === null || Array.isArray(features)) return null;
 
-  const price = asPrice(fields["price"]);
-  if (!price) return null;
+  const prices = asPrices(fields["prices"]);
+  if (!prices) return null;
 
-  return { tier, relistQuotaPerPeriod, features: features as Record<string, unknown>, price };
+  return { tier, relistQuotaPerPeriod, features: features as Record<string, unknown>, prices };
 }
 
 function asTier(value: unknown): Plan["tier"] | null {
@@ -230,7 +232,23 @@ function asTier(value: unknown): Plan["tier"] | null {
  * thing Stripe can hold, and refusing it here would blank a plan screen over a
  * plan somebody deliberately made free.
  */
-function asPrice(value: unknown): Plan["price"] | null {
+/**
+ * Every rhythm a plan is sold at (T62, #128), and **never an empty list**: a tier
+ * with nothing to charge against cannot be published, so a card with no price is a
+ * card whose only button could not open a Checkout.
+ */
+function asPrices(value: unknown): Plan["prices"] | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const read: Plan["prices"] = [];
+  for (const entry of value) {
+    const price = asPrice(entry);
+    if (!price) return null;
+    read.push(price);
+  }
+  return read;
+}
+
+function asPrice(value: unknown): Plan["prices"][number] | null {
   if (typeof value !== "object" || value === null) return null;
   const { amount, currency, interval } = value as Record<string, unknown>;
   if (typeof amount !== "number" || !Number.isInteger(amount) || amount < 0) return null;

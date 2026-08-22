@@ -160,8 +160,13 @@ about their **software**. It therefore carries none, exactly like every other `4
       { "tier": { "code": "pro", "name": "Pro" },
         "relistQuotaPerPeriod": 50,
         "features": {},
-        "price": { "amount": 999, "currency": "eur", "interval": "month" } } ] }
+        "prices": [ { "amount": 999,  "currency": "eur", "interval": "month" },
+                    { "amount": 9900, "currency": "eur", "interval": "year"  } ] } ] }
   ```
+
+- **`prices` is a list, cheapest rhythm first** (T62, #128). Monthly and annual Pro are **one plan** a buyer
+  chooses a rhythm for — same quota, same row — so a card shows the tier once and its prices beside each
+  other. Never empty: a tier with nothing to charge against cannot be published.
 
 - **The amount comes from Stripe and is cached; it is never stored** (ADR-0014/0019). This is display, so the
   cache is the whole defence — `authorize` still never calls Stripe, and this route is not on that path.
@@ -186,8 +191,11 @@ about their **software**. It therefore carries none, exactly like every other `4
 ### `POST /api/checkout` — where a plan card becomes a payment
 - **Auth:** `Authorization: Bearer <Keycloak access token>`. Called by the **popup**, which holds one already;
   `apps/web` has no login and never calls this (ADR-0017).
-- **Body:** `{ "tierCode": "pro" }` — the stable handle, never a Stripe price id, which is ours to resolve. A
-  client naming a price id could name one we never published.
+- **Body:** `{ "tierCode": "pro", "interval": "month" }` — the stable handle, never a Stripe price id, which
+  is ours to resolve; a client naming a price id could name one we never published. **`interval` is as
+  required as the code** (T62, #128): a tier may be sold monthly and annually, so the code alone names two
+  prices and a default would charge somebody a rhythm they did not pick. A body without it is a `400`; a
+  rhythm the tier is not sold at is the same `404` an unknown code gets.
 - **Returns `200`:** `{ "url": "https://checkout.stripe.com/…" }`. The popup opens it in a tab and is
   destroyed the moment that tab takes focus — expected, and what T50's success page catches.
 - **A `200` is an offer to pay, not an entitlement.** What moves the plan is Stripe saying the money did,
@@ -273,7 +281,7 @@ about a *user*, and nothing here is about one.
         "features": {},
         "published": true,
         "isDefault": false,
-        "stripePriceId": "price_123" } ] }
+        "prices": [ { "stripePriceId": "price_123", "interval": "month" } ] } ] }
   ```
 
 - **Unfiltered, which is the point.** `GET /api/plans` hides a draft — quota 0, unpublished, created by the
@@ -282,7 +290,13 @@ about a *user*, and nothing here is about one.
   sellable, very much editable.
 - **No amount on any of them.** Money is Stripe's (ADR-0014) and this screen has to be readable when Stripe is
   not: an operator locked out of their catalog during a Stripe outage is locked out of the one tool that could
-  work around it. `stripePriceId` is there as a fact to read, never a field to send.
+  work around it. The `prices` are there as facts to read, never fields to send — one per rhythm the tier is
+  sold at, and empty for one sold at none.
+- **`POST /api/admin/tiers/{code}/prices`** adds a rhythm or reprices one (T62, #128) — `{ amount, currency,
+  interval }`, answering `200` with the updated **AdminTier**. One route for both, because in Stripe they are
+  one act: create a Price tagged with the tier's code. Adding lands beside the existing rhythms; repricing
+  replaces that rhythm's and leaves the others alone, and **everybody already subscribed keeps the Price they
+  bought**. `404` for a code nothing is stored under, `422` with `{ problem }` carrying Stripe's own words.
 - **`PUT /api/admin/tiers/{code}`** takes a **TierEdit** — `{ name, relistQuotaPerPeriod, features, published }`
   — and answers `200` with the row as stored. A `PUT` because the body is *total* over what may change, so
   there is no "absent or null" question; a body leaving out `relistQuotaPerPeriod` or `published` is a `400`

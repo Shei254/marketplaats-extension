@@ -246,6 +246,13 @@ URIs exactly, so sign-in lands on `/` and the page rewrites the address bar to `
 9c. Stop `stripe listen` and create a plan.
    *Expect:* it still works. The route adopts the Price itself through the same call the webhook makes, so
    the tier appears whether or not anything is forwarding events.
+9d. Click **Prices** on a plan and add the rhythm it does not sell at yet.
+   *Expect:* the popup's card for that plan now has **two buttons**, one per rhythm, each saying its own
+   amount — one plan, not two. Buy the annual one and check the Stripe dashboard shows a yearly subscription.
+9e. Click **Prices** again and pick a rhythm it *already* sells at.
+   *Expect:* the form says a replacement is being created and that **everybody already subscribed keeps the
+   price they signed up at**. After saving, the plan card shows the new amount and the other rhythm is
+   untouched — which the single price column could not do.
 10. Reprice: in Stripe, create a **new** Price tagged with an existing tier's code.
    *Expect:* the tier repoints, the plan cards show the new amount, and anybody already subscribed keeps
    paying the old one — which is Stripe's immutability, not a bug. Force a failed payment on one of them and

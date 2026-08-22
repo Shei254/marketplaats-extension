@@ -58,7 +58,7 @@ class StripePriceSyncTest {
 	void aCatalogNobodyHasSyncedYet() {
 		this.stripe = new StripeDeliveries(this.port, SECRET);
 		this.db.update("delete from tier where code not in ('free', 'pro', 'power')");
-		this.db.update("update tier set stripe_price_id = null, published = false");
+		TierPrices.nothingIsPriced(this.db);
 		this.db.update("update tier set name = 'Pro', relist_quota_per_period = 50 where code = 'pro'");
 		this.db.update("update tier set name = 'Power', relist_quota_per_period = 200 where code = 'power'");
 	}
@@ -70,7 +70,7 @@ class StripePriceSyncTest {
 		assertThat(signedPost(priceEvent("price.created", "price_pro_monthly", "pro", null)).statusCode())
 				.isEqualTo(200);
 
-		assertThat(stringOf("pro", "stripe_price_id")).isEqualTo("price_pro_monthly");
+		assertThat(TierPrices.only(this.db, "pro")).isEqualTo("price_pro_monthly");
 		assertThat(publishedIs("pro")).isTrue();
 	}
 
@@ -116,7 +116,7 @@ class StripePriceSyncTest {
 
 		assertThat(quotaOf("starter")).isZero();
 		assertThat(publishedIs("starter")).isFalse();
-		assertThat(stringOf("starter", "stripe_price_id")).isEqualTo("price_starter");
+		assertThat(TierPrices.only(this.db, "starter")).isEqualTo("price_starter");
 	}
 
 	/**
@@ -151,7 +151,8 @@ class StripePriceSyncTest {
 				.isEqualTo(200);
 
 		assertThat(codesInTheCatalog()).containsExactlyInAnyOrder("free", "pro", "power");
-		assertThat(this.db.queryForList("select code from tier where stripe_price_id is not null", String.class))
+		assertThat(this.db.queryForList("select code from tier join tier_price on tier.id = tier_price.tier_id",
+				String.class))
 				.isEmpty();
 	}
 
@@ -169,6 +170,82 @@ class StripePriceSyncTest {
 		assertThat(codesInTheCatalog()).containsExactlyInAnyOrder("free", "pro", "power");
 	}
 
+	/**
+	 * And a Price that does not recur is not a plan either, however it is tagged (T62, #128).
+	 *
+	 * <p>A tier's prices are told apart by their rhythm now that it may have several, so a one-off has nothing
+	 * to be filed under — and adopting one was always wrong: it would have become a tier whose Checkout session
+	 * could never be opened, since this product sells subscriptions. Before the rhythm was stored there was
+	 * nothing to notice that with.
+	 */
+	@Test
+	void andNeitherIsOneThatDoesNotRecur() {
+		assertThat(signedPost(priceEvent("price.created", "price_lifetime", "pro", "Lifetime", null))
+				.statusCode()).isEqualTo(200);
+
+		assertThat(TierPrices.of(this.db, "pro")).isEmpty();
+	}
+
+	// --- What a second rhythm does (T62, #128) --------------------------------------------------------
+
+	/**
+	 * A second Price tagged with the same code at a <em>different</em> rhythm is a second way to buy one plan,
+	 * not a second plan and not a replacement.
+	 *
+	 * <p>This is the whole of the ticket at the sync level. Before it, `tier.stripe_price_id` was one column,
+	 * so the annual Price overwrote the monthly one and Pro silently stopped being sold by the month —
+	 * ADR-0019 wrote that down as the thing its own `UNIQUE` constraint blocked.
+	 */
+	@Test
+	void aSecondPriceAtAnotherRhythmIsAnotherWayToBuyTheSamePlan() {
+		signedPost(priceEvent("price.created", "price_pro_monthly", "pro", null, "month"));
+
+		signedPost(priceEvent("price.created", "price_pro_yearly", "pro", null, "year"));
+
+		assertThat(TierPrices.of(this.db, "pro"))
+				.containsExactlyInAnyOrder("price_pro_monthly", "price_pro_yearly");
+		assertThat(TierPrices.intervalsOf(this.db, "pro")).containsExactly("month", "year");
+	}
+
+	/** And the tier is still one row, with one quota and one name — which is what "one plan" means. */
+	@Test
+	void andTheTierIsStillOneRowWithOneQuota() {
+		signedPost(priceEvent("price.created", "price_pro_monthly", "pro", null, "month"));
+		signedPost(priceEvent("price.created", "price_pro_yearly", "pro", null, "year"));
+
+		assertThat(codesInTheCatalog()).containsExactlyInAnyOrder("free", "pro", "power");
+		assertThat(quotaOf("pro")).isEqualTo(50);
+	}
+
+	/**
+	 * While a second Price at the <em>same</em> rhythm replaces that rhythm's, which is repricing — and leaves
+	 * the other rhythm alone, which the single column could not do.
+	 */
+	@Test
+	void whileASecondPriceAtTheSameRhythmRepricesThatOneAndLeavesTheOtherAlone() {
+		signedPost(priceEvent("price.created", "price_pro_monthly", "pro", null, "month"));
+		signedPost(priceEvent("price.created", "price_pro_yearly", "pro", null, "year"));
+
+		signedPost(priceEvent("price.created", "price_pro_monthly_v2", "pro", null, "month"));
+
+		assertThat(TierPrices.of(this.db, "pro"))
+				.containsExactlyInAnyOrder("price_pro_monthly_v2", "price_pro_yearly");
+	}
+
+	/**
+	 * And adding a rhythm never puts a withdrawn plan back on sale. Publishing happens once, on the first price
+	 * to land on a tier that grants something; an operator who took Pro off the cards did so deliberately.
+	 */
+	@Test
+	void andAddingARhythmDoesNotRepublishAWithdrawnPlan() {
+		signedPost(priceEvent("price.created", "price_pro_monthly", "pro", null, "month"));
+		this.db.update("update tier set published = false where code = 'pro'");
+
+		signedPost(priceEvent("price.created", "price_pro_yearly", "pro", null, "year"));
+
+		assertThat(publishedIs("pro")).isFalse();
+	}
+
 	// --- What happens the second time -----------------------------------------------------------------
 
 	/**
@@ -181,7 +258,7 @@ class StripePriceSyncTest {
 
 		signedPost(priceEvent("price.created", "price_pro_monthly_v2", "pro", null));
 
-		assertThat(stringOf("pro", "stripe_price_id")).isEqualTo("price_pro_monthly_v2");
+		assertThat(TierPrices.only(this.db, "pro")).isEqualTo("price_pro_monthly_v2");
 	}
 
 	/**
@@ -216,7 +293,7 @@ class StripePriceSyncTest {
 	}
 
 	/**
-	 * A Price belongs to one tier: {@code tier.stripe_price_id} is unique, so adopting one that another tier
+	 * A Price belongs to one tier: {@code tier_price.stripe_price_id} is unique, so adopting one that another tier
 	 * holds would either fail the constraint or quietly leave that tier with nothing to sell. Neither is a
 	 * choice a webhook should make, so nothing changes and the operator is told.
 	 */
@@ -227,8 +304,8 @@ class StripePriceSyncTest {
 		assertThat(signedPost(priceEvent("price.updated", "price_pro_monthly", "power", null)).statusCode())
 				.isEqualTo(200);
 
-		assertThat(stringOf("pro", "stripe_price_id")).isEqualTo("price_pro_monthly");
-		assertThat(stringOf("power", "stripe_price_id")).isNull();
+		assertThat(TierPrices.only(this.db, "pro")).isEqualTo("price_pro_monthly");
+		assertThat(TierPrices.only(this.db, "power")).isNull();
 		assertThat(publishedIs("power")).isFalse();
 	}
 
@@ -242,7 +319,7 @@ class StripePriceSyncTest {
 
 		signedPost(priceEvent("price.created", "price_pro_monthly", "pro", null));
 
-		assertThat(stringOf("pro", "stripe_price_id")).isEqualTo("price_pro_monthly");
+		assertThat(TierPrices.only(this.db, "pro")).isEqualTo("price_pro_monthly");
 		assertThat(publishedIs("pro")).isFalse();
 	}
 
@@ -254,7 +331,7 @@ class StripePriceSyncTest {
 				.deliveredUnsigned(priceEvent("price.created", "price_pro_monthly", "pro", null));
 
 		assertThat(refused.statusCode()).isEqualTo(400);
-		assertThat(stringOf("pro", "stripe_price_id")).isNull();
+		assertThat(TierPrices.only(this.db, "pro")).isNull();
 	}
 
 	/**
@@ -268,7 +345,7 @@ class StripePriceSyncTest {
 		HttpResponse<String> refused = this.stripe.deliveredSignedWith("whsec_someoneElsesSecret", payload);
 
 		assertThat(refused.statusCode()).isEqualTo(400);
-		assertThat(stringOf("pro", "stripe_price_id")).isNull();
+		assertThat(TierPrices.only(this.db, "pro")).isNull();
 	}
 
 	/**
@@ -283,7 +360,7 @@ class StripePriceSyncTest {
 		HttpResponse<String> refused = this.stripe.deliveredAsIfSentAt(yesterday, payload);
 
 		assertThat(refused.statusCode()).isEqualTo(400);
-		assertThat(stringOf("pro", "stripe_price_id")).isNull();
+		assertThat(TierPrices.only(this.db, "pro")).isNull();
 	}
 
 	/**
@@ -331,12 +408,24 @@ class StripePriceSyncTest {
 
 	/** An event as Stripe sends one, cut down to the fields ADR-0019 names. */
 	private static String priceEvent(String type, String priceId, String tierCode, String nickname) {
+		return priceEvent(type, priceId, tierCode, nickname, "month");
+	}
+
+	/**
+	 * @param interval how often the Price recurs, which since T62 (#128) is what tells a tier's prices apart
+	 * — and {@code null} for a one-off, which is not a plan however it is tagged
+	 */
+	private static String priceEvent(String type, String priceId, String tierCode, String nickname,
+			String interval) {
 		Map<String, Object> price = new LinkedHashMap<>();
 		price.put("id", priceId);
 		price.put("object", "price");
 		price.put("active", true);
 		price.put("nickname", nickname);
 		price.put("metadata", tierCode == null ? Map.of() : Map.of("tier_code", tierCode));
+		if (interval != null) {
+			price.put("recurring", Map.of("interval", interval));
+		}
 		return event(type, price);
 	}
 

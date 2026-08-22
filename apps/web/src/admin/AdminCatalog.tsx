@@ -1,4 +1,11 @@
-import type { AdminTier, NewPlan, SellableCurrencies, TierEdit, UntaggedPrice } from "@mprelist/contracts";
+import type {
+  AdminTier,
+  NewPlan,
+  NewPrice,
+  SellableCurrencies,
+  TierEdit,
+  UntaggedPrice,
+} from "@mprelist/contracts";
 import { Button, Note } from "@mprelist/ui";
 import { useCallback, useEffect, useState, type JSX } from "react";
 
@@ -43,6 +50,8 @@ export function AdminCatalog({
   const [prices, setPrices] = useState<PricesAnswer | null>(null);
   const [currencies, setCurrencies] = useState<CurrenciesAnswer | null>(null);
   const [creating, setCreating] = useState(false);
+  /** Which tier is having a rhythm added or repriced, if any (T62, #128). */
+  const [pricing, setPricing] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [note, setNote] = useState<{ tone: "ok" | "error"; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -128,6 +137,33 @@ export function AdminCatalog({
     [api, load, onSignedOut],
   );
 
+  /**
+   * Adding a rhythm to a plan, or repricing one it already sells at.
+   *
+   * The same call for both, because in Stripe they are the same act — create a
+   * Price tagged with the tier's code — and what decides which happened is whether
+   * the tier already sells at that rhythm.
+   */
+  const addPrice = useCallback(
+    async (code: string, price: NewPrice) => {
+      setBusy(true);
+      const answer = await api.addPrice(code, price);
+      setBusy(false);
+      if (answer.status === "signed-out") {
+        onSignedOut();
+        return;
+      }
+      if (answer.status === "created") {
+        setNote({ tone: "ok", message: `${code} is now sold by the ${price.interval} too.` });
+        setPricing(null);
+        await load();
+        return;
+      }
+      setNote({ tone: "error", message: whyNotCreated(answer) });
+    },
+    [api, load, onSignedOut],
+  );
+
   const makeDefault = useCallback(
     async (tier: AdminTier) => {
       setBusy(true);
@@ -181,6 +217,7 @@ export function AdminCatalog({
                 tier={tier}
                 busy={busy}
                 onEdit={() => setEditing(tier.tier.code === editing ? null : tier.tier.code)}
+                onAddPrice={() => setPricing(tier.tier.code === pricing ? null : tier.tier.code)}
                 onMakeDefault={() => void makeDefault(tier)}
               />
             ))}
@@ -202,6 +239,19 @@ export function AdminCatalog({
             busy={busy}
             onCancel={() => setCreating(false)}
             onCreate={(plan) => void createPlan(plan)}
+          />
+        ) : null}
+        {pricing ? (
+          <NewPriceForm
+            key={pricing}
+            code={pricing}
+            sellsAt={(catalog.tiers.find((tier) => tier.tier.code === pricing)?.prices ?? []).map(
+              (price) => price.interval,
+            )}
+            currencies={currencies}
+            busy={busy}
+            onCancel={() => setPricing(null)}
+            onAdd={(price) => void addPrice(pricing, price)}
           />
         ) : null}
         {editing ? (
@@ -230,20 +280,32 @@ function TierRow({
   tier,
   busy,
   onEdit,
+  onAddPrice,
   onMakeDefault,
 }: {
   tier: AdminTier;
   busy: boolean;
   onEdit: () => void;
+  onAddPrice: () => void;
   onMakeDefault: () => void;
 }): JSX.Element {
-  const draft = !tier.published && tier.relistQuotaPerPeriod === 0 && tier.stripePriceId !== null;
+  const draft = !tier.published && tier.relistQuotaPerPeriod === 0 && tier.prices.length > 0;
   return (
     <tr data-draft={draft}>
       <td className="admin-code">{tier.tier.code}</td>
       <td>{tier.tier.name}</td>
       <td className="admin-numeric">{tier.relistQuotaPerPeriod}</td>
-      <td className="admin-price-id">{tier.stripePriceId ?? "—"}</td>
+      <td className="admin-price-id">
+        {/* Every rhythm it is sold at (T62, #128) — monthly and annual Pro are one
+            plan, so they are one row with two prices rather than two tiers. */}
+        {tier.prices.length === 0
+          ? "—"
+          : tier.prices.map((price) => (
+              <span key={price.interval} className="admin-price-line">
+                {price.stripePriceId} <b>{price.interval}</b>
+              </span>
+            ))}
+      </td>
       <td>
         <span className={tier.published ? "admin-pill admin-pill--on" : "admin-pill"}>
           {tier.published ? "on sale" : draft ? "draft" : "not on sale"}
@@ -254,6 +316,9 @@ function TierRow({
         <div className="admin-row-actions">
           <Button shape="rect" tone="secondary" onClick={onEdit} disabled={busy}>
             Edit
+          </Button>
+          <Button shape="rect" tone="secondary" onClick={onAddPrice} disabled={busy}>
+            Prices
           </Button>
           {tier.isDefault ? null : (
             <Button shape="rect" tone="secondary" onClick={onMakeDefault} disabled={busy}>
@@ -361,10 +426,10 @@ function TierForm({
         />
         <label htmlFor="tier-published">On sale</label>
       </div>
-      {tier.stripePriceId === null ? (
+      {tier.prices.length === 0 ? (
         <p className="admin-hint">
-          This tier has no Stripe Price, so it cannot go on sale. Create one in Stripe tagged{" "}
-          <code>metadata.tier_code = {tier.tier.code}</code> and the sync will fill it in.
+          This tier has no Stripe Price, so it cannot go on sale. Add one below, or create it in Stripe
+          tagged <code>metadata.tier_code = {tier.tier.code}</code> — either way the same sync adopts it.
         </p>
       ) : null}
       <p className="admin-hint">
@@ -519,6 +584,115 @@ function NewPlanForm({
       <div className="admin-form-actions">
         <Button shape="rect" tone={busy ? "busy" : "primary"} onClick={submit}>
           {busy ? "Creating…" : "Create in Stripe"}
+        </Button>
+        <Button shape="rect" tone="secondary" onClick={onCancel} disabled={busy}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Adding a rhythm to a plan, or repricing one (T62, #128).
+ *
+ * **The rhythms it offers are the ones this tier does not already sell at** —
+ * except that picking one it *does* is the way to reprice, which is why the list is
+ * every rhythm with the existing ones marked rather than the missing ones only. An
+ * operator who does not know Stripe Prices are immutable would otherwise look for
+ * an edit field and not find one.
+ */
+function NewPriceForm({
+  code,
+  sellsAt,
+  currencies,
+  busy,
+  onCancel,
+  onAdd,
+}: {
+  code: string;
+  sellsAt: string[];
+  currencies: CurrenciesAnswer | null;
+  busy: boolean;
+  onCancel: () => void;
+  onAdd: (price: NewPrice) => void;
+}): JSX.Element {
+  const sellable: SellableCurrencies | null =
+    currencies?.status === "ready" ? currencies.currencies : null;
+  const [amount, setAmount] = useState("");
+  const [currency, setCurrency] = useState(sellable?.defaultCurrency ?? "");
+  const [interval, setInterval] = useState(sellsAt.includes("month") ? "year" : "month");
+  const [problem, setProblem] = useState<string | null>(null);
+
+  if (!sellable) {
+    return (
+      <div className="admin-form">
+        <Note tone="warn">
+          Stripe could not say which currencies this account can charge in, so a price cannot be added
+          here right now.
+        </Note>
+        <div className="admin-form-actions">
+          <Button shape="rect" tone="secondary" onClick={onCancel}>
+            Close
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const replacing = sellsAt.includes(interval);
+  const submit = (): void => {
+    const cents = Number(amount);
+    if (!Number.isInteger(cents) || cents < 0) {
+      setProblem("The amount is in cents, as a whole number — 999 is €9.99.");
+      return;
+    }
+    setProblem(null);
+    onAdd({ amount: cents, currency: currency || sellable.defaultCurrency, interval });
+  };
+
+  return (
+    <div className="admin-form">
+      <p className="admin-hint">
+        A price for <b>{code}</b>. Adding a rhythm it does not sell at yet puts the two side by side on
+        one plan card; picking one it already sells at creates a replacement Price — which is the only
+        way to reprice, because Stripe Prices cannot be edited.
+      </p>
+      <div className="admin-field">
+        <label htmlFor="price-interval">Billed every</label>
+        <select id="price-interval" value={interval} onChange={(e) => setInterval(e.target.value)}>
+          <option value="month">month{sellsAt.includes("month") ? " — already sold, replaces it" : ""}</option>
+          <option value="year">year{sellsAt.includes("year") ? " — already sold, replaces it" : ""}</option>
+        </select>
+      </div>
+      <div className="admin-field">
+        <label htmlFor="price-amount">Amount, in cents</label>
+        <input id="price-amount" type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} />
+      </div>
+      <div className="admin-field">
+        <label htmlFor="price-currency">Currency</label>
+        <select
+          id="price-currency"
+          value={currency || sellable.defaultCurrency}
+          onChange={(e) => setCurrency(e.target.value)}
+        >
+          {sellable.supported.map((one) => (
+            <option key={one} value={one}>
+              {one.toUpperCase()}
+            </option>
+          ))}
+        </select>
+      </div>
+      {replacing ? (
+        <p className="admin-hint">
+          <b>Everybody already subscribed keeps the price they signed up at.</b> That is what Stripe&apos;s
+          immutability means, and no screen can change it — they move when they cancel and buy again.
+        </p>
+      ) : null}
+      {problem ? <Note tone="error">{problem}</Note> : null}
+      <div className="admin-form-actions">
+        <Button shape="rect" tone={busy ? "busy" : "primary"} onClick={submit}>
+          {busy ? "Creating…" : replacing ? "Replace in Stripe" : "Add in Stripe"}
         </Button>
         <Button shape="rect" tone="secondary" onClick={onCancel} disabled={busy}>
           Cancel

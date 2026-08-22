@@ -79,14 +79,21 @@ record StripeEvent(String id, String type, OffsetDateTime created, JsonNode obje
 	 * <p>{@code nickname} is Stripe's own optional label for a Price and is what names a tier this catalog has
 	 * never heard of. It is usually unset, so it travels as a suggestion: {@link TaggedPrice} says what happens
 	 * to one that is absent, and the answer is that a tier keeps the name it already had.
+	 *
+	 * <p><strong>A Price with no {@code recurring} block is not one of these either, tag or no tag</strong>
+	 * (T62, #128). A tier's prices are told apart by their rhythm now that it may have several, so a one-off
+	 * has nothing to be filed under — and adopting one was always wrong: it would have become a tier whose
+	 * Checkout session could never be opened, since this product sells subscriptions. Before the rhythm was
+	 * stored there was nothing to notice that with.
 	 */
 	Optional<TaggedPrice> taggedPrice() {
 		String code = text(this.object.path("metadata").path(TIER_CODE));
 		String id = text(this.object.path("id"));
-		if (code == null || id == null) {
+		String interval = text(this.object.path("recurring").path("interval"));
+		if (code == null || id == null || interval == null) {
 			return Optional.empty();
 		}
-		return Optional.of(new TaggedPrice(code, id, text(this.object.path("nickname"))));
+		return Optional.of(new TaggedPrice(code, id, interval, text(this.object.path("nickname"))));
 	}
 
 	/**

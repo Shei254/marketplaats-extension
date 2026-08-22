@@ -1,8 +1,10 @@
 import type {
   AdminTier,
   NewPlan,
+  NewPrice,
   SellableCurrencies,
   TierEdit,
+  TierPriceOnTheWire,
   UntaggedPrice,
 } from "@mprelist/contracts";
 
@@ -128,16 +130,21 @@ export class AdminApi {
    * and `422` is the only answer anywhere in this API with a body worth reading.
    */
   async createPlan(plan: NewPlan): Promise<CreateAnswer> {
+    return this.created("/api/admin/plans", plan);
+  }
+
+  /** The shape both creations share: a POST, a `422` that carries a sentence, and a tier back. */
+  private async created(path: string, body: unknown): Promise<CreateAnswer> {
     let response: Response;
     try {
-      response = await this.http(`${this.config.apiBaseUrl}/api/admin/plans`, {
+      response = await this.http(`${this.config.apiBaseUrl}${path}`, {
         method: "POST",
         headers: {
           authorization: `Bearer ${this.token()}`,
           accept: "application/json",
           "content-type": "application/json",
         },
-        body: JSON.stringify(plan),
+        body: JSON.stringify(body),
       });
     } catch {
       return UNAVAILABLE;
@@ -159,6 +166,18 @@ export class AdminApi {
 
     const tier = asAdminTier(await response.json().catch(() => null));
     return tier ? { status: "created", tier } : UNAVAILABLE;
+  }
+
+  /**
+   * Add a rhythm to a plan that exists, or reprice one it already has (T62, #128).
+   *
+   * **One call for both, because in Stripe they are one act** — create a Price
+   * tagged with the tier's code. What decides which happened is whether the tier
+   * already sells at that rhythm: adding lands beside the existing one, repricing
+   * replaces it, and everybody already subscribed keeps the Price they bought.
+   */
+  async addPrice(code: string, price: NewPrice): Promise<CreateAnswer> {
+    return this.created(`/api/admin/tiers/${encodeURIComponent(code)}/prices`, price);
   }
 
   private async write(path: string, body: string | undefined): Promise<EditAnswer> {
@@ -259,8 +278,8 @@ export function asAdminTier(entry: unknown): AdminTier | null {
   const isDefault = fields["isDefault"];
   if (typeof published !== "boolean" || typeof isDefault !== "boolean") return null;
 
-  const priceId = fields["stripePriceId"];
-  if (priceId !== null && typeof priceId !== "string") return null;
+  const prices = asTierPrices(fields["prices"]);
+  if (!prices) return null;
 
   return {
     tier: { code, name },
@@ -268,8 +287,28 @@ export function asAdminTier(entry: unknown): AdminTier | null {
     features: features as Record<string, unknown>,
     published,
     isDefault,
-    stripePriceId: priceId,
+    prices,
   };
+}
+
+/**
+ * Every Stripe Price a tier is sold at (T62, #128). **Empty is legal here**, unlike
+ * on a plan card: the free tier is sold at none, and so is any tier whose Price has
+ * not been created yet — which is exactly the row this screen exists to act on.
+ */
+function asTierPrices(value: unknown): TierPriceOnTheWire[] | null {
+  if (!Array.isArray(value)) return null;
+  const read: TierPriceOnTheWire[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null) return null;
+    const fields = entry as Record<string, unknown>;
+    const stripePriceId = fields["stripePriceId"];
+    const interval = fields["interval"];
+    if (typeof stripePriceId !== "string" || stripePriceId.length === 0) return null;
+    if (typeof interval !== "string" || interval.length === 0) return null;
+    read.push({ stripePriceId, interval });
+  }
+  return read;
 }
 
 export function asCurrencies(body: unknown): SellableCurrencies | null {

@@ -12,7 +12,7 @@ const PRO: AdminTier = {
   features: {},
   published: true,
   isDefault: false,
-  stripePriceId: "price_pro",
+  prices: [{ stripePriceId: "price_pro", interval: "month" }],
 };
 
 interface Call {
@@ -94,7 +94,7 @@ describe("reading a tier off the wire", () => {
   });
 
   it("keeps a null price, which is the free tier and every tier Stripe has not priced", () => {
-    const free = { ...PRO, stripePriceId: null, published: false };
+    const free = { ...PRO, prices: [], published: false };
 
     expect(asAdminTiers({ tiers: [free] })).toEqual([free]);
   });
@@ -109,7 +109,7 @@ describe("reading a tier off the wire", () => {
       { ...PRO, features: [] },
       { ...PRO, published: "yes" },
       { ...PRO, isDefault: undefined },
-      { ...PRO, stripePriceId: 7 },
+      { ...PRO, prices: [{ stripePriceId: 7, interval: "month" }] },
     ]) {
       expect(asAdminTiers({ tiers: [broken] }), JSON.stringify(broken)).toBeNull();
     }

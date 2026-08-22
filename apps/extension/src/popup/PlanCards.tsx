@@ -1,8 +1,8 @@
 import { Button, Icon, Note, Skeleton } from "@mprelist/ui";
-import type { DisplayState, Plan } from "@mprelist/contracts";
+import type { DisplayState, Plan, PlanPrice } from "@mprelist/contracts";
 import type { JSX } from "react";
 
-import { grantOf, priceOf, type Handoff, type PlansView } from "./plans";
+import { grantOf, priceAndRhythmOf, type Handoff, type PlansView } from "./plans";
 import { relistsLeft } from "./screens";
 
 /**
@@ -40,7 +40,7 @@ export function PlanCards({
   current: DisplayState;
   /** Which card, if any, is busy opening a tab — and what stopped the last one. */
   handoff: Handoff;
-  onUpgrade: (tierCode: string) => void;
+  onUpgrade: (tierCode: string, interval: string) => void;
   onRetry: () => void;
 }): JSX.Element {
   if (view.status === "loading") return <LoadingCards />;
@@ -114,37 +114,82 @@ function PlanCard({
   plan: Plan;
   current: boolean;
   handoff: Handoff;
-  onUpgrade: (tierCode: string) => void;
+  onUpgrade: (tierCode: string, interval: string) => void;
 }): JSX.Element {
   const opening = handoff.kind === "opening";
-  const openingThis = opening && handoff.what === plan.tier.code;
   return (
     <div className={current ? "popup-plan-card popup-plan-card--current" : "popup-plan-card"}>
       <div className="popup-plan-card-head">
         <span className="popup-plan-card-name">{plan.tier.name}</span>
         {current ? <span className="popup-plan-card-pill">Current</span> : null}
-        <span className="popup-plan-card-price">{priceOf(plan.price)}</span>
       </div>
-      <p className="popup-plan-card-grant">{grantOf(plan)}</p>
+      {/* The quota, described in the rhythm of the first price — which is the
+          cheapest, and the one somebody reads the card by. */}
+      <p className="popup-plan-card-grant">{grantOf(plan, plan.prices[0]?.interval ?? "month")}</p>
       {current ? (
         <Button shape="block" tone="done" aria-label={`${plan.tier.name} is your plan`}>
           Your plan
         </Button>
       ) : (
-        <Button
-          shape="block"
-          // Every other card locks while one is opening: two Checkout tabs from
-          // two clicks is two sessions and one confused buyer, and the popup is
-          // about to be destroyed by the first anyway.
-          tone={openingThis ? "busy" : opening ? "locked" : "primary"}
-          onClick={() => onUpgrade(plan.tier.code)}
-        >
-          {openingThis ? "Opening…" : "Upgrade"}
-          {openingThis || opening ? null : <Icon name="external" size={13} />}
-        </Button>
+        /*
+         * One button per rhythm (T62, #128), each saying its own amount.
+         *
+         * A toggle above the cards was the other shape and is worse here: plans
+         * need not offer the same rhythms — one may be monthly-only — and a global
+         * switch would hide those rather than showing what each is actually sold
+         * at. Two buttons also put the two amounts side by side, which is the
+         * comparison somebody is making.
+         */
+        plan.prices.map((price) => (
+          <RhythmButton
+            key={price.interval}
+            plan={plan}
+            price={price}
+            handoff={handoff}
+            opening={opening}
+            onUpgrade={onUpgrade}
+          />
+        ))
       )}
     </div>
   );
+}
+
+/** One rhythm's button: what it costs, how often, and what happens when it is pressed. */
+function RhythmButton({
+  plan,
+  price,
+  handoff,
+  opening,
+  onUpgrade,
+}: {
+  plan: Plan;
+  price: PlanPrice;
+  handoff: Handoff;
+  opening: boolean;
+  onUpgrade: (tierCode: string, interval: string) => void;
+}): JSX.Element {
+  // Keyed by tier *and* rhythm, so the button that was clicked is the one that
+  // says "Opening…" — a plan with two of them would otherwise light both.
+  const openingThis = opening && handoff.kind === "opening" && handoff.what === buying(plan, price);
+  return (
+    <Button
+      shape="block"
+      // Every other button locks while one is opening: two Checkout tabs from two
+      // clicks is two sessions and one confused buyer, and the popup is about to be
+      // destroyed by the first anyway.
+      tone={openingThis ? "busy" : opening ? "locked" : "primary"}
+      onClick={() => onUpgrade(plan.tier.code, price.interval)}
+    >
+      {openingThis ? "Opening…" : priceAndRhythmOf(price)}
+      {openingThis || opening ? null : <Icon name="external" size={13} />}
+    </Button>
+  );
+}
+
+/** What `Handoff.what` holds while one rhythm of one plan is opening. */
+export function buying(plan: Plan, price: PlanPrice): string {
+  return `${plan.tier.code}:${price.interval}`;
 }
 
 /** The shape of the answer rather than a spinner, like the loading screen above it. */

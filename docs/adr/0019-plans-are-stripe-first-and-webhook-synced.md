@@ -125,3 +125,65 @@ since that path never reads a price, which is what kept it quiet.) An unrecognis
 tier change: the status and window are mirrored and the subscriber keeps the tier they bought. This was true
 before the amendment — anyone repricing in the dashboard hit it — and is fixed with it because the amendment
 makes repricing something people will actually do.
+
+---
+
+## Amended 2026-08-22 (second) — a plan may be sold at several rhythms; `tier_price` replaces the column
+
+This ADR named the thing that made this necessary, in its own consequences:
+
+> **Negative, and it blocks a thing you will want:** `tier.stripe_price_id` is `UNIQUE` and single-valued, so
+> **a tier cannot have both a monthly and an annual Price**. A second Price tagged `pro` collides on
+> `tier.code`, and it now fails inside a webhook rather than in front of a person. Annual pricing needs a
+> `tier_price` table, or a nullable second column, before it is attempted.
+
+and its *Revisit if*: "Annual or regional pricing is wanted (the `UNIQUE` constraint above is the first thing
+to move)."
+
+**A table, not the nullable second column.** A column fixes the answer at two, and the *other* thing that
+revisit condition names — regional pricing — is N prices per tier and cannot be a column at all. The join
+costs one index hit, which is what the column cost.
+
+```sql
+create table tier_price (
+    tier_id           references tier (id) on delete cascade,
+    stripe_price_id   text not null unique,          -- as before: two tiers may not share one Price
+    billing_interval  text not null,
+    unique (tier_id, billing_interval)               -- one price per rhythm, which makes repricing an update
+);
+```
+
+**The rhythm is now stored, and that is a narrow departure from ADR-0014.** That ADR gives Stripe the amount,
+the currency *and* the interval. The amount and currency are still never stored; the interval is, because a
+row has to be keyed on something and "the annual one" is the only handle a buyer or an operator ever uses to
+mean one of a tier's prices. `price.created` carries it, so it arrives the same way everything else about a
+Price does.
+
+**A tagged Price that does not recur is no longer adopted at all.** It has no rhythm to be filed under — and
+adopting one was always wrong: it became a tier whose Checkout could never be opened, since this product sells
+subscriptions. Before the rhythm was stored there was nothing to notice that with.
+
+**What this changes for callers.**
+
+- `GET /api/plans` carries `prices: PlanPrice[]` where it carried `price`. One card per plan, one button per
+  rhythm — a toggle above the cards was considered and is worse, because plans need not offer the same
+  rhythms and a global switch hides the ones that do not.
+- `POST /api/checkout` requires an `interval` beside the `tierCode`. A code alone now names two prices, and a
+  default would charge somebody a rhythm they did not pick. A rhythm the tier is not sold at is the same `404`
+  an unknown code gets.
+- `POST /api/admin/tiers/{code}/prices` adds a rhythm or reprices one, through the same `adopt` the webhook
+  uses.
+
+**Repricing is unchanged in meaning and better in scope.** A new Price tagged with the same code still
+repoints the tier — but now only *that rhythm's* row, where the single column moved whatever was there. So
+repricing monthly no longer silently takes annual off sale.
+
+**V5's check constraint became a trigger**, because the invariant it stated — a published tier has something
+to charge against — now spans two tables and a `check` may not. `initially immediate`, so a violation arrives
+on the statement that caused it: `deferred` was tried first and is wrong twice over, since a rolled-back
+transaction never commits (so a test asserting the invariant passes having checked nothing) and an exception
+raised at commit is a long way from the statement a caller could report on.
+
+**Still not addressed:** regional pricing. Two prices in the same rhythm and different currencies collide on
+`unique (tier_id, billing_interval)`. That constraint is the next one to move, and the shape is the same — add
+the currency to the key — but nothing yet asks for it.

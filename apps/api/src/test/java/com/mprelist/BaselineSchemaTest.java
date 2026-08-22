@@ -46,12 +46,14 @@ class BaselineSchemaTest {
 	}
 
 	@Test
-	void theMigrationCreatesTheFiveTablesTheDomainModelOwns() {
+	void theMigrationCreatesTheTablesTheDomainModelOwns() {
 		List<String> tables = db.queryForList(
 				"select table_name from information_schema.tables where table_schema = 'public'", String.class);
 
-		assertThat(tables).containsExactlyInAnyOrder("app_user", "tier", "subscription", "usage_reservation",
-				"relist_event", "flyway_schema_history");
+		// `tier_price` joined them at T62 (#128), when a tier stopped being sold at one price and the column
+		// that held it became a table of its own.
+		assertThat(tables).containsExactlyInAnyOrder("app_user", "tier", "tier_price", "subscription",
+				"usage_reservation", "relist_event", "flyway_schema_history");
 	}
 
 	@Test
@@ -73,21 +75,91 @@ class BaselineSchemaTest {
 		assertThatCode(this::twoTiersThatAreNotTheDefault).doesNotThrowAnyException();
 	}
 
-	/** ADR-0014: the free tier is an ordinary row that happens to have no Stripe Price. */
+	/**
+	 * ADR-0014: the free tier is an ordinary row that happens to have no Stripe Price.
+	 *
+	 * <p>Since T62 (#128) a tier's prices are rows in {@code tier_price} rather than a column here, so "has no
+	 * price" is "has no such row" — which is also how a tier comes to have <em>two</em>, one per rhythm.
+	 */
 	@Test
 	void aTierNeedsNoStripePriceAndMoreThanOneMayLackIt() {
 		twoTiersThatAreNotTheDefault();
 
-		assertThat(db.queryForObject("select count(*) from tier where stripe_price_id is null", Integer.class))
+		assertThat(db.queryForObject("""
+				select count(*) from tier
+				 where not exists (select 1 from tier_price where tier_price.tier_id = tier.id)
+				""", Integer.class)).isEqualTo(2);
+	}
+
+	/**
+	 * And it may have several, one per rhythm — which is the whole of T62 (#128) at the schema level, and what
+	 * the single unique column could not express: monthly and annual Pro are one plan.
+	 */
+	@Test
+	void andATierMayBeSoldAtMoreThanOnePriceProvidedTheyAreDifferentRhythms() {
+		UUID tier = tier();
+		db.update("insert into tier_price (tier_id, stripe_price_id, billing_interval) values (?, ?, 'month')",
+				tier, "price_monthly");
+		db.update("insert into tier_price (tier_id, stripe_price_id, billing_interval) values (?, ?, 'year')",
+				tier, "price_yearly");
+
+		assertThat(db.queryForObject("select count(*) from tier_price where tier_id = ?", Integer.class, tier))
 				.isEqualTo(2);
+	}
+
+	/** But not twice at the same one, or "the monthly price" would stop being a question with an answer. */
+	@Test
+	void butNotTwiceAtTheSameRhythm() {
+		UUID tier = tier();
+		db.update("insert into tier_price (tier_id, stripe_price_id, billing_interval) values (?, ?, 'month')",
+				tier, "price_monthly");
+
+		assertThatThrownBy(() -> db.update(
+				"insert into tier_price (tier_id, stripe_price_id, billing_interval) values (?, ?, 'month')",
+				tier, "price_another"))
+				.isInstanceOf(DuplicateKeyException.class)
+				.hasMessageContaining("tier_price_tier_id_billing_interval_key");
 	}
 
 	@Test
 	void butTwoTiersCannotShareOneStripePrice() {
-		db.update("update tier set stripe_price_id = 'price_123' where id = ?", tier());
+		// Unchanged in meaning and moved in place: the reverse lookup the subscription mirror does would be a
+		// choice rather than an answer if two tiers pointed at one Price.
+		db.update("insert into tier_price (tier_id, stripe_price_id, billing_interval) values (?, ?, 'month')",
+				tier(), "price_123");
 
-		assertThatThrownBy(() -> db.update("update tier set stripe_price_id = 'price_123' where id = ?", tier()))
-				.isInstanceOf(DuplicateKeyException.class).hasMessageContaining("tier_stripe_price_id_key");
+		assertThatThrownBy(() -> db.update(
+				"insert into tier_price (tier_id, stripe_price_id, billing_interval) values (?, ?, 'month')",
+				tier(), "price_123"))
+				.isInstanceOf(DuplicateKeyException.class).hasMessageContaining("tier_price_stripe_price_id_key");
+	}
+
+	/**
+	 * And a published tier still cannot exist without something to charge against — the invariant V5 wrote as
+	 * a {@code check} and V7 had to rewrite as a trigger, because it now spans two tables and a check
+	 * constraint may not.
+	 *
+	 * <p>Both directions, which is more than the check could do: publishing a tier that has no price, and
+	 * taking the last price away from one that is published. The second was never reachable before, since
+	 * there was only ever one price and nulling it was the same statement as publishing.
+	 */
+	@Test
+	void andAPublishedTierStillCannotExistWithNothingToChargeAgainst() {
+		UUID tier = tier();
+
+		assertThatThrownBy(() -> db.update("update tier set published = true where id = ?", tier))
+				.hasMessageContaining("tier_is_published_only_with_a_price");
+	}
+
+	@Test
+	void andItsLastPriceCannotBeTakenAwayWhileItIsOnSale() {
+		UUID tier = tier();
+		db.update("insert into tier_price (tier_id, stripe_price_id, billing_interval) values (?, ?, 'month')",
+				tier, "price_only");
+		db.update("update tier set published = true where id = ?", tier);
+
+		assertThatThrownBy(() -> db.update("delete from tier_price where tier_id = ?", tier))
+				.hasMessageContaining("tier_is_published_only_with_a_price");
 	}
 
 	@Test

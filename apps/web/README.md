@@ -120,6 +120,11 @@ another. The currency dropdown is **what this Stripe account can settle in**, as
 listed here; where it cannot be fetched the form creates nothing rather than offering a guess, since the guess
 is a plan that renders a card and fails at Checkout.
 
+**A plan may be sold at more than one rhythm** (T62, #128). Each row lists every Stripe Price it is sold at,
+and **Prices** adds one — or replaces one it already has, which is the only way to reprice, since Stripe
+Prices cannot be edited. The form says which of the two is about to happen and, when it is a replacement, that
+everybody already subscribed keeps the price they signed up at.
+
 **The feature flags are a JSON textarea**, which is honest rather than lazy: `features` is an open object,
 every tier carries `{}` today, and no flag has an implementation behind it. Checkboxes would be inventing a
 schema this product has not decided on.

@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
@@ -108,7 +109,8 @@ class CreatePlans {
 		PlanCreation.Created created = (PlanCreation.Created) made;
 
 		// The webhook's own call, and then the edit form's. Nothing here writes a row of its own.
-		this.adoptions.adopt(new TaggedPrice(created.tierCode(), created.stripePriceId(), created.name()));
+		this.adoptions.adopt(new TaggedPrice(created.tierCode(), created.stripePriceId(), plan.interval(),
+				created.name()));
 		return switch (this.catalog.apply(plan.tierCode(), grant)) {
 			case TierEdited.Applied applied ->
 				ResponseEntity.status(201).body(AdministerTiers.asAdminTier(applied.tier()));
@@ -117,6 +119,77 @@ class CreatePlans {
 			case TierEdited.NoSuchTier ignored -> ResponseEntity.status(500).build();
 			case TierEdited.NothingToChargeAgainst ignored -> ResponseEntity.status(500).build();
 		};
+	}
+
+	/**
+	 * {@code POST /api/admin/tiers/{code}/prices} — a second rhythm for a plan that already exists, and the
+	 * way a plan is repriced without leaving the screen (T62, #128).
+	 *
+	 * <p><strong>One route for both, because in Stripe they are one act.</strong> Adding an annual price to a
+	 * monthly Pro and changing Pro's monthly price are the same request — create a Price tagged {@code pro} —
+	 * and what decides which happened is whether the tier already has a row for that rhythm. Adding lands
+	 * beside the existing one; repricing replaces it, and everybody already subscribed keeps the Price they
+	 * bought, because that is what Stripe's immutability means and no screen can change it.
+	 *
+	 * <p>It does <strong>not</strong> touch the quota, the name or whether the tier is on sale: those are the
+	 * edit form's, and a tier that was withdrawn does not come back on sale because a price was added to it.
+	 */
+	@PostMapping(path = TIER_PRICES, consumes = MediaType.APPLICATION_JSON_VALUE)
+	ResponseEntity<?> addPrice(@PathVariable String code, @RequestBody NewPriceRequest request) {
+		NewPlanInStripe price;
+		try {
+			price = request.asPlanFor(code, nameOf(code));
+		}
+		catch (IllegalArgumentException unusable) {
+			return ResponseEntity.badRequest().build();
+		}
+		if (nameOf(code) == null) {
+			return ResponseEntity.notFound().build();
+		}
+
+		PlanCreation made = this.stripe.create(price, "price:" + code + ":" + request.amount() + ":"
+				+ request.currency() + ":" + request.interval());
+		if (made instanceof PlanCreation.Refused refused) {
+			return ResponseEntity.status(422).body(new Problem(refused.because()));
+		}
+		PlanCreation.Created created = (PlanCreation.Created) made;
+
+		// The webhook's own call again, which is what slots the Price into the right rhythm — adding a row
+		// where there was none, and replacing the id where there was one.
+		this.adoptions.adopt(new TaggedPrice(code, created.stripePriceId(), price.interval(), null));
+		return this.catalog.everyTier().stream()
+				.filter(tier -> tier.tier().code().equals(code))
+				.findFirst()
+				.map(AdministerTiers::asAdminTier)
+				.<ResponseEntity<?>>map(ResponseEntity::ok)
+				.orElseGet(() -> ResponseEntity.status(500).build());
+	}
+
+	/** The tier's current name, or {@code null} where no tier carries that code. */
+	private String nameOf(String code) {
+		return this.catalog.everyTier().stream()
+				.filter(tier -> tier.tier().code().equals(code))
+				.map(tier -> tier.tier().name())
+				.findFirst()
+				.orElse(null);
+	}
+
+	/** What the add-a-rhythm form sends: an amount and a rhythm, and nothing about the tier itself. */
+	record NewPriceRequest(Long amount, String currency, String interval) {
+
+		/**
+		 * The Stripe Product is named after the tier it belongs to, so a second rhythm does not create a
+		 * differently-named Product beside the first. The name is read from the catalog rather than sent,
+		 * because renaming a tier is the edit form's job and this form should not be able to do it by accident.
+		 */
+		NewPlanInStripe asPlanFor(String code, String name) {
+			if (this.amount == null) {
+				throw new IllegalArgumentException("A price states what it costs");
+			}
+			return new NewPlanInStripe(code, name == null ? code : name, this.amount, this.currency,
+					this.interval);
+		}
+
 	}
 
 	/**
@@ -181,6 +254,8 @@ class CreatePlans {
 	static final String PLANS = "/api/admin/plans";
 
 	static final String CURRENCIES = "/api/admin/currencies";
+
+	static final String TIER_PRICES = "/api/admin/tiers/{code}/prices";
 
 }
 

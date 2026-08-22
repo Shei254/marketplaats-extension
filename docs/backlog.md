@@ -335,6 +335,25 @@ moment the two-place workflow had a screen to be compared against.
   the mirror used to drop their events — so a failing card left the row `ACTIVE`. Now only the tier change is
   skipped; status and window are mirrored.
 
+#### [T62](https://github.com/Shei254/marketplaats-extension/issues/128) · A plan may be sold monthly and annually · **L** · T61 · **shipped**
+`tier_price` replaces `tier.stripe_price_id`, so monthly and annual Pro are **one plan a buyer chooses a
+rhythm for** rather than two tiers with two quotas. **Amends
+[ADR-0019](adr/0019-plans-are-stripe-first-and-webhook-synced.md) a second time**, on the constraint that ADR
+named as the first thing to move.
+- **A table, not the nullable second column** the ADR also offered: a column fixes the answer at two, and the
+  other revisit trigger — regional pricing — is N prices per tier.
+- **The rhythm is stored**, a narrow departure from ADR-0014: the amount and currency still are not, but a row
+  has to be keyed on something and "the annual one" is the handle everybody uses.
+- **A tagged Price that does not recur is no longer adopted** — it has no rhythm to be filed under, and
+  adopting one always made a tier whose Checkout could never open.
+- `GET /api/plans` carries `prices[]`; the popup shows **one button per rhythm**, each saying its own amount.
+  `POST /api/checkout` requires an `interval`, since a code alone now names two prices.
+- **Repricing gets narrower**: a new monthly Price no longer silently takes annual off sale.
+- **V5's check became a trigger**, `initially immediate` — the invariant spans two tables now, and `deferred`
+  never fires in a rolled-back test.
+- Still open: **regional pricing**. Two prices in one rhythm and different currencies collide on
+  `unique (tier_id, billing_interval)`, which is the next constraint to move.
+
 ---
 
 ## Go-Live — making it reachable by somebody else

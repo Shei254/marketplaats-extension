@@ -175,8 +175,16 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
     [],
   );
 
+  /**
+   * Buying one rhythm of one plan (T62, #128).
+   *
+   * The busy key is the pair rather than the tier code, because a plan sold monthly
+   * and annually has two buttons and only the one that was pressed should say
+   * "Opening…".
+   */
   const upgrade = useCallback(
-    (tierCode: string) => void openStripe(tierCode, () => worker.checkout(tierCode), "checkout"),
+    (tierCode: string, interval: string) =>
+      void openStripe(`${tierCode}:${interval}`, () => worker.checkout(tierCode, interval), "checkout"),
     [openStripe, worker],
   );
 
@@ -247,7 +255,7 @@ interface Handlers {
   handoff: Handoff;
   seePlans: () => void;
   backToAds: () => void;
-  upgrade: (tierCode: string) => void;
+  upgrade: (tierCode: string, interval: string) => void;
   manageBilling: () => void;
 }
 

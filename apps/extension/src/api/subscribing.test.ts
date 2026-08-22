@@ -8,7 +8,7 @@ const PRO: Plan = {
   tier: { code: "pro", name: "Pro" },
   relistQuotaPerPeriod: 50,
   features: {},
-  price: { amount: 999, currency: "eur", interval: "month" },
+  prices: [{ amount: 999, currency: "eur", interval: "month" }],
 };
 
 interface Call {
@@ -124,11 +124,17 @@ describe("reading the plans off the wire", () => {
       { ...PRO, relistQuotaPerPeriod: 1.5 },
       { ...PRO, features: undefined },
       { ...PRO, features: [] },
-      { ...PRO, price: undefined },
-      { ...PRO, price: { amount: 999, currency: "eur" } },
-      { ...PRO, price: { amount: "999", currency: "eur", interval: "month" } },
-      { ...PRO, price: { amount: 9.99, currency: "eur", interval: "month" } },
-      { ...PRO, price: { amount: 999, currency: "", interval: "month" } },
+      { ...PRO, prices: undefined },
+      // Never empty: a tier with nothing to charge against cannot be published, so
+      // a card with no price is a card whose only button could not open a Checkout.
+      { ...PRO, prices: [] },
+      { ...PRO, prices: [{ amount: 999, currency: "eur" }] },
+      { ...PRO, prices: [{ amount: "999", currency: "eur", interval: "month" }] },
+      { ...PRO, prices: [{ amount: 9.99, currency: "eur", interval: "month" }] },
+      { ...PRO, prices: [{ amount: 999, currency: "", interval: "month" }] },
+      // All of them or none of them, like the list itself: a rhythm that cannot be
+      // read would be a button whose amount is a guess.
+      { ...PRO, prices: [{ amount: 999, currency: "eur", interval: "month" }, { amount: 1 }] },
     ]) {
       expect(asPlans({ plans: [broken] }), JSON.stringify(broken)).toBeNull();
     }
@@ -137,7 +143,7 @@ describe("reading the plans off the wire", () => {
   it("allows an amount of zero, which is a Price Stripe can hold", () => {
     // Refusing it would blank the whole screen over a plan somebody deliberately
     // made free — and the list is all-or-nothing, so it really is the whole screen.
-    const free = { ...PRO, price: { amount: 0, currency: "eur", interval: "month" } };
+    const free = { ...PRO, prices: [{ amount: 0, currency: "eur", interval: "month" }] };
 
     expect(asPlans({ plans: [free] })).toEqual([free]);
   });
@@ -151,18 +157,20 @@ describe("reading the plans off the wire", () => {
 });
 
 describe("buying a plan", () => {
-  it("posts the tier code, never a price id", async () => {
+  it("posts the tier code and the rhythm, never a price id", async () => {
     // The code is the stable handle (ADR-0014) and resolving it is the backend's,
-    // which is what stops a client naming a Price nobody published.
+    // which is what stops a client naming a Price nobody published. The rhythm is
+    // as required since T62 (#128): a tier may be sold monthly and annually, so
+    // the code alone names two prices.
     const { client, calls } = api({ answer: () => json({ url: "https://checkout.stripe.com/c/pay/1" }) });
 
-    await expect(client.checkout("pro")).resolves.toEqual({
+    await expect(client.checkout("pro", "month")).resolves.toEqual({
       status: "opened",
       url: "https://checkout.stripe.com/c/pay/1",
     });
     expect(calls[0]?.url).toBe("http://localhost:8080/api/checkout");
     expect(calls[0]?.method).toBe("POST");
-    expect(calls[0]?.body).toBe('{"tierCode":"pro"}');
+    expect(calls[0]?.body).toBe('{"tierCode":"pro","interval":"month"}');
     expect(calls[0]?.headers["content-type"]).toBe("application/json");
   });
 
@@ -172,19 +180,19 @@ describe("buying a plan", () => {
     // would be lying to a buyer.
     const { client } = api({ answer: () => empty(404) });
 
-    await expect(client.checkout("pro")).resolves.toEqual({ status: "gone" });
+    await expect(client.checkout("pro", "month")).resolves.toEqual({ status: "gone" });
   });
 
   it("and a Stripe that could not be asked as unavailable", async () => {
     const { client } = api({ answer: () => empty(503) });
 
-    await expect(client.checkout("pro")).resolves.toEqual({ status: "unavailable" });
+    await expect(client.checkout("pro", "month")).resolves.toEqual({ status: "unavailable" });
   });
 
   it("refuses an answer with no URL in it rather than opening nothing", async () => {
     const { client } = api({ answer: () => json({ url: "" }) });
 
-    await expect(client.checkout("pro")).resolves.toEqual({ status: "unavailable" });
+    await expect(client.checkout("pro", "month")).resolves.toEqual({ status: "unavailable" });
   });
 });
 

@@ -2,6 +2,8 @@ package com.mprelist.catalog.internal;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -23,6 +25,7 @@ import com.mprelist.catalog.TierEdited;
 import com.mprelist.catalog.TierEdits;
 import com.mprelist.catalog.TierId;
 import com.mprelist.catalog.TierName;
+import com.mprelist.catalog.TierPrice;
 
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
@@ -118,18 +121,47 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 	 */
 	@Override
 	public List<SellablePlan> published() {
+		Map<UUID, List<TierPrice>> prices = pricesByTier();
 		return this.db.sql("""
-				select code, name, relist_quota_per_period, max_marktplaats_accounts, features::text,
-				       stripe_price_id
+				select id, code, name, relist_quota_per_period, max_marktplaats_accounts, features::text
 				  from tier
 				 where published
 				 order by relist_quota_per_period, code
 				""")
 				.query((row, number) -> new SellablePlan(new TierName(row.getString("code"), row.getString("name")),
-						row.getString("stripe_price_id"),
+						prices.getOrDefault(row.getObject("id", UUID.class), List.of()),
 						new Entitlement(row.getInt("relist_quota_per_period"),
 								row.getInt("max_marktplaats_accounts"), flagsIn(row.getString("features")))))
 				.list();
+	}
+
+	/**
+	 * Every tier's prices, in one statement rather than one per tier (T62, #128).
+	 *
+	 * <p>Two round trips for the whole catalog, where a join would have been one and a query per tier would
+	 * have been N. Kept apart because a tier with two prices would otherwise arrive as two rows of tier, and
+	 * reassembling that costs more code than a second statement costs time — on a table of a handful of rows.
+	 *
+	 * <p>Ordered by rhythm rather than alphabetically, so {@code month} precedes {@code year}: it is the order
+	 * a buyer reads two prices in, decided here because it is an {@code order by} rather than a sort in every
+	 * client.
+	 */
+	private Map<UUID, List<TierPrice>> pricesByTier() {
+		Map<UUID, List<TierPrice>> byTier = new LinkedHashMap<>();
+		this.db.sql("""
+				select tier_id, stripe_price_id, billing_interval
+				  from tier_price
+				 order by case billing_interval
+				              when 'day' then 0 when 'week' then 1 when 'month' then 2 when 'year' then 3
+				              else 4 end,
+				          billing_interval
+				""")
+				.query((row, number) -> Map.entry(row.getObject("tier_id", UUID.class),
+						new TierPrice(row.getString("stripe_price_id"), row.getString("billing_interval"))))
+				.list()
+				.forEach(entry -> byTier.computeIfAbsent(entry.getKey(), tier -> new ArrayList<>())
+						.add(entry.getValue()));
+		return byTier;
 	}
 
 	/**
@@ -143,7 +175,7 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 	 */
 	@Override
 	public Optional<TierId> tierSoldAs(String stripePriceId) {
-		return this.db.sql("select id from tier where stripe_price_id = ?")
+		return this.db.sql("select tier_id from tier_price where stripe_price_id = ?")
 				.param(stripePriceId)
 				.query(UUID.class)
 				.optional()
@@ -181,21 +213,77 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 				.param(price.tierCode())
 				.query(Integer.class)
 				.single() > 0;
-		this.db.sql("""
-				insert into tier (code, name, relist_quota_per_period, max_marktplaats_accounts,
-				                  stripe_price_id, published)
-				values (:code, coalesce(cast(:name as text), :code), 0, 1, :priceId, false)
+
+		// The tier itself: created as a draft if the code is new, renamed through a `coalesce` if it is not,
+		// and its quota never written either way — ADR-0019's central rule, and V2's own.
+		UUID tier = this.db.sql("""
+				insert into tier (code, name, relist_quota_per_period, max_marktplaats_accounts)
+				values (:code, coalesce(cast(:name as text), :code), 0, 1)
 				on conflict (code) do update
-				   set stripe_price_id = excluded.stripe_price_id,
-				       name = coalesce(cast(:name as text), tier.name),
-				       published = tier.published
-				                   or (tier.stripe_price_id is null and tier.relist_quota_per_period > 0)
+				   set name = coalesce(cast(:name as text), tier.name)
+				returning id
 				""")
 				.param("code", price.tierCode())
 				.param("name", price.name())
+				.query(UUID.class)
+				.single();
+
+		boolean hadNoPriceBefore = this.db.sql("select count(*) from tier_price where tier_id = ?")
+				.param(tier)
+				.query(Integer.class)
+				.single() == 0;
+
+		/*
+		 * The price, keyed on the tier and the rhythm — which is what makes a tier's monthly and annual prices
+		 * two rows rather than a collision (T62, #128), and what keeps repricing an update: a new monthly
+		 * Price tagged `pro` replaces the monthly row and leaves the annual one alone.
+		 *
+		 * Before this table there was one column, so the second Price tagged with a code overwrote the first
+		 * whatever its rhythm — the bug ADR-0019 wrote down and could not fix without a migration.
+		 */
+		this.db.sql("""
+				insert into tier_price (tier_id, stripe_price_id, billing_interval)
+				values (:tier, :priceId, :interval)
+				on conflict (tier_id, billing_interval) do update
+				   set stripe_price_id = excluded.stripe_price_id
+				""")
+				.param("tier", tier)
 				.param("priceId", price.stripePriceId())
+				.param("interval", price.interval())
 				.update();
+
+		/*
+		 * Publishing still happens once, on the first price to land on a tier that grants something — which is
+		 * what fills in the seeded `pro` and `power`. A *second* price on an already-priced tier leaves
+		 * `published` exactly as it was, so adding an annual rhythm never puts a withdrawn plan back on sale.
+		 */
+		if (hadNoPriceBefore) {
+			this.db.sql("update tier set published = true where id = ? and relist_quota_per_period > 0")
+					.param(tier)
+					.update();
+		}
 		return known ? Adoption.FILLED_IN_A_TIER : Adoption.DRAFTED_A_TIER;
+	}
+
+	/**
+	 * Whether some <em>other</em> tier already carries this Price id.
+	 *
+	 * <p>{@code tier_price.stripe_price_id} is unique, so adopting it anyway would either fail the constraint
+	 * inside a webhook or — if it were written as a move — quietly leave the first tier with one fewer rhythm
+	 * to sell. Neither is an outcome for this module to choose, so it declines and says so.
+	 */
+	private boolean heldByAnotherTier(TaggedPrice price) {
+		return this.db.sql("""
+				select count(*)
+				  from tier_price
+				  join tier on tier.id = tier_price.tier_id
+				 where tier_price.stripe_price_id = :priceId
+				   and tier.code <> :code
+				""")
+				.param("priceId", price.stripePriceId())
+				.param("code", price.tierCode())
+				.query(Integer.class)
+				.single() > 0;
 	}
 
 	// --- what an operator sees and changes (T53, #84) ------------------------------------------------------
@@ -209,13 +297,13 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 	 */
 	@Override
 	public List<CatalogEntry> everyTier() {
+		Map<UUID, List<TierPrice>> prices = pricesByTier();
 		return this.db.sql("""
-				select code, name, relist_quota_per_period, features::text, published, is_default,
-				       stripe_price_id
+				select id, code, name, relist_quota_per_period, features::text, published, is_default
 				  from tier
 				 order by relist_quota_per_period, code
 				""")
-				.query((row, number) -> entry(row))
+				.query((row, number) -> entry(row, prices))
 				.list();
 	}
 
@@ -240,7 +328,7 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 		if (stored.isEmpty()) {
 			return new TierEdited.NoSuchTier();
 		}
-		if (edit.published() && stored.get().stripePriceId() == null) {
+		if (edit.published() && stored.get().prices().isEmpty()) {
 			return new TierEdited.NothingToChargeAgainst();
 		}
 		this.db.sql("""
@@ -290,37 +378,23 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 	}
 
 	private Optional<CatalogEntry> entryFor(String code) {
+		Map<UUID, List<TierPrice>> prices = pricesByTier();
 		return this.db.sql("""
-				select code, name, relist_quota_per_period, features::text, published, is_default,
-				       stripe_price_id
+				select id, code, name, relist_quota_per_period, features::text, published, is_default
 				  from tier
 				 where code = ?
 				""")
 				.param(code)
-				.query((row, number) -> entry(row))
+				.query((row, number) -> entry(row, prices))
 				.optional();
 	}
 
 	/** One row, read the one way — three statements above hand back an entry and all three mean this. */
-	private static CatalogEntry entry(ResultSet row) throws SQLException {
+	private static CatalogEntry entry(ResultSet row, Map<UUID, List<TierPrice>> prices) throws SQLException {
 		return new CatalogEntry(new TierName(row.getString("code"), row.getString("name")),
 				row.getInt("relist_quota_per_period"), flagsIn(row.getString("features")),
-				row.getBoolean("published"), row.getBoolean("is_default"), row.getString("stripe_price_id"));
-	}
-
-	/**
-	 * Whether some <em>other</em> tier already carries this Price id.
-	 *
-	 * <p>{@code tier.stripe_price_id} is unique, so adopting it anyway would either fail the constraint inside
-	 * a webhook or — if it were written as a move — quietly leave the first tier with nothing to sell. Neither
-	 * is an outcome for this module to choose, so it declines and says so.
-	 */
-	private boolean heldByAnotherTier(TaggedPrice price) {
-		return this.db.sql("select count(*) from tier where stripe_price_id = :priceId and code <> :code")
-				.param("priceId", price.stripePriceId())
-				.param("code", price.tierCode())
-				.query(Integer.class)
-				.single() > 0;
+				row.getBoolean("published"), row.getBoolean("is_default"),
+				prices.getOrDefault(row.getObject("id", UUID.class), List.of()));
 	}
 
 	private static Map<String, Object> flagsIn(String features) {

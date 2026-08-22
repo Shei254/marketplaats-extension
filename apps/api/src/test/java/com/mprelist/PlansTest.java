@@ -64,11 +64,12 @@ class PlansTest {
 	@BeforeEach
 	void aCatalogWithTwoThingsOnSale() {
 		this.db.update("delete from tier where code not in ('free', 'pro', 'power')");
-		this.db.update("update tier set stripe_price_id = null, published = false");
-		this.db.update("update tier set stripe_price_id = 'price_pro', published = true, "
-				+ "relist_quota_per_period = 50 where code = 'pro'");
-		this.db.update("update tier set stripe_price_id = 'price_power', published = true, "
-				+ "relist_quota_per_period = 200 where code = 'power'");
+		TierPrices.nothingIsPriced(this.db);
+		this.db.update("update tier set relist_quota_per_period = 50 where code = 'pro'");
+		this.db.update("update tier set relist_quota_per_period = 200 where code = 'power'");
+		TierPrices.soldByTheMonth(this.db, "pro", "price_pro");
+		TierPrices.soldByTheMonth(this.db, "power", "price_power");
+		this.db.update("update tier set published = true where code in ('pro', 'power')");
 		PRICES.clear();
 		PRICES.put("price_pro", new StripePrice(999, "eur", "month"));
 		PRICES.put("price_power", new StripePrice(1999, "eur", "month"));
@@ -84,9 +85,9 @@ class PlansTest {
 		assertThat(pro.get("tier").get("name").asString()).isEqualTo("Pro");
 		assertThat(pro.get("relistQuotaPerPeriod").asInt()).isEqualTo(50);
 		assertThat(pro.get("features").isObject()).isTrue();
-		assertThat(pro.get("price").get("amount").asInt()).isEqualTo(999);
-		assertThat(pro.get("price").get("currency").asString()).isEqualTo("eur");
-		assertThat(pro.get("price").get("interval").asString()).isEqualTo("month");
+		assertThat(pro.get("prices").get(0).get("amount").asInt()).isEqualTo(999);
+		assertThat(pro.get("prices").get(0).get("currency").asString()).isEqualTo("eur");
+		assertThat(pro.get("prices").get(0).get("interval").asString()).isEqualTo("month");
 	}
 
 	@Test
@@ -113,7 +114,8 @@ class PlansTest {
 	@Test
 	void norIsADraftNobodyHasPublished() {
 		this.db.update("insert into tier (code, name, relist_quota_per_period, max_marktplaats_accounts, "
-				+ "stripe_price_id, published) values ('starter', 'starter', 0, 1, 'price_starter', false)");
+				+ "published) values ('starter', 'starter', 0, 1, false)");
+		TierPrices.soldByTheMonth(this.db, "starter", "price_starter");
 		PRICES.put("price_starter", new StripePrice(499, "eur", "month"));
 
 		assertThat(codesOnOffer()).containsExactly("pro", "power");
@@ -121,8 +123,8 @@ class PlansTest {
 
 	/**
 	 * And a tier with nothing to charge against cannot be on sale either — but the query does not have to say
-	 * so, because the schema will not let the row exist: `V5__tier_publication.sql` makes a published tier
-	 * with no price unwriteable (T51, #82).
+	 * so, because the schema will not let the row exist: V5 made a published tier with no price unwriteable
+	 * (T51, #82), and V7 kept that as a trigger when the prices moved to a table of their own (T62, #128).
 	 *
 	 * <p>Asserted here rather than left implied, because it is the reason `published()` reads one column
 	 * instead of two. A mutation that drops a redundant clause is one no test can catch, and the answer to
@@ -130,7 +132,8 @@ class PlansTest {
 	 */
 	@Test
 	void aTierWithNothingToChargeAgainstCannotEvenBePublished() {
-		assertThatThrownBy(() -> this.db.update("update tier set stripe_price_id = null where code = 'power'"))
+		assertThatThrownBy(() -> this.db.update(
+				"delete from tier_price using tier where tier.id = tier_price.tier_id and tier.code = 'power'"))
 				.hasMessageContaining("tier_is_published_only_with_a_price");
 
 		assertThat(codesOnOffer()).containsExactly("pro", "power");

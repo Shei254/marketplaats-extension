@@ -37,11 +37,12 @@ import java.util.Map;
  * @param isDefault whether new accounts are provisioned onto it. Exactly one tier carries it, which is an
  * invariant the schema holds ({@code tier_single_default}) and {@link TierEdits} preserves by only ever
  * moving it
- * @param stripePriceId the Price that sells it, or {@code null} — the free tier has none, and neither has a
- * tier whose Price has not been created in Stripe yet
+ * @param prices every Stripe Price it is sold at, cheapest rhythm first, and empty for a tier that has none —
+ * the free tier, and any tier whose Price has not been created in Stripe yet. Several since T62 (#128), where
+ * monthly and annual are one plan rather than two
  */
 public record CatalogEntry(TierName tier, int relistQuotaPerPeriod, Map<String, Object> features,
-		boolean published, boolean isDefault, String stripePriceId) {
+		boolean published, boolean isDefault, java.util.List<TierPrice> prices) {
 
 	public CatalogEntry {
 		if (tier == null) {
@@ -54,14 +55,18 @@ public record CatalogEntry(TierName tier, int relistQuotaPerPeriod, Map<String, 
 		if (features == null) {
 			throw new IllegalArgumentException("A tier granting no flags grants an empty set of them");
 		}
-		if (published && stripePriceId == null) {
-			// V5__tier_publication.sql's own constraint, restated where an entry is built rather than only
-			// where a row is written — for Entitlement's reason: a test standing one up by hand should not be
-			// able to make a tier the table would have refused.
+		if (prices == null) {
+			throw new IllegalArgumentException("A tier sold at no price has an empty list of them, not none");
+		}
+		if (published && prices.isEmpty()) {
+			// V7's trigger, restated where an entry is built rather than only where a row is written — for
+			// Entitlement's reason: a test standing one up by hand should not be able to make a tier the
+			// database would have refused.
 			throw new IllegalArgumentException("A published tier has something to charge against; "
 					+ "tier_is_published_only_with_a_price refuses the row otherwise");
 		}
 		features = Collections.unmodifiableMap(new LinkedHashMap<>(features));
+		prices = java.util.List.copyOf(prices);
 	}
 
 }

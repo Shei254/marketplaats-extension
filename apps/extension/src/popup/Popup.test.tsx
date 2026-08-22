@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
-import type { DisplayState } from "@mprelist/contracts";
+import type { DisplayState, Plan } from "@mprelist/contracts";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DisplayStateAnswer } from "../api/display-state";
+import type { HandoffAnswer, PlansAnswer } from "../api/subscribing";
 import type { WireRelistOutcome } from "../background/messages";
 import type { ListingSummary } from "../domain/types";
 import { NoMarktplaatsTabError } from "../adapters/relay-marktplaats-client";
@@ -39,12 +40,35 @@ const RELISTED: WireRelistOutcome = {
   quota: { quotaRemaining: 1, resetAt: "2026-09-14T08:31:22.101Z" },
 };
 
+/** What `GET /api/plans` answers with — never the free tier and never a draft. */
+const PRO: Plan = {
+  tier: { code: "pro", name: "Pro" },
+  relistQuotaPerPeriod: 50,
+  features: {},
+  price: { amount: 999, currency: "eur", interval: "month" },
+};
+
+const POWER: Plan = {
+  tier: { code: "power", name: "Power" },
+  relistQuotaPerPeriod: 200,
+  features: {},
+  price: { amount: 1999, currency: "eur", interval: "month" },
+};
+
+/** A Stripe page the worker has already opened a tab for; the popup is on its way out. */
+const OPENED: HandoffAnswer = { status: "opened", url: "https://checkout.stripe.com/c/pay/cs_1" };
+
 export const ADS: ListingSummary[] = [
   { id: "m1", title: "Vintage Eames lounge chair", priceCents: 125_000 },
   { id: "m2", title: "Trek Marlin 7 mountainbike (M)", priceCents: 48_000 },
 ];
 
-function fakeWorker(answers: DisplayStateAnswer[] = [{ status: "ready", plan: PLAN }], ads: ListingSummary[] = ADS) {
+function fakeWorker(
+  answers: DisplayStateAnswer[] = [{ status: "ready", plan: PLAN }],
+  ads: ListingSummary[] = ADS,
+  /** What the three subscribing calls answer, when a test is about one of them. */
+  subscribing: { plans?: PlansAnswer; checkout?: HandoffAnswer; portal?: HandoffAnswer } = {},
+) {
   const asked: string[] = [];
   const queue = [...answers];
   const worker: WorkerPort = {
@@ -66,6 +90,18 @@ function fakeWorker(answers: DisplayStateAnswer[] = [{ status: "ready", plan: PL
     }),
     /** No gap to wait out, which is what a first relist of the session meets (T46, #54). */
     msBeforeNextRelist: vi.fn(async () => 0),
+    plans: vi.fn(async () => {
+      asked.push("plans");
+      return subscribing.plans ?? ({ status: "ready", plans: [PRO, POWER] } as PlansAnswer);
+    }),
+    checkout: vi.fn(async (tierCode: string) => {
+      asked.push(`checkout:${tierCode}`);
+      return subscribing.checkout ?? OPENED;
+    }),
+    portal: vi.fn(async () => {
+      asked.push("portal");
+      return subscribing.portal ?? OPENED;
+    }),
     signIn: vi.fn(async () => {
       asked.push("sign-in");
     }),
@@ -381,5 +417,199 @@ describe("signing out", () => {
     await click("Sign out");
 
     expect(text()).toContain("Sign in");
+  });
+});
+
+describe("the plan cards", () => {
+  const SPENT: DisplayState = { ...PLAN, quotaRemaining: 0 };
+
+  it("open from the prompt beside the locked ads, which is where the click belongs", async () => {
+    // ADR-0007 leaves the ad list ungated precisely so the conversion click sits
+    // next to the user's own ads. This is the button #79 refused to draw before
+    // there was anywhere for it to go.
+    const { worker, asked } = fakeWorker([{ status: "ready", plan: SPENT }]);
+
+    await show(worker);
+    await click("See plans");
+
+    expect(asked).toEqual(["display-state", "list-ads", "plans"]);
+    expect(text()).toContain("Choose a plan");
+    expect(text()).toContain("50 relists a month");
+  });
+
+  it("and from the header, so somebody who is not out of relists can still reach them", async () => {
+    // The canvas draws no way in but the prompt, which would leave a paying
+    // subscriber unable to reach their own billing — and ADR-0017 makes this popup
+    // the account surface.
+    const { worker } = fakeWorker();
+
+    await show(worker);
+    await click("Plans");
+
+    expect(text()).toContain("Choose a plan");
+  });
+
+  it("warn that Checkout takes over the screen, because it does", async () => {
+    // The popup is destroyed the moment the tab takes focus (ADR-0017). A user who
+    // is not told reads that as the click having failed.
+    const { worker } = fakeWorker();
+
+    await show(worker);
+    await click("Plans");
+
+    expect(text()).toContain("Checkout opens in a new tab");
+    expect(text()).toContain("you drop back to Free, never locked out");
+  });
+
+  it("show the plan they are on beside the ones they could buy", async () => {
+    const { worker } = fakeWorker();
+
+    await show(worker);
+    await click("Plans");
+
+    expect(text()).toContain("Free");
+    expect(text()).toContain("Your plan");
+    expect(text()).toContain("Pro");
+    expect(text()).toContain("Power");
+  });
+
+  it("go back to the ads without asking the backend anything again", async () => {
+    // The plan and the ads are both still in hand; a reload here would be a
+    // second answer to a question nobody asked twice.
+    const { worker, asked } = fakeWorker();
+
+    await show(worker);
+    await click("Plans");
+    await click("Back");
+
+    expect(asked).toEqual(["display-state", "list-ads", "plans"]);
+    expect(text()).toContain("2 of 3 relists left");
+    expect(text()).not.toContain("Choose a plan");
+  });
+
+  it("say prices could not be loaded rather than showing a guessed one", async () => {
+    const { worker } = fakeWorker(undefined, ADS, { plans: { status: "unavailable" } });
+
+    await show(worker);
+    await click("Plans");
+
+    expect(text()).toContain("Prices couldn’t be loaded");
+    expect(text()).not.toContain("Upgrade");
+  });
+
+  it("and ask again when told to", async () => {
+    const { worker, asked } = fakeWorker(undefined, ADS, { plans: { status: "unavailable" } });
+
+    await show(worker);
+    await click("Plans");
+    await click("Try again");
+
+    expect(asked.filter((call) => call === "plans")).toHaveLength(2);
+  });
+
+  it("send somebody whose token expired back to the sign-in screen", async () => {
+    // The ordinary way that happens is a popup left open. It is the same event
+    // `/api/me` reports, so it gets the same screen rather than a note on this one.
+    const { worker } = fakeWorker(undefined, ADS, { plans: { status: "signed-out" } });
+
+    await show(worker);
+    await click("Plans");
+
+    expect(text()).toContain("Sign in");
+    expect(text()).not.toContain("Choose a plan");
+  });
+
+  it("and a build the backend has stopped serving to the update screen", async () => {
+    const { worker } = fakeWorker(undefined, ADS, { plans: { status: "outdated" } });
+
+    await show(worker);
+    await click("Plans");
+
+    expect(text()).toContain("needs updating");
+  });
+});
+
+describe("handing off to Stripe", () => {
+  it("asks the worker to open Checkout for the tier that was clicked", async () => {
+    // The worker opens the tab, not this page: the tab takes focus and destroys
+    // whoever asked, so a `chrome.tabs.create` awaited here would be awaited in a
+    // page that no longer exists.
+    const { worker, asked } = fakeWorker();
+
+    await show(worker);
+    await click("Plans");
+    await click("Upgrade");
+
+    expect(asked).toContain("checkout:pro");
+  });
+
+  it("says a plan is no longer on sale rather than that something broke", async () => {
+    // What a client holding yesterday's cards gets, and nobody's error.
+    const { worker } = fakeWorker(undefined, ADS, { checkout: { status: "gone" } });
+
+    await show(worker);
+    await click("Plans");
+    await click("Upgrade");
+
+    expect(text()).toContain("isn’t on sale any more");
+  });
+
+  it("and says come back in a moment when Stripe could not be asked", async () => {
+    const { worker } = fakeWorker(undefined, ADS, { checkout: { status: "unavailable" } });
+
+    await show(worker);
+    await click("Plans");
+    await click("Upgrade");
+
+    expect(text()).toContain("Checkout couldn’t be opened");
+  });
+
+  it("opens the Customer Portal from the plans screen", async () => {
+    const { worker, asked } = fakeWorker();
+
+    await show(worker);
+    await click("Plans");
+    await click("Manage billing");
+
+    expect(asked).toContain("portal");
+  });
+
+  it("and tells somebody who has never paid that there is nothing there", async () => {
+    // Every free user who has not bought anything, which is most accounts — so it
+    // is a sentence rather than an apology.
+    const { worker } = fakeWorker(undefined, ADS, { portal: { status: "gone" } });
+
+    await show(worker);
+    await click("Plans");
+    await click("Manage billing");
+
+    expect(text()).toContain("nothing to manage");
+  });
+
+  it("offers the Portal beside a failing card, which is where ADR-0018 puts it", async () => {
+    // The 402 copy is "update your card", not "resubscribe" — nothing has been
+    // cancelled, Stripe is still retrying, and the tier is still theirs.
+    const failing: DisplayState = { ...PLAN, subscriptionStatus: "PAST_DUE", tier: { code: "pro", name: "Pro" } };
+    const { worker, asked } = fakeWorker([{ status: "ready", plan: failing }]);
+
+    await show(worker);
+    expect(text()).toContain("Your payment didn’t go through");
+    await click("Update card");
+
+    expect(asked).toContain("portal");
+  });
+
+  it("and says so on that prompt when the Portal could not be opened", async () => {
+    const failing: DisplayState = { ...PLAN, subscriptionStatus: "PAST_DUE", tier: { code: "pro", name: "Pro" } };
+    const { worker } = fakeWorker([{ status: "ready", plan: failing }], ADS, {
+      portal: { status: "unavailable" },
+    });
+
+    await show(worker);
+    await click("Update card");
+
+    expect(text()).toContain("billing page couldn’t be opened");
+    // And the plan is still theirs: a failed hand-off changes nothing about it.
+    expect(text()).toContain("Pro");
   });
 });

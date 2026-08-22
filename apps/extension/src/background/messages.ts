@@ -1,4 +1,5 @@
 import type { DisplayStateAnswer } from "../api/display-state";
+import type { HandoffAnswer, PlansAnswer } from "../api/subscribing";
 import type { AuthState } from "../auth/session";
 import type { RemainingQuota } from "@mprelist/contracts";
 
@@ -45,7 +46,29 @@ export type DisplayStateRequest = { kind: "display-state" };
  */
 export type AdsRequest = { kind: "list-ads" };
 
-export type BackgroundRequest = RelistRequest | AuthRequest | DisplayStateRequest | AdsRequest;
+/**
+ * Subscribing, all three of it (T52, #83): what is on sale, buying one of them,
+ * and managing one already bought.
+ *
+ * **The worker opens the tab, not the popup**, which is the whole reason the last
+ * two are requests rather than a URL handed back to be opened by whoever asked.
+ * A Chrome popup is destroyed the moment another surface takes focus, so the page
+ * that asked for a Checkout session is gone before the tab it asked for finishes
+ * opening — and a `chrome.tabs.create` awaited in a page that no longer exists is
+ * the same shape of bug as a sign-in awaited there (ADR-0010). It is also the rule
+ * `Popup.tsx` already keeps: nothing in the popup talks to Chrome.
+ */
+export type SubscribingRequest =
+  | { kind: "plans" }
+  | { kind: "checkout"; tierCode: string }
+  | { kind: "portal" };
+
+export type BackgroundRequest =
+  | RelistRequest
+  | AuthRequest
+  | DisplayStateRequest
+  | AdsRequest
+  | SubscribingRequest;
 
 /** A RelistOutcome with its `error: unknown` flattened to something serialisable. */
 export type WireRelistOutcome =
@@ -84,6 +107,16 @@ export interface BackgroundAnswers {
    * "Marktplaats refused the request" and say something different about each.
    */
   "list-ads": ListingSummary[];
+  /** What can be bought — never the free tier and never a draft (ADR-0019). */
+  plans: PlansAnswer;
+  /**
+   * Whether a Stripe page was opened, and what stopped it if not. The `url` rides
+   * along on `opened` even though the worker has already used it: the popup does
+   * not read it, and the caller that will one day want it — a live-testing hook,
+   * an injected surface — should not need a second request shape to see it.
+   */
+  checkout: HandoffAnswer;
+  portal: HandoffAnswer;
 }
 
 export type BackgroundResponse<K extends BackgroundRequest["kind"] = BackgroundRequest["kind"]> =

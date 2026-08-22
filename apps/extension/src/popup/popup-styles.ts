@@ -164,3 +164,89 @@ export const adListCss = `
 /* The row that is running. One at a time (T30b, #79), so this is never two. */
 .popup-ad[data-state="busy"] { background: var(--mp-hover); }
 `.trim();
+
+/**
+ * The plan cards (T52, #83). A third string for `adListCss`'s reason: this is a
+ * screen of its own and nothing else on this surface uses a line of it.
+ *
+ * Sizes and gaps are the canvas's (`docs/design/PlanCards.dc.html`) expressed in
+ * the tokens rather than in its literals, which is the rule the two above keep —
+ * the artboard draws a 10px card radius and the sheet names 12px for cards, so the
+ * token wins and the difference is a pixel nobody can see.
+ */
+export const planCardCss = `
+.popup-plans-body { padding: var(--mp-space-md); }
+.popup-plans-title {
+  margin: 0 0 3px;
+  font: var(--mp-text-title) var(--mp-font-family);
+  letter-spacing: -0.01em;
+}
+.popup-plans-lede {
+  margin: 0 0 var(--mp-space-md);
+  font: var(--mp-text-caption) var(--mp-font-family);
+  color: var(--mp-muted);
+}
+
+.popup-plans { display: flex; flex-direction: column; gap: var(--mp-space-sm); }
+.popup-plan-card {
+  border: 1px solid var(--mp-line);
+  border-radius: var(--mp-radius-card);
+  padding: 13px var(--mp-space-md);
+}
+/* The plan they are already on, marked by its border as well as by its pill. */
+.popup-plan-card--current { border-color: var(--mp-accent); }
+.popup-plan-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--mp-space-sm);
+}
+.popup-plan-card-name {
+  font: var(--mp-text-body) var(--mp-font-family);
+  font-weight: 650;
+}
+.popup-plan-card-pill {
+  font: var(--mp-text-micro) var(--mp-font-family);
+  font-weight: 650;
+  color: var(--mp-accent);
+  background: var(--mp-hover);
+  padding: 2px 7px;
+  border-radius: var(--mp-radius-pill);
+}
+.popup-plan-card-price {
+  font-weight: 650;
+  /* Two amounts one above the other are being compared, so their digits line up. */
+  font-variant-numeric: tabular-nums;
+}
+.popup-plan-card-grant {
+  margin: var(--mp-space-xs) 0 0;
+  font: var(--mp-text-caption) var(--mp-font-family);
+  color: var(--mp-muted);
+}
+.popup-plan-card .mp-btn { margin-top: 12px; }
+
+.popup-plans-empty {
+  padding: 22px 0;
+  text-align: center;
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  color: var(--mp-muted);
+}
+.popup-plans-failed {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--mp-space-sm);
+  padding: var(--mp-space-sm) 0;
+}
+.popup-plans-fine {
+  margin: var(--mp-space-md) 0 0;
+  font: var(--mp-text-micro) var(--mp-font-family);
+  color: var(--mp-muted);
+  line-height: 1.5;
+}
+/* The way to Stripe's own pages, which is not a plan and so is not a card. */
+.popup-plans-manage { margin-top: var(--mp-space-xs); padding-left: 0; }
+
+/* The prompts grew a button with this ticket; before it they were two lines. */
+.popup-prompt .mp-btn { margin-top: var(--mp-space-sm); }
+`.trim();

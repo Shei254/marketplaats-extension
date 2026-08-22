@@ -2,18 +2,23 @@ import { Button, Icon, IconButton, Note, Skeleton, Spinner } from "@mprelist/ui"
 import type { DisplayState } from "@mprelist/contracts";
 import type { JSX, ReactNode } from "react";
 
+import { MANAGING, type Handoff } from "./plans";
+
 
 /**
- * The four screens, as functions of what they show and nothing else — no state,
+ * The screens, as functions of what they show and nothing else — no state,
  * no messaging, no clock beyond the one date they are handed. What decides
  * *which* of them is on the screen is `screen.ts`, and what fetches anything is
  * the worker.
  *
- * The layout is the design canvas's (`docs/design/`), and so are the words. One
- * deliberate departure, and it is in the header: the canvas has no sign-out
- * control anywhere, and the slice-A click-through ends by signing out. It is a
- * quiet text button rather than an invented glyph, since the icon set is the
- * canvas's too.
+ * The layout is the design canvas's (`docs/design/`), and so are the words. Two
+ * deliberate departures, both in the header and both the same shape. The canvas
+ * has no sign-out control anywhere and the slice-A click-through ends by signing
+ * out; it has no way into the plan cards either except the prompt beside a spent
+ * quota, which would leave a paying subscriber with no way to reach their own
+ * billing — and ADR-0017 is explicit that this popup *is* the account surface
+ * ("the popup's quota display plus a Customer Portal link"). Both are quiet text
+ * buttons rather than invented glyphs, since the icon set is the canvas's too.
  */
 export function Header({ actions }: { actions?: ReactNode }): JSX.Element {
   return (
@@ -163,6 +168,9 @@ export function SignedInScreen({
   children,
   onRefresh,
   onSignOut,
+  onSeePlans,
+  onManageBilling,
+  handoff,
   busy,
 }: {
   plan: DisplayState;
@@ -170,6 +178,10 @@ export function SignedInScreen({
   children?: ReactNode;
   onRefresh: () => void;
   onSignOut: () => void;
+  onSeePlans: () => void;
+  /** Opens the Customer Portal (T21, #31) — the dunning prompt's own button. */
+  onManageBilling: () => void;
+  handoff: Handoff;
   busy: boolean;
 }): JSX.Element {
   const spent = plan.quotaRemaining === 0;
@@ -182,6 +194,9 @@ export function SignedInScreen({
             <IconButton label="Refresh" onClick={onRefresh} disabled={busy}>
               <Icon name="refresh" />
             </IconButton>
+            <button type="button" className="popup-quiet" onClick={onSeePlans} disabled={busy}>
+              Plans
+            </button>
             <button type="button" className="popup-quiet" onClick={onSignOut} disabled={busy}>
               Sign out
             </button>
@@ -199,8 +214,12 @@ export function SignedInScreen({
             : resetsOn(plan.resetAt)}
         </span>
       </div>
-      {paymentFailing ? <DunningPrompt tier={plan.tier.name} /> : null}
-      {spent && !paymentFailing ? <ExhaustedPrompt resetAt={plan.resetAt} /> : null}
+      {paymentFailing ? (
+        <DunningPrompt tier={plan.tier.name} onManageBilling={onManageBilling} handoff={handoff} />
+      ) : null}
+      {spent && !paymentFailing ? (
+        <ExhaustedPrompt resetAt={plan.resetAt} onSeePlans={onSeePlans} />
+      ) : null}
       {children}
     </>
   );
@@ -221,14 +240,28 @@ function stripClass(spent: boolean, paymentFailing: boolean): string {
 }
 
 /**
- * Shown when the period is spent. It says when they come back, which is the only
- * thing that makes "you have none left" actionable.
+ * Shown when the period is spent: when they come back, and the way out of waiting.
  *
- * **No button yet, deliberately.** The canvas puts "See plans" here and the plan
- * cards are T52 (#83) — a button with nowhere to go is the thing #79 refused to
- * ship, and the sentence is useful without one.
+ * **The button arrived with the cards it opens** (T52, #83) — #79 shipped this
+ * prompt without one rather than draw a button with nowhere to go, and this is the
+ * ticket that gave it somewhere. It sits beside the ad list on purpose: ADR-0007
+ * leaves that list ungated precisely so the conversion click is next to the user's
+ * own locked ads rather than three steps away on a website.
+ *
+ * The canvas's copy here is "You've used your 3 for this month / Pro gives you 50
+ * relists a month", and the second sentence is not kept: it names a tier and a
+ * quota that are an operator's to change (ADR-0014), so saying it would mean
+ * fetching `/api/plans` on every popup open for one line — and would be wrong the
+ * day somebody renames Pro. What is kept is the date, which is the thing that
+ * makes "you have none left" actionable for a user who does not want to pay.
  */
-function ExhaustedPrompt({ resetAt }: { resetAt: string }): JSX.Element {
+function ExhaustedPrompt({
+  resetAt,
+  onSeePlans,
+}: {
+  resetAt: string;
+  onSeePlans: () => void;
+}): JSX.Element {
   return (
     <div className="popup-prompt">
       <span className="popup-prompt-mark">
@@ -239,6 +272,9 @@ function ExhaustedPrompt({ resetAt }: { resetAt: string }): JSX.Element {
         <p className="popup-prompt-copy">
           They come back {resetsOn(resetAt).replace("resets ", "on ") || "when the period rolls"}.
         </p>
+        <Button shape="rect" tone="primary" onClick={onSeePlans}>
+          See plans
+        </Button>
       </div>
     </div>
   );
@@ -249,9 +285,20 @@ function ExhaustedPrompt({ resetAt }: { resetAt: string }): JSX.Element {
  * half**: Stripe is still retrying, the tier has not been taken away, and a
  * successful retry gives it straight back (ADR-0018).
  *
- * The Customer Portal link that belongs on it is T21 (#31).
+ * "Update card" opens the Customer Portal (T21, #31), which is where the card
+ * actually lives — none of it is built here, and ADR-0018 asks for this copy
+ * rather than "resubscribe" precisely because nothing has been cancelled.
  */
-function DunningPrompt({ tier }: { tier: string }): JSX.Element {
+function DunningPrompt({
+  tier,
+  onManageBilling,
+  handoff,
+}: {
+  tier: string;
+  onManageBilling: () => void;
+  handoff: Handoff;
+}): JSX.Element {
+  const opening = handoff.kind === "opening" && handoff.what === MANAGING;
   return (
     <div className="popup-prompt popup-prompt--failing">
       <span className="popup-prompt-mark popup-prompt-mark--failing">
@@ -262,8 +309,73 @@ function DunningPrompt({ tier }: { tier: string }): JSX.Element {
         <p className="popup-prompt-copy">
           We’ll keep retrying. Update your card to start relisting again — your plan is still {tier}.
         </p>
+        <Button shape="rect" tone={opening ? "busy" : "secondary"} onClick={onManageBilling}>
+          {opening ? "Opening…" : "Update card"}
+        </Button>
+        {handoff.kind === "failed" ? <Note tone="error">{handoff.message}</Note> : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * The plan cards, and the frame around them (T52, #83).
+ *
+ * The cards themselves are `PlanCards`, handed in — this is the title, the two
+ * sentences the canvas puts around them, and the way back. **"Checkout opens in a
+ * new tab" is a warning, not decoration**: the popup is destroyed the moment that
+ * tab takes focus (ADR-0017), so a user who is not told will read the popup
+ * vanishing as the click having failed.
+ *
+ * **"Manage billing" is here rather than on a card**, because it belongs to
+ * whoever has billing at all rather than to any one plan — and it is shown to
+ * everybody, including somebody who has never paid, because nothing on this screen
+ * can tell: the free tier is absent from `/api/plans` by construction, and a
+ * subscriber who cancelled is back on it with their invoices still at Stripe
+ * (ADR-0018). So the API answers that question and the note says the answer.
+ */
+export function PlansScreen({
+  onBack,
+  onManageBilling,
+  handoff,
+  children,
+}: {
+  onBack: () => void;
+  onManageBilling: () => void;
+  handoff: Handoff;
+  /** `PlanCards` — the cards own the loading and failed states of the list itself. */
+  children?: ReactNode;
+}): JSX.Element {
+  const managing = handoff.kind === "opening" && handoff.what === MANAGING;
+  return (
+    <>
+      <Header
+        actions={
+          <button type="button" className="popup-quiet" onClick={onBack}>
+            Back
+          </button>
+        }
+      />
+      <div className="popup-plans-body">
+        <h1 className="popup-plans-title">Choose a plan</h1>
+        <p className="popup-plans-lede">
+          Checkout opens in a new tab. Come back here when you’re done.
+        </p>
+        {children}
+        {handoff.kind === "failed" ? <Note tone="error">{handoff.message}</Note> : null}
+        <p className="popup-plans-fine">
+          Cancel any time — you drop back to Free, never locked out.
+        </p>
+        <button
+          type="button"
+          className="popup-quiet popup-plans-manage"
+          onClick={onManageBilling}
+          disabled={handoff.kind === "opening"}
+        >
+          {managing ? "Opening…" : "Manage billing"}
+        </button>
+      </div>
+    </>
   );
 }
 

@@ -36,6 +36,14 @@ export const DEV_HOOK_NAMES = [
   // will one day match something inside a dependency and fail for the wrong
   // reason. The popup's bundle now carries React.
   "__apiMe",
+  // Subscribing (T52, #83). `__checkout` and `__portal` are the two hooks here
+  // that reach a live Stripe: in test mode against `4242…`, which is what the
+  // click-through's slice C walks — and they answer with the URL rather than
+  // opening it, since the worker's own tab-opening is the popup's path and this
+  // one is a console.
+  "__plans",
+  "__checkout",
+  "__portal",
 ] as const;
 
 export type DevHookName = (typeof DEV_HOOK_NAMES)[number];

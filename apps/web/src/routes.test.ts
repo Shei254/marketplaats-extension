@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { isDocument, PATHS, pageFor } from "./routes";
+import { isAdminPath, isDocument, PATHS, pageFor } from "./routes";
 
 /**
  * The other copy of the three paths Stripe is given, read out of the working tree
@@ -81,8 +81,24 @@ describe("the route table", () => {
     // The visitor most likely to arrive at a mistyped URL here is somebody who
     // just paid, which is the whole reason this is a page and not an empty root.
     expect(pageFor("/succes")).toBe("not-found");
-    expect(pageFor("/admin")).toBe("not-found");
     expect(pageFor("")).toBe("not-found");
+  });
+
+  it("and still answers `not-found` for `/admin`, which is a surface and not a page", () => {
+    // T54 (#85) made the admin corner its own surface — its own frame, its own
+    // stylesheet, and the only authentication in this bundle (ADR-0017) — chosen
+    // by the entry point *before* this table is consulted. Keeping it out of the
+    // table is what lets a reader trust the sentence `Page` is named for: every
+    // page in it is public.
+    expect(pageFor("/admin")).toBe("not-found");
+    expect(isAdminPath("/admin")).toBe(true);
+  });
+
+  it("reads the admin corner at its own address, trailing slash and all", () => {
+    expect(isAdminPath("/admin/")).toBe(true);
+    expect(isAdminPath("/admin/tiers")).toBe(false);
+    expect(isAdminPath("/")).toBe(false);
+    expect(isAdminPath("/administrators")).toBe(false);
   });
 
   it("is case-sensitive, like the paths it is handed", () => {

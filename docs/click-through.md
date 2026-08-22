@@ -198,20 +198,39 @@ rather than a 404 — a host that does not (T55, #86) breaks this step *after* t
 
 **Proves:** you can operate the product without a database client.
 
+```bash
+npm run dev -w @mprelist/web        # http://localhost:5173/admin
+```
+
+The realm's `mprelist-dashboard` client registers **`http://localhost:5173/`** and Keycloak matches redirect
+URIs exactly, so sign-in lands on `/` and the page rewrites the address bar to `/admin` afterwards. Seeing
+`?code=…` in the bar for a moment is that, working.
+
 1. Open `/admin` **signed out**.
-   *Expect:* Keycloak login, then the tier list.
-2. Sign in as a **non-admin** dev user.
-   *Expect:* refused. The `ADMIN` role is the guard and the API enforces it server-side.
-3. Sign in as the admin.
-   *Expect:* the tier list, and the Price from slice C step 2 shown as **unadopted** — a missing `tier_code`
-   must be visible, not silent.
+   *Expect:* Keycloak's login page immediately — there is no sign-in button, because arriving here *is* the
+   request to sign in. Then the tier list.
+2. Sign in as a **non-admin** dev user (`dev`).
+   *Expect:* **"Not your corner"**, and a **Sign in as somebody else** button. Not a retry: signing in again
+   returns the same person. The API enforces the role server-side as well — the screen only decides what to
+   say, and without the button this step is a trap with no way out.
+3. Sign in as the admin (`dev-admin`).
+   *Expect:* the tier list, and the Price from slice C step 2 under **Stripe Prices with no tier** — a missing
+   `tier_code` must be visible, not silent. If Stripe is unreachable that list says so rather than showing
+   nothing, because empty is the *good* state.
 4. Set the default tier's quota to **0** and save.
 5. Sign in to the extension as a **fresh** user.
    *Expect:* they are provisioned, they see their ads, and every button is locked with an upgrade prompt.
    **No error, no failed sign-in.** This is "the admin decided there is no free tier".
-6. Try to unset `isDefault` without setting another.
-   *Expect:* refused. A catalog with no default provisions nobody.
-7. Create a draft: add a Price with a `tier_code` nobody has published.
-   *Expect:* it appears in `/admin` at quota 0 and **not** on the popup's plan cards.
-8. Give it a quota and publish.
-   *Expect:* it appears on the plan cards, and it can be bought.
+6. Look for a way to unset `isDefault`.
+   *Expect:* there isn't one. Only **Make default**, on the tiers that are not it — a catalog with no default
+   provisions nobody, so the API offers no request that could produce one and the screen has no control for
+   it. Moving it to another tier and back is the whole of what can be done.
+7. Create a draft: add a Price in Stripe with a `tier_code` nobody has published.
+   *Expect:* it appears in `/admin` at quota 0, marked **draft** and highlighted, and **not** on the popup's
+   plan cards.
+8. Give it a quota and tick **On sale**.
+   *Expect:* it appears on the plan cards, and it can be bought. Try the same on a tier with **no** Stripe
+   Price: the form says so before you save, and the API refuses it anyway.
+9. Leave `/admin` open for longer than the realm's five-minute access token and click **Save**.
+   *Expect:* Keycloak takes over and hands you back where you were — the token lives in memory only and there
+   is no refresh, so a `401` is one redirect rather than an error.

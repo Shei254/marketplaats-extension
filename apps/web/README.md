@@ -31,6 +31,7 @@ npm run preview -w @mprelist/web    # dist/, served the way a host would
 | `/cancel` | Stripe's `cancel_url`. Nothing was charged and nothing changed. |
 | `/privacy` | The privacy policy. **The Chrome Web Store listing (T58, #89) requires this URL**, so once that listing is live the address is published somewhere we do not control. |
 | `/terms` | What the product does, and that relisting deletes the ad first. |
+| `/admin` | The tier catalog an operator maintains, and the Stripe Prices nobody tagged. **The only authenticated thing in this build** (T54, #85). |
 | anything else, `/` included | "There's nothing at this address", pointing back at the toolbar |
 
 **`/` is deliberately the fallback.** There is no landing page on the design canvas, and inventing one is a
@@ -72,5 +73,46 @@ renders, so its `{{ brand … }}` tokens are substituted by a plugin in
 [`vite.config.ts`](vite.config.ts), which throws on an unknown key or a token left standing — the same rule
 the extension's build follows.
 
-[`packages/contracts`](../../packages/contracts/README.md) is not consumed yet. It arrives with `/admin`
-(T54, #85), which is the first thing here that talks to the API at all.
+[`packages/contracts`](../../packages/contracts/README.md) — the API's wire types, for the admin corner. It is
+the only thing here that talks to the API at all, and it arrived with it (T54, #85).
+
+## The admin corner
+
+`/admin` is a **surface rather than a page** (ADR-0017): its own frame, its own stylesheet, and the only
+authentication in this bundle. `main.tsx` chooses it before the public route table is consulted, which is why
+`pageFor("/admin")` still answers `not-found` — every page in that table is public, and a reader can trust it.
+
+**Arriving is the request to sign in.** There is no button: `/admin` signed out goes straight to Keycloak,
+Authorization Code + PKCE against the `mprelist-dashboard` client the realm has defined since #15 and which
+nothing had used until now.
+
+**The redirect lands on `/`, not on `/admin`, and that is a constraint rather than a choice.** The realm
+registers exactly `http://localhost:5173/` and Keycloak matches redirect URIs exactly — `KeycloakRealmTest`
+proves a path beneath it is refused with a page rather than a bounce — and the realm imports on first start
+only, so wanting `/admin` back would be a `down -v` on every stack that already exists. An arrival is
+recognised by the `code` in the query rather than by the path, and the address bar is rewritten afterwards. It
+is also the shape Go-Live wants: T56 (#87) serves `/admin` from `admin.<domain>`, whose root is exactly this.
+
+**The access token lives in memory and nowhere else.** Not `localStorage`, not a cookie, not `sessionStorage`.
+A reload signs in again, which while Keycloak's own SSO session is alive is a redirect nobody sees — and two
+things are bought that matter more than the round trip: a bearer token that opens the tier catalog is never at
+rest where any script on this origin can read it, and signing out of Keycloak signs you out here. There is no
+refresh token for the same reason; an expired token is a `401` from our own API and the answer to that is one
+redirect. What *does* survive the redirect is three strings in `sessionStorage` — the PKCE verifier, the
+`state` and where the operator was going — cleared the moment the code is exchanged.
+
+**The `ADMIN` role decides a screen and never a permission.** The API enforces it on every route under
+`/api/admin` (#27), server side, before routing. What the check here buys is that somebody signed in as the
+wrong person is *told* so rather than shown an empty catalog and a row of `403`s — and that they are offered
+the one thing that helps, which is signing in as somebody else. Without that button, slice D's step 2 is a
+trap with no way out.
+
+**What the screen will not offer**: creating a tier, deleting one, or typing a Stripe Price id. A plan is
+created by tagging a Price in Stripe and the sync drafts the row (ADR-0019); a tier is retired by unpublishing
+it, since a subscription references its tier behind a foreign key; and the amount is Stripe's and immutable.
+`isDefault` is a **move, never a toggle** — the API offers no request that leaves the catalog without a
+default, so there is no control here that could ask for one.
+
+**The feature flags are a JSON textarea**, which is honest rather than lazy: `features` is an open object,
+every tier carries `{}` today, and no flag has an implementation behind it. Checkboxes would be inventing a
+schema this product has not decided on.

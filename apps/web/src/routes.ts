@@ -15,10 +15,16 @@
  * address is published in a place we do not control, so it is one to choose and
  * then leave alone.
  *
- * `/admin` is T54 (#85) and adds an entry here. Everything else — including `/` —
- * is `not-found` on purpose: there is no landing page designed on the canvas, and
- * inventing one is a decision for the ticket that also writes the Web Store
- * listing.
+ * **`/admin` is deliberately not one of these.** T54 (#85) made it a *surface*
+ * rather than a page: it has its own frame, its own stylesheet and the only
+ * authentication in this build (ADR-0017), so it is chosen before this table is
+ * consulted and `pageFor("/admin")` still answers `not-found`. What that keeps
+ * true is the sentence this type is named for — every page here is public, and a
+ * reader of the table cannot mistake the admin corner for one.
+ *
+ * Everything else — including `/` — is `not-found` on purpose: there is no landing
+ * page designed on the canvas, and inventing one is a decision for the ticket that
+ * also writes the Web Store listing.
  */
 export type Page = "success" | "cancel" | "billing" | "privacy" | "terms" | "not-found";
 
@@ -42,6 +48,30 @@ export const PATHS = {
   privacy: "/privacy",
   terms: "/terms",
 } as const satisfies Record<Routable, string>;
+
+/**
+ * The admin corner's address (T54, #85). Exported rather than spelled at the entry
+ * point because two files need it and one of them is not this table's business:
+ * the entry chooses the surface by it, and the sign-in remembers it as the place
+ * to come back to.
+ *
+ * **The sign-in does not return here**, and cannot: the realm registers the origin
+ * root as `mprelist-dashboard`'s redirect URI and Keycloak matches exactly, so a
+ * redirect back to `/admin` is refused with a page rather than a bounce. The
+ * arrival lands at `/` and rewrites the address bar to this.
+ */
+export const ADMIN_PATH = "/admin";
+
+/**
+ * Whether this address is the admin surface rather than a page of the public site.
+ *
+ * A trailing slash is the same address, like everywhere else here — a host or a
+ * browser may add one, and `/admin/` reaching the not-found page would be a
+ * confusing way to find that out.
+ */
+export function isAdminPath(pathname: string): boolean {
+  return pathname === ADMIN_PATH || pathname === `${ADMIN_PATH}/`;
+}
 
 /**
  * The two long-form documents, which are laid out as documents rather than as the

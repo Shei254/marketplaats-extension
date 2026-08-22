@@ -12,8 +12,8 @@ import { describe, expect, it } from "vitest";
  * rendered a page and found no login form would prove none of that; a page can
  * call `fetch` on mount and look identical.
  *
- * `/admin` (T54, #85) is the exception the ADR names and it will live in
- * `src/admin/`, which is why this walks by directory rather than by file.
+ * `/admin` (T54, #85) is the exception the ADR names and it lives in `src/admin/`,
+ * which is why this walks by directory rather than by file.
  */
 const SRC = fileURLToPath(new URL("..", import.meta.url));
 const AUTHENTICATED = "admin";
@@ -47,6 +47,19 @@ describe("the public bundle", () => {
   it("is the whole of what is not `src/admin/` today", () => {
     // A guard that silently stopped finding files would pass for ever.
     expect(files.length).toBeGreaterThan(4);
+  });
+
+  it("and the exception it makes is load-bearing rather than vacuous", () => {
+    // Since T54 (#85) there is real identity code to exclude — a session, a token
+    // exchange, `sessionStorage`. If this ever stopped being true, every assertion
+    // below would be passing over a directory that no longer needed excluding, and
+    // the day something identity-shaped moved *out* of it nothing would notice.
+    const admin = readFileSync(join(SRC, "admin", "admin-session.ts"), "utf8");
+    const browser = readFileSync(join(SRC, "admin", "BrowserAdminApp.tsx"), "utf8");
+
+    expect(browser).toContain("sessionStorage");
+    expect(admin).toContain("access_token");
+    expect(files.some((path) => path.includes(`${AUTHENTICATED}/`))).toBe(false);
   });
 
   for (const path of files) {

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  CSRF_MODES,
   DENIAL_REASONS,
   RELIST_OUTCOMES,
   SUBSCRIPTION_STATUSES,
@@ -31,14 +32,32 @@ const repoFile = (path: string): string =>
 
 const contract = repoFile("docs/enforcement-contract.md");
 
-/** The constants of a Java enum: everything named before the list's closing `;`. */
+/**
+ * The constants of a Java enum: everything named before the list's closing `;`.
+ *
+ * **Two things here are the CSRF modes' fault** (T27, #36), and both were silent
+ * rather than red — a reader that finds nothing agrees with every list there is.
+ *
+ * The declaration is found by *name* rather than by the first `enum ` in the
+ * file, because `CsrfMode`'s own docstring says the word before it declares it.
+ * And a constant is followed by its constructor arguments **or** by the comma or
+ * semicolon that ends it: the modes are the first enum here that takes no
+ * arguments, so matching only `(` would have read four of them as none.
+ *
+ * The emptiness check is the guard for whatever the next such file does.
+ */
 function javaEnumConstants(path: string): string[] {
   const source = repoFile(`apps/api/src/main/java/com/mprelist/${path}.java`);
-  const start = source.indexOf("enum ");
-  expect(start, `${path} does not declare an enum`).toBeGreaterThan(-1);
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  const start = source.search(new RegExp(`\\benum\\s+${name}\\b`));
+  expect(start, `${path} does not declare an enum called ${name}`).toBeGreaterThan(-1);
 
-  const constants = source.slice(start, source.indexOf(";", start));
-  return [...constants.matchAll(/^\s+([A-Z][A-Z_]+)\s*\(/gm)].map(([, name]) => name as string);
+  const constants = source.slice(start, source.indexOf(";", start) + 1);
+  const named = [...constants.matchAll(/^\s+([A-Z][A-Z_]+)\s*[(,;]/gm)].map(
+    ([, constant]) => constant as string,
+  );
+  expect(named, `${path} was read as an enum with no constants at all`).not.toEqual([]);
+  return named;
 }
 
 describe("the denial reasons", () => {
@@ -79,6 +98,40 @@ describe("the relist outcomes", () => {
     expect(javaEnumConstants("enforcement/internal/RelistOutcome").sort()).toEqual(
       [...RELIST_OUTCOMES].sort(),
     );
+  });
+});
+
+/**
+ * The one restatement here where a disagreement is not a rendering bug but a
+ * config that silently does nothing (T27, #36).
+ *
+ * `GET /api/client-config` tells the extension which of four CSRF branches to
+ * run. A mode the API can serve and the client cannot name is a document the
+ * client drops **whole** — so the endpoint fix an operator deployed during an
+ * outage reaches nobody, and the only symptom is that relisting is still broken.
+ * That is the failure this file was written for, in its sharpest form.
+ *
+ * It is also where "strictly data" stops being a promise and becomes a list: the
+ * modes are branches that already exist in the client, so holding the three
+ * copies to each other is what makes it true that a config cannot ask for a fifth
+ * thing.
+ */
+describe("the CSRF modes", () => {
+  it("are the ones the API will serve", () => {
+    // Lower case in both places, unlike every other list here: these are the
+    // *client's* words for its own branches. The Java enum spells them upper case
+    // and puts them on the wire lower, which is what `spelling()` is for.
+    expect(javaEnumConstants("clientconfig/internal/CsrfMode").map((mode) => mode.toLowerCase()))
+      .toEqual([...CSRF_MODES]);
+  });
+
+  it("are the ones the contract document names", () => {
+    const named = contract.slice(contract.indexOf("### `GET /api/client-config`"));
+    const documented = named.slice(0, named.indexOf("## Anti-stockpiling"));
+
+    for (const mode of CSRF_MODES) {
+      expect(documented, `the contract does not name the '${mode}' mode`).toContain(`\`${mode}\``);
+    }
   });
 });
 

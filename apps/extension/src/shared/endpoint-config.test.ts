@@ -26,6 +26,23 @@ import {
 const STORAGE_KEY = "endpointOverrides";
 /** What the POC Options page and the pre-override `__setEndpoints` wrote. */
 const LEGACY_STORAGE_KEY = "endpointConfig";
+/** Where the worker leaves what `GET /api/client-config` served (T27, #36). */
+const SERVED_STORAGE_KEY = "clientConfig";
+
+/** A served document as it sits in storage, already checked on the way in. */
+const served = (config: {
+  endpoints?: Record<string, string>;
+  csrf?: EndpointConfig["csrf"] | null;
+  pacing?: { minMs: number; maxMs: number } | null;
+}) => ({
+  fetchedAt: 1_700_000_000_000,
+  config: {
+    schemaVersion: 1,
+    endpoints: config.endpoints ?? {},
+    csrf: config.csrf ?? null,
+    pacing: config.pacing ?? null,
+  },
+});
 
 /** Every configurable operation, read off the defaults so the list cannot drift. */
 const ENDPOINT_NAMES = Object.keys(DEFAULT_ENDPOINT_CONFIG).filter(
@@ -88,6 +105,123 @@ describe("loadEndpointConfig", () => {
     // on a config whose mode says they do not exist.
     expect(csrf).not.toHaveProperty("url");
     expect(csrf).not.toHaveProperty("extractor");
+  });
+});
+
+/**
+ * The three-source resolution T27 (#36) asked to be decided: the build's own
+ * defaults at the bottom, the document the worker fetched over them, and a
+ * tester's `__setEndpoints` override over that.
+ *
+ * **The tester winning is the call**, and it is not a tie-break. Overrides exist
+ * only in a `build:dev` bundle and are typed by hand, by somebody working a path
+ * out against the live site (`docs/live-testing.md`). A served document landing on
+ * top would undo the one thing they are holding still, remotely, minutes later,
+ * while they read the result. Nobody but a tester can write the other key.
+ */
+describe("the three sources, in order", () => {
+  it("lays a served path over the build's default", async () => {
+    area[SERVED_STORAGE_KEY] = served({ endpoints: { deleteAd: "/served/delete" } });
+
+    await expect(loadEndpointConfig()).resolves.toHaveProperty("deleteAd", "/served/delete");
+  });
+
+  it("leaves every endpoint the document did not name at its default", async () => {
+    area[SERVED_STORAGE_KEY] = served({ endpoints: { deleteAd: "/served/delete" } });
+
+    const config = await loadEndpointConfig();
+
+    expect(config.createAd).toBe(DEFAULT_ENDPOINT_CONFIG.createAd);
+    expect(config.listMyAds).toBe(DEFAULT_ENDPOINT_CONFIG.listMyAds);
+  });
+
+  it("lets a tester's override outrank a served path", async () => {
+    area[SERVED_STORAGE_KEY] = served({ endpoints: { deleteAd: "/served/delete" } });
+    area[STORAGE_KEY] = { deleteAd: "/mine/delete" };
+
+    await expect(loadEndpointConfig()).resolves.toHaveProperty("deleteAd", "/mine/delete");
+  });
+
+  it("lets a served path through for an endpoint the tester did not pin", async () => {
+    area[SERVED_STORAGE_KEY] = served({
+      endpoints: { deleteAd: "/served/delete", createAd: "/served/create" },
+    });
+    area[STORAGE_KEY] = { deleteAd: "/mine/delete" };
+
+    const config = await loadEndpointConfig();
+
+    expect(config.deleteAd).toBe("/mine/delete");
+    expect(config.createAd).toBe("/served/create");
+  });
+
+  // The same wholesale rule the tester's csrf already had, one layer down: the
+  // variants carry different fields, so a merge could leave a mode "none" holding
+  // a stale url.
+  it("replaces the csrf block wholesale at each layer", async () => {
+    area[SERVED_STORAGE_KEY] = served({ csrf: { mode: "none", header: "x-served" } });
+
+    const { csrf } = await loadEndpointConfig();
+
+    expect(csrf).toEqual({ mode: "none", header: "x-served" });
+    expect(csrf).not.toHaveProperty("url");
+    expect(csrf).not.toHaveProperty("extractor");
+  });
+
+  it("lets a tester's csrf block outrank a served one", async () => {
+    area[SERVED_STORAGE_KEY] = served({ csrf: { mode: "none", header: "x-served" } });
+    area[STORAGE_KEY] = { csrf: { mode: "meta", header: "x-mine", name: "t" } };
+
+    await expect(loadEndpointConfig()).resolves.toHaveProperty("csrf", {
+      mode: "meta",
+      header: "x-mine",
+      name: "t",
+    });
+  });
+
+  // This is what lets the API serve one document to every installed release: a
+  // name a newer build added reaches an older one and stops, rather than landing
+  // on a config as a key nothing calls.
+  it("drops a served name this build has no endpoint for", async () => {
+    area[SERVED_STORAGE_KEY] = served({
+      endpoints: { deleteAd: "/served/delete", somethingNewer: "/served/newer" },
+    });
+
+    const config = await loadEndpointConfig();
+
+    expect(config).not.toHaveProperty("somethingNewer");
+    expect(config.deleteAd).toBe("/served/delete");
+  });
+
+  // `csrf` is a key of the resolved config and not an endpoint name, so a
+  // document naming it as a *path* must not be able to overwrite the block.
+  it("cannot be made to write a path where the csrf block goes", async () => {
+    area[SERVED_STORAGE_KEY] = served({ endpoints: { csrf: "/not/a/csrf/block" } });
+
+    await expect(loadEndpointConfig()).resolves.toHaveProperty(
+      "csrf",
+      DEFAULT_ENDPOINT_CONFIG.csrf,
+    );
+  });
+
+  // Storage is the user's and outlives the build that wrote it. A document that
+  // does not check out is nothing at all, which is the built-in defaults.
+  it("ignores a stored document this build cannot read", async () => {
+    area[SERVED_STORAGE_KEY] = { fetchedAt: 1, config: { schemaVersion: 99, endpoints: {} } };
+
+    await expect(loadEndpointConfig()).resolves.toEqual(DEFAULT_ENDPOINT_CONFIG);
+  });
+
+  // The content script caches its resolved config for its own lifetime. Watching
+  // only the tester's key would leave a document that arrived while a
+  // marktplaats.nl tab sat open unread until that tab was reloaded — and the
+  // tester's key is the one nobody but a tester ever writes.
+  it("is noticed when either layer changes, not just the tester's", async () => {
+    expect(isEndpointConfigChange({ [SERVED_STORAGE_KEY]: { newValue: served({}) } }, "local")).toBe(
+      true,
+    );
+    expect(isEndpointConfigChange({ [SERVED_STORAGE_KEY]: { newValue: served({}) } }, "sync")).toBe(
+      false,
+    );
   });
 });
 

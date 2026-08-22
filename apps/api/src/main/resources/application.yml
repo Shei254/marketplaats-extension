@@ -87,6 +87,35 @@ mprelist:
     # No fallback, like the rails below: the wrong value is silent in both directions.
     price-cache: 15m
 
+  # #36: what the extension should do differently from what it was built to do (ADR-0013) — Marktplaats's
+  # internal paths, how the CSRF token is found, and the gap the client leaves between two relists.
+  #
+  # **A patch, and empty by default.** The paths and rules are the extension's own, built into every release;
+  # what goes here is only where an operator has had to depart from them, which on a healthy day is nothing.
+  # So this API holds no copy of the nine endpoints and cannot serve a stale one — and `GET /api/client-config`
+  # answers `{"schemaVersion":1}`, which means "your defaults are correct".
+  #
+  # **What it is for is the day Marktplaats moves something.** Every installed extension then fails the same
+  # way at once, and the fix is a path. Shipping it as a release is a Web Store review — days — and this is
+  # the same fix as a restart. That is the whole of ADR-0013.
+  #
+  # One JSON string rather than a block of keys, because the endpoint names are the extension's and are
+  # camelCase (`listMyAds`), which is a case an environment variable cannot carry into a map key. Written on
+  # one line here; from the environment it is the whole document:
+  #
+  #   MPRELIST_CLIENT_CONFIG={"endpoints":{"deleteAd":"/seller/api/delete-ad-v2"}}
+  #
+  # **A document that cannot be read stops this application from starting**, unlike the Stripe secrets above,
+  # and the difference is who is looking. An unset Stripe key is a developer running something else; a
+  # malformed document here is an operator deploying a fix for a breakage that is live, who would otherwise
+  # be told nothing and would believe it had gone out. A misspelt field is refused for the same reason —
+  # `endpoint` for `endpoints` deploys nothing, and this is the only moment anybody can be told.
+  #
+  # `schemaVersion` is not writable here: it names the shape of the document this code serves, so it is
+  # stamped rather than configured, and naming it is one of the errors above.
+  client-config:
+    document: ${MPRELIST_CLIENT_CONFIG:}
+
   # #52: the oldest extension build this API still serves, named in the `X-Mprelist-Client` header every
   # client sends. `0` is every build there has ever been, and it is the only value here that is not a
   # decision: raising it strands every user who has not updated, and a store review takes days, so it is for

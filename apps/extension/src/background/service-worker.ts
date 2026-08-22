@@ -3,16 +3,18 @@ import { ChromeSessionStore } from "../adapters/chrome-session-store";
 import { ChromePaceStore } from "../adapters/chrome-pace-store";
 import { ChromeSnapshotStore } from "../adapters/chrome-snapshot-store";
 import { RelayMarktplaatsClient } from "../adapters/relay-marktplaats-client";
+import { ClientConfigFetcher } from "../api/client-config";
 import { MprelistApi } from "../api/display-state";
 import { RelistAuthorizations } from "../api/relist-authorizations";
 import { Subscribing } from "../api/subscribing";
 import { Authenticator } from "../auth/authenticator";
 import { toWireError } from "../content/messages";
 import { RelistOrchestrator } from "../domain/relist-orchestrator";
-import { HUMAN_PACE, RelistPacer } from "../domain/relist-pace";
+import { HUMAN_PACE, RelistPacer, type PacingWindow } from "../domain/relist-pace";
 import type { DevHook, DevHookName } from "./dev-hooks";
 import { openStripePage } from "./stripe-tab";
 import { loadEndpointConfig, saveEndpointOverrides } from "../shared/endpoint-config";
+import { readServedConfig } from "../shared/served-config";
 import {
   toWireOutcome,
   type BackgroundAnswers,
@@ -62,11 +64,37 @@ const api = new MprelistApi({ tokens: authenticator });
 const subscribing = new Subscribing({ tokens: authenticator });
 
 /**
- * The human-shaped gap between relists (T46, #54). The window is handed in rather
- * than read, which is the seam #36's served config will arrive through — it is
- * this line that changes then, and nothing in `relist-pace.ts` does.
+ * What the extension should do differently from what it was built to do (T27,
+ * #36; ADR-0013). Asked on every wake and throttled by what is already stored,
+ * which is the only place a worker can keep "have I asked recently" — it has no
+ * memory of its last wake.
+ *
+ * **Nothing awaits it.** It is not on the path to anything: the document it
+ * fetches is read out of storage by whoever needs it, whenever they next need it,
+ * and a worker that dies before this settles has cost the freshness of a config
+ * and nothing else. Awaiting it here would make a `GET` to our API the first
+ * thing that has to succeed before a message can be answered, which is precisely
+ * the failure mode ADR-0013 promises this does not add.
  */
-const pace = new RelistPacer(new ChromePaceStore(), HUMAN_PACE);
+const clientConfig = new ClientConfigFetcher({ tokens: authenticator });
+void clientConfig.refreshIfStale().catch((error) => {
+  console.warn("[config] refresh skipped", describe(error));
+});
+
+/**
+ * The human-shaped gap between relists (T46, #54), now read at the moment it is
+ * needed rather than fixed when this worker woke — this is the one line that
+ * ticket left for #36 to change, and nothing in `relist-pace.ts` changed with it
+ * beyond accepting a source.
+ *
+ * `HUMAN_PACE` is the fallback and stays the answer for every deployment where
+ * nobody has overridden anything, which is all of them on a normal day.
+ */
+const pace = new RelistPacer(new ChromePaceStore(), servedPace);
+
+async function servedPace(): Promise<PacingWindow> {
+  return (await readServedConfig())?.config.pacing ?? HUMAN_PACE;
+}
 
 const orchestrator = new RelistOrchestrator(
   new RelayMarktplaatsClient(),
@@ -172,12 +200,13 @@ function describe(error: unknown): string {
  *   await __accessToken()                        // a token to curl the API with
  *   await __apiMe()                              // what the popup renders
  *   await __relist("<throwaway-ad-id>")
+ *   await __clientConfig()                       // asks the API for the served document
  *
- * `__setEndpoints` outlives the Options page it duplicated (ADR-0013): the
- * backend-served config that supersedes both is #36 and does not exist yet, so
- * without it a Marktplaats-side path change means editing source and rebuilding.
- * The rest are live-test drivers — docs/live-testing.md and the M7 spikes
- * (#46–#48) drive the real site through them.
+ * `__setEndpoints` outlives the Options page it duplicated (ADR-0013) and now
+ * outranks the served config too (T27, #36): it is a tester holding a path still
+ * while they work it out, and a document arriving remotely mid-session must not
+ * undo that. The rest are live-test drivers — docs/live-testing.md and the M7
+ * spikes (#46–#48) drive the real site through them.
  *
  * The map is total over `DevHookName` (./dev-hooks), so a hook added here without
  * a name there does not compile — scripts/build.test.ts asserts against that same
@@ -194,6 +223,12 @@ if (__DEV__) {
     __searchAds: (query: string) => orchestrator.searchAds(query),
     __getEndpoints: loadEndpointConfig,
     __setEndpoints: saveEndpointOverrides,
+    /**
+     * Asks the API now, ignoring the fifteen-minute throttle — a tester who has
+     * just deployed a document wants to see it, not to wait out a window whose
+     * whole purpose is to keep ordinary wakes cheap.
+     */
+    __clientConfig: () => clientConfig.refresh(),
     __signIn: () => authenticator.signIn(),
     __signOut: () => authenticator.signOut(),
     __authState: () => authenticator.state(),

@@ -24,10 +24,11 @@ the first report is a support ticket.
 and its authorization, `complete`'s request and the `{quotaRemaining, resetAt}` both it and the gate answer
 with, the seven subscription statuses, and the `GET /api/me` display state.
 
-**Not in it yet, deliberately:** `GET /api/plans` (T49, [#80](https://github.com/Shei254/marketplaats-extension/issues/80))
-and `GET /api/client-config` (T27, [#36](https://github.com/Shei254/marketplaats-extension/issues/36)).
-Neither endpoint exists, and a type written ahead of the endpoint it describes is a guess that later reads as
-a contract.
+Both of the endpoints this file used to name as missing now exist and are in it: `GET /api/plans` (T49,
+[#80](https://github.com/Shei254/marketplaats-extension/issues/80)) and `GET /api/client-config` (T27,
+[#36](https://github.com/Shei254/marketplaats-extension/issues/36)), each typed when its route was written.
+**Nothing here is written ahead of the endpoint it describes** — that is a guess which later reads as a
+contract, and it stays the rule for the next one.
 
 **Dates travel as ISO-8601 strings**, exactly as they arrive. Parsing them into `Date` here would make this a
 decoder with an opinion about clocks, and what every consumer actually does with `resetAt` is render it.

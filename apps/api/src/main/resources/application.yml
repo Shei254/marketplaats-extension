@@ -55,9 +55,14 @@ mprelist:
   # build if this line disagrees. The variable still wins where it is set, which is what the Web Store's own
   # id will need at publish (#87).
   #
-  # `apps/web`'s origins join this list at T50/T54. Comma-separated, matched exactly, no patterns.
+  # `apps/web`'s origin is the second entry, added by T54 (#85) — the admin corner is the first thing on that
+  # site that calls this API at all, and without it every one of its calls is refused by the browser before
+  # this application sees them. It is the origin of `mprelist.web.base-url` below, spelled again because CORS
+  # wants an origin and that one is a URL; `CrossOriginTest` holds the two together so neither can move alone.
+  #
+  # Comma-separated, matched exactly, no patterns.
   cors:
-    allowed-origins: chrome-extension://${MPRELIST_EXTENSION_ID:dolloiambeojifmnofjchofbnepodiof}
+    allowed-origins: chrome-extension://${MPRELIST_EXTENSION_ID:dolloiambeojifmnofjchofbnepodiof},${MPRELIST_WEB_ORIGIN:http://localhost:5173}
 
   # #82: the signing secret of the Stripe webhook endpoint, and the whole of the authentication on the one
   # route here that no bearer token reaches. Stripe signs the exact bytes it sends with it.
@@ -89,7 +94,9 @@ mprelist:
   # additive, which is what makes a lever this blunt something you almost never pull.
   #
   # Stated rather than defaulted in code, like the rails below and for the same reason: the wrong value is
-  # silent in both directions. There is no line for apps/web because it does not call this API yet (T54, #85).
+  # silent in both directions. There is no line for apps/web: since T54 (#85) it does call this API, from the
+  # admin corner, and it names no release in the header — which the contract serves deliberately, since a
+  # caller that cannot identify itself is a caller this lever was never meant to judge.
   clients:
     minimum-extension-version: 0
 

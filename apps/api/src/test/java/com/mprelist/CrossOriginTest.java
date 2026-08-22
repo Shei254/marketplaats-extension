@@ -41,10 +41,13 @@ class CrossOriginTest {
 	/** The origin this suite runs the application with, in the shape a real extension sends. */
 	private static final String EXTENSION = "chrome-extension://dolloiambeojifmnofjchofbnepodiof";
 
+	/** And {@code apps/web}'s, which its admin corner calls this API from (T54, #85). */
+	private static final String WEB = "http://localhost:5173";
+
 	@DynamicPropertySource
-	static void trustTheTokensThisSuiteMintsAndTheOriginItCallsFrom(DynamicPropertyRegistry properties) {
+	static void trustTheTokensThisSuiteMintsAndTheOriginsItCallsFrom(DynamicPropertyRegistry properties) {
 		IDP.trustedAsTheIssuer(properties);
-		properties.add("mprelist.cors.allowed-origins", () -> EXTENSION);
+		properties.add("mprelist.cors.allowed-origins", () -> EXTENSION + "," + WEB);
 	}
 
 	@AfterAll
@@ -90,6 +93,36 @@ class CrossOriginTest {
 
 		assertThat(preflight.statusCode()).isEqualTo(200);
 		assertThat(header(preflight, "Access-Control-Allow-Headers").toLowerCase()).contains("x-mprelist-client");
+	}
+
+	/**
+	 * And for the {@code PUT}s the admin catalog saves with (T53, #84).
+	 *
+	 * <p>A method a preflight does not allow makes the browser abandon the call, exactly as an unallowed
+	 * header does — so an operator's every save would fail with nothing in this application's log to show for
+	 * it. This is one half of a bug that shipped: T53 added the routes and T54 the screen, and neither added
+	 * the method or the origin here.
+	 */
+	@Test
+	void andForThePutsTheAdminCatalogSavesWith() {
+		HttpResponse<String> preflight = preflight(WEB, "PUT", "authorization,content-type");
+
+		assertThat(preflight.statusCode()).isEqualTo(200);
+		assertThat(header(preflight, "Access-Control-Allow-Methods")).contains("PUT");
+	}
+
+	/**
+	 * And {@code apps/web} is answered at all, which is the other half of that bug.
+	 *
+	 * <p>The extension had been the only client since #41, so every assertion above was about one origin and
+	 * a second could be forgotten without any of them noticing — which is what happened.
+	 */
+	@Test
+	void andTheSiteTheAdminCornerIsServedFromIsAnsweredToo() {
+		HttpResponse<String> preflight = preflight(WEB, "GET", "authorization");
+
+		assertThat(preflight.statusCode()).isEqualTo(200);
+		assertThat(header(preflight, "Access-Control-Allow-Origin")).isEqualTo(WEB);
 	}
 
 	/** The answer itself carries the header too, or the browser withholds a body this API did return. */
@@ -154,6 +187,43 @@ class CrossOriginTest {
 	}
 
 	/**
+	 * And the site's origin is the one it is <em>served</em> from, which this application already names once:
+	 * {@code mprelist.web.base-url} is what a Checkout session sends a browser back to (#29) and what the
+	 * Customer Portal returns it to (#31).
+	 *
+	 * <p>Two settings rather than one because they are different things — CORS wants an origin and that one is
+	 * a URL — and held together here so neither can move alone. A deployment that changed the base URL and not
+	 * this list would have a working payment flow and an admin corner that no browser will call, which is a
+	 * pair of symptoms nobody would connect.
+	 */
+	@Test
+	void andTheSiteOriginItAllowsIsTheOneItSendsBrowsersTo() {
+		String baseUrl = YamlSetting.inApplicationYaml("base-url");
+
+		assertThat(YamlSetting.inApplicationYaml("allowed-origins")).contains(originOf(baseUrl));
+	}
+
+	/**
+	 * And the realm registers that same origin for the client the admin corner signs in with, which is the
+	 * {@code mprelist-dashboard} the realm has defined since #15.
+	 *
+	 * <p>The same split as the extension's above, and the same failure of a disagreement: the sign-in goes
+	 * through Keycloak's CORS and the API call through this one, so a drift breaks one and not the other.
+	 */
+	@Test
+	void andTheRealmRegistersItForTheClientTheAdminCornerSignsInWith() {
+		JsonNode realm = Json.of(InfraFiles.textOf(InfraFiles.keycloakRealm()));
+
+		assertThat(webOriginsOf(realm, "mprelist-dashboard"))
+				.isEqualTo(originOf(YamlSetting.inApplicationYaml("base-url")));
+	}
+
+	/** The scheme, host and port of a URL, which is what an `Origin` header carries and a path is not. */
+	private static String originOf(String url) {
+		return URI.create(url).resolve("/").toString().replaceAll("/$", "");
+	}
+
+	/**
 	 * The origin this application ships with names the extension's **actual** id — derived here from the
 	 * {@code key} the manifest pins it with, exactly as {@code npm run extension-id} derives it.
 	 *
@@ -171,8 +241,9 @@ class CrossOriginTest {
 	void theOriginThisApiAllowsIsDerivedFromTheKeyTheExtensionIsPinnedBy() {
 		String key = Json.of(InfraFiles.textOf(InfraFiles.extensionManifest())).get("key").asString();
 
+		// The list now has a second entry (T54, #85), so this is what it starts with rather than all of it.
 		assertThat(YamlSetting.inApplicationYaml("allowed-origins"))
-				.isEqualTo("chrome-extension://${MPRELIST_EXTENSION_ID:" + extensionIdFrom(key) + "}");
+				.startsWith("chrome-extension://${MPRELIST_EXTENSION_ID:" + extensionIdFrom(key) + "}");
 	}
 
 	private static String extensionIdFrom(String base64Key) {
@@ -193,12 +264,16 @@ class CrossOriginTest {
 	}
 
 	private static String webOriginsOfTheExtensionClient(JsonNode realm) {
+		return webOriginsOf(realm, "mprelist-extension");
+	}
+
+	private static String webOriginsOf(JsonNode realm, String clientId) {
 		return realm.get("clients").valueStream()
-				.filter(client -> "mprelist-extension".equals(client.path("clientId").asString()))
+				.filter(client -> clientId.equals(client.path("clientId").asString()))
 				.flatMap(client -> client.path("webOrigins").valueStream())
 				.map(JsonNode::asString)
 				.findFirst()
-				.orElseThrow(() -> new IllegalStateException("the realm registers no web origin for the extension"));
+				.orElseThrow(() -> new IllegalStateException("the realm registers no web origin for " + clientId));
 	}
 
 	private HttpResponse<String> preflight(String origin, String method, String headers) {

@@ -82,7 +82,9 @@ class EnvironmentFileTest {
 	 */
 	@Test
 	void theExtensionIdItSuggestsIsTheOneThisApiDefaultsTo() {
-		String allowedOrigin = YamlSetting.inApplicationYaml("allowed-origins");
+		// The first of the origins: `apps/web`'s joined the list at T54 (#85), and reading to the end of the
+		// setting would now read into it.
+		String allowedOrigin = YamlSetting.inApplicationYaml("allowed-origins").split(",")[0];
 		String pinnedId = allowedOrigin.substring(allowedOrigin.indexOf(':', "chrome-extension://".length()) + 1,
 				allowedOrigin.length() - 1);
 

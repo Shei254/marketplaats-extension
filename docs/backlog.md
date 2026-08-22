@@ -351,8 +351,10 @@ named as the first thing to move.
 - **Repricing gets narrower**: a new monthly Price no longer silently takes annual off sale.
 - **V5's check became a trigger**, `initially immediate` — the invariant spans two tables now, and `deferred`
   never fires in a rolled-back test.
-- Still open: **regional pricing**. Two prices in one rhythm and different currencies collide on
-  `unique (tier_id, billing_interval)`, which is the next constraint to move.
+- **One currency for the whole catalog** (T63, #129), read from the Stripe account: a plan screen is a
+  comparison, and two currencies on it is not one. Since it is not a choice per plan it is not a field — no
+  request carries a currency at all — and `GET /api/plans` refuses a mixed catalog whole, which covers the one
+  way in that is left, a Price created in the Stripe dashboard.
 
 ---
 

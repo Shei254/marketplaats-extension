@@ -2,7 +2,7 @@ import type {
   AdminTier,
   NewPlan,
   NewPrice,
-  SellableCurrencies,
+  CatalogCurrency,
   TierEdit,
   TierPriceOnTheWire,
   UntaggedPrice,
@@ -73,7 +73,7 @@ export type CreateAnswer =
   | { status: "rejected" }
   | Refusal;
 
-export type CurrenciesAnswer = { status: "ready"; currencies: SellableCurrencies } | Refusal;
+export type CurrencyAnswer = { status: "ready"; currency: string } | Refusal;
 
 export class AdminApi {
   constructor(
@@ -110,16 +110,20 @@ export class AdminApi {
   }
 
   /**
-   * What this account can price a plan in — asked of Stripe, never listed here.
+   * The one currency this catalog prices in — asked of Stripe, never listed here.
    *
-   * A form that cannot find out says so rather than offering a guess, because the
-   * guess is a plan that renders a card and fails at Checkout.
+   * **Every tier, the same currency** (T63, #129): a plan screen is a comparison,
+   * and €9,99 against $12.99 is not one a buyer can make. So a form *shows* this
+   * rather than offering it, and no request carries a currency at all.
+   *
+   * A form that cannot find out says so rather than guessing, because the guess is
+   * a Price the Stripe account cannot settle in.
    */
-  async currencies(): Promise<CurrenciesAnswer> {
-    const answer = await this.call("/api/admin/currencies");
+  async currency(): Promise<CurrencyAnswer> {
+    const answer = await this.call("/api/admin/currency");
     if (answer.status !== "ok") return readRefusal(answer.refusal);
-    const currencies = asCurrencies(answer.body);
-    return currencies ? { status: "ready", currencies } : UNAVAILABLE;
+    const currency = asCurrency(answer.body);
+    return currency ? { status: "ready", currency } : UNAVAILABLE;
   }
 
   /**
@@ -311,15 +315,10 @@ function asTierPrices(value: unknown): TierPriceOnTheWire[] | null {
   return read;
 }
 
-export function asCurrencies(body: unknown): SellableCurrencies | null {
+export function asCurrency(body: unknown): string | null {
   if (typeof body !== "object" || body === null) return null;
-  const fields = body as Record<string, unknown>;
-  const defaultCurrency = fields["defaultCurrency"];
-  const supported = fields["supported"];
-  if (typeof defaultCurrency !== "string" || defaultCurrency.length === 0) return null;
-  if (!Array.isArray(supported) || supported.length === 0) return null;
-  if (!supported.every((one): one is string => typeof one === "string" && one.length > 0)) return null;
-  return { defaultCurrency, supported };
+  const currency = (body as Partial<CatalogCurrency>).currency;
+  return typeof currency === "string" && currency.length > 0 ? currency : null;
 }
 
 export function asUntaggedPrices(body: unknown): UntaggedPrice[] | null {

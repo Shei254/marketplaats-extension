@@ -19,7 +19,6 @@ import org.junit.jupiter.api.Test;
 
 import com.mprelist.billing.NewPlanInStripe;
 import com.mprelist.billing.PlanCreation;
-import com.mprelist.billing.SellableCurrencies;
 import com.stripe.StripeClient;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -47,7 +46,7 @@ class PlanCreationTest {
 
 	private boolean stripeAgrees = true;
 
-	private String country = "NL";
+	private String settlesIn = "eur";
 
 	@BeforeEach
 	void startStripe() throws IOException {
@@ -60,7 +59,7 @@ class PlanCreationTest {
 				respond(exchange, 400, "{\"error\":{\"message\":\"Amount must be at least 50 cents\"}}");
 				return;
 			}
-			respond(exchange, 200, answerFor(path, this.country));
+			respond(exchange, 200, answerFor(path, this.settlesIn));
 		});
 		this.stripe.start();
 	}
@@ -143,38 +142,37 @@ class PlanCreationTest {
 		assertThat(this.sent).isEmpty();
 	}
 
-	// --- what it may be priced in -------------------------------------------------------------------------------
+	// --- what it is priced in (T63, #129) -----------------------------------------------------------------------
 
 	/**
-	 * The currency list is what <em>this account</em> can settle in, read from Stripe: the account says which
-	 * country it is in and the country spec says what may be charged there. A hardcoded list would offer a
-	 * hundred and thirty, most of which would render a plan card and fail at Checkout.
+	 * One currency for the whole catalog: the account's own settlement currency, read from Stripe.
+	 *
+	 * <p>An earlier draft asked for the country and then the country spec, so an operator could pick from
+	 * every currency the account *could* charge in. That was a choice per plan, and a choice per plan is a
+	 * plan screen showing €9,99 beside $12.99 — which a buyer cannot compare without knowing today's rate.
 	 */
 	@Test
-	void theCurrenciesOfferedAreTheOnesThisAccountCanSettleIn() {
-		AccountCurrencies currencies = new AccountCurrencies(account());
-
-		assertThat(currencies.sellableCurrencies())
-				.contains(new SellableCurrencies("eur", List.of("eur", "usd", "gbp")));
-		assertThat(paths()).containsExactly("/v1/account", "/v1/country_specs/NL");
+	void theCatalogIsPricedInWhatThisAccountSettlesIn() {
+		assertThat(new AccountCurrencies(account()).sellingCurrency()).contains("eur");
+		assertThat(paths()).containsExactly("/v1/account");
 	}
 
 	@Test
-	void andAreAskedOfStripeOnceRatherThanPerForm() {
+	void andThatIsAskedOfStripeOnceRatherThanPerForm() {
 		AccountCurrencies currencies = new AccountCurrencies(account());
 
-		currencies.sellableCurrencies();
-		currencies.sellableCurrencies();
+		currencies.sellingCurrency();
+		currencies.sellingCurrency();
 
-		// A country spec changes when Stripe adds a currency to a country, which is years apart.
-		assertThat(paths()).containsExactly("/v1/account", "/v1/country_specs/NL");
+		// A settlement currency is fixed when the account is opened.
+		assertThat(paths()).containsExactly("/v1/account");
 	}
 
 	@Test
 	void andAStripeThatCannotBeAskedOffersNothingRatherThanAGuess() {
 		this.stripeAgrees = false;
 
-		assertThat(new AccountCurrencies(account()).sellableCurrencies()).isEmpty();
+		assertThat(new AccountCurrencies(account()).sellingCurrency()).isEmpty();
 	}
 
 	/** And a failure is not remembered, or one outage would cost a day of nobody being able to create a plan. */
@@ -182,19 +180,19 @@ class PlanCreationTest {
 	void andThatFailureIsNotRemembered() {
 		AccountCurrencies currencies = new AccountCurrencies(account());
 		this.stripeAgrees = false;
-		currencies.sellableCurrencies();
+		currencies.sellingCurrency();
 
 		this.stripeAgrees = true;
 
-		assertThat(currencies.sellableCurrencies()).isPresent();
+		assertThat(currencies.sellingCurrency()).isPresent();
 	}
 
-	/** An account Stripe has not finished onboarding has no country, so there is no list to offer. */
+	/** An account Stripe has not finished onboarding names none, and there is nothing safe to guess. */
 	@Test
-	void andAnAccountWithNoCountryOffersNothing() {
-		this.country = "";
+	void andAnAccountWithNoSettlementCurrencyOffersNothing() {
+		this.settlesIn = "";
 
-		assertThat(new AccountCurrencies(account()).sellableCurrencies()).isEmpty();
+		assertThat(new AccountCurrencies(account()).sellingCurrency()).isEmpty();
 	}
 
 	// --- the stub ------------------------------------------------------------------------------------------------
@@ -220,19 +218,15 @@ class PlanCreationTest {
 				.orElseThrow(() -> new AssertionError("nothing was sent to " + path)).form();
 	}
 
-	private static String answerFor(String path, String country) {
+	private static String answerFor(String path, String settlesIn) {
 		if (path.endsWith("/products")) {
 			return "{\"id\":\"prod_made\",\"object\":\"product\"}";
 		}
 		if (path.endsWith("/prices")) {
 			return "{\"id\":\"price_made\",\"object\":\"price\"}";
 		}
-		if (path.contains("/country_specs/")) {
-			return "{\"id\":\"NL\",\"object\":\"country_spec\",\"default_currency\":\"eur\","
-					+ "\"supported_payment_currencies\":[\"eur\",\"usd\",\"gbp\"]}";
-		}
-		return "{\"id\":\"acct_1\",\"object\":\"account\",\"country\":\"" + country
-				+ "\",\"default_currency\":\"eur\"}";
+		return "{\"id\":\"acct_1\",\"object\":\"account\",\"country\":\"NL\",\"default_currency\":\""
+				+ settlesIn + "\"}";
 	}
 
 	private static Map<String, String> formIn(String body) {

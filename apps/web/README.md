@@ -116,9 +116,9 @@ default, so there is no control here that could ask for one.
 **A plan can be created here** (T61, #127), which amends ADR-0019 in the direction that ADR's own *Revisit
 if* pointed. The form creates the Stripe Product and Price and then the tier, in one submit — and says on its
 face that the amount is written once, because Stripe Prices are immutable and changing one means creating
-another. The currency dropdown is **what this Stripe account can settle in**, asked of Stripe rather than
-listed here; where it cannot be fetched the form creates nothing rather than offering a guess, since the guess
-is a plan that renders a card and fails at Checkout.
+another. The currency is **shown, not chosen**: every tier is priced in what the Stripe account settles in, because a
+plan screen is a comparison and two currencies on it is not one. Where Stripe cannot say, the form creates
+nothing rather than guessing.
 
 **A plan may be sold at more than one rhythm** (T62, #128). Each row lists every Stripe Price it is sold at,
 and **Prices** adds one — or replaces one it already has, which is the only way to reprice, since Stripe

@@ -178,6 +178,10 @@ about their **software**. It therefore carries none, exactly like every other `4
   Checkout for an amount we guessed. Fail-closed applies to display, as it does for `/api/me`. No `reason`,
   for the rule every non-denial refusal here follows: the codes are statements about the *user*, and this is
   one about our ability to answer at all.
+- **A catalog priced in two currencies is refused whole**, for the same reason and by the same `503`: nothing
+  this API offers can produce one, so the way here is a Price created in the Stripe dashboard in another
+  currency and tagged with a tier code — an operator's mistake, surfaced loudly rather than on a card somebody
+  is deciding what to pay from.
 - **All of them or none of them.** One price that could not be fetched takes the whole answer with it, rather
   than rendering the plans that did resolve: a plan screen is a *comparison*, and a buyer cannot tell a plan
   that is missing from a plan that does not exist. In practice it is all-or-nothing anyway — an unreachable
@@ -350,11 +354,13 @@ that ADR's own "revisit if" anticipated. Same audience and same guard as the adm
   is this API's vocabulary for a denial about a *user*, read by clients that act on it, and confusing the two
   would report a Stripe validation message to somebody trying to relist an ad.
 - **`400` with an empty body** for a body this API could not read, including one naming no amount or no quota.
-- **`GET /api/admin/currencies` → `200`:** `{ "defaultCurrency": "eur", "supported": ["eur", …] }` — what
-  *this account* can settle in, read from Stripe's account and country spec. Not a list held here: Stripe
-  supports around 130 currencies and this account supports fewer, so a hardcoded one offers a currency that
-  renders a plan card and fails at Checkout — and goes stale the day Stripe adds one. **`503`** with an empty
-  body when Stripe could not be asked, and the form then creates nothing rather than guessing.
+- **`GET /api/admin/currency` → `200`:** `{ "currency": "eur" }` — the one currency **the whole catalog** is
+  priced in, read from the Stripe account's own settlement currency. A form *shows* it; it does not offer it.
+  **`503`** with an empty body when Stripe could not be asked, and the form then creates nothing rather than
+  guessing.
+- **No request anywhere carries a currency**, and that is what keeps the catalog in one. A plan screen is a
+  comparison, and €9,99 against $12.99 is not one a buyer can make without knowing today's rate — so it is not
+  a choice per plan, and since it is not a choice it is not a field. `NewPlan` and `NewPrice` have none.
 
 ### `GET /api/me` — display state, **never a grant**
 - **Auth:** `Authorization: Bearer <Keycloak access token>`.

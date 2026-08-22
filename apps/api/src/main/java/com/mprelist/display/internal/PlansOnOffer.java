@@ -1,9 +1,12 @@
 package com.mprelist.display.internal;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -60,7 +63,34 @@ class PlansOnOffer {
 			cards.add(new Plan(sellable.tier(), sellable.grants().relistsPerPeriod(),
 					sellable.grants().features(), List.copyOf(priced)));
 		}
-		return Optional.of(new Plans(List.copyOf(cards)));
+		return oneCurrencyThroughout(cards) ? Optional.of(new Plans(List.copyOf(cards))) : Optional.empty();
+	}
+
+	/**
+	 * Whether every amount on this screen is in the same currency (T63, #129).
+	 *
+	 * <p><strong>A plan screen is a comparison, and two currencies is not one a buyer can make</strong> —
+	 * telling €9,99 from $12.99 needs today's rate. So a mixed catalog is refused whole, exactly as a price
+	 * that could not be fetched is: the alternative is a screen that looks fine and asks somebody to choose
+	 * between numbers that do not mean the same thing.
+	 *
+	 * <p>Nothing this API offers can produce one — no request carries a currency, and every plan is created in
+	 * the account's own (T63) — so the way here is a Price made directly in the Stripe dashboard, tagged with
+	 * a tier code and priced in something else. That is an operator's mistake and this is where it surfaces,
+	 * loudly, rather than on a card somebody is deciding what to pay from.
+	 */
+	private static boolean oneCurrencyThroughout(List<Plan> cards) {
+		Set<String> currencies = cards.stream()
+				.flatMap(card -> card.prices().stream())
+				.map(PlanPrice::currency)
+				.collect(Collectors.toCollection(LinkedHashSet::new));
+		if (currencies.size() <= 1) {
+			return true;
+		}
+		LOG.error("Not rendering any plan: the catalog is priced in {} at once, and a plan screen a buyer "
+				+ "cannot compare is worse than none. A Price created in the Stripe dashboard in another "
+				+ "currency is the way here; every plan this API creates uses the account's own.", currencies);
+		return false;
 	}
 
 	private final TierCatalog catalog;

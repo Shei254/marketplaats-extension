@@ -425,20 +425,35 @@ class AdminTierTest {
 	@Test
 	void andABodyThatLeavesOutWhatItCostsOrWhatItGrantsIsNotOne() {
 		// Guessing an amount would be inventing a price; guessing a quota would be inventing an entitlement.
-		assertThat(post(PLANS, "{\"tierCode\":\"starter\",\"name\":\"Starter\",\"currency\":\"eur\","
+		assertThat(post(PLANS, "{\"tierCode\":\"starter\",\"name\":\"Starter\","
 				+ "\"interval\":\"month\",\"relistQuotaPerPeriod\":10,\"published\":true}").statusCode())
 				.isEqualTo(400);
 		assertThat(post(PLANS, "{\"tierCode\":\"starter\",\"name\":\"Starter\",\"amount\":500,"
-				+ "\"currency\":\"eur\",\"interval\":\"month\",\"published\":true}").statusCode())
-				.isEqualTo(400);
+				+ "\"interval\":\"month\",\"published\":true}").statusCode()).isEqualTo(400);
 	}
 
 	@Test
-	void andNeitherIsOneNamingNoTierOrNoCurrency() {
+	void andNeitherIsOneNamingNoTier() {
 		assertThat(post(PLANS, newPlan("")).statusCode()).isEqualTo(400);
-		assertThat(post(PLANS, "{\"tierCode\":\"starter\",\"name\":\"Starter\",\"amount\":500,"
-				+ "\"currency\":\"\",\"interval\":\"month\",\"relistQuotaPerPeriod\":10,"
-				+ "\"published\":false}").statusCode()).isEqualTo(400);
+	}
+
+	/**
+	 * A currency cannot be named at all, which is how the catalog stays in one (T63, #129).
+	 *
+	 * <p>Every tier is priced in the Stripe account's own settlement currency. A plan screen is a comparison
+	 * and €9,99 against $12.99 is not one a buyer can make — so the currency is not a choice per plan, and
+	 * since it is not a choice it is not a field. A body carrying one is ignored rather than obeyed.
+	 */
+	@Test
+	void andACurrencyCannotBeNamedAtAll() {
+		HttpResponse<String> refused = post(PLANS, "{\"tierCode\":\"starter\",\"name\":\"Starter\","
+				+ "\"amount\":500,\"currency\":\"usd\",\"interval\":\"month\","
+				+ "\"relistQuotaPerPeriod\":10,\"published\":false}");
+
+		// With no Stripe configured the catalog's own currency cannot be read either, so this is the same
+		// 422 every creation gets here — what matters is that the `usd` was not what decided it.
+		assertThat(refused.statusCode()).isEqualTo(422);
+		assertThat(Json.of(refused).get("problem").asString()).doesNotContain("usd");
 	}
 
 	@Test
@@ -455,8 +470,8 @@ class AdminTierTest {
 	 * that resulted would render a card and fail at Checkout.
 	 */
 	@Test
-	void andTheCurrenciesToPriceItInAreUnknownRatherThanGuessedAt() {
-		HttpResponse<String> unavailable = get(CURRENCIES);
+	void andTheCurrencyToPriceItInIsUnknownRatherThanGuessedAt() {
+		HttpResponse<String> unavailable = get(CURRENCY);
 
 		assertThat(unavailable.statusCode()).isEqualTo(503);
 		assertThat(unavailable.body()).isEmpty();
@@ -465,7 +480,7 @@ class AdminTierTest {
 	@Test
 	void andNoneOfItIsReachableWithoutTheAdminRoleEither() {
 		assertThat(postAs(PLANS, newPlan("starter"), IDP.token()).statusCode()).isEqualTo(403);
-		assertThat(getAs(CURRENCIES, IDP.token()).statusCode()).isEqualTo(403);
+		assertThat(getAs(CURRENCY, IDP.token()).statusCode()).isEqualTo(403);
 	}
 
 	// --- a second rhythm for a plan that exists (T62, #128) -------------------------------------------------------
@@ -477,7 +492,7 @@ class AdminTierTest {
 	@Test
 	void aRhythmCannotBeAddedWithoutAStripeToCreateItIn() {
 		HttpResponse<String> refused = post("/api/admin/tiers/pro/prices",
-				"{\"amount\":9900,\"currency\":\"eur\",\"interval\":\"year\"}");
+				"{\"amount\":9900,\"interval\":\"year\"}");
 
 		assertThat(refused.statusCode()).isEqualTo(422);
 		assertThat(Json.of(refused).get("problem").asString()).contains("Stripe");
@@ -486,17 +501,18 @@ class AdminTierTest {
 
 	@Test
 	void andATierNobodyStoredHasNoRhythmToAddOneTo() {
-		assertThat(post("/api/admin/tiers/nonesuch/prices",
-				"{\"amount\":9900,\"currency\":\"eur\",\"interval\":\"year\"}").statusCode())
-				.isEqualTo(404);
+		// A `404` even with no Stripe configured: what is wrong with the request is answered before what is
+		// wrong with our ability to act on it, so the operator is told the code is unknown rather than that
+		// Stripe is unreachable — and discovers the real problem on the retry.
+		assertThat(post("/api/admin/tiers/nonesuch/prices", "{\"amount\":9900,\"interval\":\"year\"}")
+				.statusCode()).isEqualTo(404);
 	}
 
 	@Test
 	void andABodyThatNamesNoAmountOrNoRhythmIsNotOne() {
-		assertThat(post("/api/admin/tiers/pro/prices", "{\"currency\":\"eur\",\"interval\":\"year\"}")
-				.statusCode()).isEqualTo(400);
-		assertThat(post("/api/admin/tiers/pro/prices", "{\"amount\":9900,\"currency\":\"eur\"}")
-				.statusCode()).isEqualTo(400);
+		assertThat(post("/api/admin/tiers/pro/prices", "{\"interval\":\"year\"}").statusCode())
+				.isEqualTo(400);
+		assertThat(post("/api/admin/tiers/pro/prices", "{\"amount\":9900}").statusCode()).isEqualTo(400);
 	}
 
 	/**
@@ -524,9 +540,8 @@ class AdminTierTest {
 
 	@Test
 	void andNoneOfThatIsReachableWithoutTheAdminRole() {
-		assertThat(postAs("/api/admin/tiers/pro/prices",
-				"{\"amount\":9900,\"currency\":\"eur\",\"interval\":\"year\"}", IDP.token()).statusCode())
-				.isEqualTo(403);
+		assertThat(postAs("/api/admin/tiers/pro/prices", "{\"amount\":9900,\"interval\":\"year\"}",
+				IDP.token()).statusCode()).isEqualTo(403);
 	}
 
 	// --- the Prices nobody tagged -------------------------------------------------------------------------------
@@ -579,8 +594,9 @@ class AdminTierTest {
 		return Json.of(me).get("quotaRemaining").asInt();
 	}
 
+	/** No currency: the catalog has one, read from Stripe, and no request may name another (T63, #129). */
 	private static String newPlan(String code) {
-		return "{\"tierCode\":\"" + code + "\",\"name\":\"Starter\",\"amount\":500,\"currency\":\"eur\","
+		return "{\"tierCode\":\"" + code + "\",\"name\":\"Starter\",\"amount\":500,"
 				+ "\"interval\":\"month\",\"relistQuotaPerPeriod\":10,\"features\":{},\"published\":false}";
 	}
 
@@ -656,7 +672,7 @@ class AdminTierTest {
 
 	private static final String PLANS = "/api/admin/plans";
 
-	private static final String CURRENCIES = "/api/admin/currencies";
+	private static final String CURRENCY = "/api/admin/currency";
 
 	private static final Duration TIMEOUT = Duration.ofSeconds(20);
 

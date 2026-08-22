@@ -54,7 +54,7 @@ interface Backend {
   tiers?: () => Response;
   prices?: () => Response;
   write?: () => Response;
-  currencies?: () => Response;
+  currency?: () => Response;
   create?: () => Response;
   addPrice?: () => Response;
 }
@@ -71,9 +71,8 @@ function stack(backend: Backend = {}) {
     }
     if (url.endsWith("/api/admin/tiers")) return (backend.tiers ?? (() => json({ tiers: [FREE, PRO] })))();
     if (url.endsWith("/api/admin/prices")) return (backend.prices ?? (() => json({ prices: [] })))();
-    if (url.endsWith("/api/admin/currencies")) {
-      return (backend.currencies ??
-        (() => json({ defaultCurrency: "eur", supported: ["eur", "usd"] })))();
+    if (url.endsWith("/api/admin/currency")) {
+      return (backend.currency ?? (() => json({ currency: "eur" })))();
     }
     if (url.endsWith("/api/admin/plans")) return (backend.create ?? (() => json(PRO, 201)))();
     if (url.endsWith("/prices") && (init?.method ?? "GET") === "POST") {
@@ -536,16 +535,19 @@ describe("when the token runs out", () => {
 });
 
 describe("creating a plan from the screen", () => {
-  it("offers the currencies Stripe says the account can settle in", async () => {
-    // Not a hardcoded list of Stripe's hundred and thirty: a currency this account
-    // cannot take is a plan card that renders and a Checkout that fails.
+  it("shows the one currency the catalog is priced in, and does not offer a choice", async () => {
+    // Every tier, the same currency (T63, #129) — a plan screen is a comparison,
+    // and €9,99 against $12.99 is not one a buyer can make. Since it is not a
+    // choice it is not a field, which is what makes a mixed catalog unsayable
+    // rather than merely refused.
     const s = stack();
 
     await arrive(s);
     await click("New plan");
 
-    const options = [...container.querySelectorAll("#plan-currency option")].map((o) => o.textContent);
-    expect(options).toEqual(["EUR", "USD"]);
+    expect(text()).toContain("EUR");
+    expect(text()).toContain("like every tier");
+    expect(container.querySelector("#plan-currency")).toBeNull();
   });
 
   it("and sends the whole plan, created not on sale", async () => {
@@ -568,7 +570,8 @@ describe("creating a plan from the screen", () => {
     ) as Record<string, unknown>;
     expect(sent["tierCode"]).toBe("starter");
     expect(sent["amount"]).toBe(500);
-    expect(sent["currency"]).toBe("eur");
+    // No currency at all: the catalog has one (T63, #129) and no request names it.
+    expect(sent["currency"]).toBeUndefined();
     expect(sent["interval"]).toBe("month");
     // Not on sale: the operator checks what Stripe made, then publishes from the row.
     expect(sent["published"]).toBe(false);
@@ -631,13 +634,13 @@ describe("creating a plan from the screen", () => {
   });
 
   it("will not create anything when Stripe cannot say what it may be priced in", async () => {
-    // Offering a guess here is offering a currency the account cannot charge in.
-    const s = stack({ currencies: () => new Response(null, { status: 503 }) });
+    // Offering a guess here is offering a currency the account cannot settle in.
+    const s = stack({ currency: () => new Response(null, { status: 503 }) });
 
     await arrive(s);
     await click("New plan");
 
-    expect(text()).toContain("could not say which currencies");
+    expect(text()).toContain("could not say what this account settles in");
     expect(container.querySelector("#plan-amount")).toBeNull();
   });
 });
@@ -692,7 +695,8 @@ describe("a plan sold at more than one rhythm", () => {
     expect(sent["amount"]).toBe(9900);
     // The rhythm Pro does not already sell at, which is what the form opened on.
     expect(sent["interval"]).toBe("year");
-    expect(sent["currency"]).toBe("eur");
+    // No currency at all: the catalog has one, and no request may name another.
+    expect(sent["currency"]).toBeUndefined();
   });
 
   it("says plainly that repricing leaves existing subscribers where they are", async () => {

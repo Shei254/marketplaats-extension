@@ -139,6 +139,24 @@ class PlansTest {
 		assertThat(codesOnOffer()).containsExactly("pro", "power");
 	}
 
+	/**
+	 * A catalog priced in two currencies is refused whole (T63, #129).
+	 *
+	 * <p>A plan screen is a comparison, and €9,99 against $12.99 is not one a buyer can make without knowing
+	 * today's rate — so it is the same all-or-nothing rule a price that could not be fetched meets. Nothing
+	 * this API offers can produce one: no request carries a currency and every plan is created in the
+	 * account's own. The way here is a Price made in the Stripe dashboard and priced in something else.
+	 */
+	@Test
+	void aCatalogPricedInTwoCurrenciesIsNotAScreenAnybodyCanCompare() {
+		PRICES.put("price_power", new StripePrice(1999, "usd", "month"));
+
+		HttpResponse<String> refused = get();
+
+		assertThat(refused.statusCode()).isEqualTo(503);
+		assertThat(refused.body()).isEmpty();
+	}
+
 	@Test
 	void aCatalogWithNothingPublishedIsAnAnswerRatherThanAFault() {
 		// Which is every stack whose Stripe Prices have not been created yet (T22, #28). "Unavailable" would

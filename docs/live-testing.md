@@ -3,8 +3,10 @@
 The endpoints the spikes discovered ship as `DEFAULT_ENDPOINT_CONFIG` in
 `apps/extension/src/shared/endpoint-config.ts`, so the extension works out of the
 box. They stay **runtime config**: when Marktplaats moves one, you paste the new
-path in from the console — no source edit or rebuild needed to retune. (Backend-served
-config replaces that console hook — [ADR-0013](adr/0013-remote-client-configuration.md), #36.)
+path in from the console — no source edit or rebuild needed to retune. Backend-served
+config ([ADR-0013](adr/0013-remote-client-configuration.md), #36) is how the same fix reaches *users*, and
+it sits **below** your console overrides on purpose, so it cannot undo a path you are holding still while you
+work it out — see § 3a.
 
 **What the spikes found is written down separately**:
 [`internal-api-findings.md`](internal-api-findings.md) — every endpoint, the CSRF chain, why `createAd`'s
@@ -83,7 +85,23 @@ await chrome.storage.local.remove("endpointOverrides");
 ```
 The `csrf` object is replaced wholesale, never merged — the four modes carry
 different fields, so pass a complete one. The POC Options page that also wrote this
-config is gone (ADR-0013); `__setEndpoints` is the whole surface until #36 lands.
+config is gone (ADR-0013).
+
+**Since #36 there are three layers, and yours is the top one.** `__getEndpoints`
+shows what they resolve to; the layer underneath is whatever the worker last fetched
+from `GET /api/client-config`:
+```js
+await __clientConfig()      // ask the API now, ignoring the 15-minute throttle
+```
+It answers `stored` with the document, `fresh` if it was young enough to skip (only
+via the automatic refresh — this hook always asks), `unreadable` for a `200` this
+build cannot parse, or `signed-out`/`outdated`/`unavailable`. An endpoint you have
+overridden stays overridden whatever it says; one you have not follows the served
+document, and then the build. To watch the middle layer on its own, clear yours:
+```js
+await chrome.storage.local.remove("endpointOverrides");
+await chrome.storage.local.get("clientConfig");   // { fetchedAt, config }
+```
 
 **If you live-tested before this change**, your profile is under the old
 `endpointConfig` key, and it holds a *resolved* config — all nine endpoints frozen

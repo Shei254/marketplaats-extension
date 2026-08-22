@@ -280,3 +280,35 @@ URIs exactly, so sign-in lands on `/` and the page rewrites the address bar to `
 9. Leave `/admin` open for longer than the realm's five-minute access token and click **Save**.
    *Expect:* Keycloak takes over and hands you back where you were — the token lives in memory only and there
    is no refresh, so a `401` is one redirect rather than an error.
+
+### The night Marktplaats moves something (T27, #36)
+
+The other half of operating this, and the only one with no screen: the client config is an environment
+variable and a restart. Run these from a `build:dev` extension with the service-worker console open.
+
+11. With `MPRELIST_CLIENT_CONFIG` unset, `await __clientConfig()`.
+   *Expect:* `{ status: "stored", config: { schemaVersion: 1, endpoints: {}, csrf: null, pacing: null } }`.
+   The empty document is the ordinary answer and it means *your defaults are correct* — not a `404`, not a
+   `503`. `await __getEndpoints()` shows the built-in paths, unchanged.
+11a. Set `MPRELIST_CLIENT_CONFIG={"endpoints":{"deleteAd":"/seller/api/nonsense"}}` and restart the API. Then
+   `await __clientConfig()` and `await __getEndpoints()`.
+   *Expect:* `deleteAd` is now the nonsense path and **nothing else moved**. Relisting a throwaway ad now
+   fails *before* the delete, which is the point: the ad survives. Take the variable back out, restart, and
+   `await __clientConfig()` — the empty document supersedes it and the built-in path is back. **This is the
+   whole feature**, and both directions of it.
+11b. Set it again, then `await __setEndpoints({ deleteAd: "/mine/delete" })`.
+   *Expect:* `__getEndpoints()` says `/mine/delete`. Your override outranks the served document — the call
+   #36 left open — so a config deploy cannot pull a path out from under you mid-session. Clear it with
+   `chrome.storage.local.remove("endpointOverrides")` and the served one is back.
+11c. Set `MPRELIST_CLIENT_CONFIG={"csrf":{"mode":"eval","header":"x"}}` and restart the API.
+   *Expect:* **it does not start**, and the log names the four modes there are. A mode no client has a branch
+   for is where "strictly data" is enforced rather than asserted. Same for `{"endpoint":{…}}` — a misspelt
+   field deploys nothing, and this is the only moment anybody can be told.
+11d. Set `MPRELIST_CLIENT_CONFIG={"pacing":{"minMs":5000,"maxMs":6000}}`, restart, `await __clientConfig()`,
+   then repost two ads in a row from the popup.
+   *Expect:* the second waits about five seconds instead of 45–90. The backend's own 30s rail is untouched,
+   so it will refuse the second relist — which is correct and is the thing to see: the client's pacing is a
+   courtesy the server does not trust.
+11e. Stop the API entirely and `await __clientConfig()`.
+   *Expect:* `unavailable`, and `chrome.storage.local.get("clientConfig")` still holds the last document. A
+   backend that blinked must not un-apply the hotfix that is holding relisting together.

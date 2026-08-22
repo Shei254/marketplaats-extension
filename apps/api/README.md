@@ -101,11 +101,18 @@ Each is a direct sub-package of `com.mprelist`, which is what makes it an applic
 | `display` | `GET /api/me`: the unsigned snapshot the popup and the dashboard render from, composed from the four above | [#26](https://github.com/Shei254/marketplaats-extension/issues/26) — [below](#what-the-caller-is-shown) |
 | `admin` | operator endpoints behind the `ADMIN` role | [#27](https://github.com/Shei254/marketplaats-extension/issues/27) — [below](#the-admin-guard) — which is the guard and no endpoint; the endpoints are [#84](https://github.com/Shei254/marketplaats-extension/issues/84) |
 | `billing` | what Stripe tells us: the webhook, and the only Stripe dependency in the application | [#82](https://github.com/Shei254/marketplaats-extension/issues/82) — [below](#where-a-plan-comes-from) — syncs a Price into a tier; [#30](https://github.com/Shei254/marketplaats-extension/issues/30) mirrors subscriptions, [#29](https://github.com/Shei254/marketplaats-extension/issues/29) and [#31](https://github.com/Shei254/marketplaats-extension/issues/31) hand out the redirects |
+| `clientconfig` | `GET /api/client-config`: what the extension should do differently from what it was built to do | [#36](https://github.com/Shei254/marketplaats-extension/issues/36) — [below](#the-night-marktplaats-moves-something) |
+
+**The eighth depends on nothing and nothing depends on it**, which is why it is its own module rather than a
+controller filed under one of the seven. Every other module here is about a *user* — who they are, what they
+bought, what they may spend. `clientconfig` is about a *build*: Marktplaats moved a path, and every installed
+extension has to be told. It shares no concept with any of them, so putting it in one would misname that
+module to save a package. Its public surface is empty — the route, and nothing another module can call.
 
 Every module now holds at least one class, `admin` included since #27, which changes what its
 `@ApplicationModule` annotation is doing. Modulith's default detection takes every direct sub-package that
-*holds* a class, so on all seven the annotation is now consistency rather than what makes them visible — and
-`allSevenModulesAreVisibleToTheCheck` no longer fails if `admin`'s `package-info` loses it. It did until this
+*holds* a class, so on all eight the annotation is now consistency rather than what makes them visible — and
+`allEightModulesAreVisibleToTheCheck` no longer fails if `admin`'s `package-info` loses it. It did until this
 ticket, because an empty package compiles to no class file at all and a module Modulith cannot see is a
 module it does not check; that was the one place the annotation was load-bearing, and the mutation table
 below records both readings and when each was true.
@@ -138,7 +145,7 @@ Mutation-verified — each of these was applied, observed, and reverted:
 |---|---|
 | `enforcement` references `identity.internal.TokenParser` | `noModuleReachesIntoAnothersInternals` |
 | the fixture's `beta` stops reaching into `alpha.internal` | `andTheCheckAboveIsWhatWouldCatchOneThatDid` |
-| `admin`'s `package-info` loses `@ApplicationModule` | **nothing, since #27** — the module now holds a class and is detected either way. It failed `allSevenModulesAreVisibleToTheCheck` — `allSix…` as it was then called — while the package was empty, which is what that row said before this ticket; re-run and observed on both sides of the change |
+| `admin`'s `package-info` loses `@ApplicationModule` | **nothing, since #27** — the module now holds a class and is detected either way. It failed `allEightModulesAreVisibleToTheCheck` — `allSix…` as it was then called, and `allSeven…` until #36 added the eighth — while the package was empty, which is what that row said before this ticket; re-run and observed on both sides of the change |
 | `subscription` holds a field of type `enforcement.Quotas`, which is `/api/me` written in the module whose concept dominates it | `noModuleReachesIntoAnothersInternals`, by name: `Cycle detected: Slice enforcement -> Slice subscription -> Slice enforcement`. It is why `display` is a module of its own (#26) |
 | `catalog`'s `package-info` loses `@ApplicationModule` | **nothing** — corrected in #26. The row was recorded against the wrong module: a package holding classes is detected either way, and `display` shipped with the same mutation surviving before this was chased down |
 
@@ -956,6 +963,11 @@ suite stays green. It cannot fail today: `enforcement` ships the only routes the
 select the same two. The scope is written for the routes #26 and #36 will add, and the day it starts mattering
 is the day somebody wants a different shape on a route this module does not own. That is a test those tickets
 can write and this one cannot, since the thing to assert is the behaviour of a controller nobody has written.
+
+Both have since landed and **neither was that day**: `GET /api/me` and `GET /api/client-config` take no
+request body, so there is nothing either could hand Jackson to fail on. The mutation is still unfalsifiable,
+and the first route that changes that will be one that reads a body and wants a different `400` — which is
+still nobody's, and is still a test that ticket writes rather than this one.
 
 ## What nobody ever reports back
 
@@ -1823,6 +1835,67 @@ collision `unique (tier_id, billing_interval)` would have had — two prices in 
 has nothing left to cause it. Selling into a second currency zone is a bigger question than a column, since
 the plan cards would have to choose a currency per viewer and a Stripe account settles in one.
 
+## The night Marktplaats moves something
+
+`GET /api/client-config` ([#36](https://github.com/Shei254/marketplaats-extension/issues/36), T27), the whole
+of [ADR-0013](../../docs/adr/0013-remote-client-configuration.md): the extension drives Marktplaats's private,
+unversioned endpoints, and the day one of them moves, every installed build fails the same way at once. A fix
+shipped as a release is a Web Store review — days. A fix shipped as this document is a restart.
+
+**It holds no configuration**, which is the decision the rest follows from. The nine paths, the CSRF rules and
+the pacing window are the *extension's*, built into every release; what this serves is a **patch** over them,
+and on a day nothing has moved that patch is empty:
+
+```
+GET /api/client-config      →  {"schemaVersion":1}
+```
+
+That is a `200`, and it means *your defaults are correct*. There is no `404` for a document nobody deployed
+and no `503` for one that could not be built — the document is a setting this application read at startup, so
+the only way to fail here is to have failed to start. The alternative, holding our own copy of nine private
+paths, buys a document you can read and costs the failure this route exists to prevent: a second copy that
+goes stale on its own schedule and is then served, confidently, to every installed build at once.
+
+**Everything an operator can write is one environment variable**, `MPRELIST_CLIENT_CONFIG`, as one line of
+JSON. Not a block of YAML keys, because the endpoint names are the extension's and are camelCase
+(`listMyAds`) — a case an environment variable cannot carry into a map key.
+
+**A document this application cannot read stops it from starting**, which is the opposite of how it treats a
+Stripe key it has not been given, and the difference is who finds out. An unset Stripe key is a developer
+running something else, told once at `WARN`. A malformed client-config is an operator who has just deployed a
+fix for a breakage that is live and is watching this start; serving an empty document instead would let them
+believe the fix had gone out, at the worst possible moment for it. A **misspelt field** is refused for the
+same reason — `endpoint` for `endpoints` deploys nothing, and this is the only moment anybody can be told —
+which is why the parse runs its own `JsonMapper` with `FAIL_ON_UNKNOWN_PROPERTIES` rather than the
+application's, whose habit is deliberately the opposite for reading Stripe.
+
+**`schemaVersion` is stamped, not configured.** It names the shape of the record this code serves, so an
+operator who could set it could tell every installed client to read a shape nobody is serving. Naming it is
+one of the errors above.
+
+**`csrf.mode` is an enum, and that is where "strictly data" is enforced rather than asserted.** The four
+modes — `meta`, `cookie`, `fetch`, `none` — are names of branches that already exist in the client, so a
+document can say which one runs and cannot deliver a fifth. A mode this application does not name fails to
+parse, and the message lists the four there are, because the operator reading it is mid-outage and a guess is
+the second failed deploy. They travel lower case: they are the *client's* words for its own branches, unlike
+the denial reasons, which are this API's own vocabulary and shout in both places. The `fetch` extractor is a
+selector and an attribute and never a pattern, so nothing served is ever compiled — only compared.
+
+**Authenticated, like every route here, and this was the ticket expected to ask for an exception.**
+`ResourceServerSecurity` and `RoutesNeedingARole` both name #36 as the first that might want an anonymous
+route. It turned out not to: everything this document configures — driving Marktplaats's internal API on
+somebody's behalf — is behind a sign-in, so a caller who cannot hold a token has nothing to do with the
+answer, and opening a route in an API closed by default would buy an unauthenticated copy of our own
+instructions for driving somebody else's site.
+
+**Nothing is cached at this end.** The caching ADR-0013 asks for is the service worker's, which is where it
+has to be — the point is a client that already holds the document, not a server that answers quickly. This end
+is a field read of a setting parsed once at startup.
+
+What the extension does with it — three resolution layers with a tester's override on top, and the rule that a
+fetch which fails leaves a stored document alone while a `200` it cannot read discards one — is
+[`docs/enforcement-contract.md` § `GET /api/client-config`](../../docs/enforcement-contract.md).
+
 ## Which build may call it
 
 `X-Mprelist-Client: extension/0.0.1`, on every call, and a lever for the day a build must stop
@@ -2039,13 +2112,10 @@ volume. Anything you have no value for is commented out in that file, and the te
 
 ## Not here yet
 
-**The rest of the endpoints** of [`docs/enforcement-contract.md`](../../docs/enforcement-contract.md):
-`GET /api/client-config` ([#36](https://github.com/Shei254/marketplaats-extension/issues/36)), which is the
-next route to test whether `UnreadableRequests`' scope was worth naming.
-
-**Client-side pacing and jitter** ([#54](https://github.com/Shei254/marketplaats-extension/issues/54)). The
-rails above refuse a relist that came too soon; making one *arrive* at a human-shaped moment is the
-extension's, and there is no jitter anywhere today — only serialisation.
+**Every endpoint** of [`docs/enforcement-contract.md`](../../docs/enforcement-contract.md) now exists:
+`GET /api/client-config` ([#36](https://github.com/Shei254/marketplaats-extension/issues/36)) was the last of
+them. It did not turn out to be the route that tested `UnreadableRequests`' scope — it takes no request body,
+so there is nothing it could hand Jackson to fail on.
 
 **What a tier costs.** `TierCatalog` answers what a tier grants and what it is called, and since
 [#82](https://github.com/Shei254/marketplaats-extension/issues/82) a tier can carry the `stripe_price_id` a

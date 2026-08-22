@@ -11,6 +11,7 @@
  * (T43, #52), not a refactor.
  */
 export {
+  CSRF_MODES,
   DENIAL_REASONS,
   RELIST_OUTCOMES,
   SUBSCRIPTION_STATUSES,
@@ -19,8 +20,13 @@ export {
   type AuthorizeRequest,
   type CatalogCurrency,
   type CheckoutRequest,
+  type ClientConfig,
+  type ClientConfigCsrf,
+  type ClientConfigExtractor,
+  type ClientConfigPacing,
   type CheckoutSession,
   type CompleteRequest,
+  type CsrfMode,
   type Denial,
   type DenialReason,
   type DisplayState,

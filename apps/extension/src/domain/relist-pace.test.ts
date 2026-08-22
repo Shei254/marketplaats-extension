@@ -160,6 +160,40 @@ describe("the pacer", () => {
   });
 });
 
+/**
+ * The seam T46 left for #36, now spent: the window is asked for at the moment it
+ * is needed rather than fixed when the pacer was built.
+ *
+ * It has to be. A worker constructs its pacer at module scope and then lives for
+ * about thirty seconds, while a served document arrives on its own schedule and
+ * is read out of storage by whoever needs it — so a window captured at
+ * construction is whichever one this particular wake happened to start with,
+ * which is not a rule anybody wrote down.
+ */
+describe("a window that can change under the pacer", () => {
+  it("is asked for again on each call rather than held from the first", async () => {
+    const windows: PacingWindow[] = [
+      { minMs: 10_000, maxMs: 10_000 },
+      { minMs: 60_000, maxMs: 60_000 },
+    ];
+    const memory = new Remembered();
+    const it = new RelistPacer(memory, async () => windows.shift() ?? windows[0]!, () => 1_000_000);
+
+    await it.startedRelisting();
+    const first = memory.at;
+    await it.startedRelisting();
+
+    expect(first).toBe(1_010_000);
+    expect(memory.at).toBe(1_060_000);
+  });
+
+  it("still takes a plain window, which is what every caller but the worker passes", async () => {
+    const { it } = pacer(new Remembered(1_030_000));
+
+    expect(await it.msBeforeNextRelist()).toBe(30_000);
+  });
+});
+
 describe("the built-in window", () => {
   it("starts above the rail the backend refuses on", () => {
     // `mprelist.safety.minimum-interval` is 30s. A gap that could come in under it

@@ -39,13 +39,30 @@ export interface PacingWindow {
  * is comfort — 90s is a long time to watch a countdown, and it stays well under
  * the five minutes an MV3 worker is allowed to live.
  *
- * **#36 is what makes this tunable without a store release**, and it does not
- * exist: the served client config is deferred (ADR-0013), so the ticket's second
- * criterion is met only as far as the *seam* — `RelistPacer` is handed its window
- * rather than reading one, so the day a config arrives it is a different argument
- * at one call site in the worker and nothing here changes at all.
+ * **#36 is what makes this tunable without a store release**, and since T27 it
+ * exists: an operator's `pacing` block reaches `RelistPacer` as a source rather
+ * than a value, and this window is what that source answers with when nothing has
+ * been served — which is every deployment on every day Marktplaats has not moved
+ * anything. The seam T46 left is spent; nothing else in this file changed.
  */
 export const HUMAN_PACE: PacingWindow = { minMs: 45_000, maxMs: 90_000 };
+
+/**
+ * Where the window comes from **at the moment it is needed**, which since T27
+ * (#36) is not the moment the pacer was built.
+ *
+ * A worker constructs its pacer once, at module scope, and then lives for about
+ * thirty seconds; a served document arrives on its own schedule and is read out
+ * of `chrome.storage.local` by whoever needs it. A window fixed at construction
+ * would therefore be whatever was stored when this particular wake happened to
+ * start, which is not a rule anybody wrote down.
+ *
+ * A plain {@link PacingWindow} is still accepted and is what every test passes:
+ * the pacer's own behaviour is the same either way, and a suite that had to wrap
+ * every window in a function to say the same thing would be paying for a seam it
+ * is not testing.
+ */
+export type PacingWindowSource = PacingWindow | (() => PacingWindow | Promise<PacingWindow>);
 
 /**
  * A gap drawn from the window. **Randomised, not fixed** — a constant 60s gap is
@@ -119,14 +136,14 @@ export interface RelistPacing {
 export class RelistPacer implements RelistPacing {
   constructor(
     private readonly memory: PaceMemory,
-    private readonly window: PacingWindow = HUMAN_PACE,
+    private readonly window: PacingWindowSource = HUMAN_PACE,
     private readonly clock: () => number = () => Date.now(),
     private readonly random: () => number = Math.random,
     private readonly sleep: (ms: number) => Promise<void> = timeout,
   ) {}
 
   async msBeforeNextRelist(): Promise<number> {
-    return gapLeft(await this.memory.read(), this.clock(), this.window);
+    return gapLeft(await this.memory.read(), this.clock(), await this.currentWindow());
   }
 
   async pause(): Promise<void> {
@@ -135,7 +152,17 @@ export class RelistPacer implements RelistPacing {
   }
 
   async startedRelisting(): Promise<void> {
-    await this.memory.write(this.clock() + drawGap(this.window, this.random));
+    await this.memory.write(this.clock() + drawGap(await this.currentWindow(), this.random));
+  }
+
+  /**
+   * The window this call is paced by. Asked once per call and never held: a pacer
+   * that cached it would go on using the window it saw first for as long as the
+   * worker happened to live, which is the thing a served document exists to be
+   * able to change.
+   */
+  private async currentWindow(): Promise<PacingWindow> {
+    return typeof this.window === "function" ? this.window() : this.window;
   }
 }
 

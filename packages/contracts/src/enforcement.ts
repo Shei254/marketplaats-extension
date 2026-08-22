@@ -8,9 +8,10 @@
  * `Date` here would make this package a decoder with an opinion about clocks, and
  * the one thing every consumer does with `resetAt` is render it.
  *
- * Not here yet, and named so nobody has to guess: `GET /api/client-config` (T27,
- * #36). It is still unbuilt, and a type written ahead of the endpoint it describes
- * is a guess that later reads as a contract.
+ * Nothing is named here as missing today. The last one that was — `GET
+ * /api/client-config` (T27, #36) — is at the bottom of this file, written when the
+ * endpoint was, which is the rule: a type written ahead of the endpoint it
+ * describes is a guess that later reads as a contract.
  */
 
 /**
@@ -464,4 +465,97 @@ export interface NewPlan {
 export interface CatalogCurrency {
   /** Lower case, as Stripe writes it. */
   currency: string;
+}
+
+// --- The client's own configuration (T27, #36) -------------------------------
+
+/**
+ * How the extension finds Marktplaats's CSRF token. **Names only** — every mode
+ * is a branch that already exists in the extension, and this says which one runs
+ * (`docs/internal-api-findings.md`).
+ *
+ * That is the whole of what makes a served config data rather than code: a mode
+ * this list does not name is not a new behaviour anybody can deliver, it is a
+ * document the client refuses.
+ */
+export const CSRF_MODES = [
+  /** The token is in a `<meta>` tag on the page, by `name`. */
+  "meta",
+  /** It is in a cookie the page can read, by `name`. */
+  "cookie",
+  /** A page is fetched and the token read out of it — what Marktplaats needs today. */
+  "fetch",
+  /** There is none, and nothing is sent. */
+  "none",
+] as const;
+
+export type CsrfMode = (typeof CSRF_MODES)[number];
+
+/**
+ * Where in a fetched page the token is. **A selector and an attribute, never a
+ * pattern**: nothing served is compiled, only compared.
+ */
+export interface ClientConfigExtractor {
+  selector: string;
+  attribute: string;
+}
+
+/**
+ * The CSRF block, **replaced whole or not at all**. The modes carry different
+ * fields, so a merge could produce a `none` still holding a `url` — which is a
+ * config that says two things.
+ */
+export interface ClientConfigCsrf {
+  mode: CsrfMode;
+  /** The request header the token is sent in. */
+  header: string;
+  /** `meta` and `cookie`: what the tag or the cookie is called. */
+  name?: string;
+  /** `fetch`: the page to read it out of. Absolute — it decides which origin is asked. */
+  url?: string;
+  /** `fetch`: where in that page to look. */
+  extractor?: ClientConfigExtractor;
+}
+
+/** The randomised gap between two relists, in milliseconds (ADR-0008, T46 #54). */
+export interface ClientConfigPacing {
+  minMs: number;
+  maxMs: number;
+}
+
+/**
+ * `GET /api/client-config` — what the extension should do differently from what
+ * it was built to do (ADR-0013).
+ *
+ * **It is a patch, not a configuration.** Every field is optional and the empty
+ * document `{ "schemaVersion": 1 }` is the ordinary answer: the extension's
+ * built-in defaults are the configuration, and this says only where an operator
+ * has had to depart from them. Nothing is restated in two places, so nothing can
+ * drift — and an API that never held the nine endpoint paths cannot serve a stale
+ * one.
+ *
+ * **Strictly data**, which is the ADR's hard constraint and MV3's rule: paths,
+ * header names, selectors, numbers. Nothing here is evaluated, compiled or
+ * executed by the client — a served value is compared against something or
+ * substituted into a URL, and that is all.
+ *
+ * **`schemaVersion` is the API's, not an operator's.** It names the shape of this
+ * document; a client that does not know it ignores the document whole rather than
+ * reading half of one it does not understand.
+ *
+ * Authenticated like every other route here. It is the same document for
+ * everybody and carries nothing about anyone, which is not a reason to open a
+ * route in an API that is closed by default — the caller is a worker that holds a
+ * token, and everything this document configures is behind a sign-in anyway.
+ */
+export interface ClientConfig {
+  schemaVersion: number;
+  /**
+   * Marktplaats's internal paths, by the extension's own name for each. Keys the
+   * client does not know are dropped — an older build must not choke on a name a
+   * newer one added.
+   */
+  endpoints?: Record<string, string>;
+  csrf?: ClientConfigCsrf;
+  pacing?: ClientConfigPacing;
 }

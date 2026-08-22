@@ -390,8 +390,10 @@ interaction signals of real clicks.
 - The floor sits above `mprelist.safety.minimum-interval` (30s), so consecutive relists stop *discovering*
   that rail. The burst cap stays the backend's — no usable gap keeps somebody under ten an hour.
 - The window is **handed to the pacer** rather than read by it, which is the seam
-  [T27](https://github.com/Shei254/marketplaats-extension/issues/36)'s served config arrives through. Until
-  it does, tuning is a release — the one acceptance criterion this ticket left open.
+  [T27](https://github.com/Shei254/marketplaats-extension/issues/36)'s served config arrived through — and it
+  has: the pacer now takes a *source* and asks it per call, and the worker's source is the served `pacing`
+  block falling back to `HUMAN_PACE`. The acceptance criterion this ticket left open is closed; tuning is a
+  restart of the API rather than a Web Store release.
 
 #### [T58](https://github.com/Shei254/marketplaats-extension/issues/89) · Chrome Web Store listing · **M** · T36, T46, T60
 Name, icons, screenshots, description naming Marktplaats **in the copy and not the title**, privacy policy
@@ -426,7 +428,7 @@ Refs: [ADR-0011](adr/0011-repository-layout.md).
 
 | Ticket | Why it waits |
 |---|---|
-| [T27](https://github.com/Shei254/marketplaats-extension/issues/36) · `GET /api/client-config` | Nothing to hotfix yet. Its value is a Marktplaats DOM change you can fix without a release; that bill arrives with real users, not before ([ADR-0013](adr/0013-remote-client-configuration.md)) |
+| [T27](https://github.com/Shei254/marketplaats-extension/issues/36) · `GET /api/client-config` | **Shipped**, ahead of the bill it was waiting for — because the lever has to predate the outage it is for, the same argument T43 makes about its header. It holds **no copy** of the nine endpoints: what it serves is a patch over the build's own defaults, so a healthy deployment answers `{"schemaVersion":1}` and nothing here can go stale. The ranking this ticket left open is decided — defaults, then the served document, then a tester's `__setEndpoints`, **the tester winning** — and the four CSRF modes are an enum at both ends, which is where "strictly data" is enforced rather than asserted ([ADR-0013](adr/0013-remote-client-configuration.md)) |
 | [T31](https://github.com/Shei254/marketplaats-extension/issues/40) · Debounced server-side searchbar | **Shipped.** A convenience over the ad list and never part of the gate — search is ungated at every subscription state, like the list it filters. It closed the dead path it was named for: `searchAd` reached the orchestrator and was **logged**, so nothing could render it. Server-side because `listMyAds` paging is an open spike below — a box filtering the rows that happened to arrive would fail to find an ad the seller can see, and worst on the biggest account |
 | [T37](https://github.com/Shei254/marketplaats-extension/issues/46) · SPIKE: is `listMyAds` paginated? | Cheap and high-information; run it when the list gets long enough to matter |
 | [T38](https://github.com/Shei254/marketplaats-extension/issues/47) · SPIKE: stable Marktplaats account identifier | Blocks `maxMpAccounts` as a sellable entitlement and multi-account |

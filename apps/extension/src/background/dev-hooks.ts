@@ -29,6 +29,11 @@ export const DEV_HOOK_NAMES = [
   "__searchAds",
   "__getEndpoints",
   "__setEndpoints",
+  // The served half of the same question (T27, #36). `__getEndpoints` answers
+  // with the config as it *resolved*, all three layers flattened; this one asks
+  // the API and says which of the six things happened, which is the difference
+  // between "my override is winning" and "the document never arrived".
+  "__clientConfig",
   "__signIn",
   "__signOut",
   "__authState",

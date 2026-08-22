@@ -1,3 +1,7 @@
+import type { CsrfMode as ContractCsrfMode } from "@mprelist/contracts";
+
+import { isServedConfigChange, readServedConfig } from "./served-config";
+
 /**
  * The one definition of Marktplaats's internal endpoints + CSRF source.
  *
@@ -5,8 +9,13 @@
  * (via the __setEndpoints console hook of a dev build) and live-test WITHOUT
  * editing source or rebuilding. Persisted in chrome.storage.local; read by the
  * content script at call time, and by the background worker's dev hooks. The
- * POC Options page that also wrote it is gone — ADR-0013, whose backend-served
- * replacement is #36.
+ * POC Options page that also wrote it is gone — ADR-0013.
+ *
+ * **Three sources now, in one order** (T27, #36). What ships in this file is the
+ * bottom; the document the worker fetches from `GET /api/client-config` is laid
+ * over it; and a tester's own overrides are laid over that. See
+ * `loadEndpointConfig` for why the tester wins, which is the call ADR-0013 left
+ * open and `docs/glossary.md` had been carrying as unanswered.
  *
  * This module is imported by every layer that needs the config — content script
  * and background worker. There is deliberately no second copy: a
@@ -25,7 +34,14 @@
  * really comes from, and a table mapping each failure to the thing most likely to
  * have moved. The symptom is rarely at the endpoint whose name is in the error.
  */
-export type CsrfMode = "meta" | "cookie" | "none" | "fetch";
+
+/**
+ * The four ways the token can be found. Imported from the wire contract rather
+ * than restated, because since T27 (#36) a served document may name one — and a
+ * mode this build spelled differently from the API's would be a document dropped
+ * for a reason nobody could see.
+ */
+export type CsrfMode = ContractCsrfMode;
 
 export interface BaseCsrfConfig {
   header: string;
@@ -142,17 +158,54 @@ async function readOverrides(): Promise<Partial<EndpointConfig>> {
     return (stored[STORAGE_KEY] as Partial<EndpointConfig> | undefined) ?? {};
 }
 
+/**
+ * The config as everything that calls Marktplaats sees it: **the build's
+ * defaults, then whatever the backend served, then whatever this tester
+ * overrode** (T27, #36).
+ *
+ * **The tester wins, and that is the call ADR-0013 left open.** Overrides exist
+ * only in a `build:dev` bundle and are written by hand, by somebody who is
+ * live-testing a path they are in the middle of working out
+ * (`docs/live-testing.md`). A served document landing on top would silently undo
+ * the one thing they are holding still — and it would do it minutes later,
+ * remotely, while they were reading the result. The served document is for
+ * everybody who has not made that choice, which is every real user, since none of
+ * them can make it.
+ *
+ * **A served path this build has never heard of is dropped**, not carried. The
+ * names are the keys of `DEFAULT_ENDPOINT_CONFIG` and nothing else, so a name a
+ * newer release added reaches an older one as an unknown key and stops there —
+ * which is what lets the API serve one document to every installed build.
+ *
+ * `csrf` is replaced wholesale at each layer rather than merged, for the reason
+ * that was already here: the variants carry different fields, so a shallow merge
+ * could produce a mode `none` still carrying a stale `url`.
+ */
 export async function loadEndpointConfig(): Promise<EndpointConfig> {
+    const served = (await readServedConfig())?.config ?? null;
     const overrides = await readOverrides();
 
     return {
         ...DEFAULT_ENDPOINT_CONFIG,
+        ...pathsThisBuildKnows(served?.endpoints ?? {}),
         ...overrides,
-        // Replaced wholesale, never merged: the CSRF variants carry different
-        // fields, so a shallow merge could produce e.g. mode "none" still
-        // carrying a stale `url`.
-        csrf: overrides.csrf ?? DEFAULT_ENDPOINT_CONFIG.csrf,
+        csrf: overrides.csrf ?? served?.csrf ?? DEFAULT_ENDPOINT_CONFIG.csrf,
     };
+}
+
+/**
+ * The served paths, minus any name this build does not have an endpoint for.
+ *
+ * The check is against the defaults' own keys — the same totality that makes a
+ * missing default a compile error — so there is no second list of names to keep
+ * in step with the first.
+ */
+function pathsThisBuildKnows(served: Record<string, string>): Partial<Record<EndpointName, string>> {
+    const known: Partial<Record<EndpointName, string>> = {};
+    for (const [name, path] of Object.entries(served)) {
+        if (name !== "csrf" && name in DEFAULT_ENDPOINT_CONFIG) known[name as EndpointName] = path;
+    }
+    return known;
 }
 
 /**
@@ -185,9 +238,18 @@ export async function saveEndpointOverrides(
     return merged;
 }
 
+/**
+ * Whether a storage change is one the resolved config depends on — **either
+ * layer**, since T27 (#36) added the served one.
+ *
+ * The content script caches its config for its own lifetime and drops it on this,
+ * so a served document that arrived while a marktplaats.nl tab sat open would go
+ * unread until that tab was reloaded if this watched only the tester's key. Which
+ * is the wrong half to watch: nobody but a tester ever writes the other one.
+ */
 export function isEndpointConfigChange(
     changes: { [key: string]: chrome.storage.StorageChange },
     areaName: string,
 ): boolean {
-    return areaName === "local" && STORAGE_KEY in changes;
+    return areaName === "local" && (STORAGE_KEY in changes || isServedConfigChange(changes));
 }

@@ -508,8 +508,66 @@ that ADR's own "revisit if" anticipated. Same audience and same guard as the adm
 > support tickets arrive. This is the primary reason it exists, beyond quota accounting.
 
 ### `GET /api/client-config`
-Endpoint paths, CSRF extraction rules, and DOM anchors, overriding the extension's hardcoded defaults
-(ADR-0013). **Strictly data** — never anything the extension executes, per MV3's remotely-hosted-code ban.
+Endpoint paths, CSRF extraction rules, and the client's pacing window, overriding the extension's hardcoded
+defaults (ADR-0013). **Strictly data** — never anything the extension executes, per MV3's remotely-hosted-code
+ban. Authenticated like every other route here: everything it configures happens on behalf of somebody signed
+in, so a caller who cannot hold a token has nothing to do with the answer.
+
+**It is a patch, and the empty one is the ordinary answer.** The paths and rules ship inside every release;
+this document says only where an operator has had to depart from them, which on a day Marktplaats has not
+moved anything is nowhere:
+
+```json
+{ "schemaVersion": 1 }
+```
+
+That is a `200` and it means *your defaults are correct* — never a `404`, and never a `503` for a document
+nobody deployed. It is also how a hotfix is taken back off. The whole document, with every field an operator
+can write:
+
+```json
+{
+  "schemaVersion": 1,
+  "endpoints": { "deleteAd": "/seller/api/delete-ad-v2" },
+  "csrf": { "mode": "fetch", "header": "x-mp-xsrf",
+            "url": "https://www.marktplaats.nl/", "extractor": { "selector": "…", "attribute": "…" } },
+  "pacing": { "minMs": 45000, "maxMs": 90000 }
+}
+```
+
+- **`schemaVersion` is the API's, not an operator's.** It names the shape of this document, so it moves when
+  the document does and an operator naming it is a deployment that refuses to start. A client that does not
+  know the version **ignores the document whole** — half of one written for a newer build is the failure the
+  number exists to prevent.
+- **`endpoints` are keyed by the extension's own name for each path**, and a name the reading build has never
+  heard of is dropped rather than carried. That is what lets one document be served to every installed
+  release at once.
+- **`csrf` is replaced whole or not at all**, because the modes carry different fields and a merge could
+  produce a `none` still holding a `url`. The four modes are `meta`, `cookie`, `fetch` and `none` — lower
+  case, because they are the *client's* words for branches that already exist in it, unlike the denial reasons
+  above, which are this API's own vocabulary. **A mode outside that list is a document that fails to parse**,
+  and that is where "strictly data" is enforced rather than asserted: there is no fifth thing a config can
+  ask a client to do. For the same reason the extractor is a selector and an attribute and never a pattern —
+  a served value is compared against something, never compiled.
+- **`pacing`** is the client-side gap between two relists (ADR-0008, T46). It is client-side because it has to
+  be: the rails below can *refuse* a relist that came too soon, they cannot make one arrive at a moment a
+  person plausibly clicked.
+
+**Absent, not `null`.** A field nobody overrode is omitted; to a client "there is no override" and "the
+override is null" have to mean the same thing anyway.
+
+**Where a served value ranks (T27's open call, decided).** Three sources, bottom to top: the build's own
+defaults, then this document, then a tester's `__setEndpoints` override. **The tester wins.** Overrides exist
+only in a `build:dev` bundle and are typed by hand by somebody working a path out against the live site; a
+document landing on top would undo the one thing they are holding still, remotely, while they read the result.
+Every real user is on the middle layer, because none of them can write the top one.
+
+**What the client does when the ask fails.** A backend it could not reach, a token it was refused on, or a
+`200` that is not JSON at all leaves the stored document **untouched** — it may be the hotfix currently
+holding relisting together, and an API blip is no evidence against it. A `200` whose JSON the build cannot
+read is the opposite case and **discards** it: an operator has deployed something, so the last document this
+build understood is a fix for a breakage that has moved on. Nothing here is on the relist path, which is
+ADR-0013's "adds no new failure mode" as code.
 
 ## Anti-stockpiling
 - `authToken` TTL ≈ 45s and **single-use** (`jti` burned on `complete`, or on first internal-API use).

@@ -219,3 +219,31 @@ export interface CheckoutRequest {
 export interface CheckoutSession {
   url: string;
 }
+
+/**
+ * `POST /api/portal` — where "manage billing" becomes a Stripe page (T21, #31).
+ *
+ * **The request has no body.** Who is asking comes from the token, and everything
+ * the Portal offers — the card, the invoices, the cancel button — is configured in
+ * Stripe's dashboard rather than named here. It is a `POST` because each call
+ * creates a short-lived single-use session, so two calls are two sessions.
+ *
+ * The popup opens the URL in a tab exactly as it opens a Checkout one, and is
+ * destroyed the moment that tab takes focus (ADR-0017). Stripe's own "return" link
+ * comes back to `apps/web`, not to `/success` — the commonest reason to be in the
+ * Portal is cancelling.
+ *
+ * **Nothing the user does there is known here until Stripe says so.** A
+ * cancellation or a new card reaches this API through the webhook (T20, #30); a
+ * client that redrew the plan on returning from the Portal would be guessing.
+ *
+ * The refusals carry no body: `404` when this account has never been billed, so
+ * Stripe holds no customer and there is nothing to manage — the ordinary state of
+ * a free user, and the reason a client shows the link only where there is one;
+ * `503` when Stripe could not be asked, which is the only one a retry fixes. A
+ * subscriber who cancelled is **not** a `404`: ADR-0018 keeps their customer id
+ * precisely so their invoices stay reachable.
+ */
+export interface PortalSession {
+  url: string;
+}

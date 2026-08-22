@@ -1,13 +1,14 @@
 /**
  * What Stripe tells us, and what we do about it — the receiving end of ADR-0019 and ADR-0006.
  *
- * <p>Its public API is a route and nothing else: {@code POST /api/stripe/webhook}, which nobody in this
- * application calls and no other module asks anything of. Like {@code display} it is a leaf, but the other
- * way round — that one composes four modules' answers for a caller, this one turns somebody else's event into
- * one module's write.
+ * <p><strong>Everything here is a route, and no other module asks this one anything</strong> — apart from
+ * {@code display}, which reads a Price amount off {@link com.mprelist.billing.StripePrices} to draw a plan
+ * card. Three of the routes are called by the popup ({@code GET /api/plans}'s half of the answer,
+ * {@code POST /api/checkout} and {@code POST /api/portal}) and one is called by Stripe
+ * ({@code POST /api/stripe/webhook}), which nobody in this application calls at all.
  *
- * <p><strong>The route is authenticated by a signature rather than by a token</strong>, which makes it the
- * first thing here that is not closed behind Keycloak. Stripe holds no account in our realm and could not
+ * <p><strong>The webhook is authenticated by a signature rather than by a token</strong>, which makes it the
+ * one route here that is not closed behind Keycloak. Stripe holds no account in our realm and could not
  * present a bearer token; what it does present is an HMAC of the exact bytes it sent, keyed by a secret only
  * the two ends hold. Which is why the chain in {@code identity} opens this one path by name — see
  * {@link com.mprelist.identity.RoutesNeedingARole}, whose own documentation says that opening a route is a
@@ -27,8 +28,9 @@
  * far through Stripe's telling it is, and an event older than that is not applied.
  *
  * <p>What is <em>not</em> here is a Stripe call on any hot path. This module asks Stripe for a Price amount
- * when the plan cards are drawn and opens a Checkout session when somebody buys; the gate reads our own
- * mirror and never Stripe (ADR-0006, ADR-0007).
+ * when the plan cards are drawn, opens a Checkout session when somebody buys and a Customer Portal session
+ * when somebody manages what they bought (T21, #31); the gate reads our own mirror and never Stripe
+ * (ADR-0006, ADR-0007).
  */
 @ApplicationModule
 package com.mprelist.billing;

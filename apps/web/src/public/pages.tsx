@@ -15,9 +15,10 @@ import { BRAND } from "../brand";
  *
  * The words and the layout are the canvas's — `docs/design/Success.dc.html` and
  * `Cancel.dc.html` — with the product's name substituted from `brand.json` rather
- * than typed in, because it is provisional until T60 (#91). `NotFoundPage` has no
- * artboard: it is what an address nobody claimed gets, and its job is to send a
- * visitor back to the toolbar rather than to be looked at.
+ * than typed in, because it is provisional until T60 (#91). `NotFoundPage` and
+ * `BillingPage` have no artboard: one is what an address nobody claimed gets, and
+ * the other is where the Stripe Customer Portal drops a browser on its way out.
+ * Both borrow the shape of the two that were drawn.
  */
 
 /** The line every one of these pages ends on: the product is in the toolbar, not here. */
@@ -63,6 +64,36 @@ export function CancelPage(): JSX.Element {
         relists are still there.
       </p>
       <Callout>Reopen {BRAND.name} whenever you want to try again</Callout>
+    </>
+  );
+}
+
+/**
+ * Where the Customer Portal's own "return" link lands (T21, #31).
+ *
+ * **It says nothing about what they did**, because it does not know and must not
+ * guess: the same link is clicked by somebody who cancelled, somebody who changed
+ * a card and somebody who only read an invoice. What moves the plan is the webhook
+ * (T20, #30), so the page's whole job is to say the change is with Stripe and to
+ * point back at the toolbar — including the delay, which is the one thing a
+ * returning user is about to notice for themselves.
+ */
+export function BillingPage(): JSX.Element {
+  return (
+    <>
+      <div className="web-badge web-badge--quiet">
+        <Icon name="card" />
+      </div>
+      <h1 className="web-title">That’s saved with Stripe</h1>
+      <p className="web-copy">
+        Whatever you changed — your card, your plan, or cancelling — is saved. Open the{" "}
+        {BRAND.name} icon in your browser toolbar to see where that leaves you; a change can take a
+        moment to reach it.
+      </p>
+      <Callout>
+        Click the <b>{BRAND.name}</b> icon in your toolbar
+      </Callout>
+      <p className="web-micro">Nothing to do here — you can close this tab.</p>
     </>
   );
 }

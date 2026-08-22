@@ -112,6 +112,16 @@ final class Subscribers {
 		windowIs(user, when, when.plusMonths(1));
 	}
 
+	/**
+	 * An account Stripe holds a customer for — which is every account that has ever paid, and stays true after
+	 * a cancellation: ADR-0018 clears {@code stripe_subscription_id} and keeps this, so that resubscribing is
+	 * one billing history and the Customer Portal (T21, #31) still has somebody to open for.
+	 */
+	void billedAsStripeCustomer(Subscriber user, String customer) {
+		this.db.update("update subscription set stripe_customer_id = ? where app_user_id = ?", customer,
+				user.account());
+	}
+
 	/** A subscription with a Stripe counterpart, whose window is Stripe's to move rather than ours. */
 	void mirroredFromStripe(Subscriber user) {
 		this.db.update("update subscription set stripe_subscription_id = ? where app_user_id = ?",

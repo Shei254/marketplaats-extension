@@ -3,7 +3,7 @@ import type { JSX } from "react";
 
 import { BRAND } from "./brand";
 import { PrivacyPage, TermsPage } from "./public/legal";
-import { CancelPage, NotFoundPage, SuccessPage } from "./public/pages";
+import { BillingPage, CancelPage, NotFoundPage, SuccessPage } from "./public/pages";
 import { PATHS, pageFor, type Page } from "./routes";
 import { siteCss } from "./site-styles";
 
@@ -84,6 +84,8 @@ function page(name: Page): JSX.Element {
       return <SuccessPage />;
     case "cancel":
       return <CancelPage />;
+    case "billing":
+      return <BillingPage />;
     case "not-found":
       return <NotFoundPage />;
   }

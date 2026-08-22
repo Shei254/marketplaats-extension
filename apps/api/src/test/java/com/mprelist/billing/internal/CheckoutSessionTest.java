@@ -192,7 +192,7 @@ class CheckoutSessionTest {
 	@Test
 	void andSoIsAStripeNobodyConfigured() {
 		OpenCheckout unconfigured = new OpenCheckout(catalogOf(List.of(PRO)), subscriberWith(Optional.empty()),
-				new StripeAccount(""), "https://bumpr.test");
+				new StripeAccount(""), pages("https://bumpr.test"));
 
 		assertThat(unconfigured.open(BUYER, "pro")).isEqualTo(new Checkout.Unavailable());
 	}
@@ -201,7 +201,7 @@ class CheckoutSessionTest {
 	@Test
 	void whileNothingOnSaleIsStillNothingOnSale() {
 		OpenCheckout unconfigured = new OpenCheckout(catalogOf(List.of(PRO)), subscriberWith(Optional.empty()),
-				new StripeAccount(""), "https://bumpr.test");
+				new StripeAccount(""), pages("https://bumpr.test"));
 
 		assertThat(unconfigured.open(BUYER, "starter")).isEqualTo(new Checkout.NotForSale());
 	}
@@ -210,8 +210,8 @@ class CheckoutSessionTest {
 	void aBaseUrlWithATrailingSlashDoesNotBecomeADoubleOne() {
 		// `https://bumpr.test//success` is a URL Stripe accepts and a page most hosts do not serve, at the
 		// moment somebody has just been charged.
-		new OpenCheckout(catalogOf(List.of(PRO)), subscriberWith(Optional.empty()), account(), "https://bumpr.test/")
-				.open(BUYER, "pro");
+		new OpenCheckout(catalogOf(List.of(PRO)), subscriberWith(Optional.empty()), account(),
+				pages("https://bumpr.test/")).open(BUYER, "pro");
 
 		assertThat(this.posted).containsEntry("success_url", "https://bumpr.test/success");
 	}
@@ -234,7 +234,11 @@ class CheckoutSessionTest {
 	// --- the collaborators, by hand ------------------------------------------------------------------------
 
 	private OpenCheckout checkout(List<SellablePlan> onSale, Optional<String> customer) {
-		return new OpenCheckout(catalogOf(onSale), subscriberWith(customer), account(), "https://bumpr.test");
+		return new OpenCheckout(catalogOf(onSale), subscriberWith(customer), account(), pages("https://bumpr.test"));
+	}
+
+	private static WebPages pages(String baseUrl) {
+		return new WebPages(baseUrl);
 	}
 
 	private StripeAccount account() {

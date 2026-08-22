@@ -206,6 +206,31 @@ about their **software**. It therefore carries none, exactly like every other `4
   subscriber who cancelled and came back (ADR-0018) continues one billing history rather than starting a
   second.
 
+### `POST /api/portal` — where "manage billing" becomes a Stripe page
+- **Auth:** `Authorization: Bearer <Keycloak access token>`. Called by the **popup**, which opens the returned
+  URL in a tab exactly as it opens a Checkout one; `apps/web` has no customer login and never calls this
+  (ADR-0017).
+- **No body.** Who is asking comes from the token, and everything the Portal offers — the card, the invoices,
+  the cancel button — is configured in Stripe's dashboard rather than named here. It is a `POST` because each
+  call creates a short-lived single-use session at Stripe, so two calls are two sessions.
+- **Returns `200`:** `{ "url": "https://billing.stripe.com/…" }`. Stripe's own "return" link comes back to
+  `apps/web`'s `/billing`, **not** `/success` — the commonest reason to be in the Portal is cancelling, and a
+  page congratulating somebody on a payment would be the wrong screen.
+- **`404` with an empty body** when this account has never been billed: Stripe holds no customer for it, so
+  there is nothing to manage. That is the ordinary state of a free user who never bought anything, and it is
+  the answer a client shows the link's absence from rather than an error to report.
+- **A subscriber who cancelled is not a `404`.** ADR-0018 keeps `stripe_customer_id` on the row and clears
+  only `stripe_subscription_id`, precisely so their invoices and their card stay reachable afterwards. Nor is
+  somebody in dunning — they are the likeliest caller of all, since the `402 SUBSCRIPTION_INACTIVE` copy is
+  "update your card" beside this very link. **The subscription's status is not consulted at all**; the
+  question is only whether Stripe holds a customer.
+- **`503` with an empty body** when Stripe could not be asked — including a Stripe account whose Customer
+  Portal has never been configured in the dashboard, which is what a fresh test-mode account answers. As with
+  `/api/checkout`, the two refusals are different statuses because only one is worth a retry, and neither
+  carries a `reason`: they are not denials about the user.
+- **Nothing the user does there is known here until Stripe says so.** A cancellation or a new card arrives
+  through the webhook below. A client that redrew the plan on returning from the Portal would be guessing.
+
 ### `POST /api/stripe/webhook` — what Stripe tells us
 Not a client route: no bearer token reaches it, and no client calls it. It is here because what it writes is
 what every other answer in this document is read from.

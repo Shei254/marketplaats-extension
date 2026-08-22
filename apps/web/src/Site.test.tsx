@@ -16,6 +16,13 @@ describe("what the site serves", () => {
     expect(render("/cancel")).toContain("No payment was taken");
   });
 
+  it("draws the billing page where the Customer Portal returns a browser", () => {
+    // `apps/api` builds the Portal's `return_url` from its own copy of this path
+    // (T21, #31), so an address answered "there's nothing here" would be the last
+    // thing somebody sees after cancelling.
+    expect(render("/billing")).toContain("That’s saved with Stripe");
+  });
+
   it("draws the privacy policy at the path the Web Store listing will carry", () => {
     // T58 (#89) cannot go up without a hosted privacy URL, and this is it.
     expect(render("/privacy")).toContain("Last updated");

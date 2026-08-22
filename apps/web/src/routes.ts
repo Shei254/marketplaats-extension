@@ -6,8 +6,9 @@
  * without a browser — the same split the popup has between `screen.ts` and
  * `screens.tsx`. `Site.tsx` renders what this returns.
  *
- * **Four public paths, and two of them are held elsewhere as well.** `/success`
- * and `/cancel` are what the Checkout session (T19, #29) is created with, so
+ * **Five public paths, and three of them are held elsewhere as well.** `/success`
+ * and `/cancel` are what the Checkout session (T19, #29) is created with and
+ * `/billing` is where the Stripe Customer Portal (T21, #31) returns a browser, so
  * renaming one here renames it in a Stripe API call too — which is why they are
  * exported rather than spelled again at the call site. `/privacy` is the URL the
  * Chrome Web Store listing carries (T58, #89): once that listing is live the
@@ -19,14 +20,16 @@
  * inventing one is a decision for the ticket that also writes the Web Store
  * listing.
  */
-export type Page = "success" | "cancel" | "privacy" | "terms" | "not-found";
+export type Page = "success" | "cancel" | "billing" | "privacy" | "terms" | "not-found";
 
 /** Every page that has an address of its own — which is every page but the fallback. */
 type Routable = Exclude<Page, "not-found">;
 
 /**
- * Every address this site answers. `apps/api` builds `success_url`/`cancel_url`
- * from its own copy of the first two, since it is Java and this is not.
+ * Every address this site answers. `apps/api` builds `success_url`, `cancel_url`
+ * and the Portal's `return_url` from its own copy of the first three, since it is
+ * Java and this is not — one copy each side of a boundary with no shared anything,
+ * held together by `WebPages` there and by this table here.
  *
  * `satisfies` rather than a cast, so the table and the union are held to each
  * other in both directions: a page added above without a path here does not
@@ -35,6 +38,7 @@ type Routable = Exclude<Page, "not-found">;
 export const PATHS = {
   success: "/success",
   cancel: "/cancel",
+  billing: "/billing",
   privacy: "/privacy",
   terms: "/terms",
 } as const satisfies Record<Routable, string>;

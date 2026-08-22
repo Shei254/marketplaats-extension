@@ -24,6 +24,7 @@ export {
   type Plan,
   type PlanPrice,
   type Plans,
+  type PortalSession,
   type RelistAuthorization,
   type RelistOutcomeCode,
   type RemainingQuota,

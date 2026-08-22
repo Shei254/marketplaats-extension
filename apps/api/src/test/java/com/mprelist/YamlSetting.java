@@ -51,7 +51,11 @@ final class YamlSetting {
 		return value.group(1);
 	}
 
-	private static String applicationYaml() {
+	/**
+	 * The whole of {@code application.yml}, for the one reader that is about the file rather than about a
+	 * setting in it: {@link EnvironmentFileTest} asks which environment variables it names at all.
+	 */
+	static String applicationYaml() {
 		try (var yaml = YamlSetting.class.getResourceAsStream("/application.yml")) {
 			return new String(yaml.readAllBytes());
 		}

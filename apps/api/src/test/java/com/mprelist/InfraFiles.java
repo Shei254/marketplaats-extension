@@ -41,6 +41,23 @@ final class InfraFiles {
 	}
 
 	/**
+	 * The committed example of the one file this repository takes credentials from — {@code .env} itself is
+	 * gitignored and is never read by a test, only loaded into the JVM one runs in ({@code build.gradle.kts}).
+	 *
+	 * <p>Read here because an example env file is the kind of thing that goes stale silently: a setting
+	 * arrives in {@code application.yml} or in the compose file, nobody adds it, and the first person to
+	 * notice is whoever spends an afternoon on a stack that will not sign anybody in.
+	 */
+	static Path environmentExample() {
+		return repositoryRoot().resolve(".env.example");
+	}
+
+	/** Read for one line of it, and it is the line that keeps the file above from being committed by mistake. */
+	static Path gitignore() {
+		return repositoryRoot().resolve(".gitignore");
+	}
+
+	/**
 	 * The text of one of the files above. Here rather than at each caller because the failure is the part
 	 * worth writing once: these are read out of the working tree, so a file that moved has to say which one
 	 * it was rather than arrive as a bare {@code NoSuchFileException} from somewhere inside a test.

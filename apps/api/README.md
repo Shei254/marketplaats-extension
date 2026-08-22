@@ -20,10 +20,17 @@ cd apps/api
 ./gradlew bootRun   # http://localhost:8080 — 401 without a token, and the gate below with one
 ```
 
-`bootRun` also needs **`MPRELIST_EXTENSION_ID` in its environment**, or no browser client can call it:
+Both tasks read the repository's own **`.env`** — `cp .env.example .env` once, from the root, and
+`build.gradle.kts` loads it into the JVM each of them starts. That is where the Stripe keys go, and the
+extension id, and anything else this application takes from its environment; a variable you have exported in
+your shell still wins over it. See [the one env file](#the-one-env-file) below, and
+[`.env.example`](../../.env.example) for what each variable is.
+
+`bootRun` in particular wants **`MPRELIST_EXTENSION_ID`**, or no browser client can call it — a copied `.env`
+already carries it, and the substitution is the same one everything else uses:
 
 ```bash
-export MPRELIST_EXTENSION_ID=$(npm run -s extension-id -w @mprelist/extension)   # from the repo root
+export MPRELIST_EXTENSION_ID=$(npm run -s extension-id -w @mprelist/extension)   # or leave it to .env
 ```
 
 That id is what [`mprelist.cors.allowed-origins`](#which-origins-may-call-it) substitutes into the origin the
@@ -43,8 +50,10 @@ it does need a Docker daemon for that.
 > Ryuk, the reaper Testcontainers starts first, mounts the Docker socket into itself, and Desktop's socket
 > lives on a path its VM will not share. Export
 > `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock`, which is where that same socket is inside the
-> VM. It is a property of the daemon, not of this project, so it belongs in your shell rather than in a file
-> here — where it would then be wrong for everyone running a plain Docker Engine.
+> VM. It is a property of the daemon rather than of this project, so it must not be committed anywhere — but
+> your own `.env` is exactly the right home for it now that one exists, and `.env.example` carries the line
+> commented out. What it must never become is a value in a file everybody checks out, where it would be wrong
+> for everyone running a plain Docker Engine.
 
 > On the same daemon, both realm suites can also fail to start with
 > `Timed out waiting for URL to be accessible … HTTP response code was: 403`, and every Keycloak URL answers
@@ -154,7 +163,7 @@ status serves only a statement that says something about status.
 
 > If startup fails with **`Migration checksum mismatch for migration version 1`**, your Postgres volume
 > predates the rename `keycloak_subject` → `idp_subject` in [#17](https://github.com/Shei254/marketplaats-extension/issues/17),
-> which edited `V1` after some machines had run it. `docker compose -f infra/docker-compose.yml down -v`
+> which edited `V1` after some machines had run it. `docker compose --env-file .env -f infra/docker-compose.yml down -v`
 > and start again: `V1` has been applied to no deployed environment, so a dropped local volume is the
 > whole of the cost. It is also the rule above, demonstrated.
 
@@ -1691,6 +1700,52 @@ Two mutations survive and are left surviving:
   `whileTheAccessTokenStaysAsShortLivedAsRevocationNeeds` is kept anyway: the image tag comes from compose,
   so the day that default moves under an upgrade, this suite runs on the new version and says so. Its
   subject is the revocation window ADR-0010 agreed to live with, not the line in the file.
+
+## The one env file
+
+`cp .env.example .env`, from the repository root, and everything that runs anything reads it: `bootRun` and
+`test` here, and the local stack through `docker compose --env-file .env`. One file, because the alternative
+is what this repository had — an `export` in whichever terminal you happened to be in, a second one for the
+stack, and a click-through script that tells you to do both.
+
+**The shell wins over the file.** `build.gradle.kts` drops any variable that is already set before handing
+the rest to the task, which is what `docker compose --env-file` does with the same file — so a one-off
+`MPRELIST_STRIPE_SECRET_KEY= ./gradlew bootRun` is still one line rather than an edit and an undo.
+
+**A test JVM gets it too, and that is why two suites now pin what they are about.** Gradle's test workers
+have always inherited the daemon's environment, so a developer who had exported a Stripe key to walk slice C
+was already running `CheckoutTest` against a real Stripe account — the suite whose whole subject is what
+happens when there is no key. `.env` would have made that routine instead of occasional, so both suites say
+it as a property:
+
+| Suite | Pins | Because |
+|---|---|---|
+| `CheckoutTest` | `mprelist.stripe.secret-key=` | every refusal in it is decided *before* Stripe would be asked, and `aPlanOnSaleGetsAsFarAsStripe` would otherwise open a live Checkout session |
+| `StripeWithoutAWebhookSecretTest` | `mprelist.stripe.webhook-secret=` | its two claims are about an application that has none, and an unsigned event is refused either way — so it would have passed for the wrong reason |
+
+Nothing else in the suite reads a credential: the Stripe suites either replace `StripePrices` with a bean or
+point a real client at a loopback stub, and every container the tests need they start themselves.
+
+**`EnvironmentFileTest` holds the committed example to the application.** An example env file is the kind of
+thing that goes stale silently — a setting arrives, nobody adds a line, and the person who finds out is
+whoever spends an afternoon on a stack that signs nobody in — so the two directions are asserted, along with
+the rule that costs a `down -v` when it is broken:
+
+| Mutation | Fails |
+|---|---|
+| a setting `application.yml` reads is missing from the example | `everySettingTheApiTakesFromTheEnvironmentIsNamedInTheExample` |
+| a variable compose passes through to Keycloak is missing | `andSoIsEverythingTheStackPassesThroughToKeycloak` |
+| the example keeps a `MPRELIST_` variable nothing reads any more | `andNothingInItIsReadByNobody` |
+| the extension id in the example goes stale against the manifest key | `theExtensionIdItSuggestsIsTheOneThisApiDefaultsTo` |
+| a variable the realm substitutes ships as an **empty** assignment | `nothingTheRealmSubstitutesShipsAsAnEmptyValue` |
+| somebody's own key is pasted into the example | `andNoRealSecretIsCommittedInIt` |
+| `.env` stops being gitignored | `theFileItIsAnExampleOfIsNeverCommitted` |
+
+That fifth row is the expensive one. Compose hands an empty assignment to Keycloak as a variable that is
+*defined and empty*, and a realm file's `${MPRELIST_SMTP_HOST:sandbox.smtp.mailtrap.io}` default applies only
+where the variable is **absent** — so `MPRELIST_SMTP_HOST=` means "no mail host", and the same line for the
+extension id means a realm registering `chrome-extension:///`, imported once and undone only by dropping the
+volume. Anything you have no value for is commented out in that file, and the test is what keeps it so.
 
 ## Versions, and where they are stated
 

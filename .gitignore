@@ -15,3 +15,8 @@ docs/design/*.html
 # The extension's private signing key. The *public* half is committed, in
 # apps/extension/public/manifest.json as `key` — that is what pins the id.
 apps/extension/keys/
+
+# Credentials and machine-specific settings, one file for the whole repository: `cp .env.example .env`.
+# The example is committed and documents every variable; the file itself never is.
+/.env
+/.env.local

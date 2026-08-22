@@ -35,6 +35,21 @@ final class YamlSetting {
 	}
 
 	/**
+	 * The value {@code application.yml} gives {@code key} with the substitution resolved — {@code ${NAME:x}}
+	 * read as {@code x}, which is what the application starts with when nothing sets {@code NAME}.
+	 *
+	 * <p>For the readers whose subject is the <em>address</em> a setting names rather than the text of the
+	 * line: {@link CrossOriginTest} parses {@code mprelist.web.base-url} as a URL, and a URL is not what
+	 * {@code ${MPRELIST_WEB_BASE_URL:http://localhost:5173}} is. Everything else here still reads the literal,
+	 * including {@link EnvironmentFileTest}, whose whole subject is which names are substituted at all.
+	 */
+	static String defaultedInApplicationYaml(String key) {
+		String written = inApplicationYaml(key);
+		Matcher substitution = Pattern.compile("^\\$\\{[A-Z][A-Z0-9_]*:(.*)}$").matcher(written);
+		return substitution.matches() ? substitution.group(1) : written;
+	}
+
+	/**
 	 * The value {@code yaml} gives {@code key}, as it is written.
 	 *
 	 * @param yaml the file's own text

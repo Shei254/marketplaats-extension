@@ -194,11 +194,12 @@ class CrossOriginTest {
 	 * <p>Two settings rather than one because they are different things — CORS wants an origin and that one is
 	 * a URL — and held together here so neither can move alone. A deployment that changed the base URL and not
 	 * this list would have a working payment flow and an admin corner that no browser will call, which is a
-	 * pair of symptoms nobody would connect.
+	 * pair of symptoms nobody would connect. Both are read as what the application <em>starts</em> with, since
+	 * both are substitutions with a local default and T55 (#86) is what sets them to anything else.
 	 */
 	@Test
 	void andTheSiteOriginItAllowsIsTheOneItSendsBrowsersTo() {
-		String baseUrl = YamlSetting.inApplicationYaml("base-url");
+		String baseUrl = YamlSetting.defaultedInApplicationYaml("base-url");
 
 		assertThat(YamlSetting.inApplicationYaml("allowed-origins")).contains(originOf(baseUrl));
 	}
@@ -215,7 +216,7 @@ class CrossOriginTest {
 		JsonNode realm = Json.of(InfraFiles.textOf(InfraFiles.keycloakRealm()));
 
 		assertThat(webOriginsOf(realm, "mprelist-dashboard"))
-				.isEqualTo(originOf(YamlSetting.inApplicationYaml("base-url")));
+				.isEqualTo(originOf(YamlSetting.defaultedInApplicationYaml("base-url")));
 	}
 
 	/** The scheme, host and port of a URL, which is what an `Origin` header carries and a path is not. */

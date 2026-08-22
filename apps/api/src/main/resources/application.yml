@@ -130,13 +130,20 @@ mprelist:
     minimum-extension-version: 0
 
   # #29: where a browser lands after Stripe Checkout — `apps/web`'s public pages (T50, #81), which carry no
-  # authentication at all. The Vite dev server's address locally; the deployed origin at T55 (#86), by which
+  # authentication at all. The Vite dev server's address locally; the deployed origin from T55 (#86), by which
   # time it is also what the realm has to allow (T56, #87).
   #
-  # No fallback, like the rails below: a wrong value here sends a paying customer to a page that does not
-  # exist, at the moment they have just been charged, and it is silent from this side.
+  # **From the environment, with the local address as its default**, which is the shape that fits what being
+  # wrong costs here. A deployment that left this at localhost sends a paying customer to a page that does
+  # not exist at the moment they have just been charged, and it is silent from this side — so the deployed
+  # stack has to be able to say it, and `infra/docker-compose.prod.yml` does. Written as a substitution
+  # rather than left to Spring's relaxed binding, whose spelling for this property is `MPRELIST_WEB_BASEURL`:
+  # a name nobody would guess, and one that fails by being ignored.
+  #
+  # `mprelist.cors.allowed-origins` above has to carry this URL's origin, and `CrossOriginTest` holds the two
+  # together so that neither can move alone.
   web:
-    base-url: http://localhost:5173
+    base-url: ${MPRELIST_WEB_BASE_URL:http://localhost:5173}
 
   # #24: what to do about a relist that was authorized and never reported on. Both settings are here rather
   # than defaulted in code, and neither has a fallback — a missing one fails startup instead of running with

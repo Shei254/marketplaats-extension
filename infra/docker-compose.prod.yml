@@ -1,0 +1,191 @@
+# The deployed stack — four containers on one host (T55, #86, and docs/adr/0020-deployment.md).
+#
+# Everything here is the same software as infra/docker-compose.yml and none of the same settings. What
+# changes between them is exactly what "deployed" means: no credential is committed, no port a browser has
+# no business reaching is published, Keycloak runs its production mode instead of `start-dev`, and both of
+# our own workspaces are images built from source rather than processes on a developer's machine.
+#
+#   cp infra/production.env.example production.env    # once, on the host. Fill it in; it is gitignored
+#   docker compose --env-file production.env -f infra/docker-compose.prod.yml up -d --build --wait
+#
+# Every `${…:?}` below is a variable with no default: compose refuses to start and names the one that is
+# missing, which is the only moment anybody is looking. The realm imports on **first start only** (T56, #87),
+# so `MPRELIST_REALM_DIR` and `MPRELIST_EXTENSION_ID` are the two whose cost is a `down -v` rather than a
+# restart.
+#
+# **TLS is not here.** It terminates in front of this file — that is T56 (#87), together with the domain and
+# the production realm — and the three ports below are what it proxies to. Set them to `127.0.0.1:8080`-style
+# values once something is listening in front, so that nothing but the proxy can reach them.
+
+name: mprelist-production
+
+services:
+  postgres:
+    # The same major the local stack runs and the suite tests against, spelled the same way. A schema proven
+    # on one major and served by another is a divergence nothing reports until it is live.
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mprelist
+      POSTGRES_DB: mprelist
+      POSTGRES_PASSWORD: ${MPRELIST_DB_PASSWORD:?the application's own database password}
+      # Read by ./postgres/init-production/10-keycloak-database.sh, which runs once and creates the role
+      # Keycloak signs in as. Not a second copy of the line below: this is where that role is *made*.
+      MPRELIST_KEYCLOAK_DB_PASSWORD: ${MPRELIST_KEYCLOAK_DB_PASSWORD:?Keycloak's own database password}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      # Not ./postgres/init: that one writes a role whose password is the word `keycloak`, committed on
+      # purpose for a laptop. Runs once, on an empty data directory only.
+      - ./postgres/init-production:/docker-entrypoint-initdb.d:ro
+    # **No `ports`.** The one thing on this host that a stranger must not be able to reach at all; the two
+    # services that need it are on this network.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U mprelist -d mprelist"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7
+    restart: unless-stopped
+    # `start`, not `start-dev`: hostname strictness on, the development-mode relaxations off. `--import-realm`
+    # reads the directory mounted below, once, and never again while that database exists.
+    command: ["start", "--import-realm"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      # **The production realm, which is T56's (#87) to write** — not ./keycloak, whose realm carries two dev
+      # users with a shared password, a thirty-day session and every redirect URI pointing at localhost. No
+      # default, so a stack brought up without one stops here rather than importing that.
+      # Long syntax, because the short one splits on the colons that a `${…:?}` message would land between.
+      - type: bind
+        source: ${MPRELIST_REALM_DIR:?the directory holding the production realm export}
+        target: /opt/keycloak/data/import
+        read_only: true
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${MPRELIST_KEYCLOAK_DB_PASSWORD:?Keycloak's own database password}
+      # The public address, which is what fixes the issuer in every token it mints — and so what
+      # `SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI` below and the browser's own sign-in both have
+      # to agree with. All three are derived from this one variable rather than written down three times.
+      KC_HOSTNAME: ${MPRELIST_KEYCLOAK_URL:?the public https:// address Keycloak is served at}
+      # TLS terminates in front of this (T56, #87), so the container speaks plain HTTP to the proxy and
+      # trusts the proxy's own headers for the scheme and the client address. Without the second line
+      # Keycloak sees every request as arriving over HTTP from the proxy, and every absolute URL it writes —
+      # every redirect in the sign-in — comes back `http://`.
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+      # Created on **first start only**, and it is the account that can do anything to this realm. A
+      # deployment that leaves these two at the local stack's `admin` / `admin` is a deployment anybody can
+      # take over, so neither has a default here.
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${MPRELIST_KEYCLOAK_ADMIN:?the bootstrap admin username, created on first start only}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${MPRELIST_KEYCLOAK_ADMIN_PASSWORD:?the bootstrap admin password, created on first start only}
+      # **`MPRELIST_SSL_REQUIRED` is deliberately absent**, which is the whole difference between this file
+      # and the local one on the setting that matters most: the realm's own `${MPRELIST_SSL_REQUIRED:external}`
+      # then applies, and `external` is the value that must never be relaxed by inheritance. See
+      # infra/README.md § `sslRequired`.
+      #
+      # The extension id the realm registers `https://<id>.chromiumapp.org/` for, imported once. At publish
+      # the Web Store assigns a different id than our own key derives (T56, #87), and this is where the
+      # production realm learns it — wrong here costs a `down -v`, so it has no default either.
+      MPRELIST_EXTENSION_ID: ${MPRELIST_EXTENSION_ID:?the published extension id, imported into the realm once}
+      # Mail, for the password reset a real user will need. Passed through with no value, exactly as the
+      # local stack does it, so that the realm's own defaults apply where these are absent.
+      MPRELIST_SMTP_HOST:
+      MPRELIST_SMTP_PORT:
+      MPRELIST_SMTP_FROM:
+      MPRELIST_SMTP_USER:
+      MPRELIST_SMTP_PASSWORD:
+    ports:
+      - "${MPRELIST_KEYCLOAK_PORT:-8081}:8080"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '"status": "UP"' <&3
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 15s
+
+  api:
+    build:
+      context: ../apps/api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Every one of these overrides a value application.yml commits for the local stack. The three
+      # datasource lines are the ones with teeth: without them this container starts, finds no Postgres on
+      # its own localhost, and fails — which is the loud half. The issuer is the quiet half, and it is quiet
+      # in the worst way, because the application starts fine and refuses every token that arrives.
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/mprelist
+      SPRING_DATASOURCE_USERNAME: mprelist
+      SPRING_DATASOURCE_PASSWORD: ${MPRELIST_DB_PASSWORD:?the application's own database password}
+      # The realm name is the realm file's and is not a deployment's to choose, so it is spelled here once
+      # rather than being a variable that can disagree with the export T56 imports.
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: ${MPRELIST_KEYCLOAK_URL:?the public https:// address Keycloak is served at}/realms/mprelist
+      # Which browser origins may call this API. The extension's is a `chrome-extension://` origin built from
+      # the published id; the site's is the site.
+      MPRELIST_EXTENSION_ID: ${MPRELIST_EXTENSION_ID:?the published extension id, imported into the realm once}
+      MPRELIST_WEB_ORIGIN: ${MPRELIST_WEB_BASE_URL:?where the site is served from}
+      # And where a browser is sent after Checkout and after the Customer Portal. The same value as the
+      # origin above because the site is served at the root of its own host; two settings because one is an
+      # origin and the other is a URL, and `CrossOriginTest` holds them together.
+      MPRELIST_WEB_BASE_URL: ${MPRELIST_WEB_BASE_URL:?where the site is served from}
+      # Stripe. **Empty is allowed and is not an oversight**: T57 (#88) is what puts live keys here, and this
+      # ticket has to be able to bring the stack up before it. Unset, the application starts, says so at WARN,
+      # refuses every webhook it is sent and shows no amounts — which is fail-closed and never a guess.
+      MPRELIST_STRIPE_SECRET_KEY: ${MPRELIST_STRIPE_SECRET_KEY:-}
+      MPRELIST_STRIPE_WEBHOOK_SECRET: ${MPRELIST_STRIPE_WEBHOOK_SECRET:-}
+      # The patch this API serves the extension the day Marktplaats moves a path (#36). Empty on a healthy
+      # day, which is what makes a restart of this container the whole of that fix.
+      MPRELIST_CLIENT_CONFIG: ${MPRELIST_CLIENT_CONFIG:-}
+    ports:
+      - "${MPRELIST_API_PORT:-8080}:8080"
+    healthcheck:
+      # A 401 from a route that exists, which is a stronger statement than a listening port: it says the
+      # application answered *and* that the resource server is in front of it. Anything else — a connection
+      # refused while Flyway is still migrating, a 200 from a security filter that failed to install — is not
+      # this stack being ready.
+      test:
+        - CMD-SHELL
+        - wget -S -q -O /dev/null http://127.0.0.1:8080/api/me 2>&1 | grep -q ' 401 '
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  web:
+    build:
+      # The repository root, because this workspace builds against `packages/` and the root `brand.json`.
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    environment:
+      # What the bundle is *told*, rather than what it was built with — served as `/config.js` and read as a
+      # patch over `admin-config.ts`'s defaults. Both are derived from the variables above, so the admin
+      # corner cannot end up signing into one realm while the API trusts another.
+      MPRELIST_WEB_ISSUER: ${MPRELIST_KEYCLOAK_URL:?the public https:// address Keycloak is served at}/realms/mprelist
+      MPRELIST_WEB_API_BASE_URL: ${MPRELIST_API_BASE_URL:?where this API is served from}
+    ports:
+      - "${MPRELIST_WEB_PORT:-80}:80"
+    healthcheck:
+      # `/success` rather than `/`: it is a path no file matches, so what this proves is the fallback that
+      # T55 exists to get right — the page a customer lands on after the money has moved.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/success"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+volumes:
+  postgres-data:

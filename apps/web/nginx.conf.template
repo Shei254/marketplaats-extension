@@ -1,0 +1,50 @@
+# How the site is served, and the one line of it that is a deploy-time obligation (T55, #86).
+#
+# Rendered into /etc/nginx/conf.d/default.conf at container start by the nginx image's own
+# `20-envsubst-on-templates.sh`, which substitutes the two `${MPRELIST_WEB_*}` tokens below and nothing else
+# — `NGINX_ENVSUBST_FILTER` in the Dockerfile is what keeps it off `$uri`, which is nginx's variable and not
+# an environment one.
+
+server {
+    listen       80;
+    server_name  _;
+    root         /usr/share/nginx/html;
+
+    # **The deployment's patch over what the bundle was built with**, in the shape `GET /api/client-config`
+    # already serves the extension (ADR-0013): the built-in defaults are `admin-config.ts`'s, this says only
+    # where they are wrong, and an empty value is not a value — `deployed-config.ts` reads a blank as absent
+    # rather than as "no issuer". So an image run with neither variable set serves the same `{}` that
+    # `public/config.js` commits, and means the same thing by it.
+    #
+    # Answered from here rather than from a file written at start-up because the file would be a second copy
+    # of the environment, written once and then out of date for as long as the container lives.
+    #
+    # Never cached: it is the one response that differs between two deployments of identical bytes.
+    location = /config.js {
+        default_type application/javascript;
+        add_header Cache-Control "no-store" always;
+        return 200 'window.__MPRELIST_WEB_CONFIG__ = {"issuer":"${MPRELIST_WEB_ISSUER}","apiBaseUrl":"${MPRELIST_WEB_API_BASE_URL}"};';
+    }
+
+    # Vite's hashed output. The name changes whenever the bytes do, so the only wrong answer here is a short
+    # cache — and `=404` rather than the fallback below, because a missing asset is a broken deploy and
+    # answering it with `index.html` would hand the browser HTML where it asked for JavaScript.
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        try_files $uri =404;
+    }
+
+    # It names the hashed bundle, so a cached copy of it is a cached copy of the previous release.
+    location = /index.html {
+        add_header Cache-Control "no-store" always;
+    }
+
+    # **Every public path is answered with the one `index.html`** — the obligation the backlog states for
+    # this ticket. `apps/web` is one build whose router runs in the browser (ADR-0017), so a host left on its
+    # default returns 404 for `/success`, which is the page a customer lands on *after* the money has moved.
+    # `/privacy` is the second: it is the URL the Web Store listing carries (T58, #89), published somewhere
+    # we do not control.
+    location / {
+        try_files $uri /index.html;
+    }
+}

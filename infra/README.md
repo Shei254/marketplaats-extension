@@ -330,3 +330,102 @@ Everything either of them proves is proven on a container of their own, which sa
 ever reading the file. So `KeycloakRealmTest` also reads `docker-compose.yml` for the three lines that connect
 the two: the `--import-realm` command, the `./keycloak` mount, and `MPRELIST_EXTENSION_ID` passed through with
 no value of its own. Nothing else in the repository would notice one of them going missing.
+
+---
+
+# Deploying
+
+The same four pieces of software, none of the same settings:
+[`docker-compose.prod.yml`](docker-compose.prod.yml) and
+[`production.env.example`](production.env.example) (T55,
+[#86](https://github.com/Shei254/marketplaats-extension/issues/86), and
+[ADR-0020](../docs/adr/0020-deployment.md)). Everything above this line is a laptop's stack and is not fit to
+deploy — `start-dev`, a published database port, and every password committed on purpose.
+
+```bash
+cp infra/production.env.example production.env        # on the host, once. Gitignored; fill it in
+docker compose --env-file production.env -f infra/docker-compose.prod.yml up -d --build --wait
+```
+
+`--build` builds both of our own workspaces from source on the host — `apps/api` through its Gradle wrapper,
+`apps/web` through Vite and into nginx. There is no registry to pull from (ADR-0020), so the first deploy is
+slow and the ones after it are mostly cached.
+
+**Nothing starts until every variable is filled in.** Each is `${NAME:?…}` with no default, so compose
+refuses and names the one that is missing:
+
+```
+required variable MPRELIST_KEYCLOAK_ADMIN_PASSWORD is missing a value: the bootstrap admin password,
+created on first start only
+```
+
+## What has to be decided before the first `up`
+
+**Two of them are imported once**, and getting either wrong is a `down -v` on production rather than a
+restart — the realm is imported on first start and never again while its database exists:
+
+| | |
+|---|---|
+| `MPRELIST_REALM_DIR` | The production realm export, which is [T56 (#87)](https://github.com/Shei254/marketplaats-extension/issues/87)'s to write. **Not `./keycloak`** — that realm has two dev users sharing a published password and every redirect URI on localhost. There is no default, so a stack pointed at nothing stops rather than importing it |
+| `MPRELIST_EXTENSION_ID` | What the realm registers `https://<id>.chromiumapp.org/` for. The Web Store assigns a different id than this repository's key derives — see [§ Your extension id](#your-extension-id) |
+
+**TLS is not in this file.** It terminates in front of the three published ports, which is T56's along with
+the domain and the realm above. Until it does, set the three port variables to loopback values so nothing
+public reaches them:
+
+```bash
+MPRELIST_WEB_PORT=127.0.0.1:8000
+MPRELIST_API_PORT=127.0.0.1:8001
+MPRELIST_KEYCLOAK_PORT=127.0.0.1:8002
+```
+
+Keycloak's realm is `sslRequired: external` here — the local stack's `MPRELIST_SSL_REQUIRED` relaxation is
+deliberately absent — so it answers `403 HTTPS required` to anything reaching it over plain HTTP from a
+non-local address. That is the setting working, and it is why the proxy in front is not optional.
+
+## What the site is told, and what it was built with
+
+`apps/web` is one bundle and one `index.html` ([ADR-0017](../docs/adr/0017-web-surface-and-subscribing.md)),
+so two things are true of however it is served:
+
+- **Every path is answered with that one file.** A host left on its default returns 404 for `/success`, which
+  is the page a customer lands on *after* the money has moved. `apps/web/nginx.conf.template` does it, and a
+  test in `apps/web`'s suite reads that file to make sure it goes on doing it.
+- **Where the API and the realm are is served, not built in.** nginx answers `/config.js` from its own
+  environment with a patch over the bundle's defaults, so one image runs anywhere and a wrong address costs a
+  restart. Empty means the defaults are right, which is what a development machine serves.
+
+Both addresses are derived from `MPRELIST_KEYCLOAK_URL` and `MPRELIST_API_BASE_URL`, the same variables the
+API is given, so the admin corner cannot end up signing into one realm while the API trusts another.
+
+## Afterwards
+
+```bash
+docker compose --env-file production.env -f infra/docker-compose.prod.yml ps      # health of all four
+docker compose --env-file production.env -f infra/docker-compose.prod.yml logs -f api
+docker compose --env-file production.env -f infra/docker-compose.prod.yml up -d --build --wait   # redeploy
+```
+
+A redeploy rebuilds what changed and recreates only the containers whose configuration or image moved. The
+API's own settings — the client-config patch (#36), the pacing window, the Stripe secrets — are all read at
+start, so changing one is an edit to `production.env` and that command.
+
+**Back the database up before you need to.** Nothing here does it for you, and the volume is the only copy of
+every subscription this application knows about:
+
+```bash
+docker compose --env-file production.env -f infra/docker-compose.prod.yml \
+  exec -T postgres pg_dump -U mprelist mprelist | gzip > mprelist-$(date +%F).sql.gz
+```
+
+**`down -v` on a deployed stack drops the realm too**, and the realm is imported once — so it takes every
+account with it, not only our own tables.
+
+## What this deliberately is not
+
+- **One API instance.** The authorization grant is signed with an RSA key generated per process, so a second
+  instance signs with a second key and refuses the first one's `complete` calls. Making that key
+  configuration is the prerequisite for scaling out — `docs/enforcement-contract.md` § Resolved build
+  questions.
+- **No registry and no CI deploy.** The host builds. ADR-0020 says when that stops being the right trade.
+- **No secret manager.** `production.env` on the host is the boundary.

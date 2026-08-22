@@ -250,6 +250,12 @@ what every other answer in this document is read from.
 - **What a subscription event moves** is the table in the "Subscription status" section above: the tier, the
   status and `periodStart`/`periodEnd`. A terminal end moves the row back to the `isDefault` tier
   (ADR-0018).
+- **A Price no tier carries any more costs the tier change and nothing else.** Repricing a plan repoints the
+  tier onto the new Price — Stripe Prices are immutable, so a new amount is always a new Price — which leaves
+  everybody already subscribed matched to nothing. Their status and window are still mirrored and they keep
+  the tier they bought; only the tier *change* is skipped. Refusing the whole event, which is what this used
+  to do, meant a failing card left the row saying `ACTIVE` and the subscriber went on relisting while Stripe
+  retried it.
 
 ### The admin API — `GET /api/admin/tiers`, `PUT …/{code}`, `PUT …/{code}/default`, `GET /api/admin/prices`
 Consumed by `apps/web`'s `/admin` (T54, #85) and by nothing the extension runs. Its audience is an operator
@@ -308,6 +314,33 @@ about a *user*, and nothing here is about one.
 - **`503` with an empty body** when Stripe could not be asked, which includes no API key configured. Not an
   empty list: an empty list is the *good* state — every Price is tagged — so reporting an outage as one would
   tell an operator their catalog is complete at the moment nobody can check.
+
+### `POST /api/admin/plans` and `GET /api/admin/currencies` — creating a plan from `/admin`
+Added by the 2026-08-22 amendment to [ADR-0019](adr/0019-plans-are-stripe-first-and-webhook-synced.md), which
+that ADR's own "revisit if" anticipated. Same audience and same guard as the admin routes above.
+
+- **`POST /api/admin/plans`** takes a **NewPlan** — `{ tierCode, name, amount, currency, interval,
+  relistQuotaPerPeriod, features, published }` — and answers **`201`** with the **AdminTier** the sync made.
+- **It writes no row of its own.** It creates a Stripe Product and a Price tagged `metadata.tier_code`, then
+  makes the same two calls the webhook and the edit form already make. The `price.created` Stripe delivers
+  moments later finds the row already right and is a no-op, so a plan created here and one created in the
+  dashboard reach the catalog down one path.
+- **The amount is still not editable, anywhere.** It is written once, into the system that owns it. Repricing
+  is done in Stripe: a new Price tagged with the same code repoints the tier through the sync, and everybody
+  already subscribed keeps the amount they signed up at.
+- **`409` with an empty body** when a tier already uses that code. Adopting it instead would repoint that
+  tier's Price — right for a webhook, wrong for a button labelled *New plan*.
+- **`422` with `{ "problem": "…" }`** when Stripe refuses, and this is **the one body in this API that is a
+  sentence rather than a code**. "Amount must be at least 50 cents for usd" is not something a status can
+  convey and is exactly what the operator must change. The field is deliberately **not** `reason`: that word
+  is this API's vocabulary for a denial about a *user*, read by clients that act on it, and confusing the two
+  would report a Stripe validation message to somebody trying to relist an ad.
+- **`400` with an empty body** for a body this API could not read, including one naming no amount or no quota.
+- **`GET /api/admin/currencies` → `200`:** `{ "defaultCurrency": "eur", "supported": ["eur", …] }` — what
+  *this account* can settle in, read from Stripe's account and country spec. Not a list held here: Stripe
+  supports around 130 currencies and this account supports fewer, so a hardcoded one offers a currency that
+  renders a plan card and fails at Checkout — and goes stale the day Stripe adds one. **`503`** with an empty
+  body when Stripe could not be asked, and the form then creates nothing rather than guessing.
 
 ### `GET /api/me` — display state, **never a grant**
 - **Auth:** `Authorization: Bearer <Keycloak access token>`.

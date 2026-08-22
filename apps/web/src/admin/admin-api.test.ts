@@ -1,7 +1,7 @@
 import type { AdminTier } from "@mprelist/contracts";
 import { describe, expect, it } from "vitest";
 
-import { AdminApi, asAdminTiers, asUntaggedPrices } from "./admin-api";
+import { AdminApi, asAdminTiers, asCurrencies, asUntaggedPrices } from "./admin-api";
 import { DEFAULT_ADMIN_CONFIG } from "./admin-config";
 import type { Http } from "./discovery";
 import { json } from "./testing";
@@ -214,5 +214,88 @@ describe("the Prices nobody tagged", () => {
     expect(asUntaggedPrices({ prices: [{ id: "", nickname: null, amount: 1, currency: "eur", interval: null }] }))
       .toBeNull();
     expect(asUntaggedPrices(null)).toBeNull();
+  });
+});
+
+describe("creating a plan", () => {
+  const PLAN = {
+    tierCode: "starter",
+    name: "Starter",
+    amount: 500,
+    currency: "eur",
+    interval: "month",
+    relistQuotaPerPeriod: 10,
+    features: {},
+    published: false,
+  };
+
+  it("posts the whole plan, and answers with the tier the sync made", async () => {
+    const { client, calls } = api(() => json(PRO, 201));
+
+    await expect(client.createPlan(PLAN)).resolves.toEqual({ status: "created", tier: PRO });
+    expect(calls[0]?.url).toBe("http://localhost:8080/api/admin/plans");
+    expect(calls[0]?.method).toBe("POST");
+    expect(JSON.parse(calls[0]?.body ?? "{}")).toEqual(PLAN);
+  });
+
+  it("reads a 409 as a code already taken, which is what makes create mean create", async () => {
+    // Adopting it instead would repoint an existing tier's Price — right for a
+    // webhook, and quite wrong for a button labelled New plan.
+    const { client } = api(() => empty(409));
+
+    await expect(client.createPlan(PLAN)).resolves.toEqual({ status: "exists" });
+  });
+
+  it("and passes on Stripe's own words when Stripe refuses", async () => {
+    // The one answer in this API with a body worth reading: no status could say
+    // "at least 50 cents", and it is the only thing that says what to change.
+    const { client } = api(() => json({ problem: "Amount must be at least 50 cents" }, 422));
+
+    await expect(client.createPlan(PLAN)).resolves.toEqual({
+      status: "refused",
+      problem: "Amount must be at least 50 cents",
+    });
+  });
+
+  it("and says something rather than nothing when that body is missing", async () => {
+    const { client } = api(() => new Response(null, { status: 422 }));
+
+    await expect(client.createPlan(PLAN)).resolves.toEqual({
+      status: "refused",
+      problem: "Stripe refused the plan.",
+    });
+  });
+
+  it("and reads 401 and 403 the way every other call here does", async () => {
+    await expect(api(() => empty(401)).client.createPlan(PLAN)).resolves.toEqual({ status: "signed-out" });
+    await expect(api(() => empty(403)).client.createPlan(PLAN)).resolves.toEqual({ status: "forbidden" });
+  });
+});
+
+describe("what a plan may be priced in", () => {
+  it("is what Stripe says this account can settle in", async () => {
+    const { client, calls } = api(() => json({ defaultCurrency: "eur", supported: ["eur", "usd"] }));
+
+    await expect(client.currencies()).resolves.toEqual({
+      status: "ready",
+      currencies: { defaultCurrency: "eur", supported: ["eur", "usd"] },
+    });
+    expect(calls[0]?.url).toBe("http://localhost:8080/api/admin/currencies");
+  });
+
+  it("and is unknown rather than empty when Stripe could not be asked", async () => {
+    // A form that cannot find out has to say so: a guessed list offers currencies
+    // this account cannot take, and the plan that results fails at Checkout.
+    const { client } = api(() => empty(503));
+
+    await expect(client.currencies()).resolves.toEqual({ status: "unavailable" });
+  });
+
+  it("refuses a list that cannot be read", () => {
+    expect(asCurrencies({ defaultCurrency: "eur", supported: [] })).toBeNull();
+    expect(asCurrencies({ defaultCurrency: "", supported: ["eur"] })).toBeNull();
+    expect(asCurrencies({ supported: ["eur"] })).toBeNull();
+    expect(asCurrencies({ defaultCurrency: "eur", supported: ["eur", 7] })).toBeNull();
+    expect(asCurrencies(null)).toBeNull();
   });
 });

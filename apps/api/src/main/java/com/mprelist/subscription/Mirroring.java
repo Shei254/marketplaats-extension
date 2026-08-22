@@ -5,8 +5,8 @@ package com.mprelist.subscription;
  *
  * <p>An answer rather than an exception for {@code Adoption}'s reason: every one of these is a thing that
  * happens in normal running, the webhook answers {@code 200} to all of them, and the difference between them
- * is a log line rather than a status. Three are ordinary — a plan moved, a plan ended, an event that had
- * already been overtaken — and two are an operator's to act on.
+ * is a log line rather than a status. Four are ordinary — a plan moved, a plan moved on a repriced tier, a
+ * plan ended, an event that had already been overtaken — and two are an operator's to act on.
  */
 public enum Mirroring {
 
@@ -27,11 +27,20 @@ public enum Mirroring {
 	NOBODY_HERE_IS_BILLED_AS_THAT,
 
 	/**
-	 * The subscription is live, and the Price it is for belongs to no tier in our catalog — so there is nothing
-	 * to grant and the row is left exactly as it was, on whatever it was on. A Price created without a
-	 * {@code metadata.tier_code} tag and then sold is the way here (ADR-0019).
+	 * The status and the window are now Stripe's, and the tier is the one the row already held — because the
+	 * Price this subscription is for belongs to no tier any more.
+	 *
+	 * <p><strong>Which is what repricing a plan does to everybody already on it.</strong> Stripe Prices are
+	 * immutable, so a new amount is a new Price and the sync moves {@code tier.stripe_price_id} onto it; every
+	 * existing subscriber goes on paying through the old one, which now matches no tier. Keeping their tier is
+	 * right — they are on the plan they bought — and mirroring the rest of the event is what stops a card that
+	 * starts failing from leaving the row saying {@code ACTIVE} while Stripe retries it.
+	 *
+	 * <p>An operator's to notice rather than to act on: it is the expected state after a reprice, and it stops
+	 * on its own as those subscribers cancel or move. What it is <em>not</em> is a reason to have skipped the
+	 * event, which is what this used to be called {@code NO_TIER_SELLS_THAT_PRICE} for and what it used to do.
 	 */
-	NO_TIER_SELLS_THAT_PRICE,
+	MIRRORED_ONTO_THE_TIER_THEY_WERE_ALREADY_ON,
 
 	/**
 	 * A newer event has already been mirrored onto this row, so this one says nothing that is still true.

@@ -71,3 +71,57 @@ here.**
 Annual or regional pricing is wanted (the `UNIQUE` constraint above is the first thing to move), or the
 two-place workflow proves error-prone enough that a backend-creates-the-Price form is worth its migration
 story.
+
+---
+
+## Amended 2026-08-22 — a plan may be **created** from `/admin`; Stripe still owns the amount
+
+The second condition above was met the moment `/admin` existed (T54, #85): the screen showed a catalog it
+could edit and a list of untagged Prices it could not act on, and creating a plan still meant leaving for
+another tab, remembering a metadata key, and coming back.
+
+**What changes.** `POST /api/admin/plans` creates the Stripe Product and Price and then the tier, in one
+submit. `GET /api/admin/currencies` is what the form's currency list is built from.
+
+**What does not change, and it is the whole of why this is an amendment rather than a reversal.** The
+argument this ADR rejected the third option on was:
+
+> The third is the nicest until the first price change. Stripe Prices are immutable … A form field labelled
+> "amount" would therefore be lying about what **editing** it does.
+
+That is an argument about editing, and it still stands. **No amount is editable anywhere.** It is written
+once, into the system that owns it, and repricing is still done in Stripe — where a new Price tagged with the
+same `tier_code` repoints the tier through the sync exactly as it always has. The form says so on its face,
+which is better than the previous arrangement, where the constraint existed and no screen mentioned it.
+
+**No new writer of the `tier` table.** The route composes three calls and the last two already existed:
+
+1. `billing` creates a Product and a Price tagged `metadata.tier_code`;
+2. `PriceAdoptions.adopt` makes the row — the same call `ReceiveStripeEvents` makes;
+3. `TierEdits.apply` sets the quota and the flags — the same call `PUT /api/admin/tiers/{code}` makes.
+
+The `price.created` Stripe delivers moments later finds the row already right and is the no-op `adopt` was
+always documented to be. So "a webhook syncs it into the Tier catalog" is still true of every plan, however it
+was created — which is what keeps this cheap.
+
+**Three things the amendment had to decide.**
+
+- **A code the catalog already holds is refused (`409`), before Stripe is asked.** The upsert's ordinary
+  behaviour is to repoint that tier's Price, which is right for a webhook and wrong for a button labelled
+  *New plan*: every current subscriber would go on paying the old amount while the tier advertised a new one.
+- **Stripe's refusal carries its own words** — a `422` with a `problem`, the one body in this API that is a
+  sentence rather than a code. "Amount must be at least 50 cents for usd" is not something a status can say
+  and is exactly what the operator has to act on. It is deliberately not called `reason`: that is this API's
+  vocabulary for a denial about a *user*.
+- **The currency list is asked of Stripe, not listed anywhere.** Stripe supports around 130 currencies; this
+  *account* supports what its country spec allows. A hardcoded list offers a currency that renders a plan card
+  and fails at Checkout, and goes stale the day Stripe adds one.
+
+**A gap this exposed, and closed.** Repricing repoints the tier, which leaves every existing subscriber
+matched to a Price no tier carries — and the mirror used to drop their events entirely on that basis. Their
+*status* therefore stopped being mirrored: a failing card left the row saying `ACTIVE`, so they went on
+relisting while Stripe retried, and the recovery would not have landed either. (Cancellation still worked,
+since that path never reads a price, which is what kept it quiet.) An unrecognised Price now costs only the
+tier change: the status and window are mirrored and the subscriber keeps the tier they bought. This was true
+before the amendment — anyone repricing in the dashboard hit it — and is fixed with it because the amendment
+makes repricing something people will actually do.

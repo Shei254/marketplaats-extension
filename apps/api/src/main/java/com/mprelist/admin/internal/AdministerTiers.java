@@ -147,7 +147,8 @@ class AdministerTiers {
 
 	}
 
-	private static AdminTier asAdminTier(CatalogEntry entry) {
+	/** Package-visible: {@code CreatePlans} answers with the same shape, read back the same way. */
+	static AdminTier asAdminTier(CatalogEntry entry) {
 		return new AdminTier(new TierNameOnTheWire(entry.tier().code(), entry.tier().name()),
 				entry.relistQuotaPerPeriod(), entry.features(), entry.published(), entry.isDefault(),
 				entry.stripePriceId());

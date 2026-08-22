@@ -231,6 +231,26 @@ URIs exactly, so sign-in lands on `/` and the page rewrites the address bar to `
 8. Give it a quota and tick **On sale**.
    *Expect:* it appears on the plan cards, and it can be bought. Try the same on a tier with **no** Stripe
    Price: the form says so before you save, and the API refuses it anyway.
+9. Click **New plan** and create one without leaving the screen.
+   *Expect:* the currency dropdown holds what **your** Stripe account can settle in — read from Stripe, so a
+   test-mode Dutch account shows EUR first — and the form says the amount is written once. On submit, Stripe
+   has a new Product and Price tagged `metadata.tier_code`, and `/admin` has the tier, **not on sale**.
+   *Check the other side:* `stripe listen` shows a `price.created` arriving a moment later and the tier does
+   not change again — the sync is the same path either way, and the second write is a no-op.
+9a. Create another with the **same code**.
+   *Expect:* refused. Codes are permanent; adopting it would repoint the first tier's Price and leave its
+   subscribers paying the old amount for a plan advertising a new one.
+9b. Create one for **1 cent**.
+   *Expect:* Stripe's own words on the screen — "amount must be at least 50 cents" or similar. That sentence
+   is the one thing that says what to change, which is why this route answers a `problem` at all.
+9c. Stop `stripe listen` and create a plan.
+   *Expect:* it still works. The route adopts the Price itself through the same call the webhook makes, so
+   the tier appears whether or not anything is forwarding events.
+10. Reprice: in Stripe, create a **new** Price tagged with an existing tier's code.
+   *Expect:* the tier repoints, the plan cards show the new amount, and anybody already subscribed keeps
+   paying the old one — which is Stripe's immutability, not a bug. Force a failed payment on one of them and
+   check the popup still turns to **"update your card"**: their Price no longer matches any tier, and their
+   status is mirrored all the same.
 9. Leave `/admin` open for longer than the realm's five-minute access token and click **Save**.
    *Expect:* Keycloak takes over and hands you back where you were — the token lives in memory only and there
    is no refresh, so a `401` is one redirect rather than an error.

@@ -87,6 +87,7 @@ export const adminCss = `
 .admin-field label { font: var(--mp-text-caption) var(--mp-font-family); color: var(--mp-muted); }
 .admin-field input[type="text"],
 .admin-field input[type="number"],
+.admin-field select,
 .admin-field textarea {
   font: var(--mp-text-body) var(--mp-font-family);
   color: var(--mp-fg);

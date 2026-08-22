@@ -352,3 +352,59 @@ export interface UntaggedPrice {
 export interface UnadoptedPrices {
   prices: UntaggedPrice[];
 }
+
+/**
+ * `POST /api/admin/plans` — a plan created without leaving `/admin`.
+ *
+ * **This amends ADR-0019, and only where that decision left room.** It chose
+ * "Stripe is where a plan is created" because Stripe Prices are immutable and "a
+ * form field labelled amount would be lying about what **editing** it does". That
+ * argument is about editing, and it still holds: nothing anywhere lets an amount
+ * be changed. Writing one *once*, into the system that owns it, is a different act
+ * — and repricing is still done in Stripe, where a new tagged Price repoints the
+ * tier through the sync exactly as it always has.
+ *
+ * **The backend writes no row of its own.** It creates a Stripe Product and a
+ * Price tagged `metadata.tier_code`, then calls the same two things the webhook
+ * and the edit form already call. The `price.created` Stripe sends moments later
+ * finds the row already right and is the no-op it was always documented to be.
+ *
+ * `409` (empty body) means a tier already exists under that code — adopting it
+ * instead would repoint an existing tier's Price, which is right for a webhook and
+ * wrong for a button labelled New plan. `422` carries `{ problem }`: Stripe's own
+ * words, which are the only thing that says what to change ("amount must be at
+ * least 50 cents for usd"). It is deliberately not called `reason` — that is this
+ * API's vocabulary for a denial about a *user*, and this is a sentence for an
+ * operator.
+ */
+export interface NewPlan {
+  /** The stable handle, and the tag the Price is created with. Must not already exist. */
+  tierCode: string;
+  name: string;
+  /** In the currency's smallest unit, as Stripe counts it. Written once, never editable after. */
+  amount: number;
+  currency: string;
+  /** Stripe's vocabulary: `day`, `week`, `month` or `year`. */
+  interval: string;
+  relistQuotaPerPeriod: number;
+  features: Record<string, unknown>;
+  published: boolean;
+}
+
+/**
+ * `GET /api/admin/currencies` — what **this account** can take money in.
+ *
+ * Read from Stripe rather than listed anywhere: Stripe supports around a hundred
+ * and thirty currencies, this account supports the ones its country spec allows,
+ * and the difference is a plan card that renders and a Checkout that fails. A
+ * hardcoded list would also go stale the day Stripe adds one.
+ *
+ * `503` with no body when Stripe could not be asked — a form that cannot find out
+ * has to say so rather than offer a guess.
+ */
+export interface SellableCurrencies {
+  /** What the account settles in by default — the option to select first. */
+  defaultCurrency: string;
+  /** Every currency it may price in, lower case as Stripe writes them. Never empty. */
+  supported: string[];
+}

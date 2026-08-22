@@ -161,23 +161,35 @@ class SubscriptionRows implements Subscriptions, SubscriptionMirror {
 		if (row.get().hasHeardNewer(saidAt)) {
 			return Mirroring.SAID_BEFORE_WHAT_IS_ALREADY_MIRRORED;
 		}
-		// Read before the write and reported rather than thrown: a Price belonging to no tier is a Stripe
-		// account holding something we do not sell, which is ADR-0019's ordinary case and not a fault of this
-		// subscriber's. The row keeps whatever tier it was on, which for a renewal is the right one already.
+		/*
+		 * Read before the write and reported rather than thrown: a Price belonging to no tier is a Stripe
+		 * account holding something we do not sell, which is ADR-0019's ordinary case and not a fault of this
+		 * subscriber's.
+		 *
+		 * **What happens then depends on whether we know who they are, and that distinction was missing.**
+		 * A tier is repointed whenever a plan is repriced — Stripe Prices are immutable, so a new amount is a
+		 * new Price and the sync moves `tier.stripe_price_id` onto it — which leaves every existing subscriber
+		 * paying through a Price no tier carries any more. Refusing the whole event for them meant their
+		 * *status* stopped being mirrored: a card that started failing left the row saying `ACTIVE`, so they
+		 * went on relisting on a dead card, and the recovery would not have landed either. Their cancellation
+		 * still worked, because `ended` never reads a price — which made the gap quieter still.
+		 *
+		 * So an unrecognised Price no longer costs the event, only the tier change: the status and the window
+		 * are mirrored and the row keeps the tier it is already on, which for a repriced plan is the right one.
+		 * A row that is on **no** tier cannot happen — every subscription is provisioned onto one (ADR-0014) —
+		 * so there is no case here where keeping the tier means keeping nothing.
+		 */
 		Optional<TierId> tier = this.tiers.tierSoldAs(stripePriceId);
-		if (tier.isEmpty()) {
-			return Mirroring.NO_TIER_SELLS_THAT_PRICE;
-		}
 		this.db.sql("""
 				update subscription
 				   set tier_id = ?, status = ?, period_start = ?, period_end = ?,
 				       stripe_customer_id = ?, stripe_subscription_id = ?, mirrored_through = ?
 				 where id = ?
 				""")
-				.params(tier.get().id(), stored(status), period.start(), period.end(), who.customerId(),
-						who.subscriptionId(), saidAt, row.get().id())
+				.params(tier.orElse(row.get().tier()).id(), stored(status), period.start(), period.end(),
+						who.customerId(), who.subscriptionId(), saidAt, row.get().id())
 				.update();
-		return Mirroring.MIRRORED;
+		return tier.isPresent() ? Mirroring.MIRRORED : Mirroring.MIRRORED_ONTO_THE_TIER_THEY_WERE_ALREADY_ON;
 	}
 
 	/**
@@ -236,7 +248,7 @@ class SubscriptionRows implements Subscriptions, SubscriptionMirror {
 	 */
 	private Optional<Mirrored> theRowBehind(SubscriberOnStripe who) {
 		return this.db.sql("""
-				select id, created_at, mirrored_through
+				select id, tier_id, created_at, mirrored_through
 				  from subscription
 				 where app_user_id = :account
 				    or stripe_customer_id = :customer
@@ -247,19 +259,22 @@ class SubscriptionRows implements Subscriptions, SubscriptionMirror {
 				.param("account", who.taggedAccount().orElse(null))
 				.param("customer", who.customerId())
 				.query((values, number) -> new Mirrored(values.getObject("id", UUID.class),
+						new TierId(values.getObject("tier_id", UUID.class)),
 						utc(values.getObject("created_at", OffsetDateTime.class)),
 						optionalUtc(values.getObject("mirrored_through", OffsetDateTime.class))))
 				.optional();
 	}
 
 	/**
-	 * A subscription as the mirror needs it: which row, what its window is anchored on, and how far through
-	 * Stripe's telling it already is.
+	 * A subscription as the mirror needs it: which row, what tier it is on, what its window is anchored on, and
+	 * how far through Stripe's telling it already is.
 	 *
+	 * @param tier what it is on now, read because a Price that belongs to no tier any more leaves this as the
+	 * right answer — which is every subscriber of a plan that has since been repriced
 	 * @param mirroredThrough the {@code created} of the newest Stripe event applied here, or null where none
 	 * ever has been — which is every account that has not paid
 	 */
-	private record Mirrored(UUID id, OffsetDateTime createdAt, OffsetDateTime mirroredThrough) {
+	private record Mirrored(UUID id, TierId tier, OffsetDateTime createdAt, OffsetDateTime mirroredThrough) {
 
 		/**
 		 * Whether this row already reflects something Stripe said after the event now in hand — which makes

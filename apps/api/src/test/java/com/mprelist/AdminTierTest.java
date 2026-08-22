@@ -376,6 +376,84 @@ class AdminTierTest {
 		assertThat(tierNamed("pro").get("relistQuotaPerPeriod").asInt()).isEqualTo(50);
 	}
 
+	// --- creating a plan without leaving the screen ---------------------------------------------------------------
+
+	/**
+	 * With no Stripe configured a plan cannot be created, and the refusal carries Stripe's own words — which
+	 * is the one place in this API a {@code 4xx} says anything, because "no API key is configured" and "amount
+	 * must be at least 50 cents" are the only things that tell an operator what to change.
+	 */
+	@Test
+	void aPlanCannotBeCreatedWithoutAStripeToCreateItIn() {
+		HttpResponse<String> refused = post(PLANS, newPlan("starter"));
+
+		assertThat(refused.statusCode()).isEqualTo(422);
+		assertThat(Json.of(refused).get("problem").asString()).contains("Stripe");
+		// And nothing was written: a plan half-created is worse than none.
+		assertThat(codesIn(Json.of(get(TIERS)).get("tiers"))).doesNotContain("starter");
+	}
+
+	/**
+	 * A code the catalog already holds is refused before Stripe is asked at all, and that is what makes
+	 * "create" mean create. Adopting it instead would repoint the existing tier's Price — the upsert's
+	 * ordinary behaviour, right for a webhook and quite wrong for a button labelled New plan.
+	 */
+	@Test
+	void andACodeTheCatalogAlreadyHoldsIsNotANewPlan() {
+		HttpResponse<String> refused = post(PLANS, newPlan("pro"));
+
+		assertThat(refused.statusCode()).isEqualTo(409);
+		assertThat(refused.body()).isEmpty();
+		// Untouched — in particular its Price, which is the thing that would have moved.
+		assertThat(tierNamed("pro").get("relistQuotaPerPeriod").asInt()).isEqualTo(50);
+	}
+
+	@Test
+	void andABodyThatLeavesOutWhatItCostsOrWhatItGrantsIsNotOne() {
+		// Guessing an amount would be inventing a price; guessing a quota would be inventing an entitlement.
+		assertThat(post(PLANS, "{\"tierCode\":\"starter\",\"name\":\"Starter\",\"currency\":\"eur\","
+				+ "\"interval\":\"month\",\"relistQuotaPerPeriod\":10,\"published\":true}").statusCode())
+				.isEqualTo(400);
+		assertThat(post(PLANS, "{\"tierCode\":\"starter\",\"name\":\"Starter\",\"amount\":500,"
+				+ "\"currency\":\"eur\",\"interval\":\"month\",\"published\":true}").statusCode())
+				.isEqualTo(400);
+	}
+
+	@Test
+	void andNeitherIsOneNamingNoTierOrNoCurrency() {
+		assertThat(post(PLANS, newPlan("")).statusCode()).isEqualTo(400);
+		assertThat(post(PLANS, "{\"tierCode\":\"starter\",\"name\":\"Starter\",\"amount\":500,"
+				+ "\"currency\":\"\",\"interval\":\"month\",\"relistQuotaPerPeriod\":10,"
+				+ "\"published\":false}").statusCode()).isEqualTo(400);
+	}
+
+	@Test
+	void andNeitherIsSomethingThatIsNotJsonAtAllEither() {
+		HttpResponse<String> refused = post(PLANS, "not json");
+
+		assertThat(refused.statusCode()).isEqualTo(400);
+		assertThat(refused.body()).isEmpty();
+	}
+
+	/**
+	 * The currency list is Stripe's to answer, so with none configured there is none — a {@code 503} rather
+	 * than a guess, because a hardcoded list would offer currencies this account cannot settle in and the plan
+	 * that resulted would render a card and fail at Checkout.
+	 */
+	@Test
+	void andTheCurrenciesToPriceItInAreUnknownRatherThanGuessedAt() {
+		HttpResponse<String> unavailable = get(CURRENCIES);
+
+		assertThat(unavailable.statusCode()).isEqualTo(503);
+		assertThat(unavailable.body()).isEmpty();
+	}
+
+	@Test
+	void andNoneOfItIsReachableWithoutTheAdminRoleEither() {
+		assertThat(postAs(PLANS, newPlan("starter"), IDP.token()).statusCode()).isEqualTo(403);
+		assertThat(getAs(CURRENCIES, IDP.token()).statusCode()).isEqualTo(403);
+	}
+
 	// --- the Prices nobody tagged -------------------------------------------------------------------------------
 
 	/**
@@ -419,6 +497,11 @@ class AdminTierTest {
 		return Json.of(me).get("quotaRemaining").asInt();
 	}
 
+	private static String newPlan(String code) {
+		return "{\"tierCode\":\"" + code + "\",\"name\":\"Starter\",\"amount\":500,\"currency\":\"eur\","
+				+ "\"interval\":\"month\",\"relistQuotaPerPeriod\":10,\"features\":{},\"published\":false}";
+	}
+
 	private static String edit(int quota, boolean published) {
 		return "{\"name\":\"Pro\",\"relistQuotaPerPeriod\":" + quota + ",\"features\":{},\"published\":"
 				+ published + "}";
@@ -435,6 +518,19 @@ class AdminTierTest {
 				.timeout(TIMEOUT)
 				.header("Authorization", "Bearer " + token)
 				.GET()
+				.build());
+	}
+
+	private HttpResponse<String> post(String path, String body) {
+		return postAs(path, body, operator());
+	}
+
+	private HttpResponse<String> postAs(String path, String body, String token) {
+		return Http.send(HttpRequest.newBuilder(uri(path))
+				.timeout(TIMEOUT)
+				.header("Authorization", "Bearer " + token)
+				.header("Content-Type", "application/json")
+				.POST(HttpRequest.BodyPublishers.ofString(body, UTF_8))
 				.build());
 	}
 
@@ -475,6 +571,10 @@ class AdminTierTest {
 	private static final String TIERS = "/api/admin/tiers";
 
 	private static final String PRICES = "/api/admin/prices";
+
+	private static final String PLANS = "/api/admin/plans";
+
+	private static final String CURRENCIES = "/api/admin/currencies";
 
 	private static final Duration TIMEOUT = Duration.ofSeconds(20);
 

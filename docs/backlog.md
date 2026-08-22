@@ -319,6 +319,22 @@ original T33 went.
 - **`isDefault` has no control**, because the API has no request for one. Only "make default", on the tiers
   that are not it.
 
+#### [T61](https://github.com/Shei254/marketplaats-extension/issues/127) · Create a plan from `/admin`, synced to Stripe · **M** · T53, T54 · **shipped**
+`POST /api/admin/plans` creates the Stripe Product and Price and then the tier, in one submit;
+`GET /api/admin/currencies` is what the form's currency list is built from. **Amends
+[ADR-0019](adr/0019-plans-are-stripe-first-and-webhook-synced.md)**, whose own *Revisit if* named this the
+moment the two-place workflow had a screen to be compared against.
+- **No amount is editable, anywhere** — which is the argument ADR-0019 actually made. It is written once, and
+  repricing stays in Stripe, where a new tagged Price repoints the tier through the sync.
+- **No new writer of the `tier` table.** The route creates the tagged Price and then makes the webhook's own
+  `adopt` call and the edit form's own `apply` call; the `price.created` that follows is the documented no-op.
+- **`409` for a code already taken**, before Stripe is asked — adopting it would repoint an existing tier's
+  Price. **`422` carries Stripe's own sentence**, the one body in this API that is not a code.
+- **The currency list is asked of Stripe** — this account's country spec, not a copy of Stripe's ~130.
+- **A gap closed on the way:** repricing leaves existing subscribers matched to a Price no tier carries, and
+  the mirror used to drop their events — so a failing card left the row `ACTIVE`. Now only the tier change is
+  skipped; status and window are mirrored.
+
 ---
 
 ## Go-Live — making it reachable by somebody else

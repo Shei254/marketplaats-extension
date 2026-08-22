@@ -424,6 +424,47 @@ class StripeSubscriptionMirrorTest {
 	}
 
 	/**
+	 * And their <strong>status</strong> is mirrored all the same, which is the half this used to drop.
+	 *
+	 * <p>The way an ordinary subscriber ends up on a Price no tier carries is a <em>reprice</em>: Stripe Prices
+	 * are immutable, so a new amount is a new Price and the sync moves {@code tier.stripe_price_id} onto it,
+	 * leaving everybody already paying matched to nothing. Refusing their whole event meant a card that started
+	 * failing left the row saying {@code active} — so they went on relisting on a card Stripe was retrying, and
+	 * the recovery would not have landed either. Their cancellation still worked, since {@code ended} never
+	 * reads a price, which is what kept this quiet.
+	 */
+	@Test
+	void andTheStatusOnItIsMirroredEvenThoughTheTierCannotMove() {
+		Account buyer = whoJustSignedIn();
+		Sub bought = subscriptionOf(buyer);
+		this.stripe.delivered(started(bought));
+		// The plan is repriced: a new Price tagged `pro`, which the sync moves the tier onto. This
+		// subscription keeps the old one, which now belongs to no tier.
+		this.db.update("update tier set stripe_price_id = 'price_pro_v2' where code = 'pro'");
+
+		this.stripe.delivered(changed(bought.as("past_due"), ANY_TIME.plusSeconds(60)));
+
+		assertThat(planOf(buyer)).containsEntry("tier", "pro").containsEntry("status", "past_due");
+	}
+
+	/** And the gate refuses them, which is the point of having mirrored it. */
+	@Test
+	void andTheGateThenRefusesThemLikeAnyOtherFailingCard() {
+		Account buyer = whoJustSignedIn();
+		Sub bought = subscriptionOf(buyer);
+		this.stripe.delivered(started(bought));
+		this.db.update("update tier set stripe_price_id = 'price_pro_v2' where code = 'pro'");
+
+		this.stripe.delivered(changed(bought.as("past_due"), ANY_TIME.plusSeconds(60)));
+
+		HttpResponse<String> refused = new Relists(this.port)
+				.authorizing(buyer.token(), "{\"adId\": \"an-ad-of-theirs\"}");
+
+		assertThat(refused.statusCode()).isEqualTo(402);
+		assertThat(Json.of(refused).get("reason").asString()).isEqualTo("SUBSCRIPTION_INACTIVE");
+	}
+
+	/**
 	 * And a tier an operator has taken off sale still grants what its subscribers bought. Unpublishing stops
 	 * new purchases; the people already on it keep renewing until they cancel, so the tier a Price names is
 	 * looked up whether or not it is on the plan cards.

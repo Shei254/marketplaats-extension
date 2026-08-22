@@ -126,6 +126,34 @@ body {
  * apart — the rows are the part T30b (#79) will add a button and a note to.
  */
 export const adListCss = `
+/* The search box over the list (T31, #40). It sits in the list's own sheet
+   because it is the list's control and shares its gutter — and its bottom line is
+   the one the first row would have drawn, so the two never double up. */
+.popup-search {
+  display: flex;
+  align-items: center;
+  gap: var(--mp-space-xs);
+  padding: var(--mp-space-sm) var(--mp-space-md);
+  border-bottom: 1px solid var(--mp-line);
+}
+.popup-search-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--mp-line);
+  border-radius: var(--mp-radius-block);
+  background: var(--mp-bg);
+  color: var(--mp-fg);
+  padding: 6px 9px;
+  font: var(--mp-text-secondary) var(--mp-font-family);
+}
+.popup-search-input::placeholder { color: var(--mp-muted); }
+.popup-search-input:focus-visible {
+  outline: 2px solid var(--mp-accent);
+  outline-offset: -1px;
+  border-color: transparent;
+}
+.popup-search-clear { flex: none; color: var(--mp-muted); }
+
 .popup-ads { list-style: none; margin: 0; padding: 0; max-height: 420px; overflow-y: auto; }
 .popup-ad {
   padding: 10px var(--mp-space-md);

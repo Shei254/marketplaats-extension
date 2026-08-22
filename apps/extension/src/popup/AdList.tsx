@@ -29,6 +29,7 @@ export function AdList({
   view,
   worker,
   onOutcome,
+  empty = "You have no active ads.",
 }: {
   view: AdsView;
   worker: WorkerPort;
@@ -38,6 +39,13 @@ export function AdList({
    * since a reposted ad has a new id.
    */
   onOutcome: (outcome: WireRelistOutcome) => void;
+  /**
+   * What an empty list means, which this component cannot know: an account with
+   * no ads and a search that matched none are the same three states and two
+   * different sentences (T31, #40). The default is the first, because the list
+   * without a query is what this was before there was a box.
+   */
+  empty?: string;
 }): JSX.Element {
   const [running, setRunning] = useState<string | null>(null);
   const [states, setStates] = useState<Record<string, RowState>>({});
@@ -123,7 +131,7 @@ export function AdList({
   if (view.ads.length === 0) {
     // An account with no ads is an answer, not a failure — and a spinner left
     // turning over one is the version of this screen that looks broken.
-    return <p className="popup-ads-empty">You have no active ads.</p>;
+    return <p className="popup-ads-empty">{empty}</p>;
   }
 
   return (

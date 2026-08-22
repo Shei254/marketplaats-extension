@@ -33,6 +33,10 @@ export function workerPort(): WorkerPort {
     async ads(): Promise<ListingSummary[]> {
       return ask({ kind: "list-ads" });
     },
+    /** Raised, not flattened, for the reason above: it fails the same ways. */
+    async searchAds(query: string): Promise<ListingSummary[]> {
+      return ask({ kind: "search-ads", query });
+    },
     async relist(listingId: string): Promise<WireRelistOutcome> {
       return ask({ kind: "relist", listingId });
     },

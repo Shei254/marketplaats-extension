@@ -182,6 +182,7 @@ in the relist contract.
 Same service-worker console as step 3 — again, only in a `build:dev` build:
 ```js
 await __listAds();               // what the popup would render
+await __searchAds("fiets");      // the same rows, filtered by Marktplaats (T31, #40)
 await __captureAd("<id>");       // capture only, nothing destructive
 await __relist("<throwaway-ad-id>");   // now goes through the gate: `{status:"refused"}` is an answer
 await __apiMe();                 // the plan the popup is drawing, or why it is not

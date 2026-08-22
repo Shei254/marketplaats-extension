@@ -1,5 +1,5 @@
 import type { MarktplaatsClient } from "../domain/marktplaats-client";
-import type { CapturedAd, CapturedListing, ListingDraft, ListingSummary, Photo } from "../domain/types";
+import type { CapturedAd, CapturedListing, ListingSummary, Photo } from "../domain/types";
 import {
   fromWireError,
   fromWirePhoto,
@@ -56,7 +56,7 @@ export class RelayMarktplaatsClient implements MarktplaatsClient {
     });
   }
 
-  searchAd(query: string): Promise<ListingDraft[]> {
+  searchAd(query: string): Promise<ListingSummary[]> {
     return this.send({
       kind: "searchAd",
       query

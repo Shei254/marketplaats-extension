@@ -81,6 +81,18 @@ export interface WorkerPort {
    */
   ads(): Promise<ListingSummary[]>;
   /**
+   * The same ads, filtered by Marktplaats rather than in this window (T31, #40).
+   *
+   * Server-side because the list is not necessarily all of it — `listMyAds`
+   * paging is an open spike (`docs/enforcement-contract.md`), and a box that
+   * filtered what happened to have arrived would quietly fail to find an ad the
+   * seller can see on their own dashboard.
+   *
+   * Throws like `ads` and for the same reason: the two fail the same ways, and
+   * both failures are things the user can act on.
+   */
+  searchAds(query: string): Promise<ListingSummary[]>;
+  /**
    * Relist an ad, or resume one the extension is holding a snapshot of. Both run
    * in the worker for the reason ADR-0003 gives — a popup closed mid-relist must
    * not strand an ad between the delete and the re-create — and both answer with

@@ -34,6 +34,26 @@ describe("RelistOrchestrator", () => {
     expect(ads).toEqual([{ id: "ad-1", title: sampleAd().draft.title, priceCents: sampleAd().draft.price.priceCent }]);
   });
 
+  /**
+   * The same mistake, made twice and fixed twice: search printed its answer too,
+   * which is why the popup's box could not have been built on it (T31, #40). The
+   * rows are the list's own, because the button beside a match is the same button.
+   */
+  it("answers with the matches rather than printing them", async () => {
+    const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() } });
+    const orchestrator = new RelistOrchestrator(
+      client,
+      new InMemorySnapshotStore(),
+      new FakeRelistPermission(),
+      new FakePace(),
+    );
+
+    expect(await orchestrator.searchAds(sampleAd().draft.title.slice(0, 4))).toEqual(
+      await orchestrator.listAds(),
+    );
+    expect(await orchestrator.searchAds("nothing is called this")).toEqual([]);
+  });
+
   it("relists an ad by deleting the original and creating a fresh identical one", async () => {
     const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() } });
     const store = new InMemorySnapshotStore();

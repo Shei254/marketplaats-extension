@@ -192,13 +192,23 @@ export async function captureAd(listingId: string): Promise<{ draft: CapturedAd;
   return { draft, photos };
 }
 
+/**
+ * The user's own ads, filtered by Marktplaats rather than here — the same path
+ * `listMyAds` calls, plus a `query` parameter.
+ *
+ * `?? []` for `listMyAds`'s reason and one more: **a search that matches nothing
+ * is the ordinary case**, reached by typing, and a payload that answers it without
+ * an `ads` key would otherwise be a `TypeError` in the caller rather than an empty
+ * list on the screen. Nothing is logged: since T31 (#40) this runs on a debounce
+ * while somebody types, and what they type is theirs and not ours to print into
+ * the console of a page we are a guest on.
+ */
 export async function searchAd (query: string): Promise<ListingDraft[]> {
-  console.log("Searching ad: ", query);
   const cfg = await config();
   const res = await request(cfg, "searchAd", { queryParams: { query } });
 
   const data = await res.json();
-  return data.ads;
+  return data.ads ?? [];
 }
 
 export async function mapCategoryToBucket(

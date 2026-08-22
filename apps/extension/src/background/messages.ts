@@ -43,8 +43,14 @@ export type DisplayStateRequest = { kind: "display-state" };
  * The user's own ads. Asked of the worker rather than fetched by the popup so
  * that the relay client has one owner — and so that the popup, which is torn down
  * whenever it loses focus, is never the thing holding a request to the page.
+ *
+ * `search-ads` is the same list filtered by Marktplaats (T31, #40) and a request
+ * of its own rather than an optional `query` on the one above: the two answer
+ * different screens — "you have no active ads" against "nothing matches that" —
+ * and a caller that must not be trusted to leave the field off is a caller that
+ * can search for the empty string.
  */
-export type AdsRequest = { kind: "list-ads" };
+export type AdsRequest = { kind: "list-ads" } | { kind: "search-ads"; query: string };
 
 /**
  * Subscribing, all three of it (T52, #83): what is on sale, buying one of them,
@@ -107,6 +113,8 @@ export interface BackgroundAnswers {
    * "Marktplaats refused the request" and say something different about each.
    */
   "list-ads": ListingSummary[];
+  /** The matches, in the same shape, so one row component renders both. */
+  "search-ads": ListingSummary[];
   /** What can be bought — never the free tier and never a draft (ADR-0019). */
   plans: PlansAnswer;
   /**

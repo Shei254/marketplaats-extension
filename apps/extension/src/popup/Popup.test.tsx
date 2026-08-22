@@ -71,6 +71,10 @@ function fakeWorker(
 ) {
   const asked: string[] = [];
   const queue = [...answers];
+  /** Queries whose answer the test is holding: query → the resolve that frees it. */
+  const held = new Map<string, ((found: ListingSummary[]) => void) | null>();
+  const matching = (query: string): ListingSummary[] =>
+    ads.filter((ad) => ad.title.toLowerCase().includes(query.toLowerCase()));
   const worker: WorkerPort = {
     displayState: vi.fn(async () => {
       asked.push("display-state");
@@ -79,6 +83,19 @@ function fakeWorker(
     ads: vi.fn(async () => {
       asked.push("list-ads");
       return ads;
+    }),
+    /**
+     * Marktplaats's own filtering, stood in for by a substring match on the title
+     * — the same rows, which is what the relay now answers with (T31, #40).
+     *
+     * A query named to `hold` answers only when the test releases it, which is
+     * the only way to put two searches in flight at once and see which one the
+     * screen believes.
+     */
+    searchAds: vi.fn((query: string): Promise<ListingSummary[]> => {
+      asked.push(`search:${query}`);
+      if (!held.has(query)) return Promise.resolve(matching(query));
+      return new Promise<ListingSummary[]>((resolve) => held.set(query, resolve));
     }),
     relist: vi.fn(async () => {
       asked.push("relist");
@@ -109,7 +126,18 @@ function fakeWorker(
       asked.push("sign-out");
     }),
   };
-  return { worker, asked };
+  return {
+    worker,
+    asked,
+    /** Make this query's search hang, so a later one can overtake it. */
+    hold: (query: string) => held.set(query, null),
+    /** Let it answer, with the matches it would have had all along. */
+    release: async (query: string) => {
+      const resolve = held.get(query);
+      held.delete(query);
+      await act(async () => resolve?.(matching(query)));
+    },
+  };
 }
 
 let container: HTMLElement;
@@ -157,6 +185,30 @@ function click(label: string): Promise<void> {
   if (!button) throw new Error(`no button labelled ${label} — screen reads: ${text()}`);
   return act(async () => {
     button.click();
+  });
+}
+
+const searchBox = (): HTMLInputElement | null =>
+  container.querySelector<HTMLInputElement>(".popup-search-input");
+
+/**
+ * Type into the search box the way a person does.
+ *
+ * React tracks the last value it wrote on the node itself, so assigning `.value`
+ * and firing `input` is a change React decides has not happened. Going through the
+ * prototype's own setter is what clears that tracker.
+ */
+async function type(value: string): Promise<void> {
+  const field = searchBox();
+  if (!field) throw new Error(`no search box — screen reads: ${text()}`);
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(field, value);
+  await act(async () => field.dispatchEvent(new Event("input", { bubbles: true })));
+}
+
+/** Let the debounce run out, and whatever it started answer. */
+async function settle(ms = 400): Promise<void> {
+  await act(async () => {
+    vi.advanceTimersByTime(ms);
   });
 }
 
@@ -239,6 +291,166 @@ describe("the ad list beneath the plan", () => {
     await show(worker);
 
     expect(text()).toContain("You have no active ads.");
+  });
+});
+
+/**
+ * The search box (T31, #40), driven by typing into it.
+ *
+ * Every assertion here is about **which requests leave** and **which answer is
+ * allowed to reach the screen**, because that is the whole of what this ticket
+ * adds: the filtering itself is Marktplaats's, and the rows are the ones the list
+ * already draws.
+ */
+describe("searching the ad list", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("waits for the typing to stop, then asks once", async () => {
+    // Five keystrokes, one request — the gap is measured from the last of them,
+    // and each one is a request to marktplaats.nl in the user's own session.
+    const { worker, asked } = fakeWorker();
+
+    await show(worker);
+    for (const value of ["t", "tr", "tre", "trek"]) await type(value);
+
+    await settle(399);
+    expect(asked.filter((question) => question.startsWith("search:"))).toEqual([]);
+
+    await settle(1);
+    expect(asked.filter((question) => question.startsWith("search:"))).toEqual(["search:trek"]);
+  });
+
+  it("asks nothing at all under two characters", async () => {
+    // One letter matches most of an account: a request whose answer nobody wanted.
+    const { worker, asked } = fakeWorker();
+
+    await show(worker);
+    await type("t");
+    await settle(2000);
+
+    expect(asked).toEqual(["display-state", "list-ads"]);
+    expect(worker.searchAds).not.toHaveBeenCalled();
+  });
+
+  it("shows what came back, and only that", async () => {
+    const { worker } = fakeWorker();
+
+    await show(worker);
+    await type("trek");
+    await settle();
+
+    expect(text()).toContain("Trek Marlin 7 mountainbike (M)");
+    expect(text()).not.toContain("Vintage Eames lounge chair");
+  });
+
+  it("says what did not match, rather than that the account is empty", async () => {
+    const { worker } = fakeWorker();
+
+    await show(worker);
+    await type("sofa");
+    await settle();
+
+    expect(text()).toContain("No ads match “sofa”.");
+    expect(text()).not.toContain("You have no active ads.");
+  });
+
+  it("never lets a slow answer overwrite a newer one", async () => {
+    // The bug this exists to prevent: "tr" against a big account answering after
+    // "trek" did, leaving matches for a query the box no longer holds.
+    const { worker, asked, hold, release } = fakeWorker();
+
+    await show(worker);
+    hold("eames");
+    await type("eames");
+    await settle();
+    await type("trek");
+    await settle();
+
+    expect(asked).toEqual(["display-state", "list-ads", "search:eames", "search:trek"]);
+    expect(text()).toContain("Trek Marlin 7 mountainbike (M)");
+
+    await release("eames");
+
+    expect(text()).toContain("Trek Marlin 7 mountainbike (M)");
+    expect(text()).not.toContain("Vintage Eames lounge chair");
+  });
+
+  it("gives the whole list back the moment the box is cleared", async () => {
+    // No debounce on the way back: there is no request to save and nothing to
+    // wait for, so 400ms of a filtered list would be a delay bought with nothing.
+    const { worker, asked } = fakeWorker();
+
+    await show(worker);
+    await type("trek");
+    await settle();
+    await click("Clear search");
+
+    expect(asked).toEqual(["display-state", "list-ads", "search:trek", "list-ads"]);
+    expect(searchBox()?.value).toBe("");
+    expect(text()).toContain("Vintage Eames lounge chair");
+  });
+
+  it("and the same when it is deleted back under the minimum", async () => {
+    const { worker, asked } = fakeWorker();
+
+    await show(worker);
+    await type("trek");
+    await settle();
+    await type("t");
+
+    expect(asked).toEqual(["display-state", "list-ads", "search:trek", "list-ads"]);
+  });
+
+  it("repeats the search when the list is refreshed", async () => {
+    // A box with a query in it and a button that quietly emptied it would be two
+    // controls disagreeing about what was asked for.
+    const { worker, asked } = fakeWorker();
+
+    await show(worker);
+    await type("trek");
+    await settle();
+    await click("Refresh");
+
+    expect(asked).toEqual(["display-state", "list-ads", "search:trek", "display-state", "search:trek"]);
+    expect(searchBox()?.value).toBe("trek");
+  });
+
+  it("and after a repost, because the reposted ad has a new id", async () => {
+    const { worker, asked } = fakeWorker();
+
+    await show(worker);
+    await type("trek");
+    await settle();
+    await click("Repost");
+
+    expect(asked).toEqual(["display-state", "list-ads", "search:trek", "relist", "search:trek"]);
+  });
+
+  it("is not on the screen at all when nobody is signed in", async () => {
+    const { worker } = fakeWorker([{ status: "signed-out" }]);
+
+    await show(worker);
+
+    expect(searchBox()).toBeNull();
+  });
+
+  it("is emptied by signing out, so the next session opens on the whole list", async () => {
+    const { worker, asked } = fakeWorker([{ status: "ready", plan: PLAN }]);
+
+    await show(worker);
+    await type("trek");
+    await settle();
+    await click("Sign out");
+    await click("Sign in");
+
+    expect(searchBox()?.value).toBe("");
+    expect(asked.at(-1)).toBe("list-ads");
   });
 });
 

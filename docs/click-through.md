@@ -72,6 +72,20 @@ thread.
 6. Read the list.
    *Expect:* your real Marktplaats ads, with titles and prices. Empty account → "You have no active ads",
    not a spinner and not an error.
+6a. Type part of one ad's title into the search box (T31, #40), one letter at a time.
+   *Expect:* nothing happens on the first letter, and from the second the list narrows **once you stop
+   typing** — not on every keystroke. Watch the **Network** tab of the marktplaats.nl page's DevTools: one
+   `…/listings?query=…` per pause, not one per letter. Then type something no ad is called.
+   *Expect:* "No ads match “…”", **never** "You have no active ads" — the second would be a lie about the
+   account. Clear the box with the ✕.
+   *Expect:* the whole list is back **immediately**, with no wait.
+6b. Type a query that matches, then **immediately** type a different one that also matches, faster than the
+   pause.
+   *Expect:* the list ends up showing the second query's matches. The first request may still be in flight;
+   it must not be allowed to land on the screen afterwards. This is the failure the suite pins and a real
+   account is the only place the timing is real.
+6c. With a search on the screen, press **Refresh**.
+   *Expect:* the box keeps its query and the search is re-run — not an emptied box and the whole list.
 7. Close the popup and reopen it.
    *Expect:* still signed in, no second Keycloak window. Quota still 3 — **`/api/me` spends nothing**, so
    opening the popup five times must not cost a unit.
@@ -90,6 +104,10 @@ thread.
    *Expect:* the row goes busy, the other rows lock, and the ad is deleted and recreated on Marktplaats.
 2. *Expect:* the header now reads **`2 of 3`**, from `/complete`'s response — **without** a second `/api/me`
    call.
+2a. Find that same ad through the search box and repost it from there.
+   *Expect:* the list comes back **still filtered**, showing the fresh ad — a repost re-runs whatever is on
+   the screen, and the new ad has a new id, so a list that did not re-read would offer a Repost button for an
+   ad that no longer exists.
 3. Immediately click **Repost** on another ad.
    *Expect:* the row **counts down 45–90 seconds** and says *"…so your reposts look like clicks rather than
    a script"* — the pace (#54), not a refusal. When it reaches zero the relist runs and **succeeds**. That is

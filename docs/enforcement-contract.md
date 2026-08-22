@@ -251,6 +251,64 @@ what every other answer in this document is read from.
   status and `periodStart`/`periodEnd`. A terminal end moves the row back to the `isDefault` tier
   (ADR-0018).
 
+### The admin API — `GET /api/admin/tiers`, `PUT …/{code}`, `PUT …/{code}/default`, `GET /api/admin/prices`
+Consumed by `apps/web`'s `/admin` (T54, #85) and by nothing the extension runs. Its audience is an operator
+rather than a subscriber, which is why none of its answers carries a `reason`: those codes are statements
+about a *user*, and nothing here is about one.
+
+- **Auth:** `Authorization: Bearer <token carrying the realm's `ADMIN` role>`. Guarded by path rather than by
+  route — see "the `ADMIN` guard" above — so a route added under `/api/admin` is closed by being there.
+- **`GET /api/admin/tiers` → `200`:** every tier there is, cheapest grant first, each as an **AdminTier**:
+
+  ```json
+  { "tiers": [
+      { "tier": { "code": "pro", "name": "Pro" },
+        "relistQuotaPerPeriod": 50,
+        "features": {},
+        "published": true,
+        "isDefault": false,
+        "stripePriceId": "price_123" } ] }
+  ```
+
+- **Unfiltered, which is the point.** `GET /api/plans` hides a draft — quota 0, unpublished, created by the
+  sync for a Price nobody has decided about (ADR-0019) — and hiding it here too would leave an operator with
+  no way to find the one thing this screen exists for. The free tier is listed for the same reason: never
+  sellable, very much editable.
+- **No amount on any of them.** Money is Stripe's (ADR-0014) and this screen has to be readable when Stripe is
+  not: an operator locked out of their catalog during a Stripe outage is locked out of the one tool that could
+  work around it. `stripePriceId` is there as a fact to read, never a field to send.
+- **`PUT /api/admin/tiers/{code}`** takes a **TierEdit** — `{ name, relistQuotaPerPeriod, features, published }`
+  — and answers `200` with the row as stored. A `PUT` because the body is *total* over what may change, so
+  there is no "absent or null" question; a body leaving out `relistQuotaPerPeriod` or `published` is a `400`
+  rather than a default, since guessing either changes a plan nobody asked to change.
+- **What it cannot change is the decision** (ADR-0019): not the amount or interval, because Stripe Prices are
+  immutable and a field called "amount" would be lying about what editing it does; not `stripePriceId`,
+  because the `metadata.tier_code` tag on the Price is the only link and a second copy is the one that drifts;
+  not `code`, the stable handle everything references. There is also no create and no delete — a plan is
+  created by tagging a Price in Stripe and a tier is retired by unpublishing it, since a subscription
+  references its tier behind a foreign key.
+- **`409` with an empty body** means one thing: publishing a tier with nothing to charge against, which
+  `V5__tier_publication.sql` refuses. There is exactly one way for this route to conflict, so the status is
+  the whole of the message. **`404`** means no tier is stored under that code.
+- **Lowering a quota under existing subscribers is allowed** and writes nothing to anybody's row: what is left
+  of a period is the grant minus what has been spent, clamped at zero, so somebody who has already used more
+  than the new number simply has none left until it rolls. No proration and no notification (ADR-0014,
+  amended).
+- **`PUT /api/admin/tiers/{code}/default` → `200`** moves the flag to that tier. **A move, never a toggle** —
+  and that is the design rather than an API style. The catalog must carry exactly one default: `defaultTier()`
+  throws when no row does and provisioning catches nothing, so a catalog with none takes down every new
+  sign-in and the operator who caused it sees nothing wrong. Expressed this way there is no request that can
+  leave the catalog without one. Naming the tier that already holds it is idempotent. **"No free tier" is not
+  this route** — it is a quota of `0` on whichever tier is the default (ADR-0019).
+- **`GET /api/admin/prices` → `200`:** the active Stripe Prices carrying no `tier_code`, newest first, at most
+  a hundred — `{ "prices": [ { "id", "nickname", "amount", "currency", "interval" } ] }`. It exists because
+  the failure it reports is silent: a Price created without the tag produces a plan screen without that plan
+  and no error anywhere. It **lists and does nothing** — adopting is done by adding the tag in Stripe, which
+  fires `price.updated` and goes through the sync that already exists.
+- **`503` with an empty body** when Stripe could not be asked, which includes no API key configured. Not an
+  empty list: an empty list is the *good* state — every Price is tagged — so reporting an outage as one would
+  tell an operator their catalog is complete at the moment nobody can check.
+
 ### `GET /api/me` — display state, **never a grant**
 - **Auth:** `Authorization: Bearer <Keycloak access token>`.
 - **Returns `200`:** `{ subscriptionStatus, tier, quotaRemaining, relistQuotaPerPeriod, resetAt, features }`
@@ -483,4 +541,6 @@ Extension                         Backend                    Stripe
   of any ownership check to this contract.
 - **`listMyAds` pagination** — unverified. The current client does `data.ads ?? []` with no paging, and
   `searchAd` hits the same path with a `query` param, which is weak evidence the endpoint is paged.
-- **Tier quota edited under existing subscribers** — deferred with the admin CRUD UI.
+- ~~**Tier quota edited under existing subscribers**~~ — **resolved by T53 (#84).** Lowering a quota under
+  subscribers is allowed, writes nothing to their rows, and clamps what is left at zero; raising one is felt
+  immediately by the same arithmetic. No proration and no notification.

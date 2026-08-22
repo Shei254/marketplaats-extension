@@ -247,3 +247,108 @@ export interface CheckoutSession {
 export interface PortalSession {
   url: string;
 }
+
+/**
+ * One tier as the operator screens see it (T53, #84) — the whole row, including
+ * the parts no other surface is shown.
+ *
+ * **`stripePriceId` is a fact to read, not a field to edit.** The link between the
+ * two systems is the `metadata.tier_code` tag on the Price in Stripe (ADR-0019),
+ * so nobody types this id anywhere and it cannot drift. It is `null` on the free
+ * tier, which has nothing to charge against, and on a tier whose Price has not
+ * been created yet.
+ *
+ * **No amount, deliberately.** Money is Stripe's, and this screen has to be
+ * readable when Stripe is not — an operator locked out of their own catalog during
+ * a Stripe outage would be locked out of the one tool that could work around it.
+ * `maxMarktplaatsAccounts` is absent too: every tier grants one until #47 finds a
+ * stable Marktplaats account identifier, so a column for it would be a form field
+ * for a constant.
+ */
+export interface AdminTier {
+  tier: TierName;
+  /** What a period grants. Zero is coherent — on the default tier it is "no free tier". */
+  relistQuotaPerPeriod: number;
+  features: Record<string, unknown>;
+  /** Whether a buyer may choose it. False on every draft, and on the free tier for good. */
+  published: boolean;
+  /** Whether new accounts are provisioned onto it. Exactly one tier carries it. */
+  isDefault: boolean;
+  stripePriceId: string | null;
+}
+
+/**
+ * `GET /api/admin/tiers`. **Every tier there is**, cheapest grant first — including
+ * the drafts `GET /api/plans` hides (quota 0, unpublished, created by the sync for
+ * a Price nobody has decided about) and the free tier, which is never sellable and
+ * is very much editable. An operator who could not see a draft could not act on
+ * the one thing the screen exists for.
+ */
+export interface AdminTiers {
+  tiers: AdminTier[];
+}
+
+/**
+ * `PUT /api/admin/tiers/{code}` — the half of a tier an operator may change.
+ *
+ * **Whole rather than partial**, which is why it is a `PUT`: every field is stated
+ * every time, so there is no "absent or null" question for a reader to answer
+ * differently from the next one. A body leaving out `relistQuotaPerPeriod` or
+ * `published` is a `400` rather than a default, because guessing either would
+ * change a plan nobody asked to change.
+ *
+ * What is **not** here is the decision (ADR-0019): no amount or interval, because
+ * Stripe Prices are immutable and a field called "amount" would be lying about
+ * what editing it does; no `stripePriceId`, because the tag on the Price is the
+ * only link and a second copy is the one that drifts; no `code`, which is the
+ * stable handle everything references; and no `isDefault`, which is a property of
+ * the catalog rather than of one row — `PUT /api/admin/tiers/{code}/default` moves
+ * it, and there is deliberately no way to ask for a catalog with no default at all.
+ *
+ * **`409` means one thing**: publishing a tier with nothing to charge against. The
+ * way out is Stripe's — create a Price tagged with the tier's code. `404` means no
+ * tier is stored under that code. Both carry an empty body, since there is exactly
+ * one way for this route to conflict and the status is the whole of the message.
+ */
+export interface TierEdit {
+  name: string;
+  relistQuotaPerPeriod: number;
+  features: Record<string, unknown>;
+  published: boolean;
+}
+
+/**
+ * A Stripe Price no tier will ever be made from (T53, #84) — one that carries no
+ * `metadata.tier_code`.
+ *
+ * It exists because the failure it reports is silent: ADR-0019 names it in its own
+ * consequences, "a missing tag is silent — the Price exists, nothing appears in
+ * `/admin`, and the only symptom is absence". Not every one is a mistake, though,
+ * which is why the list is shown and never acted on: Stripe accounts hold Prices
+ * for one-offs, coupons and experiments, and the operator is the only one who can
+ * tell an experiment from a forgotten tag.
+ */
+export interface UntaggedPrice {
+  /** Stripe's id — what to search for in the dashboard, and the only certain field. */
+  id: string;
+  /** Stripe's own nickname, which is optional and usually unset. */
+  nickname: string | null;
+  /** In the currency's smallest unit, as Stripe counts it. `0` where Stripe states none. */
+  amount: number;
+  currency: string;
+  /**
+   * How often it recurs, or `null` for a one-off — the field that most often says
+   * "this was never going to be a plan", since a subscription tier has to recur.
+   */
+  interval: string | null;
+}
+
+/**
+ * `GET /api/admin/prices`. **An empty list is the good state** — every Price in the
+ * account is tagged — which is why a Stripe that could not be asked is a `503` with
+ * no body rather than an empty list: reporting an outage as one would tell an
+ * operator their catalog is complete at the moment nobody can check.
+ */
+export interface UnadoptedPrices {
+  prices: UntaggedPrice[];
+}

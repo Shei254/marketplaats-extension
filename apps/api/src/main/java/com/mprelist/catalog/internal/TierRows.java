@@ -1,5 +1,7 @@
 package com.mprelist.catalog.internal;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -10,11 +12,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.mprelist.catalog.Adoption;
+import com.mprelist.catalog.CatalogEntry;
 import com.mprelist.catalog.Entitlement;
 import com.mprelist.catalog.PriceAdoptions;
 import com.mprelist.catalog.SellablePlan;
 import com.mprelist.catalog.TaggedPrice;
 import com.mprelist.catalog.TierCatalog;
+import com.mprelist.catalog.TierEdit;
+import com.mprelist.catalog.TierEdited;
+import com.mprelist.catalog.TierEdits;
 import com.mprelist.catalog.TierId;
 import com.mprelist.catalog.TierName;
 
@@ -29,12 +35,14 @@ import tools.jackson.databind.json.JsonMapper;
  * endpoints will edit one — so an ORM would buy a persistence context this module has no use for and bring
  * {@code ddl-auto}, a second schema author beside the migrations, along with it.
  *
- * <p>It implements both of this module's ports. They are separate types for their callers' sake (see
- * {@link PriceAdoptions}) and one class here for the table's: a second class writing these columns is a
- * second place the catalog's rules could be spelled differently.
+ * <p>It implements all three of this module's ports. They are separate types for their callers' sake (see
+ * {@link PriceAdoptions} and {@link TierEdits}) and one class here for the table's: a second class writing
+ * these columns is a second place the catalog's rules could be spelled differently — and with an operator
+ * editing the same rows a webhook writes (T53, #84), "spelled differently" would mean the two disagreeing
+ * about what a quota is allowed to be.
  */
 @Service
-class TierRows implements TierCatalog, PriceAdoptions {
+class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 
 	TierRows(JdbcClient db) {
 		this.db = db;
@@ -188,6 +196,116 @@ class TierRows implements TierCatalog, PriceAdoptions {
 				.param("priceId", price.stripePriceId())
 				.update();
 		return known ? Adoption.FILLED_IN_A_TIER : Adoption.DRAFTED_A_TIER;
+	}
+
+	// --- what an operator sees and changes (T53, #84) ------------------------------------------------------
+
+	/**
+	 * Every row, in the order the plan cards use — cheapest grant first, then by code.
+	 *
+	 * <p>The same {@code order by} as {@link #published()} rather than a second opinion about how a catalog
+	 * reads: an operator scanning their list and a buyer scanning the cards are looking at the same tiers, and
+	 * two orders would make a screen hard to check against the other.
+	 */
+	@Override
+	public List<CatalogEntry> everyTier() {
+		return this.db.sql("""
+				select code, name, relist_quota_per_period, features::text, published, is_default,
+				       stripe_price_id
+				  from tier
+				 order by relist_quota_per_period, code
+				""")
+				.query((row, number) -> entry(row))
+				.list();
+	}
+
+	/**
+	 * The edit, as one statement and a read of what it left behind.
+	 *
+	 * <p><strong>The publish check is made here rather than left to the constraint</strong>, and that is the
+	 * only place in this class that duplicates one. {@code tier_is_published_only_with_a_price} would refuse
+	 * the row anyway, as a {@code DataIntegrityViolationException} somewhere under the route — a `500` and a
+	 * stack trace where what is wanted is a sentence telling an operator to go and create a Price in Stripe.
+	 * The constraint stays because it is what makes the rule true of every writer including this one; the
+	 * check exists so that the one writer with a human in front of it can say what happened.
+	 *
+	 * <p>Read back inside the same transaction rather than assembled from the request, so the answer is the
+	 * row — including the {@code stripe_price_id} the operator did not send and the {@code is_default} this
+	 * does not touch.
+	 */
+	@Override
+	@Transactional
+	public TierEdited apply(String code, TierEdit edit) {
+		Optional<CatalogEntry> stored = entryFor(code);
+		if (stored.isEmpty()) {
+			return new TierEdited.NoSuchTier();
+		}
+		if (edit.published() && stored.get().stripePriceId() == null) {
+			return new TierEdited.NothingToChargeAgainst();
+		}
+		this.db.sql("""
+				update tier
+				   set name = :name,
+				       relist_quota_per_period = :quota,
+				       features = cast(:features as jsonb),
+				       published = :published
+				 where code = :code
+				""")
+				.param("name", edit.name())
+				.param("quota", edit.relistQuotaPerPeriod())
+				.param("features", JSON.writeValueAsString(edit.features()))
+				.param("published", edit.published())
+				.param("code", code)
+				.update();
+		return new TierEdited.Applied(entryFor(code).orElseThrow());
+	}
+
+	/**
+	 * Move the flag, in two statements and one transaction.
+	 *
+	 * <p>Clear then set, rather than {@code set is_default = (code = :code)} in one pass:
+	 * {@code tier_single_default} is a plain partial unique index, so it is checked row by row as a statement
+	 * proceeds, and a single update that happened to set the new default before clearing the old one would
+	 * fail on a duplicate that never outlives the statement. Two statements have no such moment. Not
+	 * theoretical: {@code AdminTierTest}'s own setup was written the one-statement way and failed exactly
+	 * like that, the first time a test that moves the flag ran before one that reads it.
+	 *
+	 * <p>The first clears <em>every</em> default, including this tier's own if it already held it, rather than
+	 * sparing it with a {@code code <> :code}. That clause was here and is gone: re-setting the flag a
+	 * statement later leaves exactly the same row, so it was a second place deciding the same thing and no
+	 * test could tell the difference — which is #41's precedent for deleting one.
+	 *
+	 * <p>Nothing here can leave the catalog with no default: the two statements are one transaction, and a
+	 * code naming no tier is refused before either runs.
+	 */
+	@Override
+	@Transactional
+	public Optional<CatalogEntry> makeDefault(String code) {
+		if (entryFor(code).isEmpty()) {
+			return Optional.empty();
+		}
+		this.db.sql("update tier set is_default = false where is_default").update();
+		this.db.sql("update tier set is_default = true where code = ?").param(code).update();
+		return entryFor(code);
+	}
+
+	private Optional<CatalogEntry> entryFor(String code) {
+		return this.db.sql("""
+				select code, name, relist_quota_per_period, features::text, published, is_default,
+				       stripe_price_id
+				  from tier
+				 where code = ?
+				""")
+				.param(code)
+				.query((row, number) -> entry(row))
+				.optional();
+	}
+
+	/** One row, read the one way — three statements above hand back an entry and all three mean this. */
+	private static CatalogEntry entry(ResultSet row) throws SQLException {
+		return new CatalogEntry(new TierName(row.getString("code"), row.getString("name")),
+				row.getInt("relist_quota_per_period"), flagsIn(row.getString("features")),
+				row.getBoolean("published"), row.getBoolean("is_default"), row.getString("stripe_price_id"));
 	}
 
 	/**

@@ -143,8 +143,9 @@ class AdminGuardTest {
 
 	/**
 	 * A path under {@code /api/admin} that nothing serves is refused all the same — the guard is on the way
-	 * in, before routing, so it covers the routes T53 has not written yet. This is the property the whole
-	 * ticket is: a rule over a path space rather than over a list of handlers.
+	 * in, before routing, so it covers routes nobody has written yet. This is the property the whole ticket
+	 * is: a rule over a path space rather than over a list of handlers, which is what let T53 (#84) add four
+	 * routes under here without adding a line of security to any of them.
 	 */
 	@Test
 	void aPathNobodyHasWrittenYetIsAlreadyClosed() {
@@ -241,8 +242,16 @@ class AdminGuardTest {
 
 	private static final String ADMIN_ROUTE = "/api/admin/probe";
 
-	/** Under the guarded path space and mapped to nothing — which is every route T53 has not written yet. */
-	private static final String UNWRITTEN_ADMIN_ROUTE = "/api/admin/tiers";
+	/**
+	 * Under the guarded path space and mapped to nothing, which is the whole point of the two tests that use
+	 * it: the guard covers a path space rather than a list of handlers.
+	 *
+	 * <p>It was {@code /api/admin/tiers} until T53 (#84) wrote that one, at which point this suite failed —
+	 * correctly, and in the one way that proves the pair below is not vacuous. Any path nothing serves does
+	 * the job, so this names one nothing is planned for rather than the next ticket's route, which would only
+	 * move the same failure along.
+	 */
+	private static final String UNWRITTEN_ADMIN_ROUTE = "/api/admin/nothing-serves-this";
 
 	private static final String ORDINARY_ROUTE = "/probe-outside-the-admin-api";
 

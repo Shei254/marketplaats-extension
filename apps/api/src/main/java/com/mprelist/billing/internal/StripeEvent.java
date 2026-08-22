@@ -224,8 +224,15 @@ record StripeEvent(String id, String type, OffsetDateTime created, JsonNode obje
 	/** This module's own mapper, for {@code TierRows}' reason: what goes out over HTTP is configured elsewhere. */
 	private static final JsonMapper JSON = JsonMapper.builder().build();
 
-	/** The tag ADR-0019 makes the link, spelled as the Stripe dashboard spells it. */
-	private static final String TIER_CODE = "tier_code";
+	/**
+	 * The tag ADR-0019 makes the link, spelled as the Stripe dashboard spells it.
+	 *
+	 * <p>Package-visible because {@code UnadoptedStripePrices} looks for its <em>absence</em> (T53, #84), and
+	 * a second spelling of it there would mean an operator's list of "Prices with no tag" and this module's
+	 * idea of a tag drifting apart — which shows up as a Price that is adopted and listed as unadopted, or
+	 * neither. Same arrangement {@code OpenCheckout.ACCOUNT_TAG} has with the reader below it.
+	 */
+	static final String TIER_CODE = "tier_code";
 
 	private static final String PRICE_CREATED = "price.created";
 

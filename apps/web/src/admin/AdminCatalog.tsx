@@ -1,8 +1,15 @@
-import type { AdminTier, TierEdit, UntaggedPrice } from "@mprelist/contracts";
+import type { AdminTier, NewPlan, SellableCurrencies, TierEdit, UntaggedPrice } from "@mprelist/contracts";
 import { Button, Note } from "@mprelist/ui";
 import { useCallback, useEffect, useState, type JSX } from "react";
 
-import type { AdminApi, CatalogAnswer, EditAnswer, PricesAnswer } from "./admin-api";
+import type {
+  AdminApi,
+  CatalogAnswer,
+  CreateAnswer,
+  CurrenciesAnswer,
+  EditAnswer,
+  PricesAnswer,
+} from "./admin-api";
 
 /**
  * The tier catalog, and the Stripe Prices nobody tagged (T54, #85).
@@ -34,18 +41,25 @@ export function AdminCatalog({
 }): JSX.Element {
   const [catalog, setCatalog] = useState<CatalogAnswer | null>(null);
   const [prices, setPrices] = useState<PricesAnswer | null>(null);
+  const [currencies, setCurrencies] = useState<CurrenciesAnswer | null>(null);
+  const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [note, setNote] = useState<{ tone: "ok" | "error"; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
-    const [tiers, untagged] = await Promise.all([api.tiers(), api.unadoptedPrices()]);
+    const [tiers, untagged, sellable] = await Promise.all([
+      api.tiers(),
+      api.unadoptedPrices(),
+      api.currencies(),
+    ]);
     if (tiers.status === "signed-out" || untagged.status === "signed-out") {
       onSignedOut();
       return;
     }
     setCatalog(tiers);
     setPrices(untagged);
+    setCurrencies(sellable);
   }, [api, onSignedOut]);
 
   useEffect(() => {
@@ -84,6 +98,34 @@ export function AdminCatalog({
       setBusy(false);
     },
     [api, applied],
+  );
+
+  /**
+   * Creating a plan, which is the one write here that also happens in Stripe.
+   *
+   * The refusals are not the edit form's: `exists` is a code already taken, and
+   * `refused` carries Stripe's own sentence — the only answer in this API with a
+   * body worth reading, because "amount must be at least 50 cents for usd" is not
+   * something a status could say and is exactly what the operator has to change.
+   */
+  const createPlan = useCallback(
+    async (plan: NewPlan) => {
+      setBusy(true);
+      const answer: CreateAnswer = await api.createPlan(plan);
+      setBusy(false);
+      if (answer.status === "signed-out") {
+        onSignedOut();
+        return;
+      }
+      if (answer.status === "created") {
+        setNote({ tone: "ok", message: `${plan.name} created, and Stripe has the Price.` });
+        setCreating(false);
+        await load();
+        return;
+      }
+      setNote({ tone: "error", message: whyNotCreated(answer) });
+    },
+    [api, load, onSignedOut],
   );
 
   const makeDefault = useCallback(
@@ -144,6 +186,24 @@ export function AdminCatalog({
             ))}
           </tbody>
         </table>
+        <div className="admin-form-actions">
+          <Button
+            shape="rect"
+            tone={creating ? "secondary" : "primary"}
+            onClick={() => setCreating(!creating)}
+            disabled={busy}
+          >
+            {creating ? "Cancel" : "New plan"}
+          </Button>
+        </div>
+        {creating ? (
+          <NewPlanForm
+            currencies={currencies}
+            busy={busy}
+            onCancel={() => setCreating(false)}
+            onCreate={(plan) => void createPlan(plan)}
+          />
+        ) : null}
         {editing ? (
           <TierForm
             // Remounted per tier: the form holds the row's values as its own state,
@@ -322,6 +382,167 @@ function TierForm({
       </div>
     </div>
   );
+}
+
+/**
+ * The form that creates a plan in Stripe and a tier here, in one submit.
+ *
+ * **The currency list is Stripe's**, not ours — what this account can actually
+ * settle in, which is a shorter list than Stripe's hundred and thirty and a
+ * different one per country. Where it cannot be fetched the form says so and will
+ * not create anything, because the alternative is offering a currency that renders
+ * a plan card and fails at Checkout.
+ *
+ * **The amount is written once.** It is the only place in this product where one
+ * is set, and the hint says as much: Stripe Prices are immutable, so changing it
+ * later means a new Price — which is exactly what ADR-0019 refused to pretend a
+ * form field could do.
+ */
+function NewPlanForm({
+  currencies,
+  busy,
+  onCancel,
+  onCreate,
+}: {
+  currencies: CurrenciesAnswer | null;
+  busy: boolean;
+  onCancel: () => void;
+  onCreate: (plan: NewPlan) => void;
+}): JSX.Element {
+  const sellable: SellableCurrencies | null =
+    currencies?.status === "ready" ? currencies.currencies : null;
+  const [tierCode, setTierCode] = useState("");
+  const [name, setName] = useState("");
+  const [amount, setAmount] = useState("");
+  const [currency, setCurrency] = useState(sellable?.defaultCurrency ?? "");
+  const [interval, setInterval] = useState("month");
+  const [quota, setQuota] = useState("0");
+  const [problem, setProblem] = useState<string | null>(null);
+
+  if (!sellable) {
+    return (
+      <div className="admin-form">
+        <Note tone="warn">
+          Stripe could not say which currencies this account can charge in, so a plan cannot be
+          created here right now. Creating one in the Stripe dashboard, tagged with its tier code,
+          still works.
+        </Note>
+        <div className="admin-form-actions">
+          <Button shape="rect" tone="secondary" onClick={onCancel}>
+            Close
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const submit = (): void => {
+    const cents = Number(amount);
+    if (!/^[a-z0-9-]+$/.test(tierCode)) {
+      setProblem("A tier code is lower-case letters, digits and hyphens — it goes in a URL and in Stripe.");
+      return;
+    }
+    if (!name.trim()) {
+      setProblem("A plan needs a name. It is what Stripe calls the Product too.");
+      return;
+    }
+    if (!Number.isInteger(cents) || cents < 0) {
+      setProblem("The amount is in cents, as a whole number — 999 is €9.99.");
+      return;
+    }
+    const relists = Number(quota);
+    if (!Number.isInteger(relists) || relists < 0) {
+      setProblem("Relists per period has to be a whole number, and not a negative one.");
+      return;
+    }
+    setProblem(null);
+    onCreate({
+      tierCode,
+      name: name.trim(),
+      amount: cents,
+      currency: currency || sellable.defaultCurrency,
+      interval,
+      relistQuotaPerPeriod: relists,
+      features: {},
+      published: false,
+    });
+  };
+
+  return (
+    <div className="admin-form">
+      <div className="admin-field">
+        <label htmlFor="plan-code">Tier code — the stable handle, and the tag on the Stripe Price</label>
+        <input id="plan-code" type="text" value={tierCode} onChange={(e) => setTierCode(e.target.value)} />
+      </div>
+      <div className="admin-field">
+        <label htmlFor="plan-name">Name</label>
+        <input id="plan-name" type="text" value={name} onChange={(e) => setName(e.target.value)} />
+      </div>
+      <div className="admin-field">
+        <label htmlFor="plan-amount">Amount, in cents — 999 is €9.99</label>
+        <input id="plan-amount" type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} />
+      </div>
+      <div className="admin-field">
+        <label htmlFor="plan-currency">Currency — what this Stripe account can settle in</label>
+        <select
+          id="plan-currency"
+          value={currency || sellable.defaultCurrency}
+          onChange={(e) => setCurrency(e.target.value)}
+        >
+          {sellable.supported.map((one) => (
+            <option key={one} value={one}>
+              {one.toUpperCase()}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="admin-field">
+        <label htmlFor="plan-interval">Billed every</label>
+        <select id="plan-interval" value={interval} onChange={(e) => setInterval(e.target.value)}>
+          <option value="month">month</option>
+          <option value="year">year</option>
+        </select>
+      </div>
+      <div className="admin-field">
+        <label htmlFor="plan-quota">Relists per period</label>
+        <input id="plan-quota" type="number" min={0} value={quota} onChange={(e) => setQuota(e.target.value)} />
+      </div>
+      <p className="admin-hint">
+        The amount is written once. Stripe Prices cannot be edited — changing it later means creating a
+        new Price in Stripe tagged <code>metadata.tier_code = {tierCode || "…"}</code>, which repoints this
+        tier. Everybody already subscribed keeps the amount they signed up at.
+      </p>
+      <p className="admin-hint">
+        It is created <b>not on sale</b>. Check what Stripe made, then put it on sale from the row above.
+      </p>
+      {problem ? <Note tone="error">{problem}</Note> : null}
+      <div className="admin-form-actions">
+        <Button shape="rect" tone={busy ? "busy" : "primary"} onClick={submit}>
+          {busy ? "Creating…" : "Create in Stripe"}
+        </Button>
+        <Button shape="rect" tone="secondary" onClick={onCancel} disabled={busy}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** What each refusal of a *creation* means, which is not what the edit form's mean. */
+function whyNotCreated(answer: CreateAnswer): string {
+  switch (answer.status) {
+    case "exists":
+      return "A tier already uses that code. Codes are permanent, so pick another one.";
+    case "refused":
+      // Stripe's own sentence. It names what to change; nothing here could.
+      return answer.problem;
+    case "rejected":
+      return "The API would not take that plan.";
+    case "forbidden":
+      return "This account no longer has the ADMIN role.";
+    default:
+      return "The API could not be reached. Nothing was created.";
+  }
 }
 
 /**

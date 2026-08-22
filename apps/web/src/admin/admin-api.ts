@@ -1,4 +1,10 @@
-import type { AdminTier, TierEdit, UntaggedPrice } from "@mprelist/contracts";
+import type {
+  AdminTier,
+  NewPlan,
+  SellableCurrencies,
+  TierEdit,
+  UntaggedPrice,
+} from "@mprelist/contracts";
 
 import type { AdminConfig } from "./admin-config";
 import type { Http } from "./discovery";
@@ -49,6 +55,24 @@ type WriteRefusal =
   | { status: "unsellable" }
   | { status: "rejected" };
 
+/**
+ * What came of creating a plan.
+ *
+ * `exists` is the `409` and means the code is taken — the check that makes "create"
+ * mean create rather than silently repointing an existing tier's Price. `refused`
+ * is the `422`, and it is the one answer in this whole API that carries a sentence:
+ * Stripe's own words about what is wrong with the amount or the currency, which no
+ * status could convey and which the operator is the one who can act on.
+ */
+export type CreateAnswer =
+  | { status: "created"; tier: AdminTier }
+  | { status: "exists" }
+  | { status: "refused"; problem: string }
+  | { status: "rejected" }
+  | Refusal;
+
+export type CurrenciesAnswer = { status: "ready"; currencies: SellableCurrencies } | Refusal;
+
 export class AdminApi {
   constructor(
     private readonly config: AdminConfig,
@@ -81,6 +105,60 @@ export class AdminApi {
    */
   async makeDefault(code: string): Promise<EditAnswer> {
     return this.write(`/api/admin/tiers/${encodeURIComponent(code)}/default`, undefined);
+  }
+
+  /**
+   * What this account can price a plan in — asked of Stripe, never listed here.
+   *
+   * A form that cannot find out says so rather than offering a guess, because the
+   * guess is a plan that renders a card and fails at Checkout.
+   */
+  async currencies(): Promise<CurrenciesAnswer> {
+    const answer = await this.call("/api/admin/currencies");
+    if (answer.status !== "ok") return readRefusal(answer.refusal);
+    const currencies = asCurrencies(answer.body);
+    return currencies ? { status: "ready", currencies } : UNAVAILABLE;
+  }
+
+  /**
+   * Create a plan: a Stripe Product and Price, then the tier the sync makes from it.
+   *
+   * **Its own request rather than through `call`**, because its statuses genuinely
+   * differ: `409` means the code is taken rather than "nothing to charge against",
+   * and `422` is the only answer anywhere in this API with a body worth reading.
+   */
+  async createPlan(plan: NewPlan): Promise<CreateAnswer> {
+    let response: Response;
+    try {
+      response = await this.http(`${this.config.apiBaseUrl}/api/admin/plans`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${this.token()}`,
+          accept: "application/json",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(plan),
+      });
+    } catch {
+      return UNAVAILABLE;
+    }
+
+    if (response.status === 401) return { status: "signed-out" };
+    if (response.status === 403) return { status: "forbidden" };
+    if (response.status === 409) return { status: "exists" };
+    if (response.status === 400) return { status: "rejected" };
+    if (response.status === 422) {
+      const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+      const problem = body?.["problem"];
+      return {
+        status: "refused",
+        problem: typeof problem === "string" && problem.length > 0 ? problem : "Stripe refused the plan.",
+      };
+    }
+    if (!response.ok) return UNAVAILABLE;
+
+    const tier = asAdminTier(await response.json().catch(() => null));
+    return tier ? { status: "created", tier } : UNAVAILABLE;
   }
 
   private async write(path: string, body: string | undefined): Promise<EditAnswer> {
@@ -192,6 +270,17 @@ export function asAdminTier(entry: unknown): AdminTier | null {
     isDefault,
     stripePriceId: priceId,
   };
+}
+
+export function asCurrencies(body: unknown): SellableCurrencies | null {
+  if (typeof body !== "object" || body === null) return null;
+  const fields = body as Record<string, unknown>;
+  const defaultCurrency = fields["defaultCurrency"];
+  const supported = fields["supported"];
+  if (typeof defaultCurrency !== "string" || defaultCurrency.length === 0) return null;
+  if (!Array.isArray(supported) || supported.length === 0) return null;
+  if (!supported.every((one): one is string => typeof one === "string" && one.length > 0)) return null;
+  return { defaultCurrency, supported };
 }
 
 export function asUntaggedPrices(body: unknown): UntaggedPrice[] | null {

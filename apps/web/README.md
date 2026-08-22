@@ -113,6 +113,13 @@ it, since a subscription references its tier behind a foreign key; and the amoun
 `isDefault` is a **move, never a toggle** — the API offers no request that leaves the catalog without a
 default, so there is no control here that could ask for one.
 
+**A plan can be created here** (T61, #127), which amends ADR-0019 in the direction that ADR's own *Revisit
+if* pointed. The form creates the Stripe Product and Price and then the tier, in one submit — and says on its
+face that the amount is written once, because Stripe Prices are immutable and changing one means creating
+another. The currency dropdown is **what this Stripe account can settle in**, asked of Stripe rather than
+listed here; where it cannot be fetched the form creates nothing rather than offering a guess, since the guess
+is a plan that renders a card and fails at Checkout.
+
 **The feature flags are a JSON textarea**, which is honest rather than lazy: `features` is an open object,
 every tier carries `{}` today, and no flag has an implementation behind it. Checkboxes would be inventing a
 schema this product has not decided on.

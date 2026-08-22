@@ -94,10 +94,17 @@ class MirrorSubscriptions {
 			case NOBODY_HERE_IS_BILLED_AS_THAT -> LOG.warn("No subscription here is billed as customer {}, holds "
 					+ "{}, or carries the tag that event named, so nothing was mirrored.", who.customerId(),
 					who.subscriptionId());
-			case NO_TIER_SELLS_THAT_PRICE -> LOG.warn("Somebody is paying for the Stripe Price on subscription "
-					+ "{} and no tier in this catalog carries it, so they were granted nothing and left on the "
-					+ "plan they were on. Tag that Price with `metadata.tier_code` and save it, which is what "
-					+ "adopts it (ADR-0019).", who.subscriptionId());
+			// The expected state for everybody already on a plan that has been repriced: Stripe Prices are
+			// immutable, so a new amount is a new Price and the tier moves onto it, leaving their Price
+			// matching no tier. Their status and window are still mirrored — which is what keeps a failing
+			// card visible — and they keep the tier they bought. `info` rather than `warn` because it is
+			// somebody's ordinary billing rather than anybody's mistake; an untagged Price sold to somebody
+			// arrives here too, and the sentence covers both.
+			case MIRRORED_ONTO_THE_TIER_THEY_WERE_ALREADY_ON -> LOG.info("The Stripe Price on subscription {} "
+					+ "belongs to no tier in this catalog, so its status and period were mirrored and the "
+					+ "subscriber kept the tier they were already on. Expected after a reprice; otherwise tag "
+					+ "that Price with `metadata.tier_code` and save it, which is what adopts it (ADR-0019).",
+					who.subscriptionId());
 			// Ordinary, and the reason the mirror keeps a timestamp at all: Stripe delivers at least once and
 			// retries for three days, so an event that has been overtaken is a thing that happens rather than a
 			// thing that went wrong.

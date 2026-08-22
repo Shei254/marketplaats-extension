@@ -54,6 +54,8 @@ interface Backend {
   tiers?: () => Response;
   prices?: () => Response;
   write?: () => Response;
+  currencies?: () => Response;
+  create?: () => Response;
 }
 
 function stack(backend: Backend = {}) {
@@ -68,6 +70,11 @@ function stack(backend: Backend = {}) {
     }
     if (url.endsWith("/api/admin/tiers")) return (backend.tiers ?? (() => json({ tiers: [FREE, PRO] })))();
     if (url.endsWith("/api/admin/prices")) return (backend.prices ?? (() => json({ prices: [] })))();
+    if (url.endsWith("/api/admin/currencies")) {
+      return (backend.currencies ??
+        (() => json({ defaultCurrency: "eur", supported: ["eur", "usd"] })))();
+    }
+    if (url.endsWith("/api/admin/plans")) return (backend.create ?? (() => json(PRO, 201)))();
     return (backend.write ?? (() => json(PRO)))();
   };
   const navigated: string[] = [];
@@ -502,5 +509,112 @@ describe("when the token runs out", () => {
     await until(() => s.navigated.length > 0, "the expired token to start a sign-in");
 
     expect(s.navigated.at(-1)).toContain("/protocol/openid-connect/auth");
+  });
+});
+
+describe("creating a plan from the screen", () => {
+  it("offers the currencies Stripe says the account can settle in", async () => {
+    // Not a hardcoded list of Stripe's hundred and thirty: a currency this account
+    // cannot take is a plan card that renders and a Checkout that fails.
+    const s = stack();
+
+    await arrive(s);
+    await click("New plan");
+
+    const options = [...container.querySelectorAll("#plan-currency option")].map((o) => o.textContent);
+    expect(options).toEqual(["EUR", "USD"]);
+  });
+
+  it("and sends the whole plan, created not on sale", async () => {
+    const s = stack();
+
+    await arrive(s);
+    await click("New plan");
+    await type("#plan-code", "starter");
+    await type("#plan-name", "Starter");
+    await type("#plan-amount", "500");
+    await type("#plan-quota", "10");
+    await click("Create in Stripe");
+    await until(
+      () => s.calls.some((call) => call.url.endsWith("/api/admin/plans")),
+      "the plan to reach the API",
+    );
+
+    const sent = JSON.parse(
+      s.calls.find((call) => call.url.endsWith("/api/admin/plans"))?.body ?? "{}",
+    ) as Record<string, unknown>;
+    expect(sent["tierCode"]).toBe("starter");
+    expect(sent["amount"]).toBe(500);
+    expect(sent["currency"]).toBe("eur");
+    expect(sent["interval"]).toBe("month");
+    // Not on sale: the operator checks what Stripe made, then publishes from the row.
+    expect(sent["published"]).toBe(false);
+  });
+
+  it("says the amount is written once, because Stripe Prices cannot be edited", async () => {
+    // The thing ADR-0019 refused to let a form pretend about. Saying it here is the
+    // difference between a constraint that is explained and one that is invisible.
+    const s = stack();
+
+    await arrive(s);
+    await click("New plan");
+
+    expect(text()).toContain("written once");
+    expect(text()).toContain("metadata.tier_code");
+  });
+
+  it("passes on Stripe's refusal in Stripe's own words", async () => {
+    const s = stack({
+      create: () => json({ problem: "Amount must be at least 50 cents" }, 422),
+    });
+
+    await arrive(s);
+    await click("New plan");
+    await type("#plan-code", "starter");
+    await type("#plan-name", "Starter");
+    await type("#plan-amount", "1");
+    await click("Create in Stripe");
+    await until(() => text().includes("at least 50 cents"), "Stripe's refusal to be shown");
+
+    expect(text()).toContain("Amount must be at least 50 cents");
+  });
+
+  it("and says a code is taken rather than repointing the tier that has it", async () => {
+    const s = stack({ create: () => new Response(null, { status: 409 }) });
+
+    await arrive(s);
+    await click("New plan");
+    await type("#plan-code", "pro");
+    await type("#plan-name", "Pro again");
+    await type("#plan-amount", "500");
+    await click("Create in Stripe");
+    await until(() => text().includes("already uses that code"), "the clash to be reported");
+
+    expect(text()).toContain("Codes are permanent");
+  });
+
+  it("refuses a code that could not be a tier code, without asking the API", async () => {
+    const s = stack();
+
+    await arrive(s);
+    await click("New plan");
+    await type("#plan-code", "Not A Code");
+    await type("#plan-name", "Starter");
+    await type("#plan-amount", "500");
+    await click("Create in Stripe");
+
+    expect(text()).toContain("lower-case letters");
+    expect(s.calls.some((call) => call.url.endsWith("/api/admin/plans"))).toBe(false);
+  });
+
+  it("will not create anything when Stripe cannot say what it may be priced in", async () => {
+    // Offering a guess here is offering a currency the account cannot charge in.
+    const s = stack({ currencies: () => new Response(null, { status: 503 }) });
+
+    await arrive(s);
+    await click("New plan");
+
+    expect(text()).toContain("could not say which currencies");
+    expect(container.querySelector("#plan-amount")).toBeNull();
   });
 });

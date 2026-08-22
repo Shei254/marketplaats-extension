@@ -1701,6 +1701,70 @@ planned for, which is the only version of that test that stays meaningful.
 repository made to itself with a hand-minted `ADMIN` token, and the unadopted Price list has never seen a real
 Stripe account. Slice D's click-through is what walks it.
 
+## Creating a plan without leaving the screen
+
+`POST /api/admin/plans` and `GET /api/admin/currencies`
+([#127](https://github.com/Shei254/marketplaats-extension/issues/127), T61) — **an amendment to ADR-0019**,
+and one that ADR's own *Revisit if* asked for: *"or the two-place workflow proves error-prone enough that a
+backend-creates-the-Price form is worth its migration story."* #85 met that condition, by putting a screen
+next to the workflow.
+
+**It creates and never edits, which is the whole of why the amendment is small.** ADR-0019 rejected this
+shape because Stripe Prices are immutable and "a form field labelled amount would be lying about what
+*editing* it does". That is an argument about editing, and nothing here or anywhere else lets an amount be
+changed. Repricing is still Stripe's: a new Price tagged with the same code repoints the tier through the
+sync, exactly as it always has. The form now *says* that, which is better than the previous arrangement where
+the constraint was real and no screen mentioned it.
+
+**No new writer of the `tier` table**, which is what keeps the change cheap. The route is three calls and the
+last two already existed:
+
+1. `billing` creates a Product and a Price tagged `metadata.tier_code`;
+2. `PriceAdoptions.adopt` makes the row — the same call `ReceiveStripeEvents` makes;
+3. `TierEdits.apply` sets the quota and flags — the same call `PUT /api/admin/tiers/{code}` makes.
+
+Stripe's `price.created` then arrives and finds the row already right, which is the no-op `adopt` was always
+documented to be. A useful consequence: **a plan can be created with nothing forwarding webhooks at all**, so
+`stripe listen` being down is no longer the difference between a working screen and a mystery.
+
+**A code the catalog already holds is refused before Stripe is asked.** The upsert's ordinary behaviour is to
+repoint that tier's Price — right for a webhook and quite wrong for a button labelled *New plan*: every
+current subscriber would keep paying the old amount while the tier advertised a new one.
+
+**`422` carries a sentence, and it is the only one in this API that does.** Everywhere else a `4xx` that is
+not a denial carries nothing, because the status is the whole of the message. Stripe's refusals are not like
+that — "amount must be at least 50 cents for usd" — and the text is the only thing that tells an operator what
+to change. The field is called `problem` rather than `reason` on purpose: `reason` is this API's vocabulary
+for a denial about a *user*, and a client confusing the two would show a Stripe validation message to somebody
+trying to relist an ad.
+
+**The currency list is asked of Stripe, not held here.** Stripe supports around 130 currencies; this
+*account* supports what its country spec allows, which is fewer and differs by country. A list written down
+anywhere offers a currency that renders a plan card and fails at Checkout, and goes stale the day Stripe adds
+one. Two calls — the account for its country, the country spec for its currencies — cached for a day, since
+that answer changes on the scale of years. Failures are not cached: an outage must cost a retry, not a day of
+nobody being able to create a plan.
+
+**Both Stripe calls carry an idempotency key**, derived from what was asked for rather than from a clock, so a
+double-submitted form is one Product and one Price. Two keys derived from one, because Stripe scopes a key to
+the request body and the same key on both calls would make the Price creation replay the Product's answer.
+
+### The gap this closed in the subscription mirror
+
+Repricing repoints a tier, which leaves **everybody already subscribed** matched to a Price no tier carries.
+`SubscriptionRows.mirror` used to drop those events entirely, so their *status* stopped being mirrored: a card
+that started failing left the row saying `ACTIVE`, they went on relisting while Stripe retried it, and the
+recovery would not have landed either. Cancellation still worked — `ended` never reads a price — which is what
+kept it quiet.
+
+An unrecognised Price now costs **only the tier change**: the status and the window are mirrored and the
+subscriber keeps the tier they bought, which for a repriced plan is the right one. `Mirroring` gained
+`MIRRORED_ONTO_THE_TIER_THEY_WERE_ALREADY_ON` and lost `NO_TIER_SELLS_THAT_PRICE`, and the log line moved from
+`warn` to `info` because after a reprice it is the expected state rather than anybody's mistake.
+
+This was already true before the amendment — anybody repricing in the dashboard hit it — and is fixed with it
+because the amendment makes repricing a thing people will actually do.
+
 ## Which build may call it
 
 `X-Mprelist-Client: extension/0.0.1`, on every call, and a lever for the day a build must stop

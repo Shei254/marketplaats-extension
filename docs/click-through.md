@@ -232,8 +232,9 @@ URIs exactly, so sign-in lands on `/` and the page rewrites the address bar to `
    *Expect:* it appears on the plan cards, and it can be bought. Try the same on a tier with **no** Stripe
    Price: the form says so before you save, and the API refuses it anyway.
 9. Click **New plan** and create one without leaving the screen.
-   *Expect:* the currency dropdown holds what **your** Stripe account can settle in — read from Stripe, so a
-   test-mode Dutch account shows EUR first — and the form says the amount is written once. On submit, Stripe
+   *Expect:* the form **shows** the currency your Stripe account settles in rather than offering a choice —
+   every tier is priced in it, because a plan screen with two currencies on it is not a comparison — and says
+   the amount is written once. On submit, Stripe
    has a new Product and Price tagged `metadata.tier_code`, and `/admin` has the tier, **not on sale**.
    *Check the other side:* `stripe listen` shows a `price.created` arriving a moment later and the tier does
    not change again — the sync is the same path either way, and the second write is a no-op.

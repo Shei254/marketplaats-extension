@@ -328,7 +328,7 @@ export interface TierPriceOnTheWire {
  */
 export interface NewPrice {
   amount: number;
-  currency: string;
+  /** No currency: the catalog has one (see {@link CatalogCurrency}) and no request may name another. */
   interval: string;
 }
 
@@ -438,7 +438,6 @@ export interface NewPlan {
   name: string;
   /** In the currency's smallest unit, as Stripe counts it. Written once, never editable after. */
   amount: number;
-  currency: string;
   /** Stripe's vocabulary: `day`, `week`, `month` or `year`. */
   interval: string;
   relistQuotaPerPeriod: number;
@@ -447,19 +446,22 @@ export interface NewPlan {
 }
 
 /**
- * `GET /api/admin/currencies` — what **this account** can take money in.
+ * `GET /api/admin/currency` — the one currency this whole catalog is priced in.
  *
- * Read from Stripe rather than listed anywhere: Stripe supports around a hundred
- * and thirty currencies, this account supports the ones its country spec allows,
- * and the difference is a plan card that renders and a Checkout that fails. A
- * hardcoded list would also go stale the day Stripe adds one.
+ * **Every tier, the same currency** (T63, #129). A plan screen is a comparison and
+ * €9,99 against $12.99 is not one a buyer can make without knowing today's rate —
+ * so it is not a choice per plan, and since it is not a choice it is not a field on
+ * any request. A form shows this; it does not offer it.
  *
- * `503` with no body when Stripe could not be asked — a form that cannot find out
- * has to say so rather than offer a guess.
+ * Read from Stripe — the account's own settlement currency — rather than
+ * configured, because the account can only settle in what it settles in, and a
+ * setting here would be a second answer whose first symptom is a Price Stripe
+ * refuses to create.
+ *
+ * `503` with no body when Stripe could not be asked, and the form then creates
+ * nothing rather than guessing.
  */
-export interface SellableCurrencies {
-  /** What the account settles in by default — the option to select first. */
-  defaultCurrency: string;
-  /** Every currency it may price in, lower case as Stripe writes them. Never empty. */
-  supported: string[];
+export interface CatalogCurrency {
+  /** Lower case, as Stripe writes it. */
+  currency: string;
 }

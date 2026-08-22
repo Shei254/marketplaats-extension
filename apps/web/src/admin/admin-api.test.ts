@@ -1,7 +1,7 @@
 import type { AdminTier } from "@mprelist/contracts";
 import { describe, expect, it } from "vitest";
 
-import { AdminApi, asAdminTiers, asCurrencies, asUntaggedPrices } from "./admin-api";
+import { AdminApi, asAdminTiers, asCurrency, asUntaggedPrices } from "./admin-api";
 import { DEFAULT_ADMIN_CONFIG } from "./admin-config";
 import type { Http } from "./discovery";
 import { json } from "./testing";
@@ -222,7 +222,6 @@ describe("creating a plan", () => {
     tierCode: "starter",
     name: "Starter",
     amount: 500,
-    currency: "eur",
     interval: "month",
     relistQuotaPerPeriod: 10,
     features: {},
@@ -272,30 +271,28 @@ describe("creating a plan", () => {
   });
 });
 
-describe("what a plan may be priced in", () => {
-  it("is what Stripe says this account can settle in", async () => {
-    const { client, calls } = api(() => json({ defaultCurrency: "eur", supported: ["eur", "usd"] }));
+describe("what the catalog is priced in", () => {
+  it("is the one currency this Stripe account settles in", async () => {
+    // One for every tier (T63, #129): a plan screen is a comparison, and €9,99
+    // against $12.99 is not one a buyer can make without knowing today's rate.
+    const { client, calls } = api(() => json({ currency: "eur" }));
 
-    await expect(client.currencies()).resolves.toEqual({
-      status: "ready",
-      currencies: { defaultCurrency: "eur", supported: ["eur", "usd"] },
-    });
-    expect(calls[0]?.url).toBe("http://localhost:8080/api/admin/currencies");
+    await expect(client.currency()).resolves.toEqual({ status: "ready", currency: "eur" });
+    expect(calls[0]?.url).toBe("http://localhost:8080/api/admin/currency");
   });
 
-  it("and is unknown rather than empty when Stripe could not be asked", async () => {
-    // A form that cannot find out has to say so: a guessed list offers currencies
-    // this account cannot take, and the plan that results fails at Checkout.
+  it("and is unknown rather than guessed when Stripe could not be asked", async () => {
+    // The form then creates nothing: the guess is a Price the account cannot settle
+    // in, which Stripe refuses at the worst moment.
     const { client } = api(() => empty(503));
 
-    await expect(client.currencies()).resolves.toEqual({ status: "unavailable" });
+    await expect(client.currency()).resolves.toEqual({ status: "unavailable" });
   });
 
-  it("refuses a list that cannot be read", () => {
-    expect(asCurrencies({ defaultCurrency: "eur", supported: [] })).toBeNull();
-    expect(asCurrencies({ defaultCurrency: "", supported: ["eur"] })).toBeNull();
-    expect(asCurrencies({ supported: ["eur"] })).toBeNull();
-    expect(asCurrencies({ defaultCurrency: "eur", supported: ["eur", 7] })).toBeNull();
-    expect(asCurrencies(null)).toBeNull();
+  it("refuses an answer that cannot be read", () => {
+    expect(asCurrency({ currency: "" })).toBeNull();
+    expect(asCurrency({})).toBeNull();
+    expect(asCurrency({ currency: 7 })).toBeNull();
+    expect(asCurrency(null)).toBeNull();
   });
 });

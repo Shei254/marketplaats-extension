@@ -1,6 +1,7 @@
 package com.mprelist.admin.internal;
 
 import java.util.Map;
+import java.util.Optional;
 
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -15,7 +16,6 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import com.mprelist.billing.NewPlanInStripe;
 import com.mprelist.billing.PlanCreation;
-import com.mprelist.billing.SellableCurrencies;
 import com.mprelist.billing.StripeAccountFacts;
 import com.mprelist.billing.StripePlans;
 import com.mprelist.catalog.PriceAdoptions;
@@ -68,25 +68,39 @@ class CreatePlans {
 	}
 
 	/**
-	 * What the account can price in, so the form offers what Stripe will take.
+	 * The one currency this catalog prices in, for a form to <em>show</em> rather than to choose from
+	 * (T63, #129).
 	 *
-	 * <p>{@code 503} rather than a guess when Stripe cannot be asked: a hardcoded list would offer currencies
-	 * this account cannot settle in, and the plan that resulted would render a card and fail at Checkout.
+	 * <p>Every tier is priced in it. A plan screen is a comparison and €9,99 against $12.99 is not one a buyer
+	 * can make, so the currency is not a choice per plan — and since it is not a choice, no request carries
+	 * one and there is no way to produce a mixed catalog through this API at all.
+	 *
+	 * <p>{@code 503} rather than a guess when Stripe cannot be asked: the alternative is a form that creates a
+	 * Price in a currency the account cannot settle in, which Stripe refuses at the worst moment.
 	 */
-	@GetMapping(path = CURRENCIES)
-	ResponseEntity<SellableCurrencies> currencies() {
-		return this.account.sellableCurrencies()
-				.map(ResponseEntity::ok)
+	@GetMapping(path = CURRENCY)
+	ResponseEntity<CatalogCurrency> currency() {
+		return this.account.sellingCurrency()
+				.map(currency -> ResponseEntity.ok(new CatalogCurrency(currency)))
 				.orElseGet(() -> ResponseEntity.status(503).build());
+	}
+
+	/** The one currency every tier is priced in. An object, so it can grow a field. */
+	record CatalogCurrency(String currency) {
 	}
 
 	@PostMapping(path = PLANS, consumes = MediaType.APPLICATION_JSON_VALUE)
 	ResponseEntity<?> create(@RequestBody NewPlanRequest request) {
-		NewPlanInStripe plan;
+		/*
+		 * Everything about the *request* is answered before anything about our ability to act on it — so an
+		 * operator who typed a code that is taken is told that, rather than being told Stripe is unreachable
+		 * and discovering the clash on the retry. The order was the other way round first, and the suite
+		 * caught it.
+		 */
 		TierEdit grant;
 		try {
-			plan = request.asPlan();
 			grant = request.asGrant();
+			request.asPlan("eur");
 		}
 		catch (IllegalArgumentException unusable) {
 			return ResponseEntity.badRequest().build();
@@ -96,9 +110,16 @@ class CreatePlans {
 		// "create" mean create. Without it the adopt below would repoint an existing tier's Price — the
 		// upsert's ordinary behaviour, correct for a webhook and quite wrong for a button labelled New plan:
 		// every current subscriber would keep paying the old amount while the tier advertised the new one.
-		if (this.catalog.everyTier().stream().anyMatch(tier -> tier.tier().code().equals(plan.tierCode()))) {
+		if (this.catalog.everyTier().stream().anyMatch(tier -> tier.tier().code().equals(request.tierCode()))) {
 			return ResponseEntity.status(409).build();
 		}
+
+		Optional<String> currency = this.account.sellingCurrency();
+		if (currency.isEmpty()) {
+			return ResponseEntity.status(422).body(new Problem("Stripe could not say what this account "
+					+ "settles in, so a plan cannot be priced. Try again in a moment."));
+		}
+		NewPlanInStripe plan = request.asPlan(currency.get());
 
 		// One call, switched on. An earlier draft asked Stripe again on the refusal path, which is a second
 		// round trip to be told the same thing — and, with a repeated idempotency key, a replay of it.
@@ -136,19 +157,27 @@ class CreatePlans {
 	 */
 	@PostMapping(path = TIER_PRICES, consumes = MediaType.APPLICATION_JSON_VALUE)
 	ResponseEntity<?> addPrice(@PathVariable String code, @RequestBody NewPriceRequest request) {
-		NewPlanInStripe price;
+		// The request, then the tier, then our ability to price it — same order as above and for the same
+		// reason: a code nothing stores is news the operator can act on without Stripe being reachable.
 		try {
-			price = request.asPlanFor(code, nameOf(code));
+			request.asPlanFor(code, code, "eur");
 		}
 		catch (IllegalArgumentException unusable) {
 			return ResponseEntity.badRequest().build();
 		}
-		if (nameOf(code) == null) {
+		String name = nameOf(code);
+		if (name == null) {
 			return ResponseEntity.notFound().build();
 		}
+		Optional<String> currency = this.account.sellingCurrency();
+		if (currency.isEmpty()) {
+			return ResponseEntity.status(422).body(new Problem("Stripe could not say what this account "
+					+ "settles in, so a price cannot be created. Try again in a moment."));
+		}
+		NewPlanInStripe price = request.asPlanFor(code, name, currency.get());
 
-		PlanCreation made = this.stripe.create(price, "price:" + code + ":" + request.amount() + ":"
-				+ request.currency() + ":" + request.interval());
+		PlanCreation made = this.stripe.create(price,
+				"price:" + code + ":" + request.amount() + ":" + request.interval());
 		if (made instanceof PlanCreation.Refused refused) {
 			return ResponseEntity.status(422).body(new Problem(refused.because()));
 		}
@@ -175,19 +204,18 @@ class CreatePlans {
 	}
 
 	/** What the add-a-rhythm form sends: an amount and a rhythm, and nothing about the tier itself. */
-	record NewPriceRequest(Long amount, String currency, String interval) {
+	record NewPriceRequest(Long amount, String interval) {
 
 		/**
 		 * The Stripe Product is named after the tier it belongs to, so a second rhythm does not create a
 		 * differently-named Product beside the first. The name is read from the catalog rather than sent,
 		 * because renaming a tier is the edit form's job and this form should not be able to do it by accident.
 		 */
-		NewPlanInStripe asPlanFor(String code, String name) {
+		NewPlanInStripe asPlanFor(String code, String name, String currency) {
 			if (this.amount == null) {
 				throw new IllegalArgumentException("A price states what it costs");
 			}
-			return new NewPlanInStripe(code, name == null ? code : name, this.amount, this.currency,
-					this.interval);
+			return new NewPlanInStripe(code, name == null ? code : name, this.amount, currency, this.interval);
 		}
 
 	}
@@ -203,19 +231,24 @@ class CreatePlans {
 	 * refusal.
 	 */
 	private static String idempotencyKeyFor(NewPlanRequest request) {
-		return "plan:" + request.tierCode() + ":" + request.amount() + ":" + request.currency() + ":"
-				+ request.interval();
+		return "plan:" + request.tierCode() + ":" + request.amount() + ":" + request.interval();
 	}
 
 	/** What the form sends. Boxed like {@code AdministerTiers}', and refused rather than defaulted. */
-	record NewPlanRequest(String tierCode, String name, Long amount, String currency, String interval,
+	record NewPlanRequest(String tierCode, String name, Long amount, String interval,
 			Integer relistQuotaPerPeriod, Map<String, Object> features, Boolean published) {
 
-		NewPlanInStripe asPlan() {
+		/**
+		 * @param currency the catalog's, not the caller's (T63, #129). There is no currency on this record on
+		 * purpose: one that could be sent could be sent differently for two tiers, and the plan screen would
+		 * then ask a buyer to compare two currencies. Unsayable beats validated, which is the same move
+		 * {@code isDefault} made.
+		 */
+		NewPlanInStripe asPlan(String currency) {
 			if (this.amount == null) {
 				throw new IllegalArgumentException("A plan states what it costs; guessing would be inventing a price");
 			}
-			return new NewPlanInStripe(this.tierCode, this.name, this.amount, this.currency, this.interval);
+			return new NewPlanInStripe(this.tierCode, this.name, this.amount, currency, this.interval);
 		}
 
 		/**
@@ -253,7 +286,7 @@ class CreatePlans {
 
 	static final String PLANS = "/api/admin/plans";
 
-	static final String CURRENCIES = "/api/admin/currencies";
+	static final String CURRENCY = "/api/admin/currency";
 
 	static final String TIER_PRICES = "/api/admin/tiers/{code}/prices";
 

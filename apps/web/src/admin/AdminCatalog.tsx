@@ -2,7 +2,6 @@ import type {
   AdminTier,
   NewPlan,
   NewPrice,
-  SellableCurrencies,
   TierEdit,
   UntaggedPrice,
 } from "@mprelist/contracts";
@@ -13,7 +12,7 @@ import type {
   AdminApi,
   CatalogAnswer,
   CreateAnswer,
-  CurrenciesAnswer,
+  CurrencyAnswer,
   EditAnswer,
   PricesAnswer,
 } from "./admin-api";
@@ -48,7 +47,7 @@ export function AdminCatalog({
 }): JSX.Element {
   const [catalog, setCatalog] = useState<CatalogAnswer | null>(null);
   const [prices, setPrices] = useState<PricesAnswer | null>(null);
-  const [currencies, setCurrencies] = useState<CurrenciesAnswer | null>(null);
+  const [currency, setCurrency] = useState<CurrencyAnswer | null>(null);
   const [creating, setCreating] = useState(false);
   /** Which tier is having a rhythm added or repriced, if any (T62, #128). */
   const [pricing, setPricing] = useState<string | null>(null);
@@ -57,10 +56,10 @@ export function AdminCatalog({
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
-    const [tiers, untagged, sellable] = await Promise.all([
+    const [tiers, untagged, priced] = await Promise.all([
       api.tiers(),
       api.unadoptedPrices(),
-      api.currencies(),
+      api.currency(),
     ]);
     if (tiers.status === "signed-out" || untagged.status === "signed-out") {
       onSignedOut();
@@ -68,7 +67,7 @@ export function AdminCatalog({
     }
     setCatalog(tiers);
     setPrices(untagged);
-    setCurrencies(sellable);
+    setCurrency(priced);
   }, [api, onSignedOut]);
 
   useEffect(() => {
@@ -235,7 +234,7 @@ export function AdminCatalog({
         </div>
         {creating ? (
           <NewPlanForm
-            currencies={currencies}
+            currency={currency}
             busy={busy}
             onCancel={() => setCreating(false)}
             onCreate={(plan) => void createPlan(plan)}
@@ -248,7 +247,7 @@ export function AdminCatalog({
             sellsAt={(catalog.tiers.find((tier) => tier.tier.code === pricing)?.prices ?? []).map(
               (price) => price.interval,
             )}
-            currencies={currencies}
+            currency={currency}
             busy={busy}
             onCancel={() => setPricing(null)}
             onAdd={(price) => void addPrice(pricing, price)}
@@ -464,33 +463,30 @@ function TierForm({
  * form field could do.
  */
 function NewPlanForm({
-  currencies,
+  currency,
   busy,
   onCancel,
   onCreate,
 }: {
-  currencies: CurrenciesAnswer | null;
+  currency: CurrencyAnswer | null;
   busy: boolean;
   onCancel: () => void;
   onCreate: (plan: NewPlan) => void;
 }): JSX.Element {
-  const sellable: SellableCurrencies | null =
-    currencies?.status === "ready" ? currencies.currencies : null;
+  const pricedIn = currency?.status === "ready" ? currency.currency : null;
   const [tierCode, setTierCode] = useState("");
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
-  const [currency, setCurrency] = useState(sellable?.defaultCurrency ?? "");
   const [interval, setInterval] = useState("month");
   const [quota, setQuota] = useState("0");
   const [problem, setProblem] = useState<string | null>(null);
 
-  if (!sellable) {
+  if (!pricedIn) {
     return (
       <div className="admin-form">
         <Note tone="warn">
-          Stripe could not say which currencies this account can charge in, so a plan cannot be
-          created here right now. Creating one in the Stripe dashboard, tagged with its tier code,
-          still works.
+          Stripe could not say what this account settles in, so a plan cannot be priced here right now.
+          Creating one in the Stripe dashboard, tagged with its tier code, still works.
         </Note>
         <div className="admin-form-actions">
           <Button shape="rect" tone="secondary" onClick={onCancel}>
@@ -525,7 +521,6 @@ function NewPlanForm({
       tierCode,
       name: name.trim(),
       amount: cents,
-      currency: currency || sellable.defaultCurrency,
       interval,
       relistQuotaPerPeriod: relists,
       features: {},
@@ -544,23 +539,18 @@ function NewPlanForm({
         <input id="plan-name" type="text" value={name} onChange={(e) => setName(e.target.value)} />
       </div>
       <div className="admin-field">
-        <label htmlFor="plan-amount">Amount, in cents — 999 is €9.99</label>
+        <label htmlFor="plan-amount">
+          Amount, in cents — 999 is 9.99 {pricedIn.toUpperCase()}
+        </label>
         <input id="plan-amount" type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} />
       </div>
-      <div className="admin-field">
-        <label htmlFor="plan-currency">Currency — what this Stripe account can settle in</label>
-        <select
-          id="plan-currency"
-          value={currency || sellable.defaultCurrency}
-          onChange={(e) => setCurrency(e.target.value)}
-        >
-          {sellable.supported.map((one) => (
-            <option key={one} value={one}>
-              {one.toUpperCase()}
-            </option>
-          ))}
-        </select>
-      </div>
+      {/* Shown, not chosen (T63, #129). Every tier is priced in what this Stripe
+          account settles in — a plan screen is a comparison, and two currencies on
+          it is not one a buyer can make. */}
+      <p className="admin-hint">
+        Priced in <b>{pricedIn.toUpperCase()}</b>, like every tier — that is what this Stripe account
+        settles in, and one catalog in two currencies is a plan screen nobody can compare.
+      </p>
       <div className="admin-field">
         <label htmlFor="plan-interval">Billed every</label>
         <select id="plan-interval" value={interval} onChange={(e) => setInterval(e.target.value)}>
@@ -605,31 +595,28 @@ function NewPlanForm({
 function NewPriceForm({
   code,
   sellsAt,
-  currencies,
+  currency,
   busy,
   onCancel,
   onAdd,
 }: {
   code: string;
   sellsAt: string[];
-  currencies: CurrenciesAnswer | null;
+  currency: CurrencyAnswer | null;
   busy: boolean;
   onCancel: () => void;
   onAdd: (price: NewPrice) => void;
 }): JSX.Element {
-  const sellable: SellableCurrencies | null =
-    currencies?.status === "ready" ? currencies.currencies : null;
+  const pricedIn = currency?.status === "ready" ? currency.currency : null;
   const [amount, setAmount] = useState("");
-  const [currency, setCurrency] = useState(sellable?.defaultCurrency ?? "");
   const [interval, setInterval] = useState(sellsAt.includes("month") ? "year" : "month");
   const [problem, setProblem] = useState<string | null>(null);
 
-  if (!sellable) {
+  if (!pricedIn) {
     return (
       <div className="admin-form">
         <Note tone="warn">
-          Stripe could not say which currencies this account can charge in, so a price cannot be added
-          here right now.
+          Stripe could not say what this account settles in, so a price cannot be added here right now.
         </Note>
         <div className="admin-form-actions">
           <Button shape="rect" tone="secondary" onClick={onCancel}>
@@ -648,7 +635,7 @@ function NewPriceForm({
       return;
     }
     setProblem(null);
-    onAdd({ amount: cents, currency: currency || sellable.defaultCurrency, interval });
+    onAdd({ amount: cents, interval });
   };
 
   return (
@@ -666,22 +653,8 @@ function NewPriceForm({
         </select>
       </div>
       <div className="admin-field">
-        <label htmlFor="price-amount">Amount, in cents</label>
+        <label htmlFor="price-amount">Amount, in cents — in {pricedIn.toUpperCase()}, like every tier</label>
         <input id="price-amount" type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} />
-      </div>
-      <div className="admin-field">
-        <label htmlFor="price-currency">Currency</label>
-        <select
-          id="price-currency"
-          value={currency || sellable.defaultCurrency}
-          onChange={(e) => setCurrency(e.target.value)}
-        >
-          {sellable.supported.map((one) => (
-            <option key={one} value={one}>
-              {one.toUpperCase()}
-            </option>
-          ))}
-        </select>
       </div>
       {replacing ? (
         <p className="admin-hint">

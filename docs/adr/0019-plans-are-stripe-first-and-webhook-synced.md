@@ -184,6 +184,18 @@ on the statement that caused it: `deferred` was tried first and is wrong twice o
 transaction never commits (so a test asserting the invariant passes having checked nothing) and an exception
 raised at commit is a long way from the statement a caller could report on.
 
-**Still not addressed:** regional pricing. Two prices in the same rhythm and different currencies collide on
-`unique (tier_id, billing_interval)`. That constraint is the next one to move, and the shape is the same — add
-the currency to the key — but nothing yet asks for it.
+**And regional pricing is now decided rather than deferred: there is one currency for the whole catalog.**
+The account's own settlement currency, read from Stripe. A plan screen is a comparison, and €9,99 against
+$12.99 is not one a buyer can make without knowing today's rate — so the currency is not a choice per plan,
+and *since it is not a choice it is not a field*. No request this API takes carries one, which is the same
+move `isDefault` made: unsayable beats validated.
+
+That closes the collision `unique (tier_id, billing_interval)` would otherwise have — two prices in one rhythm
+and two currencies — by removing the thing that would have caused it. What remains reachable is a Price
+created in the Stripe *dashboard* in another currency and tagged with a tier code, which the sync would adopt;
+`GET /api/plans` refuses to render a catalog priced in more than one, whole, on the all-or-nothing rule it
+already keeps for a price it could not fetch.
+
+Revisit if the product ever sells into a second currency zone. That is a bigger question than a column — the
+plan cards would have to choose a currency per viewer, and Stripe accounts settle in one — and nothing about
+this decision blocks it.

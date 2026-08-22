@@ -1738,12 +1738,22 @@ to change. The field is called `problem` rather than `reason` on purpose: `reaso
 for a denial about a *user*, and a client confusing the two would show a Stripe validation message to somebody
 trying to relist an ad.
 
-**The currency list is asked of Stripe, not held here.** Stripe supports around 130 currencies; this
-*account* supports what its country spec allows, which is fewer and differs by country. A list written down
-anywhere offers a currency that renders a plan card and fails at Checkout, and goes stale the day Stripe adds
-one. Two calls — the account for its country, the country spec for its currencies — cached for a day, since
-that answer changes on the scale of years. Failures are not cached: an outage must cost a retry, not a day of
-nobody being able to create a plan.
+**One currency for the whole catalog, and no request carries one** (T63, #129). A plan screen is a
+comparison, and €9,99 against $12.99 is not one a buyer can make without knowing today's rate — so the
+currency is not a choice per plan, and *since it is not a choice it is not a field*. `NewPlan` and `NewPrice`
+have none, which makes a mixed catalog unsayable through this API rather than merely refused: the same move
+`isDefault` made.
+
+What it *is* is the Stripe account's own settlement currency, asked of Stripe — one call, cached for a day,
+failures not cached. An earlier draft asked for the country and then the country spec so an operator could
+pick from everything the account *could* charge in; that was a choice per plan, which is the thing this
+decision removes. Configuring it instead would be a second answer beside Stripe's, whose first symptom is a
+Price Stripe refuses to create.
+
+**`GET /api/plans` refuses a catalog priced in more than one currency**, whole, on the all-or-nothing rule it
+already keeps for a price it could not fetch. That covers the one way in this API cannot close: a Price
+created in the Stripe *dashboard* in another currency and tagged with a tier code, which the sync would adopt
+without ever seeing an amount.
 
 **Both Stripe calls carry an idempotency key**, derived from what was asked for rather than from a clock, so a
 double-submitted form is one Product and one Price. Two keys derived from one, because Stripe scopes a key to
@@ -1808,9 +1818,10 @@ the invariant identify it by that string.
 there is nothing to read back — and no deployment has ever had one that was not: the seed ships no prices at
 all. A row that is actually annual is corrected by the next `price.updated` Stripe sends for it.
 
-**Still not addressed: regional pricing.** Two prices in the same rhythm and different currencies collide on
-`unique (tier_id, billing_interval)`. That constraint is the next one to move and the shape is the same — add
-the currency to the key — but nothing yet asks for it.
+**Regional pricing is decided rather than deferred**, by T63 (#129): one currency for the catalog, so the
+collision `unique (tier_id, billing_interval)` would have had — two prices in one rhythm and two currencies —
+has nothing left to cause it. Selling into a second currency zone is a bigger question than a column, since
+the plan cards would have to choose a currency per viewer and a Stripe account settles in one.
 
 ## Which build may call it
 

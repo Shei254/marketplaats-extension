@@ -23,6 +23,7 @@ import com.mprelist.catalog.SellablePlan;
 import com.mprelist.catalog.TierCatalog;
 import com.mprelist.catalog.TierId;
 import com.mprelist.catalog.TierName;
+import com.mprelist.catalog.TierPrice;
 import com.mprelist.identity.UserRef;
 import com.mprelist.subscription.Subscription;
 import com.mprelist.subscription.Subscriptions;
@@ -46,7 +47,12 @@ class CheckoutSessionTest {
 
 	private static final UserRef BUYER = new UserRef(UUID.fromString("11111111-2222-3333-4444-555555555555"));
 
-	private static final SellablePlan PRO = new SellablePlan(new TierName("pro", "Pro"), "price_pro",
+	private static final SellablePlan PRO = new SellablePlan(new TierName("pro", "Pro"),
+			List.of(new TierPrice("price_pro", "month")), new Entitlement(50, 1, Map.of()));
+
+	/** The same plan sold at two rhythms, which is what T62 (#128) made possible. */
+	private static final SellablePlan PRO_YEARLY_TOO = new SellablePlan(new TierName("pro", "Pro"),
+			List.of(new TierPrice("price_pro", "month"), new TierPrice("price_pro_yearly", "year")),
 			new Entitlement(50, 1, Map.of()));
 
 	private HttpServer stripe;
@@ -78,14 +84,14 @@ class CheckoutSessionTest {
 
 	@Test
 	void aPlanOnSaleBecomesAUrlToSendTheBrowserTo() {
-		Checkout opened = checkout(List.of(PRO), Optional.empty()).open(BUYER, "pro");
+		Checkout opened = checkout(List.of(PRO), Optional.empty()).open(BUYER, "pro", "month");
 
 		assertThat(opened).isEqualTo(new Checkout.Opened("https://checkout.stripe.com/c/pay/cs_test_1"));
 	}
 
 	@Test
 	void andTheSessionIsASubscriptionForThatTiersPrice() {
-		checkout(List.of(PRO), Optional.empty()).open(BUYER, "pro");
+		checkout(List.of(PRO), Optional.empty()).open(BUYER, "pro", "month");
 
 		assertThat(this.posted).containsEntry("mode", "subscription");
 		assertThat(this.posted).containsEntry("line_items[0][price]", "price_pro");
@@ -99,7 +105,7 @@ class CheckoutSessionTest {
 	 */
 	@Test
 	void andItCarriesOurOwnAccountIdSoThePaymentCanBeTracedBack() {
-		checkout(List.of(PRO), Optional.empty()).open(BUYER, "pro");
+		checkout(List.of(PRO), Optional.empty()).open(BUYER, "pro", "month");
 
 		assertThat(this.posted).containsEntry("client_reference_id", BUYER.id().toString());
 	}
@@ -114,14 +120,14 @@ class CheckoutSessionTest {
 	 */
 	@Test
 	void andTheSubscriptionItCreatesCarriesItToo() {
-		checkout(List.of(PRO), Optional.empty()).open(BUYER, "pro");
+		checkout(List.of(PRO), Optional.empty()).open(BUYER, "pro", "month");
 
 		assertThat(this.posted).containsEntry("subscription_data[metadata][app_user_id]", BUYER.id().toString());
 	}
 
 	@Test
 	void andSendsTheBrowserBackToTheLoginlessPages() {
-		checkout(List.of(PRO), Optional.empty()).open(BUYER, "pro");
+		checkout(List.of(PRO), Optional.empty()).open(BUYER, "pro", "month");
 
 		// `apps/web`'s own PATHS, on the other side of a Java/TypeScript boundary. The pages carry no auth at
 		// all: the browser Stripe redirects is not one this API knows anything about (ADR-0017).
@@ -136,7 +142,7 @@ class CheckoutSessionTest {
 	 */
 	@Test
 	void andSomebodyWhoHasPaidBeforeBuysAsTheSameCustomer() {
-		checkout(List.of(PRO), Optional.of("cus_returning")).open(BUYER, "pro");
+		checkout(List.of(PRO), Optional.of("cus_returning")).open(BUYER, "pro", "month");
 
 		assertThat(this.posted).containsEntry("customer", "cus_returning");
 	}
@@ -144,7 +150,7 @@ class CheckoutSessionTest {
 	@Test
 	void whileSomebodyWhoNeverHasArrivesAsAStranger() {
 		// Stripe makes the customer itself, and the webhook stores whichever id it reports.
-		checkout(List.of(PRO), Optional.empty()).open(BUYER, "pro");
+		checkout(List.of(PRO), Optional.empty()).open(BUYER, "pro", "month");
 
 		assertThat(this.posted).doesNotContainKey("customer");
 	}
@@ -153,7 +159,7 @@ class CheckoutSessionTest {
 	void nothingElseAboutThemIsSent() {
 		// Not a name, not an address, not an email — this application holds none of them (#108), and Stripe
 		// collects what it needs from the buyer itself.
-		checkout(List.of(PRO), Optional.of("cus_returning")).open(BUYER, "pro");
+		checkout(List.of(PRO), Optional.of("cus_returning")).open(BUYER, "pro", "month");
 
 		assertThat(this.posted.keySet()).allSatisfy(key -> assertThat(key)
 				.doesNotContain("email").doesNotContain("name").doesNotContain("address"));
@@ -163,7 +169,7 @@ class CheckoutSessionTest {
 
 	@Test
 	void aCodeNothingIsSoldUnderOpensNoSession() {
-		Checkout answered = checkout(List.of(PRO), Optional.empty()).open(BUYER, "starter");
+		Checkout answered = checkout(List.of(PRO), Optional.empty()).open(BUYER, "starter", "month");
 
 		assertThat(answered).isEqualTo(new Checkout.NotForSale());
 		assertThat(this.posted).isNull();
@@ -173,7 +179,7 @@ class CheckoutSessionTest {
 	void andNeitherDoesAnEmptyCatalog() {
 		// Which is every stack whose Stripe Prices have not been created yet (T22, #28) — and, notably, the
 		// free tier, which is never in this list at all.
-		assertThat(checkout(List.of(), Optional.empty()).open(BUYER, "free"))
+		assertThat(checkout(List.of(), Optional.empty()).open(BUYER, "free", "month"))
 				.isEqualTo(new Checkout.NotForSale());
 	}
 
@@ -185,7 +191,7 @@ class CheckoutSessionTest {
 		// client showing "that plan no longer exists" for a network blip would be lying to a buyer.
 		this.stripeAnswers = false;
 
-		assertThat(checkout(List.of(PRO), Optional.empty()).open(BUYER, "pro"))
+		assertThat(checkout(List.of(PRO), Optional.empty()).open(BUYER, "pro", "month"))
 				.isEqualTo(new Checkout.Unavailable());
 	}
 
@@ -194,7 +200,7 @@ class CheckoutSessionTest {
 		OpenCheckout unconfigured = new OpenCheckout(catalogOf(List.of(PRO)), subscriberWith(Optional.empty()),
 				new StripeAccount(""), pages("https://bumpr.test"));
 
-		assertThat(unconfigured.open(BUYER, "pro")).isEqualTo(new Checkout.Unavailable());
+		assertThat(unconfigured.open(BUYER, "pro", "month")).isEqualTo(new Checkout.Unavailable());
 	}
 
 	/** And a plan that is not for sale is answered as such even with no Stripe to ask, since it never asks. */
@@ -203,7 +209,7 @@ class CheckoutSessionTest {
 		OpenCheckout unconfigured = new OpenCheckout(catalogOf(List.of(PRO)), subscriberWith(Optional.empty()),
 				new StripeAccount(""), pages("https://bumpr.test"));
 
-		assertThat(unconfigured.open(BUYER, "starter")).isEqualTo(new Checkout.NotForSale());
+		assertThat(unconfigured.open(BUYER, "starter", "month")).isEqualTo(new Checkout.NotForSale());
 	}
 
 	@Test
@@ -211,7 +217,7 @@ class CheckoutSessionTest {
 		// `https://bumpr.test//success` is a URL Stripe accepts and a page most hosts do not serve, at the
 		// moment somebody has just been charged.
 		new OpenCheckout(catalogOf(List.of(PRO)), subscriberWith(Optional.empty()), account(),
-				pages("https://bumpr.test/")).open(BUYER, "pro");
+				pages("https://bumpr.test/")).open(BUYER, "pro", "month");
 
 		assertThat(this.posted).containsEntry("success_url", "https://bumpr.test/success");
 	}

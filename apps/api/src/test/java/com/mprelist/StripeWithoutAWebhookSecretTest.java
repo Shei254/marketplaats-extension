@@ -78,7 +78,8 @@ class StripeWithoutAWebhookSecretTest {
 				.build());
 
 		assertThat(refused.statusCode()).isEqualTo(400);
-		assertThat(this.db.queryForList("select code from tier where stripe_price_id is not null", String.class))
+		assertThat(this.db.queryForList("select code from tier join tier_price on tier.id = tier_price.tier_id",
+				String.class))
 				.isEmpty();
 	}
 

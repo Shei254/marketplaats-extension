@@ -57,10 +57,12 @@ class CheckoutTest {
 	@BeforeEach
 	void oneTierOnSaleAndOneDraft() {
 		this.db.update("delete from tier where code not in ('free', 'pro', 'power')");
-		this.db.update("update tier set stripe_price_id = null, published = false");
-		this.db.update("update tier set stripe_price_id = 'price_pro', published = true where code = 'pro'");
+		TierPrices.nothingIsPriced(this.db);
+		TierPrices.soldByTheMonth(this.db, "pro", "price_pro");
+		this.db.update("update tier set published = true where code = 'pro'");
 		this.db.update("insert into tier (code, name, relist_quota_per_period, max_marktplaats_accounts, "
-				+ "stripe_price_id, published) values ('starter', 'starter', 0, 1, 'price_starter', false)");
+				+ "published) values ('starter', 'starter', 0, 1, false)");
+		TierPrices.soldByTheMonth(this.db, "starter", "price_starter");
 	}
 
 	@Test
@@ -105,7 +107,32 @@ class CheckoutTest {
 	@Test
 	void aBodyThatNamesNoTierIsNotARequestThisApiCanRead() {
 		assertThat(post("{}").statusCode()).isEqualTo(400);
-		assertThat(post("{\"tierCode\":\"  \"}").statusCode()).isEqualTo(400);
+		assertThat(post("{\"tierCode\":\"  \",\"interval\":\"month\"}").statusCode()).isEqualTo(400);
+	}
+
+	/**
+	 * And neither is one that names no rhythm, which is as required as the code since T62 (#128).
+	 *
+	 * <p>A tier may be sold monthly and annually, so a request naming only the tier names two prices — and
+	 * defaulting to either would charge somebody a rhythm they did not pick. It is a `400` rather than a `404`
+	 * because it is a request this API could not read, not a plan that is not for sale.
+	 */
+	@Test
+	void andNeitherIsOneThatNamesNoRhythm() {
+		assertThat(post("{\"tierCode\":\"pro\"}").statusCode()).isEqualTo(400);
+		assertThat(post("{\"tierCode\":\"pro\",\"interval\":\"  \"}").statusCode()).isEqualTo(400);
+	}
+
+	/**
+	 * A rhythm the tier is not sold at is `404`, like a tier nobody sells — which is what a client holding
+	 * yesterday's cards gets when a plan stops offering annual, and is nobody's error.
+	 */
+	@Test
+	void aRhythmThisTierIsNotSoldAtIsNotSomethingToBuyEither() {
+		HttpResponse<String> refused = buy("pro", "year");
+
+		assertThat(refused.statusCode()).isEqualTo(404);
+		assertThat(refused.body()).isEmpty();
 	}
 
 	@Test
@@ -123,7 +150,7 @@ class CheckoutTest {
 		HttpResponse<String> refused = Http.send(HttpRequest.newBuilder(uri())
 				.timeout(TIMEOUT)
 				.header("Content-Type", "application/json")
-				.POST(HttpRequest.BodyPublishers.ofString("{\"tierCode\":\"pro\"}", UTF_8))
+				.POST(HttpRequest.BodyPublishers.ofString("{\"tierCode\":\"pro\",\"interval\":\"month\"}", UTF_8))
 				.build());
 
 		assertThat(refused.statusCode()).isEqualTo(401);
@@ -132,7 +159,12 @@ class CheckoutTest {
 	// --- the calls themselves ------------------------------------------------------------------------------
 
 	private HttpResponse<String> buy(String tierCode) {
-		return post("{\"tierCode\":\"" + tierCode + "\"}");
+		return buy(tierCode, "month");
+	}
+
+	/** Which plan, and at which rhythm — a tier may be sold at more than one since T62 (#128). */
+	private HttpResponse<String> buy(String tierCode, String interval) {
+		return post("{\"tierCode\":\"" + tierCode + "\",\"interval\":\"" + interval + "\"}");
 	}
 
 	private HttpResponse<String> post(String body) {

@@ -1765,6 +1765,53 @@ subscriber keeps the tier they bought, which for a repriced plan is the right on
 This was already true before the amendment — anybody repricing in the dashboard hit it — and is fixed with it
 because the amendment makes repricing a thing people will actually do.
 
+## A plan sold at more than one rhythm
+
+`tier_price` ([#128](https://github.com/Shei254/marketplaats-extension/issues/128), T62) — **a second
+amendment to ADR-0019**, on the constraint that ADR named as the first thing to move: *"`tier.stripe_price_id`
+is `UNIQUE` and single-valued, so a tier cannot have both a monthly and an annual Price."*
+
+Monthly and annual Pro are now **one plan a buyer chooses a rhythm for** — one row, one quota, one name, two
+prices — rather than two tiers an operator keeps in step by hand.
+
+**A table, not the nullable second column** the ADR also offered. A column fixes the answer at two, and the
+*other* thing its revisit condition names — regional pricing — is N prices per tier and cannot be a column at
+all. The join costs one index hit, which is what the column cost.
+
+**The rhythm is stored, and that is a narrow departure from ADR-0014**, which gives Stripe the amount, the
+currency *and* the interval. The first two are still never stored. The interval is, because a row has to be
+keyed on something and "the annual one" is the only handle a buyer or an operator ever uses to mean one of a
+tier's prices. It arrives on `price.created` like everything else about a Price.
+
+**A tagged Price that does not recur is no longer adopted at all.** It has no rhythm to be filed under — and
+adopting one was always wrong: it became a tier whose Checkout session could never be opened, since this
+product sells subscriptions. Before the rhythm was stored there was nothing to notice that with.
+
+**Repricing is unchanged in meaning and narrower in scope.** A new Price tagged with the same code still
+repoints the tier, but now only *that rhythm's* row — where the single column moved whatever was there. So
+repricing monthly no longer silently takes annual off sale, which it did and which nothing would have said.
+
+**`POST /api/checkout` requires an `interval`.** A tier code alone now names two prices, and a default would
+charge somebody a rhythm they did not pick. A rhythm the tier is not sold at is the same `404` an unknown code
+gets — a client holding yesterday's cards is in the same position either way.
+
+**V5's check constraint became a trigger**, because the invariant it stated — a published tier has something
+to charge against — now spans two tables and a `check` may not. `initially immediate`, so a violation arrives
+on the statement that caused it. `deferred` was tried first and is wrong twice over: a transaction that rolls
+back never commits, so the check never runs and a test asserting the invariant passes having checked nothing
+(which is exactly what `BaselineSchemaTest` found), and in the application an exception raised at commit is a
+long way from the statement a caller could report on. The trigger names itself in its message, because the
+constraint it replaces carried that name automatically and both an operator reading a log and a test asserting
+the invariant identify it by that string.
+
+**The migration assumes every existing price is monthly**, and says so. The interval was not stored before, so
+there is nothing to read back — and no deployment has ever had one that was not: the seed ships no prices at
+all. A row that is actually annual is corrected by the next `price.updated` Stripe sends for it.
+
+**Still not addressed: regional pricing.** Two prices in the same rhythm and different currencies collide on
+`unique (tier_id, billing_interval)`. That constraint is the next one to move and the shape is the same — add
+the currency to the key — but nothing yet asks for it.
+
 ## Which build may call it
 
 `X-Mprelist-Client: extension/0.0.1`, on every call, and a lever for the day a build must stop

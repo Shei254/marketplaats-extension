@@ -172,7 +172,16 @@ export interface Plan {
   relistQuotaPerPeriod: number;
   /** The tier's flags as stored. `{}` on every tier today, and sent rather than omitted. */
   features: Record<string, unknown>;
-  price: PlanPrice;
+  /**
+   * **Every rhythm this plan is sold at**, cheapest first — `month` before `year`
+   * (T62, #128). One plan, not two: monthly and annual Pro grant the same quota
+   * and are the same row, so a card shows the tier once and its prices beside
+   * each other.
+   *
+   * Never empty: a tier with nothing to charge against cannot be published, which
+   * the schema holds. A `POST /api/checkout` has to name which of these it means.
+   */
+  prices: PlanPrice[];
 }
 
 /**
@@ -200,6 +209,15 @@ export interface Plans {
  */
 export interface CheckoutRequest {
   tierCode: string;
+  /**
+   * Which rhythm to buy — one of the `interval`s on that plan's `prices` (T62,
+   * #128). **As required as the code**: a tier may be sold monthly and annually,
+   * so naming only the tier names two prices, and a default would charge somebody
+   * a rhythm they did not pick. A body without it is a `400`; a rhythm the tier is
+   * not sold at is the same `404` an unknown code gets, which is what a client
+   * holding yesterday's cards deserves and is nobody's error.
+   */
+  interval: string;
 }
 
 /**
@@ -274,7 +292,44 @@ export interface AdminTier {
   published: boolean;
   /** Whether new accounts are provisioned onto it. Exactly one tier carries it. */
   isDefault: boolean;
-  stripePriceId: string | null;
+  /**
+   * Every Stripe Price it is sold at, cheapest rhythm first, and empty for a tier
+   * sold at none — the free tier, and any whose Price has not been created yet.
+   *
+   * **Facts to read, never fields to send.** The link between the two systems is
+   * the `metadata.tier_code` tag on the Price, so nobody types one of these
+   * anywhere. A `PUT` that carried them would be ignored.
+   */
+  prices: TierPriceOnTheWire[];
+}
+
+/** One of the Stripe Prices a tier is sold at, as `/admin` renders it (T62, #128). */
+export interface TierPriceOnTheWire {
+  stripePriceId: string;
+  /** Stripe's vocabulary: `month`, `year`. What tells this price from the tier's others. */
+  interval: string;
+}
+
+/**
+ * `POST /api/admin/tiers/{code}/prices` — a second rhythm for a plan that already
+ * exists, and the way a plan is repriced without leaving the screen (T62, #128).
+ *
+ * **One request for both, because in Stripe they are one act**: create a Price
+ * tagged with the tier's code. What decides which happened is whether the tier
+ * already has a price at that rhythm — adding lands beside the existing one,
+ * repricing replaces it, and **everybody already subscribed keeps the Price they
+ * bought**, because that is what Stripe's immutability means.
+ *
+ * It touches neither the quota nor whether the tier is on sale: a plan that was
+ * withdrawn does not come back because a price was added to it.
+ *
+ * Answers `200` with the updated **AdminTier**, `404` for a code nothing is stored
+ * under, and `422` with `{ problem }` carrying Stripe's own words.
+ */
+export interface NewPrice {
+  amount: number;
+  currency: string;
+  interval: string;
 }
 
 /**

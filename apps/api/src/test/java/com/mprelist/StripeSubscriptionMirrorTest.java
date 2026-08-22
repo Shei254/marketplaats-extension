@@ -79,10 +79,11 @@ class StripeSubscriptionMirrorTest {
 		// Accounts first, which takes their subscriptions with them.
 		this.db.update("delete from app_user");
 		this.db.update("delete from tier where code not in ('free', 'pro', 'power')");
-		this.db.update("update tier set stripe_price_id = null, published = false");
+		TierPrices.nothingIsPriced(this.db);
 		// What T51's webhook writes when the Price is created in the dashboard (#82), arranged here because
 		// this suite is about what happens *after* somebody buys it.
-		this.db.update("update tier set stripe_price_id = ?, published = true where code = 'pro'", PRO_PRICE);
+		TierPrices.soldByTheMonth(this.db, "pro", PRO_PRICE);
+		this.db.update("update tier set published = true where code = 'pro'");
 	}
 
 	// --- a subscription that starts ---------------------------------------------------------------------
@@ -440,7 +441,7 @@ class StripeSubscriptionMirrorTest {
 		this.stripe.delivered(started(bought));
 		// The plan is repriced: a new Price tagged `pro`, which the sync moves the tier onto. This
 		// subscription keeps the old one, which now belongs to no tier.
-		this.db.update("update tier set stripe_price_id = 'price_pro_v2' where code = 'pro'");
+		TierPrices.soldByTheMonth(this.db, "pro", "price_pro_v2");
 
 		this.stripe.delivered(changed(bought.as("past_due"), ANY_TIME.plusSeconds(60)));
 
@@ -453,7 +454,7 @@ class StripeSubscriptionMirrorTest {
 		Account buyer = whoJustSignedIn();
 		Sub bought = subscriptionOf(buyer);
 		this.stripe.delivered(started(bought));
-		this.db.update("update tier set stripe_price_id = 'price_pro_v2' where code = 'pro'");
+		TierPrices.soldByTheMonth(this.db, "pro", "price_pro_v2");
 
 		this.stripe.delivered(changed(bought.as("past_due"), ANY_TIME.plusSeconds(60)));
 

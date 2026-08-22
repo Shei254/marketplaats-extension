@@ -45,19 +45,29 @@ class StartCheckout {
 	 */
 	@PostMapping(path = PATH, consumes = MediaType.APPLICATION_JSON_VALUE)
 	ResponseEntity<CheckoutSession> start(UserRef buyer, @RequestBody CheckoutRequest request) {
-		if (request == null || request.tierCode() == null || request.tierCode().isBlank()) {
+		if (request == null || request.tierCode() == null || request.tierCode().isBlank()
+				|| request.interval() == null || request.interval().isBlank()) {
 			// Not "not for sale": nothing was asked for at all, which is a request this API could not read.
+			// The interval is as required as the code since T62 (#128) — a tier may be sold monthly and
+			// annually, so a request naming only the tier names two prices, and defaulting to either would
+			// charge somebody a rhythm they did not pick.
 			return ResponseEntity.badRequest().build();
 		}
-		return switch (this.checkout.open(buyer, request.tierCode().strip())) {
+		return switch (this.checkout.open(buyer, request.tierCode().strip(), request.interval().strip())) {
 			case Checkout.Opened opened -> ResponseEntity.ok(new CheckoutSession(opened.url()));
 			case Checkout.NotForSale ignored -> ResponseEntity.notFound().build();
 			case Checkout.Unavailable ignored -> ResponseEntity.status(503).build();
 		};
 	}
 
-	/** What the popup asks with. */
-	record CheckoutRequest(String tierCode) {
+	/**
+	 * What the popup asks with: which plan, and at which rhythm.
+	 *
+	 * <p>{@code interval} arrived with T62 (#128), when a tier stopped being sold at one price. It is Stripe's
+	 * vocabulary — {@code month}, {@code year} — and it is the catalog's copy of it that a client is given on
+	 * a plan card and sends back here, so the two are always the same string.
+	 */
+	record CheckoutRequest(String tierCode, String interval) {
 	}
 
 	/**

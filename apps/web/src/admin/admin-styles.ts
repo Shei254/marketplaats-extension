@@ -61,6 +61,9 @@ export const adminCss = `
   font-size: 11.5px;
   color: var(--mp-muted);
 }
+/* One line per rhythm a tier is sold at (T62, #128) — usually one, sometimes two. */
+.admin-price-line { display: block; }
+.admin-price-line b { color: var(--mp-fg); font-weight: 650; }
 .admin-pill {
   display: inline-block;
   font: var(--mp-text-micro) var(--mp-font-family);

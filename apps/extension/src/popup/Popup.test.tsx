@@ -45,14 +45,14 @@ const PRO: Plan = {
   tier: { code: "pro", name: "Pro" },
   relistQuotaPerPeriod: 50,
   features: {},
-  price: { amount: 999, currency: "eur", interval: "month" },
+  prices: [{ amount: 999, currency: "eur", interval: "month" }],
 };
 
 const POWER: Plan = {
   tier: { code: "power", name: "Power" },
   relistQuotaPerPeriod: 200,
   features: {},
-  price: { amount: 1999, currency: "eur", interval: "month" },
+  prices: [{ amount: 1999, currency: "eur", interval: "month" }],
 };
 
 /** A Stripe page the worker has already opened a tab for; the popup is on its way out. */
@@ -94,8 +94,8 @@ function fakeWorker(
       asked.push("plans");
       return subscribing.plans ?? ({ status: "ready", plans: [PRO, POWER] } as PlansAnswer);
     }),
-    checkout: vi.fn(async (tierCode: string) => {
-      asked.push(`checkout:${tierCode}`);
+    checkout: vi.fn(async (tierCode: string, interval: string) => {
+      asked.push(`checkout:${tierCode}:${interval}`);
       return subscribing.checkout ?? OPENED;
     }),
     portal: vi.fn(async () => {
@@ -139,10 +139,20 @@ async function show(worker: WorkerPort): Promise<void> {
  */
 const text = (): string => container.querySelector(".mp-root")?.textContent ?? "";
 
+/**
+ * Whitespace as a reader sees it.
+ *
+ * `Intl` puts a non-breaking space between `€` and the amount, so a button reading
+ * "€ 9,99 a month" does not match that string typed with an ordinary space — which
+ * is a test failing over a character nobody can see.
+ */
+const readable = (text: string | null | undefined): string =>
+  (text ?? "").replace(/\u00a0/g, " ").trim();
+
 function click(label: string): Promise<void> {
   const button = [...container.querySelectorAll("button")].find(
     (candidate) =>
-      candidate.textContent?.trim() === label || candidate.getAttribute("aria-label") === label,
+      readable(candidate.textContent) === label || candidate.getAttribute("aria-label") === label,
   );
   if (!button) throw new Error(`no button labelled ${label} — screen reads: ${text()}`);
   return act(async () => {
@@ -530,7 +540,7 @@ describe("the plan cards", () => {
 });
 
 describe("handing off to Stripe", () => {
-  it("asks the worker to open Checkout for the tier that was clicked", async () => {
+  it("asks the worker to open Checkout for the tier and rhythm that was clicked", async () => {
     // The worker opens the tab, not this page: the tab takes focus and destroys
     // whoever asked, so a `chrome.tabs.create` awaited here would be awaited in a
     // page that no longer exists.
@@ -538,9 +548,9 @@ describe("handing off to Stripe", () => {
 
     await show(worker);
     await click("Plans");
-    await click("Upgrade");
+    await click("€ 9,99 a month");
 
-    expect(asked).toContain("checkout:pro");
+    expect(asked).toContain("checkout:pro:month");
   });
 
   it("says a plan is no longer on sale rather than that something broke", async () => {
@@ -549,7 +559,7 @@ describe("handing off to Stripe", () => {
 
     await show(worker);
     await click("Plans");
-    await click("Upgrade");
+    await click("€ 9,99 a month");
 
     expect(text()).toContain("isn’t on sale any more");
   });
@@ -559,7 +569,7 @@ describe("handing off to Stripe", () => {
 
     await show(worker);
     await click("Plans");
-    await click("Upgrade");
+    await click("€ 9,99 a month");
 
     expect(text()).toContain("Checkout couldn’t be opened");
   });

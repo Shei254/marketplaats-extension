@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 
 import com.mprelist.catalog.SellablePlan;
 import com.mprelist.catalog.TierCatalog;
+import com.mprelist.catalog.TierPrice;
 import com.mprelist.identity.UserRef;
 import com.mprelist.subscription.Subscriptions;
 import com.stripe.StripeClient;
@@ -52,10 +53,26 @@ class OpenCheckout {
 		this.web = web;
 	}
 
-	Checkout open(UserRef buyer, String tierCode) {
+	/**
+	 * @param interval which of the tier's rhythms to buy — {@code month} or {@code year} in Stripe's
+	 * vocabulary (T62, #128). **A tier code alone no longer names a price**: monthly and annual Pro are one
+	 * plan, so the request has to say which one, and a default here would charge somebody yearly because a
+	 * client forgot to send a field
+	 */
+	Checkout open(UserRef buyer, String tierCode, String interval) {
 		Optional<SellablePlan> plan = onSale(tierCode);
 		if (plan.isEmpty()) {
 			LOG.info("Nothing on sale under the code `{}`, so no Checkout session was opened", tierCode);
+			return new Checkout.NotForSale();
+		}
+		Optional<TierPrice> price = plan.get().prices().stream()
+				.filter(sold -> sold.interval().equals(interval))
+				.findFirst();
+		if (price.isEmpty()) {
+			// The same answer as an unknown code, and for the same reason: a client holding yesterday's cards
+			// is asking for a rhythm this tier no longer sells, which is nobody's error.
+			LOG.info("The tier `{}` is not sold by the {}, so no Checkout session was opened", tierCode,
+					interval);
 			return new Checkout.NotForSale();
 		}
 		Optional<StripeClient> client = this.stripe.client();
@@ -63,7 +80,7 @@ class OpenCheckout {
 			return new Checkout.Unavailable();
 		}
 		try {
-			Session session = client.get().checkout().sessions().create(sessionFor(buyer, plan.get()));
+			Session session = client.get().checkout().sessions().create(sessionFor(buyer, price.get()));
 			return new Checkout.Opened(session.getUrl());
 		}
 		catch (StripeException unavailable) {
@@ -89,11 +106,11 @@ class OpenCheckout {
 	 * those are is {@link WebPages}', so that this module's copy of {@code apps/web/src/routes.ts} is one
 	 * copy rather than one per call site.
 	 */
-	private SessionCreateParams sessionFor(UserRef buyer, SellablePlan plan) {
+	private SessionCreateParams sessionFor(UserRef buyer, TierPrice price) {
 		SessionCreateParams.Builder session = SessionCreateParams.builder()
 				.setMode(SessionCreateParams.Mode.SUBSCRIPTION)
 				.addLineItem(SessionCreateParams.LineItem.builder()
-						.setPrice(plan.stripePriceId())
+						.setPrice(price.stripePriceId())
 						.setQuantity(1L)
 						.build())
 				.setSuccessUrl(this.web.paymentLanded())

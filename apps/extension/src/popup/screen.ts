@@ -104,8 +104,10 @@ export interface WorkerPort {
    */
   plans(): Promise<PlansAnswer>;
   /**
-   * Buy a plan: the worker opens the Stripe Checkout tab, and this says whether
-   * there was one to open.
+   * Buy a plan at one of its rhythms: the worker opens the Stripe Checkout tab,
+   * and this says whether there was one to open. The rhythm is named because a
+   * tier may be sold monthly and annually (T62, #128), so a code alone names two
+   * prices.
    *
    * **This promise usually never resolves in the popup**, and that is expected
    * rather than a bug: the new tab takes focus, which destroys the page awaiting
@@ -113,7 +115,7 @@ export interface WorkerPort {
    * the caller must put the screen into whatever state it wants a user to see
    * *before* awaiting, and treat an answer that does arrive as a refusal to render.
    */
-  checkout(tierCode: string): Promise<HandoffAnswer>;
+  checkout(tierCode: string, interval: string): Promise<HandoffAnswer>;
   /**
    * Manage what is already being paid for — the card, the invoices, cancelling
    * (T21, #31). Opened and refused exactly like a Checkout, including the part

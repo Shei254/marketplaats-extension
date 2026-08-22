@@ -27,7 +27,7 @@ const PRO: AdminTier = {
   features: {},
   published: true,
   isDefault: false,
-  stripePriceId: "price_pro",
+  prices: [{ stripePriceId: "price_pro", interval: "month" }],
 };
 
 const FREE: AdminTier = {
@@ -36,7 +36,7 @@ const FREE: AdminTier = {
   features: {},
   published: false,
   isDefault: true,
-  stripePriceId: null,
+  prices: [],
 };
 
 const DRAFT: AdminTier = {
@@ -45,7 +45,7 @@ const DRAFT: AdminTier = {
   features: {},
   published: false,
   isDefault: false,
-  stripePriceId: "price_starter",
+  prices: [{ stripePriceId: "price_starter", interval: "month" }],
 };
 
 interface Backend {
@@ -56,6 +56,7 @@ interface Backend {
   write?: () => Response;
   currencies?: () => Response;
   create?: () => Response;
+  addPrice?: () => Response;
 }
 
 function stack(backend: Backend = {}) {
@@ -75,6 +76,9 @@ function stack(backend: Backend = {}) {
         (() => json({ defaultCurrency: "eur", supported: ["eur", "usd"] })))();
     }
     if (url.endsWith("/api/admin/plans")) return (backend.create ?? (() => json(PRO, 201)))();
+    if (url.endsWith("/prices") && (init?.method ?? "GET") === "POST") {
+      return (backend.addPrice ?? (() => json(PRO)))();
+    }
     return (backend.write ?? (() => json(PRO)))();
   };
   const navigated: string[] = [];
@@ -108,6 +112,25 @@ function button(label: string): HTMLButtonElement {
 }
 
 const click = (label: string): Promise<void> => act(async () => button(label).click());
+
+/**
+ * The same click, but in the row for one tier.
+ *
+ * Every row carries the same buttons, so `click("Prices")` reaches whichever row is
+ * first — which is a test that passes while pointing at something else. This says
+ * which plan it means.
+ */
+function clickInRowFor(code: string, label: string): Promise<void> {
+  const row = [...container.querySelectorAll("tbody tr")].find(
+    (candidate) => candidate.querySelector(".admin-code")?.textContent?.trim() === code,
+  );
+  if (!row) throw new Error(`no row for ${code} — screen reads: ${text()}`);
+  const found = [...row.querySelectorAll("button")].find(
+    (candidate) => candidate.textContent?.trim() === label,
+  );
+  if (!found) throw new Error(`no ${label} button in the ${code} row`);
+  return act(async () => found.click());
+}
 
 /**
  * Wait for something to have happened, rather than for a number of ticks.
@@ -616,5 +639,79 @@ describe("creating a plan from the screen", () => {
 
     expect(text()).toContain("could not say which currencies");
     expect(container.querySelector("#plan-amount")).toBeNull();
+  });
+});
+
+describe("a plan sold at more than one rhythm", () => {
+  const BOTH = {
+    ...PRO,
+    prices: [
+      { stripePriceId: "price_pro", interval: "month" },
+      { stripePriceId: "price_pro_yearly", interval: "year" },
+    ],
+  };
+
+  it("shows every price it is sold at, on one row", async () => {
+    // The whole of T62 (#128) on this screen: monthly and annual Pro are one plan
+    // with two prices, not two tiers to keep in step by hand.
+    const s = stack({ tiers: () => json({ tiers: [FREE, BOTH] }) });
+
+    await arrive(s);
+
+    expect(text()).toContain("price_pro");
+    expect(text()).toContain("price_pro_yearly");
+    // One row for the plan, not two.
+    expect([...text().matchAll(/50/g)]).toHaveLength(1);
+  });
+
+  it("offers a rhythm the plan does not sell at yet", async () => {
+    const s = stack();
+
+    await arrive(s);
+    await clickInRowFor("pro", "Prices");
+
+    // Pro sells monthly, so the form opens on the one it does not have.
+    expect(container.querySelector<HTMLSelectElement>("#price-interval")?.value).toBe("year");
+  });
+
+  it("and sends it as a price of that tier", async () => {
+    const s = stack();
+
+    await arrive(s);
+    await clickInRowFor("pro", "Prices");
+    await type("#price-amount", "9900");
+    await click("Add in Stripe");
+    await until(
+      () => s.calls.some((call) => call.url.endsWith("/prices") && call.method === "POST"),
+      "the price to reach the API",
+    );
+
+    const posted = s.calls.find((call) => call.url.endsWith("/prices") && call.method === "POST");
+    expect(posted?.url).toBe("http://localhost:8080/api/admin/tiers/pro/prices");
+    const sent = JSON.parse(posted?.body ?? "{}") as Record<string, unknown>;
+    expect(sent["amount"]).toBe(9900);
+    // The rhythm Pro does not already sell at, which is what the form opened on.
+    expect(sent["interval"]).toBe("year");
+    expect(sent["currency"]).toBe("eur");
+  });
+
+  it("says plainly that repricing leaves existing subscribers where they are", async () => {
+    // The thing an operator most needs told, and the thing a button labelled
+    // "replace price" reads as the opposite of.
+    const s = stack({ tiers: () => json({ tiers: [FREE, BOTH] }) });
+
+    await arrive(s);
+    await clickInRowFor("pro", "Prices");
+    // Pro already sells at both, so whichever rhythm is picked is a replacement.
+    await act(async () => {
+      const rhythm = container.querySelector<HTMLSelectElement>("#price-interval");
+      if (rhythm) {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set?.call(rhythm, "month");
+        rhythm.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    });
+
+    expect(text()).toContain("keeps the price they signed up at");
+    expect(text()).toContain("Replace in Stripe");
   });
 });

@@ -69,7 +69,8 @@ class AdminTierTest {
 		this.rows = new Subscribers(this.db, IDP, "admin-suite-");
 		this.rows.nobodyHasRelistedYet();
 		this.db.update("delete from tier where code not in ('free', 'pro', 'power')");
-		this.db.update("update tier set stripe_price_id = null, published = false, features = '{}'::jsonb");
+		TierPrices.nothingIsPriced(this.db);
+		this.db.update("update tier set features = '{}'::jsonb");
 		// Clear then set, in two statements, for the reason `makeDefault` gives: `tier_single_default` is a
 		// plain partial unique index and is checked row by row, so the one-statement form this used to be
 		// fails on a duplicate that never outlives the statement — which is exactly what it did, the moment a
@@ -97,7 +98,8 @@ class AdminTierTest {
 	@Test
 	void includingTheDraftsAndTheFreeTierNobodyCanBuy() {
 		this.db.update("insert into tier (code, name, relist_quota_per_period, max_marktplaats_accounts, "
-				+ "stripe_price_id, published) values ('starter', 'starter', 0, 1, 'price_starter', false)");
+				+ "published) values ('starter', 'starter', 0, 1, false)");
+		TierPrices.soldByTheMonth(this.db, "starter", "price_starter");
 
 		assertThat(codesIn(Json.of(get(TIERS)).get("tiers"))).contains("starter", "free");
 	}
@@ -120,11 +122,23 @@ class AdminTierTest {
 	 */
 	@Test
 	void andWhetherStripeHasAPriceForIt() {
-		assertThat(tierNamed("pro").get("stripePriceId").isNull()).isTrue();
+		assertThat(tierNamed("pro").get("prices")).isEmpty();
 
-		this.db.update("update tier set stripe_price_id = 'price_pro' where code = 'pro'");
+		TierPrices.soldByTheMonth(this.db, "pro", "price_pro");
 
-		assertThat(tierNamed("pro").get("stripePriceId").asString()).isEqualTo("price_pro");
+		assertThat(pricesOf("pro")).containsExactly("price_pro:month");
+	}
+
+	/**
+	 * And every rhythm it is sold at, since T62 (#128) — monthly and annual Pro are one plan on one row, which
+	 * is the whole reason the wire carries a list where it used to carry an id.
+	 */
+	@Test
+	void andEveryRhythmItIsSoldAt() {
+		TierPrices.soldByTheMonth(this.db, "pro", "price_pro");
+		TierPrices.soldAt(this.db, "pro", "price_pro_yearly", "year");
+
+		assertThat(pricesOf("pro")).containsExactly("price_pro:month", "price_pro_yearly:year");
 	}
 
 	/** No amount on any of them: money is Stripe's, and this screen has to be readable when Stripe is not. */
@@ -152,12 +166,12 @@ class AdminTierTest {
 	/** And answers with the row as stored, not the request echoed back — the code and the Price came from us. */
 	@Test
 	void andAnswersWithTheRowRatherThanTheRequest() {
-		this.db.update("update tier set stripe_price_id = 'price_pro' where code = 'pro'");
+		TierPrices.soldByTheMonth(this.db, "pro", "price_pro");
 
 		JsonNode answered = Json.of(put("/api/admin/tiers/pro", edit(20, true)));
 
 		assertThat(answered.get("tier").get("code").asString()).isEqualTo("pro");
-		assertThat(answered.get("stripePriceId").asString()).isEqualTo("price_pro");
+		assertThat(answered.get("prices").get(0).get("stripePriceId").asString()).isEqualTo("price_pro");
 		assertThat(answered.get("isDefault").asBoolean()).isFalse();
 	}
 
@@ -191,12 +205,12 @@ class AdminTierTest {
 	/** Nor the Stripe Price, which nobody types anywhere: the tag on the Price is the only link (ADR-0019). */
 	@Test
 	void andNeverTheStripePrice() {
-		this.db.update("update tier set stripe_price_id = 'price_pro' where code = 'pro'");
+		TierPrices.soldByTheMonth(this.db, "pro", "price_pro");
 
 		put("/api/admin/tiers/pro", "{\"name\":\"Pro\",\"relistQuotaPerPeriod\":50,\"features\":{},"
-				+ "\"published\":false,\"stripePriceId\":\"price_somebody_typed\"}");
+				+ "\"published\":false,\"prices\":[{\"stripePriceId\":\"price_somebody_typed\"}]}");
 
-		assertThat(tierNamed("pro").get("stripePriceId").asString()).isEqualTo("price_pro");
+		assertThat(pricesOf("pro")).containsExactly("price_pro:month");
 	}
 
 	@Test
@@ -211,7 +225,7 @@ class AdminTierTest {
 
 	@Test
 	void aTierWithAPriceCanBePutOnSaleAndTakenBackOff() {
-		this.db.update("update tier set stripe_price_id = 'price_pro' where code = 'pro'");
+		TierPrices.soldByTheMonth(this.db, "pro", "price_pro");
 
 		assertThat(put("/api/admin/tiers/pro", edit(50, true)).statusCode()).isEqualTo(200);
 		assertThat(tierNamed("pro").get("published").asBoolean()).isTrue();
@@ -454,6 +468,67 @@ class AdminTierTest {
 		assertThat(getAs(CURRENCIES, IDP.token()).statusCode()).isEqualTo(403);
 	}
 
+	// --- a second rhythm for a plan that exists (T62, #128) -------------------------------------------------------
+
+	/**
+	 * With no Stripe configured a price cannot be created either, and the refusal carries Stripe's own words —
+	 * the same shape as creating a plan, because in Stripe they are the same act.
+	 */
+	@Test
+	void aRhythmCannotBeAddedWithoutAStripeToCreateItIn() {
+		HttpResponse<String> refused = post("/api/admin/tiers/pro/prices",
+				"{\"amount\":9900,\"currency\":\"eur\",\"interval\":\"year\"}");
+
+		assertThat(refused.statusCode()).isEqualTo(422);
+		assertThat(Json.of(refused).get("problem").asString()).contains("Stripe");
+		assertThat(pricesOf("pro")).isEmpty();
+	}
+
+	@Test
+	void andATierNobodyStoredHasNoRhythmToAddOneTo() {
+		assertThat(post("/api/admin/tiers/nonesuch/prices",
+				"{\"amount\":9900,\"currency\":\"eur\",\"interval\":\"year\"}").statusCode())
+				.isEqualTo(404);
+	}
+
+	@Test
+	void andABodyThatNamesNoAmountOrNoRhythmIsNotOne() {
+		assertThat(post("/api/admin/tiers/pro/prices", "{\"currency\":\"eur\",\"interval\":\"year\"}")
+				.statusCode()).isEqualTo(400);
+		assertThat(post("/api/admin/tiers/pro/prices", "{\"amount\":9900,\"currency\":\"eur\"}")
+				.statusCode()).isEqualTo(400);
+	}
+
+	/**
+	 * A tier sold at two rhythms is one row with two prices — which is the whole of T62 (#128), seen from the
+	 * screen an operator maintains it on.
+	 */
+	@Test
+	void aTierSoldAtTwoRhythmsIsOneRowWithTwoPrices() {
+		TierPrices.soldByTheMonth(this.db, "pro", "price_pro");
+		TierPrices.soldAt(this.db, "pro", "price_pro_yearly", "year");
+
+		assertThat(codesIn(Json.of(get(TIERS)).get("tiers"))).containsExactly("free", "pro", "power");
+		assertThat(pricesOf("pro")).containsExactly("price_pro:month", "price_pro_yearly:year");
+		assertThat(tierNamed("pro").get("relistQuotaPerPeriod").asInt()).isEqualTo(50);
+	}
+
+	/** And it may be published on the strength of either, since both are something to charge against. */
+	@Test
+	void andItMayBePutOnSaleOnTheStrengthOfEither() {
+		TierPrices.soldAt(this.db, "pro", "price_pro_yearly", "year");
+
+		assertThat(put("/api/admin/tiers/pro", edit(50, true)).statusCode()).isEqualTo(200);
+		assertThat(tierNamed("pro").get("published").asBoolean()).isTrue();
+	}
+
+	@Test
+	void andNoneOfThatIsReachableWithoutTheAdminRole() {
+		assertThat(postAs("/api/admin/tiers/pro/prices",
+				"{\"amount\":9900,\"currency\":\"eur\",\"interval\":\"year\"}", IDP.token()).statusCode())
+				.isEqualTo(403);
+	}
+
 	// --- the Prices nobody tagged -------------------------------------------------------------------------------
 
 	/**
@@ -478,6 +553,13 @@ class AdminTierTest {
 			}
 		}
 		throw new IllegalStateException("No tier called " + code + " in the admin list");
+	}
+
+	/** What a tier is sold at, as `id:rhythm`, in the order the API answers with. */
+	private List<String> pricesOf(String code) {
+		return tierNamed(code).get("prices").valueStream()
+				.map(price -> price.get("stripePriceId").asString() + ":" + price.get("interval").asString())
+				.toList();
 	}
 
 	private static List<String> codesIn(JsonNode tiers) {

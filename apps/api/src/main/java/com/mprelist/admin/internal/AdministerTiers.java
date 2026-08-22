@@ -116,7 +116,15 @@ class AdministerTiers {
 	 * had only the second would key its own rows on something that changes under it.
 	 */
 	record AdminTier(TierNameOnTheWire tier, int relistQuotaPerPeriod, Map<String, Object> features,
-			boolean published, boolean isDefault, String stripePriceId) {
+			boolean published, boolean isDefault, List<TierPriceOnTheWire> prices) {
+	}
+
+	/**
+	 * One of the Stripe Prices a tier is sold at (T62, #128) — the id to find it by in the dashboard, and the
+	 * rhythm that tells it from the tier's others. No amount: money is Stripe's, and this screen has to be
+	 * readable when Stripe is not.
+	 */
+	record TierPriceOnTheWire(String stripePriceId, String interval) {
 	}
 
 	/** The pair, spelled as this API spells it everywhere else. */
@@ -151,7 +159,9 @@ class AdministerTiers {
 	static AdminTier asAdminTier(CatalogEntry entry) {
 		return new AdminTier(new TierNameOnTheWire(entry.tier().code(), entry.tier().name()),
 				entry.relistQuotaPerPeriod(), entry.features(), entry.published(), entry.isDefault(),
-				entry.stripePriceId());
+				entry.prices().stream()
+						.map(price -> new TierPriceOnTheWire(price.stripePriceId(), price.interval()))
+						.toList());
 	}
 
 	private final TierEdits catalog;

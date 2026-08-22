@@ -140,7 +140,7 @@ function answer(
     case "plans":
       return subscribing.plans();
     case "checkout":
-      return openStripePage(subscribing.checkout(request.tierCode), inANewTab);
+      return openStripePage(subscribing.checkout(request.tierCode, request.interval), inANewTab);
     case "portal":
       return openStripePage(subscribing.portal(), inANewTab);
   }
@@ -214,7 +214,7 @@ if (__DEV__) {
      * here that can lead to money moving — in test mode, against `4242…`, which
      * is what slice C step 4 walks.
      */
-    __checkout: (tierCode: string) => subscribing.checkout(tierCode),
+    __checkout: (tierCode: string, interval: string) => subscribing.checkout(tierCode, interval),
     __portal: () => subscribing.portal(),
   };
   Object.assign(globalThis, hooks);

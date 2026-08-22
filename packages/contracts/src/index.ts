@@ -24,6 +24,7 @@ export {
   type DenialReason,
   type DisplayState,
   type NewPlan,
+  type NewPrice,
   type Plan,
   type PlanPrice,
   type Plans,
@@ -35,6 +36,7 @@ export {
   type SubscriptionStatus,
   type TierEdit,
   type TierName,
+  type TierPriceOnTheWire,
   type UnadoptedPrices,
   type UntaggedPrice,
 } from "./enforcement";

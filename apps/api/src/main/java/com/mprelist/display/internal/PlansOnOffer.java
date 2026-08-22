@@ -14,6 +14,7 @@ import com.mprelist.billing.StripePrices;
 import com.mprelist.catalog.SellablePlan;
 import com.mprelist.catalog.TierCatalog;
 import com.mprelist.catalog.TierName;
+import com.mprelist.catalog.TierPrice;
 
 /**
  * The plan cards, composed from the two places a plan lives (T49, #80).
@@ -42,18 +43,22 @@ class PlansOnOffer {
 		this.prices = prices;
 	}
 
-	/** @return the cards, or nothing at all when a price could not be had */
+	/** @return the cards, or nothing at all when any price could not be had */
 	Optional<Plans> cards() {
 		List<Plan> cards = new ArrayList<>();
 		for (SellablePlan sellable : this.catalog.published()) {
-			Optional<StripePrice> price = this.prices.of(sellable.stripePriceId());
-			if (price.isEmpty()) {
-				LOG.warn("Not rendering any plan: Stripe could not price {} ({}), and a partial list of what "
-						+ "is on offer is a wrong one", sellable.tier().code(), sellable.stripePriceId());
-				return Optional.empty();
+			List<PlanPrice> priced = new ArrayList<>();
+			for (TierPrice sold : sellable.prices()) {
+				Optional<StripePrice> price = this.prices.of(sold.stripePriceId());
+				if (price.isEmpty()) {
+					LOG.warn("Not rendering any plan: Stripe could not price {} ({}), and a partial list of "
+							+ "what is on offer is a wrong one", sellable.tier().code(), sold.stripePriceId());
+					return Optional.empty();
+				}
+				priced.add(new PlanPrice(price.get().amount(), price.get().currency(), sold.interval()));
 			}
 			cards.add(new Plan(sellable.tier(), sellable.grants().relistsPerPeriod(),
-					sellable.grants().features(), price.get()));
+					sellable.grants().features(), List.copyOf(priced)));
 		}
 		return Optional.of(new Plans(List.copyOf(cards)));
 	}
@@ -76,7 +81,19 @@ class PlansOnOffer {
 	 * #47 finds a stable Marktplaats account identifier, so rendering it would be advertising something
 	 * nothing can yet tell apart.
 	 */
-	record Plan(TierName tier, int relistQuotaPerPeriod, Map<String, Object> features, StripePrice price) {
+	record Plan(TierName tier, int relistQuotaPerPeriod, Map<String, Object> features, List<PlanPrice> prices) {
+	}
+
+	/**
+	 * One rhythm a plan may be bought at (T62, #128) — what it costs and how often.
+	 *
+	 * <p><strong>The interval is ours and the rest is Stripe's</strong>, which is why this is not
+	 * {@link StripePrice} itself. Stripe reports a recurrence on the Price too, and the two always agree; what
+	 * is sent is the catalog's, because that is the value a Checkout request will name back at us and the two
+	 * must be the same string. A card built from Stripe's spelling and a request matched against ours is a
+	 * bug that only shows on whichever rhythm somebody clicks second.
+	 */
+	record PlanPrice(long amount, String currency, String interval) {
 	}
 
 }

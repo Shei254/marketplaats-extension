@@ -60,7 +60,7 @@ export type AdsRequest = { kind: "list-ads" };
  */
 export type SubscribingRequest =
   | { kind: "plans" }
-  | { kind: "checkout"; tierCode: string }
+  | { kind: "checkout"; tierCode: string; interval: string }
   | { kind: "portal" };
 
 export type BackgroundRequest =

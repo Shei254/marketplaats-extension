@@ -427,7 +427,7 @@ Refs: [ADR-0011](adr/0011-repository-layout.md).
 | Ticket | Why it waits |
 |---|---|
 | [T27](https://github.com/Shei254/marketplaats-extension/issues/36) · `GET /api/client-config` | Nothing to hotfix yet. Its value is a Marktplaats DOM change you can fix without a release; that bill arrives with real users, not before ([ADR-0013](adr/0013-remote-client-configuration.md)) |
-| [T31](https://github.com/Shei254/marketplaats-extension/issues/40) · Debounced server-side searchbar | A convenience over the ad list, not part of the gate. Fixes today's dead path where `content-script.ts` returns `undefined` |
+| [T31](https://github.com/Shei254/marketplaats-extension/issues/40) · Debounced server-side searchbar | **Shipped.** A convenience over the ad list and never part of the gate — search is ungated at every subscription state, like the list it filters. It closed the dead path it was named for: `searchAd` reached the orchestrator and was **logged**, so nothing could render it. Server-side because `listMyAds` paging is an open spike below — a box filtering the rows that happened to arrive would fail to find an ad the seller can see, and worst on the biggest account |
 | [T37](https://github.com/Shei254/marketplaats-extension/issues/46) · SPIKE: is `listMyAds` paginated? | Cheap and high-information; run it when the list gets long enough to matter |
 | [T38](https://github.com/Shei254/marketplaats-extension/issues/47) · SPIKE: stable Marktplaats account identifier | Blocks `maxMpAccounts` as a sellable entitlement and multi-account |
 | T39/T40 · SPIKEs: ownership detection, injected-UI runtime | Feed T41 |

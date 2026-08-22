@@ -24,7 +24,9 @@ export const DEV_HOOK_NAMES = [
   "__listAds",
   "__retry",
   "__resume",
-  "__searchAd",
+  // `__searchAds`, beside `__listAds`, because since T31 (#40) it answers with the
+  // same rows and the popup's search box is its real caller.
+  "__searchAds",
   "__getEndpoints",
   "__setEndpoints",
   "__signIn",

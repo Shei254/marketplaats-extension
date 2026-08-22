@@ -142,6 +142,14 @@ describe("searchAd", () => {
     expect(req.headers).toEqual({});
     expect(req.body).toEqual({ kind: "none" });
   });
+
+  it("returns an empty list when the payload carries no ads", async () => {
+    // `listMyAds`'s rule, and it bites harder here: a search that matches nothing
+    // is the ordinary case, reached by typing (T31, #40), and a payload without an
+    // `ads` key would otherwise be a TypeError in the caller.
+    http = stubFetch(routes({ method: "GET", url: "/listings", reply: { json: {} } }));
+    expect(await api.searchAd("niets")).toEqual([]);
+  });
 });
 
 describe("getBuckets", () => {

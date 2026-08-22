@@ -1,11 +1,13 @@
 import { UiStyles } from "@mprelist/ui";
-import { useCallback, useEffect, useState, type JSX } from "react";
+import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 
 import type { WireRelistOutcome } from "../background/messages";
 import type { HandoffAnswer } from "../api/subscribing";
 import { ADS_LOADING, describeAdsFailure, type AdsView } from "./ads";
 import { adListCss, planCardCss, popupCss } from "./popup-styles";
 import { AdList } from "./AdList";
+import { SearchBox } from "./SearchBox";
+import { ALL, noMatches, sameShowing, useSearchBox, type Showing } from "./searching";
 import { PlanCards } from "./PlanCards";
 import {
   handoffFailure,
@@ -45,6 +47,43 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [plans, setPlans] = useState<PlansView>(PLANS_LOADING);
   const [handoff, setHandoff] = useState<Handoff>(NOT_OPENING);
+  /** The search box, and what it has settled on asking for (T31, #40). */
+  const { typed, showing, type, clear } = useSearchBox();
+  /** What the list is showing right now, so a reload can repeat it. */
+  const displayed = useRef<Showing>(ALL);
+  /**
+   * Which ad request is the current one.
+   *
+   * Every keystroke past the debounce starts a request, and they do not come back
+   * in the order they left: "fi" against a big account can answer after "fiets"
+   * did, and a list that took whichever landed last would show matches for a query
+   * the box no longer holds. So each call takes a number and only the newest one
+   * is allowed to write the screen — the others are answers to questions nobody
+   * is asking any more.
+   */
+  const latest = useRef(0);
+
+  /**
+   * The list, however it is being asked for. One function for both, because they
+   * are one thing to the screen: a `ready` view of rows, and the same two failures.
+   */
+  const showAds = useCallback(
+    async (want: Showing) => {
+      displayed.current = want;
+      const mine = ++latest.current;
+      setAds(ADS_LOADING);
+      try {
+        const found = want.kind === "all" ? await worker.ads() : await worker.searchAds(want.query);
+        if (mine === latest.current) setAds({ status: "ready", ads: found });
+      } catch (error) {
+        // The list failing does not take the plan down with it: the two come from
+        // different places — ours and Marktplaats's — and a user whose quota is
+        // fine should be told that, beside the reason their ads are missing.
+        if (mine === latest.current) setAds({ status: "failed", message: describeAdsFailure(error) });
+      }
+    },
+    [worker],
+  );
 
   /**
    * The plan first, then the ads — and the ads **only** when there is a session.
@@ -53,6 +92,10 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
    * user's own session, and `docs/enforcement-contract.md` has a signed-out popup
    * make none. Asking in parallel would be faster and would send that request on
    * behalf of somebody who is not signed in.
+   *
+   * Refreshing repeats **whatever is on the screen**, search included: a box with
+   * a query in it and a button that quietly emptied it would be two controls
+   * disagreeing about what the user asked for.
    */
   const load = useCallback(async () => {
     setBusy(true);
@@ -65,31 +108,27 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
       return;
     }
 
-    setAds(ADS_LOADING);
-    try {
-      setAds({ status: "ready", ads: await worker.ads() });
-    } catch (error) {
-      // The list failing does not take the plan down with it: the two come from
-      // different places — ours and Marktplaats's — and a user whose quota is
-      // fine should be told that, beside the reason their ads are missing.
-      setAds({ status: "failed", message: describeAdsFailure(error) });
-    }
+    await showAds(displayed.current);
     setBusy(false);
-  }, [worker]);
+  }, [worker, showAds]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
+  /**
+   * A settled box asks for its matches — but only once there is a session, for
+   * the reason `load` gives: this is a request to marktplaats.nl, and a signed-out
+   * popup makes none.
+   */
+  useEffect(() => {
+    if (screen.screen !== "signed-in") return;
+    if (sameShowing(showing, displayed.current)) return;
+    void showAds(showing);
+  }, [showing, screen.screen, showAds]);
+
   /** The ads alone — what a finished relist invalidates, since the ad has a new id. */
-  const reloadAds = useCallback(async () => {
-    setAds(ADS_LOADING);
-    try {
-      setAds({ status: "ready", ads: await worker.ads() });
-    } catch (error) {
-      setAds({ status: "failed", message: describeAdsFailure(error) });
-    }
-  }, [worker]);
+  const reloadAds = useCallback(() => showAds(displayed.current), [showAds]);
 
   /**
    * What a finished attempt does to the screen.
@@ -216,7 +255,12 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
     // transition this popup already knows the answer to, and asking would put a
     // failed call between the user and the screen they just asked for.
     setScreen({ screen: "signed-out" });
-  }, [worker]);
+    // And the box goes with the session. Whoever signs in next — the same person
+    // on a second account, or somebody else at this machine — should not find the
+    // list already filtered by a word they never typed.
+    clear();
+    displayed.current = ALL;
+  }, [worker, clear]);
 
   return (
     <>
@@ -237,6 +281,10 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
           backToAds,
           upgrade,
           manageBilling,
+          typed,
+          showing,
+          onType: type,
+          onClearSearch: clear,
         })}
       </div>
     </>
@@ -257,11 +305,17 @@ interface Handlers {
   backToAds: () => void;
   upgrade: (tierCode: string, interval: string) => void;
   manageBilling: () => void;
+  /** What the search box shows, what it settled on, and the two ways to change it. */
+  typed: string;
+  showing: Showing;
+  onType: (raw: string) => void;
+  onClearSearch: () => void;
 }
 
 function body(screen: Screen, handlers: Handlers): JSX.Element {
   const { load, signIn, signOut, busy, ads, worker, onOutcome } = handlers;
   const { plans, handoff, seePlans, backToAds, upgrade, manageBilling } = handlers;
+  const { typed, showing, onType, onClearSearch } = handlers;
   switch (screen.screen) {
     case "loading":
       return <LoadingScreen />;
@@ -284,7 +338,13 @@ function body(screen: Screen, handlers: Handlers): JSX.Element {
           handoff={handoff}
           busy={busy}
         >
-          <AdList view={ads} worker={worker} onOutcome={onOutcome} />
+          <SearchBox value={typed} onType={onType} onClear={onClearSearch} />
+          <AdList
+            view={ads}
+            worker={worker}
+            onOutcome={onOutcome}
+            empty={showing.kind === "search" ? noMatches(showing.query) : undefined}
+          />
         </SignedInScreen>
       );
     case "plans":

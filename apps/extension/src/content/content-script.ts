@@ -26,7 +26,10 @@ async function handle(request: RelayRequest): Promise<RelayResult> {
         case "listMyAds":
             return (await api.listMyAds()).map(toListingSummary);
         case "searchAd":
-            return api.searchAd(request.query);
+            // The same mapping as listMyAds, because it is the same list: search is
+            // a `query` parameter on that path, and a row the popup can relist has
+            // to carry the id it relists with (T31, #40).
+            return (await api.searchAd(request.query)).map(toListingSummary);
         case "captureAd": {
             const captured = await api.captureAd(request.listingId);
             return { draft: captured.draft, photos: captured.photos.map(toWirePhoto) };

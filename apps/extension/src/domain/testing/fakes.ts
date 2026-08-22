@@ -12,7 +12,6 @@ import type {
   AdSnapshot,
   CapturedAd,
   CapturedListing,
-  ListingDraft,
   ListingSummary,
   Photo,
   SnapshotPhase,
@@ -162,12 +161,14 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
     }));
   }
 
-  /** Substring match on title — enough to stand in for Marktplaats's own filtering. */
-  async searchAd(query: string): Promise<ListingDraft[]> {
+  /**
+   * Substring match on title — enough to stand in for Marktplaats's own
+   * filtering, and it answers with the rows `listMyAds` does, since a search
+   * result is relisted by the same button (T31, #40).
+   */
+  async searchAd(query: string): Promise<ListingSummary[]> {
     const needle = query.toLowerCase();
-    return [...this.ads.values()]
-      .filter((ad) => ad.draft.title.toLowerCase().includes(needle))
-      .map((ad) => ({ itemId: ad.draft.itemId, title: ad.draft.title }) as ListingDraft);
+    return (await this.listMyAds()).filter((ad) => ad.title.toLowerCase().includes(needle));
   }
 
   async captureAd(listingId: string): Promise<CapturedListing> {

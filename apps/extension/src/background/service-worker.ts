@@ -137,6 +137,8 @@ function answer(
       return api.displayState();
     case "list-ads":
       return orchestrator.listAds();
+    case "search-ads":
+      return orchestrator.searchAds(request.query);
     case "plans":
       return subscribing.plans();
     case "checkout":
@@ -189,7 +191,7 @@ if (__DEV__) {
     __listAds: () => orchestrator.listAds(),
     __retry: (listingId: string) => orchestrator.retry(listingId),
     __resume: () => orchestrator.resumeAll(),
-    __searchAd: (adName: string) => orchestrator.searchAd(adName),
+    __searchAds: (query: string) => orchestrator.searchAds(query),
     __getEndpoints: loadEndpointConfig,
     __setEndpoints: saveEndpointOverrides,
     __signIn: () => authenticator.signIn(),

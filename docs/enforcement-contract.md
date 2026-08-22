@@ -593,7 +593,10 @@ Extension                         Backend                    Stripe
 - **Stable Marktplaats account identifier** — blocks `maxMpAccounts` as a sellable entitlement and the return
   of any ownership check to this contract.
 - **`listMyAds` pagination** — unverified. The current client does `data.ads ?? []` with no paging, and
-  `searchAd` hits the same path with a `query` param, which is weak evidence the endpoint is paged.
+  `searchAd` hits the same path with a `query` param, which is weak evidence the endpoint is paged. **T31
+  (#40) now leans on this**: the popup's search box asks Marktplaats rather than filtering the rows it holds,
+  precisely because they may not be all of them — so if the endpoint turns out to be paged, the box keeps
+  working and the list beneath it is what needs the fix.
 - ~~**Tier quota edited under existing subscribers**~~ — **resolved by T53 (#84).** Lowering a quota under
   subscribers is allowed, writes nothing to their rows, and clamps what is left at zero; raising one is felt
   immediately by the same arithmetic. No proration and no notification.

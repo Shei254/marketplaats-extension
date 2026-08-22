@@ -62,11 +62,6 @@ export class RelistOrchestrator {
     console.log("Captured", captured);
   }
 
-  async searchAd (query: string) {
-    const ads = await this.client.searchAd(query)
-    console.log("Searched ads", ads)
-  }
-
   /**
    * The user's own ads, straight from their Marktplaats session.
    *
@@ -76,6 +71,24 @@ export class RelistOrchestrator {
    */
   async listAds(): Promise<ListingSummary[]> {
     return this.client.listMyAds();
+  }
+
+  /**
+   * The same ads, filtered by Marktplaats (T31, #40).
+   *
+   * Returned rather than logged, for `listAds`'s reason and after the same
+   * mistake: this was a console hook that printed its answer, so the popup's
+   * search box had nothing to render. **Nothing here debounces or supersedes** —
+   * that is the surface's, because it is a property of somebody typing rather
+   * than of the search itself, and the injected buttons (#51) will not have a box
+   * at all.
+   *
+   * Not paced and not gated. It reads the user's own session, spends no quota and
+   * deletes nothing — `docs/enforcement-contract.md` puts search beside the ad
+   * list, ungated at every subscription state.
+   */
+  async searchAds(query: string): Promise<ListingSummary[]> {
+    return this.client.searchAd(query);
   }
 
   async relist(listingId: string): Promise<RelistOutcome> {

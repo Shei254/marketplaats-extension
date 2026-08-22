@@ -3,7 +3,7 @@ import {
   NotAuthenticatedError,
   SpikePendingError,
 } from "../domain/marktplaats-client";
-import type { CapturedAd, ListingDraft, ListingSummary, Photo } from "../domain/types";
+import type { CapturedAd, ListingSummary, Photo } from "../domain/types";
 import { base64ToBytes, bytesToBase64 } from "../shared/base64";
 import {ApiRequestError, NoMarktplaatsTabError} from "../adapters/relay-marktplaats-client";
 import { SignInCancelledError, SignInFailedError } from "../auth/errors";
@@ -39,7 +39,6 @@ export type RelayRequest =
 
 export type RelayResult =
   | ListingSummary[]
-  | ListingDraft[]
   | WireCapturedAd
   | WirePhoto[]
   | null;

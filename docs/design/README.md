@@ -15,10 +15,14 @@ code, regenerated on every seed).
 | `Tokens.dc.html` | the token sheet **T28 encodes** |
 | `canvas.json` | artboard layout, the three pages, and the sticky notes |
 
-Every artboard carries a **Dark** toggle. All colour values are lifted verbatim from
-`apps/extension/src/popup/popup.html`, so the design is continuous with what already ships. Two are
-new and called out on the token sheet: `--err-bg` (the POC renders error notes on the *warning*
-background) and `--shadow`.
+Every artboard carries a **Dark** toggle and the same `.t` / `.t.dark` token block, so a palette change
+is one edit applied to all of them.
+
+**The palette was re-cut in 2026-08** ([ADR-0021](../adr/0021-design-system-stays-ours.md)) and no longer
+comes from `apps/extension/src/popup/popup.html`: a cooler neutral ramp, a stronger accent, and a dark theme
+designed as itself rather than as the light one inverted. Three tokens are new — `--subtle` (the fill under a
+table head or an input), `--ring` (a focus ring, which nothing had) and `--shadow-sm` (a card at rest, beside
+the lifted `--shadow`) — alongside the two the canvas already added, `--err-bg` and `--shadow`.
 
 The legal copy in `Privacy` and `Terms` is structure plus an honest description of what the product
 does. It is marked `[PLACEHOLDER]` and **needs a lawyer before the Web Store listing** (T58).
@@ -31,6 +35,22 @@ icon it ships is matched — geometry and stroke width — against an `<svg>` ac
 
 So a re-seed that changes a colour or redraws an icon **fails `npm test`** until the package is updated to
 match. That is the intended direction: the canvas decides, the code follows.
+
+### Where the code is ahead of these artboards
+
+The 2026-08 UI pass went the other way for **layout**, and this is the honest record of it. Colour is still
+the canvas's — the token sheet was edited first and `tokens.test.ts` holds the code to it — but four things
+are drawn in the product and on no artboard:
+
+| | Where | What to draw at the next re-seed |
+|---|---|---|
+| The quota **meter** | popup, under the plan name | a 4px `--mp-line` track with an `--mp-accent` fill; amber under a quarter left, red at empty |
+| Sections as **cards** | `/admin`, and the popup's plan cards | `--mp-bg` on `--mp-stage`, 1px `--mp-line`, `--mp-radius-card`, `--mp-shadow-sm` |
+| A **focus ring** | every control on both surfaces | `0 0 0 3px var(--mp-ring)`, with a transparent 2px outline under it |
+| The **logo tile** | all three headers | the mark on `--mp-accent`, 24px, `--mp-radius-block` |
+
+`/admin` still has no artboard at all and is drawn out of the tokens, which is what
+[T54 (#85)](https://github.com/Shei254/marketplaats-extension/issues/85) decided and remains true.
 
 ## Re-seeding
 

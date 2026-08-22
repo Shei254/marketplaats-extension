@@ -29,11 +29,14 @@ describe("the unthemed tokens", () => {
   it("emit under their group, so a rule cannot reach a name that is not one", () => {
     expect(Object.keys(staticTokens)).toEqual([
       "font-family",
+      "font-mono",
       ...Object.keys(text).map((step) => `text-${step}`),
       ...Object.keys(space).map((step) => `space-${step}`),
       ...Object.keys(radius).map((step) => `radius-${step}`),
       "spin",
       "spin-reduced",
+      "fast",
+      "ease",
     ]);
   });
 

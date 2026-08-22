@@ -21,6 +21,10 @@ import { Spinner } from "./Spinner";
 export type ButtonTone =
   | "primary"
   | "secondary"
+  // The quiet one: a text button that is a button. Both surfaces had written it
+  // for themselves — the popup header's `popup-quiet`, the admin corner's
+  // `admin-who` — and a control two screens spell twice is a control.
+  | "ghost"
   | "retry"
   | "locked"
   | "busy"

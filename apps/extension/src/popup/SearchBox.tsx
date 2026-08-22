@@ -1,4 +1,4 @@
-import { Icon, IconButton } from "@mprelist/ui";
+import { Icon, IconButton, Input } from "@mprelist/ui";
 import type { JSX } from "react";
 
 /**
@@ -30,9 +30,7 @@ export function SearchBox({
 }): JSX.Element {
   return (
     <div className="popup-search">
-      <input
-        type="text"
-        className="popup-search-input"
+      <Input
         // The label is what a screen reader reads; the placeholder is what
         // everybody else does, and a placeholder alone is not a label.
         aria-label="Search your ads"

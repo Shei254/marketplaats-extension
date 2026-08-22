@@ -81,7 +81,12 @@ describe("the cards", () => {
 
     expect(shown).toContain("9,99");
     expect(shown).toContain("99,00");
-    expect([...shown.matchAll(/mp-btn--primary/g)]).toHaveLength(2);
+    // Two buttons, and deliberately not two of the same button: the first rhythm
+    // is the card's decision and the second is its alternative, so they are a
+    // primary and a secondary rather than two slabs of accent. Counted by tone
+    // rather than by shape, since the Free card above them is a block button too.
+    expect([...shown.matchAll(/mp-btn--primary/g)]).toHaveLength(1);
+    expect([...shown.matchAll(/mp-btn--secondary/g)]).toHaveLength(1);
     // Still one card for the plan, with one name and one quota line.
     expect([...shown.matchAll(/50 relists/g)]).toHaveLength(1);
   });

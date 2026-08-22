@@ -188,8 +188,12 @@ function click(label: string): Promise<void> {
   });
 }
 
+// Found by its label rather than by a class: the label is what the box *is* to
+// somebody reading the screen, and the class is how it happens to be styled this
+// month. The 2026-08 pass moved it onto `@mprelist/ui`'s own input and this
+// assertion did not have to know.
 const searchBox = (): HTMLInputElement | null =>
-  container.querySelector<HTMLInputElement>(".popup-search-input");
+  container.querySelector<HTMLInputElement>('input[aria-label="Search your ads"]');
 
 /**
  * Type into the search box the way a person does.

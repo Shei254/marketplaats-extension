@@ -62,7 +62,19 @@ body {
   font: var(--mp-text-title) var(--mp-font-family);
   letter-spacing: -0.01em;
 }
-.web-mark { display: inline-flex; color: var(--mp-accent); }
+/* The same tile the popup's header and the admin corner's draw it in, so one
+   product does not have two logos. */
+.web-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: var(--mp-radius-block);
+  background: var(--mp-accent);
+  color: var(--mp-on-accent);
+}
 
 /* Privacy and Terms, on every page (T36, #45). The one being read is marked with
    aria-current rather than with a class, so the emphasis and the thing a screen

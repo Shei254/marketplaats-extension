@@ -125,6 +125,11 @@ and says so at WARN — **"No Stripe webhook secret is configured, so every Stri
 and every event below comes back `400` in the `stripe listen` output. That log line is the other end of the
 thread, since a refused webhook looks like nothing at all from the dashboard.
 
+`stripe listen` forwards **everything**, which is what makes steps 1 to 8 work with no configuration. A
+deployed endpoint (T57, #88) is subscribed by hand, and the five it needs are `price.created`,
+`price.updated`, `customer.subscription.created`, `customer.subscription.updated` and
+`customer.subscription.deleted`. Anything else is answered `200` and ignored.
+
 The Checkout session (T19, #29) has to be created with **`http://localhost:5173/success`** and
 `/cancel`; those two paths are `PATHS` in `apps/web/src/routes.ts` and Stripe holds the only other copy of
 them. The dev server answers every path with the one `index.html`, which is what makes `/success` a page
@@ -150,10 +155,18 @@ rather than a 404 — a host that does not (T55, #86) breaks this step *after* t
    *Expect:* redirect to `apps/web`'s success page, which asks you to reopen the extension and **does not
    ask you to log in**.
 6. Reopen the popup.
-   *Expect:* **`Pro · 50 relists left`** and unlocked buttons. Relist once to confirm.
-7. Open the Customer Portal from the popup and cancel.
+   *Expect:* **`Pro · 50 relists left`** and unlocked buttons, and `resetAt` is **Stripe's** period end rather
+   than a month from signing up. Relist once to confirm.
+   *If it still says Free:* the webhook is where to look, not the popup — `stripe listen` shows the
+   `customer.subscription.created` delivery and its status, and a `400` there is the signing secret.
+7. Open the Customer Portal from the popup and cancel **immediately** (not at period end, which is what the
+   Portal offers by default — "cancel now" is in the test dashboard's own subscription view).
    *Expect:* when Stripe reports the end, the popup shows **`Free · 3`** — not a lockout, and **not** a 402.
-   That is [ADR-0018](adr/0018-lapse-falls-back-to-the-default-tier.md).
+   `stripe_customer_id` is still on the row and `stripe_subscription_id` is gone, which is what makes step 7a
+   one billing history. That is [ADR-0018](adr/0018-lapse-falls-back-to-the-default-tier.md).
+7a. Buy Pro again.
+   *Expect:* Checkout is prefilled as the **same customer**, and the popup is back on Pro. The Stripe
+   dashboard shows one customer with two subscriptions, not two customers.
 8. Force a failed payment (`4000 0000 0000 0341`) on a fresh subscription.
    *Expect:* during dunning the popup keeps the **paid tier**, shows locked buttons, and the copy is
    **"update your card"** with a Portal link — not "resubscribe".

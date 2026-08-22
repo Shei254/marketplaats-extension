@@ -84,6 +84,10 @@ User 1───* MarktplaatsAccount   ── modelled, not yet realised (no stab
   **0**, never the flag unset — which would provision nobody (ADR-0019).
 - **A subscription that ends is a downgrade, never a lockout.** Nobody who has paid ends up with less than
   somebody who never did (ADR-0018).
+- **A webhook is applied at most once, and never out of order.** Stripe delivers at least once and retries for
+  three days, in no guaranteed order, so a Subscription remembers how far through Stripe's telling it is: a
+  redelivery writes the same row again and an event older than what is mirrored is dropped. Otherwise a retry
+  of Monday's cancellation could undo Tuesday's resubscription.
 - **Money is never stored here.** Amount, currency and interval live in Stripe alone; a Plan holds a cache of
   them and never a second copy of record (ADR-0014/0019).
 - **`authorize` never calls Stripe.** Status is read from the webhook-fed mirror; limits from our Tier table.

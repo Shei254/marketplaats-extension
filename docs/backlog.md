@@ -187,18 +187,36 @@ construction rather than by a second `where` clause remembering to say so.
 - `success_url`/`cancel_url` point at `apps/web`'s loginless pages (T50, #81).
 - **`404` when nothing is on sale under that code, `503` when Stripe could not be asked** — different
   statuses because only one of them is worth a retry.
-- The session carries our **account id** as `client_reference_id`, which is how T20 will know whose
-  subscription started; this API holds no email address to match on (#108). An existing `stripe_customer_id`
-  is passed when there is one, so ADR-0018's cancel-and-return is one billing history rather than two.
+- The session carries our **account id** twice: as `client_reference_id`, which the Stripe dashboard shows
+  beside the payment, and as `subscription_data.metadata.app_user_id`, which is what T20 actually pulls on —
+  this API holds no email address to match on (#108). An existing `stripe_customer_id` is passed when there is
+  one, so ADR-0018's cancel-and-return is one billing history rather than two.
 
-#### [T20](https://github.com/Shei254/marketplaats-extension/issues/30) · Stripe webhook receiver → Subscription mirror · **L** · T11
-- Signature verification; idempotent on event id; out-of-order events handled.
-- Maps Stripe status → normalized status; copies `current_period_*` into `period_start`/`period_end`.
-- **Terminal end falls back to the default tier**, `active`, period back on our monthly roll,
-  `stripe_customer_id` kept and `stripe_subscription_id` cleared. **Dunning does not** — `past_due`,
-  `unpaid`, `incomplete` keep the paid tier and stay denied.
-  Refs: [ADR-0018](adr/0018-lapse-falls-back-to-the-default-tier.md).
-- `trialing` mirrors through with no special-casing, though nothing sets one in iteration 1.
+#### [T20](https://github.com/Shei254/marketplaats-extension/issues/30) · Stripe webhook receiver → Subscription mirror · **L** · T11 · **shipped**
+`customer.subscription.created`, `.updated` and `.deleted` become the plan somebody is on — the only thing in
+this application that moves anybody onto a paid tier. Status, tier and Stripe's own billing period are
+mirrored onto the subscriber's row; `trialing` goes through with no special-casing anywhere.
+- **Terminal end falls back to the default tier**, `active`, period back on our monthly roll anchored where it
+  always was, `stripe_customer_id` kept and `stripe_subscription_id` cleared. **Dunning does not** —
+  `past_due`, `unpaid`, `incomplete` keep the paid tier and stay denied, so `SUBSCRIPTION_INACTIVE` means a
+  card that is currently failing and nothing else. Refs:
+  [ADR-0018](adr/0018-lapse-falls-back-to-the-default-tier.md).
+- **The thread is `metadata.app_user_id` on the subscription**, written by T19's Checkout session and copied
+  by Stripe onto the subscription itself, so every event about it names the account — the first one and the
+  cancellation months later. `checkout.session.completed` is deliberately **not** handled: it carries no
+  status, Price or period, and Stripe usually sends it after the subscription was created. The customer id is
+  the fallback lookup, for a subscription made in the dashboard for somebody we already bill.
+- **Order and repetition are one column, not a log of event ids.** `subscription.mirrored_through` holds the
+  `created` of the newest event applied, and an older one is not applied — which stops a three-day retry of
+  Monday's cancellation from undoing Tuesday's resubscription, and makes a redelivery a no-op. Equal
+  timestamps do apply: Stripe stamps whole seconds, and a Checkout generates two events inside one.
+- **Three things it will not guess**, each leaving the plan exactly as it was and answering `200`: a status
+  this API does not store (Stripe adds them), a Price no tier carries (ADR-0019's untagged Price, sold), and
+  an event with no billing period. The tier a Price names is looked up **published or not**, because
+  unpublishing stops new purchases and existing subscribers keep renewing.
+- The period is read from the subscription **item** first and the subscription second — Stripe moved
+  `current_period_*` onto items in the 2025 API versions, and the pinned client has no accessor for the old
+  place at all.
 
 #### [T50](https://github.com/Shei254/marketplaats-extension/issues/81) · `apps/web` scaffold and public pages · **M** · T28, T48
 Rename `apps/dashboard` → `apps/web`. React + Vite, one build, consuming `packages/ui`.

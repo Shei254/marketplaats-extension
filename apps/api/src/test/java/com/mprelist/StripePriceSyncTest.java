@@ -1,6 +1,5 @@
 package com.mprelist;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -12,9 +11,6 @@ import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
-
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,10 +32,10 @@ import tools.jackson.databind.json.JsonMapper;
  * which is the whole of the authentication on it. Every request below carries no token at all — so a chain
  * that stopped opening exactly this path would fail every test here with a 401 rather than in one place.
  *
- * <p>The events are hand-built and signed with the suite's own secret, which is what Stripe's CLI and its
- * servers both do: HMAC-SHA256 over {@code timestamp.payload}, hex, in a {@code Stripe-Signature} header. No
- * Stripe account is involved and none is needed — what is asserted is our end of a published algorithm.
- * Whether a real Price arrives shaped like these is the click-through's, and it is T22 (#28).
+ * <p>The events are hand-built here and signed by {@link StripeDeliveries} with the suite's own secret, which
+ * is what Stripe's CLI and its servers both do. No Stripe account is involved and none is needed — what is
+ * asserted is our end of a published algorithm. Whether a real Price arrives shaped like these is the
+ * click-through's, and it is T22 (#28).
  *
  * <p>Not {@code @Transactional}: the application writes on its own connection. Each test starts from the
  * catalog {@code V2__seed_tier_catalog.sql} left behind, restored by {@link #aCatalogNobodyHasSyncedYet()}.
@@ -60,6 +56,7 @@ class StripePriceSyncTest {
 
 	@BeforeEach
 	void aCatalogNobodyHasSyncedYet() {
+		this.stripe = new StripeDeliveries(this.port, SECRET);
 		this.db.update("delete from tier where code not in ('free', 'pro', 'power')");
 		this.db.update("update tier set stripe_price_id = null, published = false");
 		this.db.update("update tier set name = 'Pro', relist_quota_per_period = 50 where code = 'pro'");
@@ -253,7 +250,8 @@ class StripePriceSyncTest {
 
 	@Test
 	void anEventCarryingNoSignatureIsRefused() {
-		HttpResponse<String> refused = post(priceEvent("price.created", "price_pro_monthly", "pro", null), null);
+		HttpResponse<String> refused = this.stripe
+				.deliveredUnsigned(priceEvent("price.created", "price_pro_monthly", "pro", null));
 
 		assertThat(refused.statusCode()).isEqualTo(400);
 		assertThat(stringOf("pro", "stripe_price_id")).isNull();
@@ -267,7 +265,7 @@ class StripePriceSyncTest {
 	void andOneSignedWithSomeOtherSecretIsRefused() {
 		String payload = priceEvent("price.created", "price_pro_monthly", "pro", null);
 
-		HttpResponse<String> refused = post(payload, signatureOf(payload, "whsec_someoneElsesSecret", Instant.now()));
+		HttpResponse<String> refused = this.stripe.deliveredSignedWith("whsec_someoneElsesSecret", payload);
 
 		assertThat(refused.statusCode()).isEqualTo(400);
 		assertThat(stringOf("pro", "stripe_price_id")).isNull();
@@ -282,7 +280,7 @@ class StripePriceSyncTest {
 		String payload = priceEvent("price.created", "price_pro_monthly", "pro", null);
 		Instant yesterday = Instant.now().minus(1, ChronoUnit.DAYS);
 
-		HttpResponse<String> refused = post(payload, signatureOf(payload, SECRET, yesterday));
+		HttpResponse<String> refused = this.stripe.deliveredAsIfSentAt(yesterday, payload);
 
 		assertThat(refused.statusCode()).isEqualTo(400);
 		assertThat(stringOf("pro", "stripe_price_id")).isNull();
@@ -351,36 +349,8 @@ class StripePriceSyncTest {
 		return JSON.writeValueAsString(event);
 	}
 
-	/**
-	 * Stripe's scheme, spelled out rather than taken from its library: HMAC-SHA256 over
-	 * {@code timestamp.payload}, hex, under {@code v1}. Written by hand here on purpose — a test that signed
-	 * with the same code the application verifies with would pass however wrong both were.
-	 */
-	private static String signatureOf(String payload, String secret, Instant when) {
-		long timestamp = when.getEpochSecond();
-		try {
-			Mac hmac = Mac.getInstance("HmacSHA256");
-			hmac.init(new SecretKeySpec(secret.getBytes(UTF_8), "HmacSHA256"));
-			byte[] signed = hmac.doFinal((timestamp + "." + payload).getBytes(UTF_8));
-			return "t=" + timestamp + ",v1=" + java.util.HexFormat.of().formatHex(signed);
-		}
-		catch (java.security.GeneralSecurityException impossible) {
-			throw new IllegalStateException("HmacSHA256 is required of every JVM", impossible);
-		}
-	}
-
 	private HttpResponse<String> signedPost(String payload) {
-		return post(payload, signatureOf(payload, SECRET, Instant.now()));
-	}
-
-	private HttpResponse<String> post(String payload, String signature) {
-		HttpRequest.Builder request = HttpRequest.newBuilder(uri(WEBHOOK))
-				.header("Content-Type", "application/json")
-				.POST(HttpRequest.BodyPublishers.ofString(payload, UTF_8));
-		if (signature != null) {
-			request.header("Stripe-Signature", signature);
-		}
-		return Http.send(request.build());
+		return this.stripe.delivered(payload);
 	}
 
 	private URI uri(String path) {
@@ -403,6 +373,9 @@ class StripePriceSyncTest {
 	private boolean publishedIs(String code) {
 		return this.db.queryForObject("select published from tier where code = ?", Boolean.class, code);
 	}
+
+	/** The deliveries this suite makes, signed with the secret above. */
+	private StripeDeliveries stripe;
 
 	private static final String WEBHOOK = "/api/stripe/webhook";
 

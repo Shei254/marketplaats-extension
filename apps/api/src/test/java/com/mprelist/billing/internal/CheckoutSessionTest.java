@@ -35,8 +35,8 @@ import com.sun.net.httpserver.HttpServer;
  *
  * <p>Asserted against the bytes on the wire rather than through a mocked SDK, for {@code StripePriceCacheTest}'s
  * reason and one sharper: the fields here are the ones that decide whether the money can ever be traced back
- * to an account — {@code client_reference_id} is the whole of how the webhook (T20, #30) will know whose
- * subscription started, and a mock would happily accept it missing.
+ * to an account — our own id travels on the session and again on the subscription it creates, which is how the
+ * webhook (T20, #30) knows whose plan just moved, and a mock would happily accept either of them missing.
  *
  * <p>No Spring, no database and no token: the catalog and the subscription mirror are the two interfaces this
  * needs, and both are public ports with one method each worth standing up by hand. The route around it —
@@ -102,6 +102,21 @@ class CheckoutSessionTest {
 		checkout(List.of(PRO), Optional.empty()).open(BUYER, "pro");
 
 		assertThat(this.posted).containsEntry("client_reference_id", BUYER.id().toString());
+	}
+
+	/**
+	 * And the subscription the session creates carries it too, which is the thread that outlives the session:
+	 * Stripe copies {@code subscription_data.metadata} onto the subscription, so every event about it —
+	 * including the cancellation months later, where no session is in sight — names the account it belongs to.
+	 * Without this the mirror (T20, #30) would have to match a customer id it has only ever learned from an
+	 * earlier event, and a purchase whose events arrive in Stripe's usual order would have nothing to match on
+	 * at all.
+	 */
+	@Test
+	void andTheSubscriptionItCreatesCarriesItToo() {
+		checkout(List.of(PRO), Optional.empty()).open(BUYER, "pro");
+
+		assertThat(this.posted).containsEntry("subscription_data[metadata][app_user_id]", BUYER.id().toString());
 	}
 
 	@Test
@@ -252,6 +267,11 @@ class CheckoutSessionTest {
 			@Override
 			public List<SellablePlan> published() {
 				return onSale;
+			}
+
+			@Override
+			public Optional<TierId> tierSoldAs(String stripePriceId) {
+				throw new UnsupportedOperationException("that is the webhook's question, not this one's");
 			}
 
 		};

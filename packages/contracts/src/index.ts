@@ -14,6 +14,8 @@ export {
   DENIAL_REASONS,
   RELIST_OUTCOMES,
   SUBSCRIPTION_STATUSES,
+  type AdminTier,
+  type AdminTiers,
   type AuthorizeRequest,
   type CheckoutRequest,
   type CheckoutSession,
@@ -29,5 +31,8 @@ export {
   type RelistOutcomeCode,
   type RemainingQuota,
   type SubscriptionStatus,
+  type TierEdit,
   type TierName,
+  type UnadoptedPrices,
+  type UntaggedPrice,
 } from "./enforcement";

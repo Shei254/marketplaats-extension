@@ -279,14 +279,28 @@ locked out with an upgrade prompt. → [script](click-through.md#slice-d--i-can-
 #### [T18](https://github.com/Shei254/marketplaats-extension/issues/27) · `admin` module skeleton + role guard · **S** · T10
 `ADMIN` role from the realm; every route under it closed to anyone else.
 
-#### [T53](https://github.com/Shei254/marketplaats-extension/issues/84) · Tier CRUD · **M** · T18, T51
-Quota, name, feature flags, `isDefault`, publish/unpublish. **Not** amount or interval — Stripe Prices are
-immutable and those are not ours ([ADR-0019](adr/0019-plans-are-stripe-first-and-webhook-synced.md)).
-- Lists **unadopted Stripe Prices** too, so a missing `tier_code` tag is visible rather than silent.
-- Refuses unsetting `isDefault` without setting another: a catalog with no default provisions nobody.
-  "No free tier" is **quota 0** on the default tier.
+#### [T53](https://github.com/Shei254/marketplaats-extension/issues/84) · Tier CRUD · **M** · T18, T51 · **shipped**
+`GET /api/admin/tiers`, `PUT …/{code}`, `PUT …/{code}/default`, `GET /api/admin/prices`. Quota, name, feature
+flags, publish/unpublish and which tier new accounts start on. **Not** amount or interval — Stripe Prices are
+immutable and those are not ours ([ADR-0019](adr/0019-plans-are-stripe-first-and-webhook-synced.md)) — and not
+`stripePriceId` or `code` either, since the tag on the Price is the only link and a second copy is the one that
+drifts.
+- **The list is unfiltered**, which is the point: `GET /api/plans` hides a draft and the free tier, and hiding
+  them here too would leave an operator with no way to reach the one thing the screen exists for. No amount on
+  any of them, so the catalog stays editable while Stripe is down.
+- **`isDefault` moves rather than toggling**, and that is how "refuses unsetting it" is satisfied — by
+  construction rather than by a refusal. `PUT …/{code}/default` is the only way to change it, so no request
+  anybody can send leaves the catalog with none. "No free tier" is **quota 0** on the default tier.
+- **`409` for publishing a tier with nothing to charge against**, answered rather than left to
+  `V5__tier_publication.sql` to throw: the constraint would give a `500` where what is wanted is an operator
+  being told to go and create a Price in Stripe.
 - Lowering a quota under subscribers is allowed and clamps `quotaRemaining` at zero — no proration, no
-  notification (ADR-0014, amended).
+  notification (ADR-0014, amended). It writes nothing to anybody's row; the arithmetic follows the edit.
+- **Lists unadopted Stripe Prices** and does nothing with them: a Price with no `tier_code` is visible rather
+  than silent, and adopting one is done by adding the tag in Stripe, which goes through T51's sync.
+- **`admin` composes and owns nothing**, which makes it `display`'s counterpart for the other audience: the
+  rows are `catalog`'s through a third port (`TierEdits`) beside the gate's and the webhook's, and the Prices
+  are `billing`'s through `UnadoptedPrices`.
 
 #### [T54](https://github.com/Shei254/marketplaats-extension/issues/85) · `/admin` routes in `apps/web` · **M** · T50, T53
 Keycloak redirect PKCE against the existing `mprelist-dashboard` client, guarded on the `ADMIN` role. Tier

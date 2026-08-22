@@ -1611,6 +1611,96 @@ configured**, which is what makes both refusals testable — each is decided bef
 `200` over a real port needs a live account *with its Portal configured*, and that is the click-through's
 (slice C, step 7).
 
+## The catalog, as an operator works on it
+
+`GET /api/admin/tiers`, `PUT /api/admin/tiers/{code}`, `PUT /api/admin/tiers/{code}/default` and
+`GET /api/admin/prices` ([#84](https://github.com/Shei254/marketplaats-extension/issues/84), T53) — the CRUD
+ADR-0014 deferred and [ADR-0019](../../docs/adr/0019-plans-are-stripe-first-and-webhook-synced.md)
+un-deferred once iteration 1 had something to sell.
+
+**Guarded by being where it is.** `OperatorsOnly` (#27) closes `/api/admin/**` on the realm's `ADMIN` role
+before routing, so none of these handlers asks and none of them can forget to. That was the whole of #27 and
+this is the ticket it was for.
+
+**`admin` composes and owns nothing**, which makes it `display`'s counterpart for the other audience. The rows
+are `catalog`'s, reached through a **third port** — `TierEdits`, beside the `TierCatalog` the gate reads and the
+`PriceAdoptions` the webhook writes. Three ports rather than three methods on one, for the reason the first two
+are already separate: the gate must not be able to write and the webhook must not be able to set a quota, so
+being able to edit the catalog is a capability only the module behind the `ADMIN` role has. The Prices are
+`billing`'s through `UnadoptedPrices`, which hands over our own records, so ADR-0014's "Stripe stays in one
+module" holds here as everywhere else.
+
+**The list is unfiltered, and that is the point.** `GET /api/plans` hides a draft — quota 0, unpublished,
+created by the sync for a Price nobody has decided about — and hides the free tier, which has nothing to
+charge against. Hiding them here too would leave an operator with no way to reach the one thing this screen
+exists for. There is **no amount** on any row either: money is Stripe's, and an operator locked out of their
+own catalog during a Stripe outage would be locked out of the one tool that could work around it.
+
+**`isDefault` moves rather than toggling, and that is the design rather than an API style.** The catalog must
+carry exactly one default: `TierCatalog.defaultTier()` throws when no row does and `ProvisionOnFirstLogin`
+catches nothing, so a catalog with none takes down every new sign-in — and the operator who caused it would
+see nothing wrong on their own screen. Written as `PUT …/{code}/default`, there is no request anybody can send
+that leaves the catalog without one, so the invariant needs no refusal to defend it and no test to prove the
+refusal works. The alternative — a boolean on the edit body, refused when it would clear the last one — is a
+status, a message and a test, all to guard something that can simply be made unsayable. Two statements in one
+transaction rather than `set is_default = (code = ?)`, because `tier_single_default` is a plain partial unique
+index and is checked row by row as a statement proceeds.
+
+**`409` is answered rather than thrown.** Publishing a tier with no Stripe Price is refused by
+`V5__tier_publication.sql` whatever anybody does, which would arrive under the route as a
+`DataIntegrityViolationException` — a `500` and a stack trace where what is wanted is a sentence telling an
+operator to go and create a Price in Stripe. So the check is made before the update as well. That is the one
+place in `TierRows` that duplicates a constraint, and the constraint stays: it is what makes the rule true of
+every writer including this one.
+
+**Lowering a quota under subscribers writes nothing to anybody's row.** What is left of a period is the grant
+minus what has been spent, clamped at zero (`RemainingQuota`), so the arithmetic follows the edit by itself —
+which is why there is no proration, no notification and nothing to undo. This resolves the last item under
+"Open spikes" in [`docs/enforcement-contract.md`](../../docs/enforcement-contract.md).
+
+**The unadopted Price list exists because the failure it reports is silent.** ADR-0019 names it in its own
+consequences: a Price created without `metadata.tier_code` produces a plan screen without that plan and no
+error anywhere. The list is uncached where its neighbour `CachedStripePrices` caches everything — that one
+answers for an immutable Price on a display path, this one is asked by an operator seconds after they created
+something, and a cache would answer "not yet" to somebody whose next move is to reload. It **lists and does
+nothing**: Stripe accounts hold Prices for one-offs and experiments, and adopting is done by adding the tag in
+Stripe, which fires `price.updated` and goes through the sync that already exists.
+
+Mutation-verified — each applied, observed, reverted:
+
+| Mutation | Fails |
+|---|---|
+| the tier routes moved out of `/api/admin` | twenty-three — every call in the suite that carries a token |
+| the operator's list filtered on `published` | twelve, starting at `theListIsEveryTierThereIs` |
+| the quota column dropped from the edit's `update` | four, including both quota-under-subscribers tests |
+| publishing without a price left to the constraint | `butATierWithNoPriceCannotBePutOnSaleAtAll` |
+| the default set without clearing the old one first | `theDefaultMovesRatherThanToggling` |
+| a missing `published` or quota defaulted instead of refused | `anEditThatLeavesOutAFieldItCouldChangeIsNotOne` |
+| the answer assembled from the request rather than read back | `andTheFlagsComeBackAsTheColumnHoldsThem` |
+| a tagged Price listed as unadopted | `aPriceThatNamesATierIsNotUnadopted` (+1) |
+| a blank `tier_code` treated as a tag | `andSoIsOneWhoseTagWasEmptied` |
+| an unreachable Stripe answered as an empty list | three, across both suites |
+
+**One mutation survived, and it took a clause out with it.** Sparing the new default from the clearing
+statement — `where is_default and code <> :code` — turned out to be indistinguishable from clearing every row
+and setting one, because re-setting the flag a statement later leaves exactly the same row. That is #41's
+precedent, so the clause is gone rather than kept beside a test that cannot tell the difference.
+
+**And one test survived long enough to prove the rule it was written beside.** `AdminTierTest`'s own setup
+moved the default flag with a single `set is_default = (code = 'free')`, which is precisely the form
+`makeDefault` avoids — and it failed with a duplicate key on `tier_single_default` the first time a test that
+moves the flag happened to run before one that reads it. The setup now clears and then sets, like the code it
+tests.
+
+**One more, found the same way.** `AdminGuardTest` used `/api/admin/tiers` as its example of "a path nobody
+has written yet", and this ticket wrote it — so that suite failed, correctly. It now names a path nothing is
+planned for, which is the only version of that test that stays meaningful.
+
+**Not verified: no operator has ever used any of this.** There is no screen — that is T54
+([#85](https://github.com/Shei254/marketplaats-extension/issues/85)) — so every call in the suite is one this
+repository made to itself with a hand-minted `ADMIN` token, and the unadopted Price list has never seen a real
+Stripe account. Slice D's click-through is what walks it.
+
 ## Which build may call it
 
 `X-Mprelist-Client: extension/0.0.1`, on every call, and a lever for the day a build must stop

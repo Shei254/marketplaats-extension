@@ -15,10 +15,17 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
  * Which browser origins may call this API, and with what.
  *
  * <p><strong>Every client of this API is cross-origin and always will be.</strong> The extension calls from
- * {@code chrome-extension://<id>} and {@code apps/web} will call from its own host, so without this a browser
- * refuses the answer before any of our code sees a problem — the symptom being a console line about a missing
- * {@code Access-Control-Allow-Origin} and a popup that shows "unavailable" for a backend that answered
- * perfectly well.
+ * {@code chrome-extension://<id>} and {@code apps/web}'s admin corner from its own host, so without this a
+ * browser refuses the answer before any of our code sees a problem — the symptom being a console line about a
+ * missing {@code Access-Control-Allow-Origin} and a screen that shows "unavailable" for a backend that
+ * answered perfectly well.
+ *
+ * <p><strong>Both halves of this configuration have now been got wrong once, the same way.</strong> T54 (#85)
+ * shipped an admin UI without adding its origin here, and T53 (#84) shipped {@code PUT} routes without adding
+ * the method — and neither is visible from this side, because a browser refuses before the request is sent
+ * and this application logs nothing at all. That is why the origins are named at startup below, and why
+ * {@code CrossOriginTest} holds this list against {@code mprelist.web.base-url} and against the realm's own
+ * {@code webOrigins} rather than against a literal written twice.
  *
  * <p><strong>Why not the extension's own host permission instead.</strong> An MV3 worker with the API's host
  * in {@code host_permissions} is exempt from CORS entirely, which would have needed no change here. It was
@@ -57,10 +64,15 @@ class CrossOriginCallers {
 			@Value("${mprelist.cors.allowed-origins}") List<String> origins) {
 		CorsConfiguration allowed = new CorsConfiguration();
 		allowed.setAllowedOrigins(origins);
-		// The two the contract uses. `OPTIONS` is not among them and does not need to be: a preflight is
-		// answered by the filter this configures rather than routed, and what it is checked against is the
-		// method the caller says it is preparing to send.
-		allowed.setAllowedMethods(List.of("GET", "POST"));
+		// The three this API answers. `PUT` arrived with the admin catalog (T53, #84) and is exactly as
+		// load-bearing as the other two: a method a preflight does not allow makes the browser abandon the
+		// call, so an operator's every save would fail with nothing in this application's log to show for it.
+		// There is no `DELETE`, because nothing here deletes — a tier is retired by unpublishing it.
+		//
+		// `OPTIONS` is not among them and does not need to be: a preflight is answered by the filter this
+		// configures rather than routed, and what it is checked against is the method the caller says it is
+		// preparing to send.
+		allowed.setAllowedMethods(List.of("GET", "POST", "PUT"));
 		// `Authorization` is never a safelisted header and `Content-Type: application/json` is not one
 		// either, so every call this API takes is preflighted and both have to be named here.
 		//

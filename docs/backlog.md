@@ -180,9 +180,16 @@ currency and interval Stripe's, **cached and never stored**.
   cannot go stale. What changes is which id a tier points at, and that is read from our own table every time.
 - `authorize` still never calls Stripe — this is display, not the hot path.
 
-#### [T19](https://github.com/Shei254/marketplaats-extension/issues/29) · Stripe Checkout session endpoint · **M** · T12, T51
-Creates a Checkout session for a chosen tier's `stripe_price_id`; returns the redirect URL. Refuses a tier
-that is unpublished or has no price. `success_url`/`cancel_url` point at `apps/web` (T50).
+#### [T19](https://github.com/Shei254/marketplaats-extension/issues/29) · Stripe Checkout session endpoint · **M** · T12, T51 · **shipped**
+`POST /api/checkout` takes a tier **code**, resolves it against the same published list `GET /api/plans`
+renders, and answers with the session URL. So a tier that is unpublished or has no price is unbuyable by
+construction rather than by a second `where` clause remembering to say so.
+- `success_url`/`cancel_url` point at `apps/web`'s loginless pages (T50, #81).
+- **`404` when nothing is on sale under that code, `503` when Stripe could not be asked** — different
+  statuses because only one of them is worth a retry.
+- The session carries our **account id** as `client_reference_id`, which is how T20 will know whose
+  subscription started; this API holds no email address to match on (#108). An existing `stripe_customer_id`
+  is passed when there is one, so ADR-0018's cancel-and-return is one billing history rather than two.
 
 #### [T20](https://github.com/Shei254/marketplaats-extension/issues/30) · Stripe webhook receiver → Subscription mirror · **L** · T11
 - Signature verification; idempotent on event id; out-of-order events handled.

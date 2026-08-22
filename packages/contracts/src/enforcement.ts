@@ -189,3 +189,33 @@ export interface Plan {
 export interface Plans {
   plans: Plan[];
 }
+
+/**
+ * `POST /api/checkout` — what the popup asks with when somebody chooses a plan
+ * (T19, #29).
+ *
+ * **The tier code, never a Stripe price id.** `code` is the stable handle
+ * ADR-0014 makes the thing anything references, and it is ours to resolve: a
+ * client naming a price id could name one we never published.
+ */
+export interface CheckoutRequest {
+  tierCode: string;
+}
+
+/**
+ * Where to send the browser. The popup opens it in a tab and is destroyed the
+ * moment that tab takes focus — expected, and the reason `apps/web`'s success page
+ * exists to catch the browser (ADR-0017).
+ *
+ * **A `200` is an offer to pay and not an entitlement.** What moves the plan is
+ * Stripe telling us the money did, through the webhook (T20, #30). A client that
+ * treated this answer as an upgrade would show a tier the gate is about to refuse.
+ *
+ * The refusals carry no body: `404` when nothing is on sale under that code — an
+ * unknown tier, an unpublished one, or a draft — which is what a client holding
+ * yesterday's plan cards gets; `503` when Stripe could not be asked, which is the
+ * only one a retry fixes.
+ */
+export interface CheckoutSession {
+  url: string;
+}

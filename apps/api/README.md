@@ -1396,6 +1396,45 @@ Stripe's own JSON on a loopback port and points the real client at it, because w
 mapping (`unit_amount` is not `amount`, the interval is nested under `recurring`) and a mocked SDK would pass
 with every one of those upside down.
 
+## Where a plan card becomes a payment
+
+`POST /api/checkout` ([#29](https://github.com/Shei254/marketplaats-extension/issues/29), T19): a tier code
+in, a Stripe Checkout URL out. The wire shape is
+[`docs/enforcement-contract.md`](../../docs/enforcement-contract.md); what is here is why it is built the way
+it is.
+
+**You can only buy what the cards show.** The tier is resolved against `TierCatalog.published()` — the same
+list `GET /api/plans` renders — rather than by a query of its own. "Published, and carrying a Price" is
+therefore decided in exactly one place, and a draft synced at quota 0 before anybody said what it grants is
+unbuyable *by construction* rather than by a second `where` clause remembering to say so.
+
+**Two refusals, two statuses, and the difference is whether a retry helps.** `404` means nothing is on sale
+under that code — which is what a client holding yesterday's plan cards gets, and is nobody's error. `503`
+means Stripe could not be asked. Collapsing them would have a network blip tell a buyer that the plan they
+were looking at no longer exists.
+
+**Every session carries our own account id as `client_reference_id`.** That is the thread T20 (#30) pulls to
+know whose subscription just started; the alternative is matching on an email address, which this application
+deliberately does not hold ([#108](https://github.com/Shei254/marketplaats-extension/issues/108)). Nothing
+else about the person is sent — Stripe collects what it needs itself.
+
+**A returning subscriber is the same customer.** ADR-0018 has a cancellation drop somebody back to the free
+tier with `stripe_customer_id` *kept*, precisely so resubscribing continues one billing history. So an
+existing customer id is passed when we have one, which is what `Subscriptions.stripeCustomerFor` was added
+for — a second question rather than a field on `Subscription`, because that record is read on the authorize
+path and a Stripe id travelling there is a column a later reader could come to branch on.
+
+**Which payment methods are offered is the Stripe account's setting, not a parameter here.** iDEAL and SEPA
+for a Dutch marketplace (ADR-0006) are configured in the dashboard (T22, #28); naming them in code would mean
+a deploy to add one, and a second answer beside the dashboard's.
+
+`CheckoutSessionTest` asserts what we send Stripe against the bytes on the wire — a stub on a loopback port,
+because `client_reference_id` is the whole of how money is traced back to an account and a mocked SDK would
+accept it missing. `CheckoutTest` drives the route with **no Stripe configured**, which is what makes the
+refusals testable: every one of them is decided before Stripe would be asked, and the unconfigured key
+produces the one that is not. A `200` over a real port needs a live Stripe account and is the click-through's
+(slice C, step 4).
+
 ## Which build may call it
 
 `X-Mprelist-Client: extension/0.0.1`, on every call, and a lever for the day a build must stop

@@ -15,6 +15,8 @@ export {
   RELIST_OUTCOMES,
   SUBSCRIPTION_STATUSES,
   type AuthorizeRequest,
+  type CheckoutRequest,
+  type CheckoutSession,
   type CompleteRequest,
   type Denial,
   type DenialReason,

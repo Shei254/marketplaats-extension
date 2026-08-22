@@ -4,6 +4,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -42,6 +43,27 @@ class SubscriptionRows implements Subscriptions {
 	 * left to notice. With it, that mutation fails 24 of the 27 tests in {@code RelistAuthorizationTest} rather
 	 * than whichever ones happened to overlap.
 	 */
+	/**
+	 * One column, no lock and no transaction of its own.
+	 *
+	 * <p>Unlike {@link #currentFor(UserRef)} this is not read-then-write: the caller is about to send somebody
+	 * to Stripe, and nothing it does depends on the row staying still — the worst a concurrent change can do
+	 * is send a returning subscriber to Checkout as a new customer, which is the state this exists to avoid
+	 * rather than one it would create.
+	 *
+	 * <p>Answers empty rather than throwing for a missing account, which is the opposite of the read above and
+	 * deliberate: there the absence is a broken invariant a gate would misread as an exhausted quota; here the
+	 * absence is the ordinary case — every free user has no customer id — and the caller's next move is the
+	 * same either way.
+	 */
+	@Override
+	public Optional<String> stripeCustomerFor(UserRef user) {
+		return this.db.sql("select stripe_customer_id from subscription where app_user_id = ?")
+				.param(user.id())
+				.query(String.class)
+				.optional();
+	}
+
 	@Override
 	@Transactional(propagation = Propagation.MANDATORY)
 	public Subscription currentFor(UserRef user) {

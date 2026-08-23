@@ -2,6 +2,7 @@ import type { JSX } from "react";
 
 import { ADMIN_PATH, isAdminPath } from "../routes";
 import { AdminApp } from "./AdminApp";
+import { deployedConfig } from "./deployed-config";
 
 /**
  * `AdminApp` with the browser wired into it (T54, #85).
@@ -23,6 +24,12 @@ import { AdminApp } from "./AdminApp";
 export function BrowserAdminApp(): JSX.Element {
   return (
     <AdminApp
+      // Where the API and the realm are, which is the one thing about this
+      // surface that a deployment decides rather than a build (T55, #86). Empty
+      // or absent means the built-in defaults are right, which is what a
+      // development machine serves and what an image run with neither variable
+      // set serves too.
+      config={deployedConfig(window.__MPRELIST_WEB_CONFIG__, location.origin)}
       storage={sessionStorage}
       search={location.search}
       // Where to come back to. A redirect from Keycloak lands on `/` — the only

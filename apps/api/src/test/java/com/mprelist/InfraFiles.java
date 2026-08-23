@@ -6,7 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
- * The files this suite reads out of the working tree rather than off the classpath — {@code infra/}'s two,
+ * The files this suite reads out of the working tree rather than off the classpath — {@code infra/}'s four,
  * and the extension manifest whose pinned key this application's allowed origin is derived from.
  *
  * <p>Named here once because three things have to agree on where they are: the tests that read them,
@@ -20,6 +20,20 @@ final class InfraFiles {
 	/** The compose file, which is also the marker the repository root is found by. */
 	static Path composeFile() {
 		return repositoryRoot().resolve(COMPOSE_FILE);
+	}
+
+	/**
+	 * The deployed stack (T55, #86), which no test starts and every test that reads it is about a difference
+	 * between it and the file above — a credential that is committed in one and must not be in the other, a
+	 * Keycloak in development mode, a port published to nobody's benefit.
+	 */
+	static Path productionComposeFile() {
+		return repositoryRoot().resolve("infra/docker-compose.prod.yml");
+	}
+
+	/** Its committed example environment, which is to it what {@link #environmentExample()} is to the stack. */
+	static Path productionEnvironmentExample() {
+		return repositoryRoot().resolve("infra/production.env.example");
 	}
 
 	/** The realm {@link KeycloakFromCompose} imports, mounted into a container rather than read here. */

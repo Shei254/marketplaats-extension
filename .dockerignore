@@ -1,0 +1,16 @@
+# The repository root is `apps/web`'s build context (apps/web/Dockerfile), so this is what keeps that from
+# meaning the whole working tree — every install and every build inside the image is done from source.
+#
+# The two env files are the lines that matter most: `.env` is this repository's one credential file, and
+# `production.env` is the deployed stack's — written on the host, beside this, and holding every password
+# there is. Neither belongs in a build context that produces a public web server.
+.env
+production.env
+node_modules
+**/node_modules
+**/dist
+apps/api/build
+apps/api/.gradle
+.git
+.idea
+ralf

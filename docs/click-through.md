@@ -312,3 +312,58 @@ variable and a restart. Run these from a `build:dev` extension with the service-
 11e. Stop the API entirely and `await __clientConfig()`.
    *Expect:* `unavailable`, and `chrome.storage.local.get("clientConfig")` still holds the last document. A
    backend that blinked must not un-apply the hotfix that is holding relisting together.
+
+---
+
+## Go-Live · The stack is somewhere else (T55, #86)
+
+Not a slice: there is no screen here that slices A–D have not already reviewed, and what is being checked is
+that the same screens work when nothing is on your machine. Walked **on the host**, from a clone of this
+repository. [ADR-0020](adr/0020-deployment.md) is the shape of it and
+[`infra/README.md` § Deploying](../infra/README.md#deploying) is the runbook.
+
+The realm this imports is **not** `infra/keycloak` — that is [T56 (#87)](https://github.com/Shei254/marketplaats-extension/issues/87)'s
+export, and it has to exist before step 2. Until TLS is in front (also T56), publish the three ports on
+loopback and reach them through an SSH tunnel rather than over the internet.
+
+1. `cp infra/production.env.example production.env`, fill in everything except
+   `MPRELIST_KEYCLOAK_ADMIN_PASSWORD`, and bring the stack up.
+   *Expect:* it refuses to start and names that variable and what it is for. Every credential and every
+   address here is a variable with no default, so a half-filled deployment is a refusal rather than a stack
+   running on somebody's guess. Fill it in.
+2. `docker compose --env-file production.env -f infra/docker-compose.prod.yml up -d --build --wait`.
+   *Expect:* both images build from source on the host and all four containers report healthy. The API's own
+   check is a `401` from `/api/me` — the application answering *and* the resource server in front of it — so
+   `--wait` returning means more than a listening port. First build is slow; there is no registry (ADR-0020).
+3. Open `https://www.<domain>/success` and `https://www.<domain>/privacy` directly, without going through
+   any other page.
+   *Expect:* the pages, not a 404. **This is the step this ticket exists for**: one build and one
+   `index.html`, so a host left on its default breaks the page a customer lands on after the money has moved
+   — and the privacy URL is the one the Web Store listing publishes (T58, #89).
+4. `curl https://www.<domain>/config.js`.
+   *Expect:* the two addresses from `production.env`, not `localhost`. This is what the admin corner signs in
+   and calls the API with; empty values here would mean it had fallen back to the addresses the bundle was
+   built with.
+5. Sign in at `https://admin.<domain>/admin` as a realm admin and change a tier's quota.
+   *Expect:* the sign-in leaves for the deployed Keycloak and comes back signed in, and the save succeeds.
+   A `401` on the save with a successful sign-in is the API trusting a different issuer than the browser
+   used — check that step 4's issuer and `SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI` are the same
+   address.
+6. From your laptop, `psql postgres://mprelist@<host>:5432/mprelist`.
+   *Expect:* it cannot connect. The database publishes no port; the two services that need it are on the
+   compose network.
+7. Reach Keycloak over plain `http://` from off the host, before TLS is in front of it.
+   *Expect:* `403 {"error_description":"HTTPS required"}`. The realm imports as `sslRequired: external`
+   because this compose file, unlike the local one, never relaxes it — so a deployment without TLS refuses
+   sign-ins rather than serving them insecurely.
+8. Set `MPRELIST_CLIENT_CONFIG` in `production.env` to a nonsense `deleteAd` path and re-run the `up`
+   command; then `curl` `/api/client-config` with a token.
+   *Expect:* the patch is served. The night Marktplaats moves something, this is the whole fix and it is a
+   restart of one container — the ADR-0013 lever, now on a stack a user's extension can actually reach.
+9. `docker compose … exec -T postgres pg_dump -U mprelist mprelist | gzip > mprelist-$(date +%F).sql.gz`.
+   *Expect:* a file with a schema in it. Nothing backs this up for you and the volume is the only copy of
+   every subscription this application knows about.
+
+**What this does not check, and cannot yet:** a published extension talking to it. The extension's API and
+issuer addresses are compiled in (`apps/extension/src/api/api-config.ts`, `auth/auth-config.ts`) and still
+name `localhost` — T56 (#87) is what points a build at the deployed stack, and T58 (#89) is what publishes it.

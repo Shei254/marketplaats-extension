@@ -1,4 +1,4 @@
-# The whole of CI: two jobs that never wait for each other.
+# The whole of CI: three jobs that never wait for each other.
 #
 # `apps/api` is Gradle and everything else is npm (docs/adr/0011-repository-layout.md), and the two have
 # nothing to say to one another — no artefact crosses, no version is shared, neither builds the other. So
@@ -6,7 +6,7 @@
 # the backend's verdict, in a monorepo whose workspaces deploy separately.
 #
 # There are deliberately **no path filters**, tempting though they are on a private repository that pays
-# for minutes. Both jobs read files outside the directory they are named for: `apps/api/build.gradle.kts`
+# for minutes. Every job reads files outside the directory it is named for: `apps/api/build.gradle.kts`
 # declares `infra/docker-compose.yml` and `infra/keycloak/mprelist-realm.json` as test inputs, because most
 # of that suite reads them out of the working tree rather than off the classpath — the compose file names
 # the Postgres image every one of those tests starts. The extension build reads the root `brand.json` the
@@ -97,9 +97,9 @@ jobs:
         with:
           cache-provider: basic
 
-      # `build`, not `test`: it runs the same suite and then assembles the boot jar, which is the artefact
-      # T55 deploys. The mirror of `npm run build` in the job above — each side proves the shippable thing
-      # comes out, not only that the tests pass.
+      # `build`, not `test`: it runs the same suite and then assembles the boot jar, which is what the
+      # deployed image ends up running (T55, #86). The mirror of `npm run build` in the job above — each
+      # side proves the shippable thing comes out, not only that the tests pass.
       #
       # Testcontainers starts a Postgres and a Keycloak of its own against the runner's Docker daemon, so
       # no `services:` block is declared here and none should be: the suite takes those images from
@@ -117,3 +117,23 @@ jobs:
           name: api-test-report
           path: apps/api/build/reports/tests/test
           retention-days: 7
+
+  images:
+    name: deployable images
+    runs-on: ubuntu-latest
+    # The API image compiles this repository inside it, from a cold Gradle cache every run — a BuildKit
+    # cache mount is a developer's second build, not a runner's first.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      # The third job exists because nothing else here ever reads these two files, and the moment they are
+      # first needed is the moment a deploy is being attempted (docs/adr/0020-deployment.md). A Dockerfile
+      # that stopped building would otherwise be found by whoever is trying to ship a fix.
+      #
+      # `docker build` rather than `docker compose build`: compose would first have to interpolate a
+      # production environment, and this repository has none and must not invent one to satisfy a build.
+      # The contexts are the two the compose file names — `apps/api` alone, and the repository root for
+      # `apps/web`, which builds against `packages/` and the root `brand.json`.
+      - run: docker build -f apps/api/Dockerfile apps/api
+      - run: docker build -f apps/web/Dockerfile .

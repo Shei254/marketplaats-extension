@@ -11,7 +11,7 @@ fails the suite rather than drifting quietly. Tokens set by whatever the first s
 how a design language ends up being nobody's decision.
 
 ```ts
-import { Button, Icon, IconButton, Note, Skeleton, Spinner, UiStyles } from "@mprelist/ui";
+import { Badge, Button, Card, Field, Input, Meter, Note, UiStyles } from "@mprelist/ui";
 
 <div className="mp-root">
   <UiStyles />
@@ -23,13 +23,35 @@ import { Button, Icon, IconButton, Note, Skeleton, Spinner, UiStyles } from "@mp
 
 | | |
 |---|---|
-| `tokens.ts` | the palette (light and dark), the type steps, the spacing step, the radii and the one duration. **The only place a colour is written down.** |
+| `tokens.ts` | the palette (light and dark), the type steps, the spacing step, the radii, the elevations and the motion. **The only place a colour is written down.** |
 | `theme.ts` | those tokens as CSS custom properties, generated rather than kept beside them |
 | `styles.ts` | the component rules, and `uiCss` — the properties and the rules in one string |
-| `components/` | `Button`, `IconButton`, `Icon`, `Note`, `Skeleton`, `Spinner`, `UiStyles` |
+| `components/` | `Button`, `IconButton`, `Icon`, `Badge`, `Card`, `Field` (with `Input`, `Select`, `Textarea`, `Checkbox`), `Meter`, `Note`, `Skeleton`, `Spinner`, `UiStyles` |
 
 **Not** in it, deliberately: the popup's header, rows, quota strip and callouts. Those are screens, and they
 are T29 (#38), T30a (#39), T30b (#79) and T32 (#41). This package is what they are all built out of.
+
+## What the 2026-08 pass added, and the rule it followed
+
+[ADR-0021](../../docs/adr/0021-design-system-stays-ours.md) is the decision — **not shadcn**, and why. The
+rule this package now states for itself is: **a component two screens have spelled twice is a component.**
+Every one of these existed already, once in `admin-styles.ts` and once in `popup-styles.ts`:
+
+| | Was |
+|---|---|
+| `Badge` | the admin corner's `admin-pill` and the plan card's `popup-plan-card-pill` |
+| `Card` | the public site's `web-card`, and nothing at all in `/admin` |
+| `Field` · `Input` · `Select` · `Textarea` · `Checkbox` | `admin-field` and five bare element selectors |
+| `.mp-table` | `admin-table` |
+| `Button tone="ghost"` | the popup's `popup-quiet` and the admin's `admin-who` |
+
+`Meter` is the only one that is new rather than moved: the quota was three words of text, and a fraction is
+read before it is counted.
+
+Three things changed for the *design* rather than for this package: **focus is visible** on every control
+(one rule, and there was none before), **state changes are transitions** — colour and shadow only, at
+`--mp-fast`, dropped entirely under `prefers-reduced-motion` — and there are now **two elevations**, so a
+card at rest and a card that is lifted are different things.
 
 ## Three decisions worth knowing before you use it
 

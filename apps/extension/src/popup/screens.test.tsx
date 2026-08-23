@@ -57,7 +57,7 @@ describe("the plan strip", () => {
 
   it("names the tier as the operator spells it, beside what is left", () => {
     const markup = render(2);
-    expect(markup).toContain("<b>Free</b>");
+    expect(markup).toContain('<span class="popup-plan-name">Free</span>');
     expect(markup).toContain("2 of 3 relists left");
     expect(markup).toContain("resets 14 Sep");
   });

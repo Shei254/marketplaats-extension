@@ -195,6 +195,7 @@ export function AdRow({
           <span className="popup-ad-price">{formatEuro(ad.priceCents)}</span>
         </div>
         <Button
+          shape="rect"
           tone={counting != null ? "cooldown" : toneFor(state, locked)}
           title={tooltipFor(state, ad.title)}
           onClick={() => onStart(ad.id, action)}

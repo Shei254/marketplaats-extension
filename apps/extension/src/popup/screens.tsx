@@ -1,4 +1,4 @@
-import { Button, Icon, IconButton, Note, Skeleton, Spinner } from "@mprelist/ui";
+import { Badge, Button, Icon, IconButton, Meter, Note, Skeleton, Spinner } from "@mprelist/ui";
 import type { DisplayState } from "@mprelist/contracts";
 import type { JSX, ReactNode } from "react";
 
@@ -194,25 +194,41 @@ export function SignedInScreen({
             <IconButton label="Refresh" onClick={onRefresh} disabled={busy}>
               <Icon name="refresh" />
             </IconButton>
-            <button type="button" className="popup-quiet" onClick={onSeePlans} disabled={busy}>
+            <Button tone="ghost" onClick={onSeePlans} disabled={busy}>
               Plans
-            </button>
-            <button type="button" className="popup-quiet" onClick={onSignOut} disabled={busy}>
+            </Button>
+            <Button tone="ghost" onClick={onSignOut} disabled={busy}>
               Sign out
-            </button>
+            </Button>
           </>
         }
       />
       <div className={stripClass(spent, paymentFailing)}>
-        <span>
-          <b>{plan.tier.name}</b> ·{" "}
-          {paymentFailing ? "payment failed" : relistsLeft(plan.quotaRemaining, plan.relistQuotaPerPeriod)}
-        </span>
-        <span>
-          {paymentFailing
-            ? `${plan.relistQuotaPerPeriod} relist${plan.relistQuotaPerPeriod === 1 ? "" : "s"}`
-            : resetsOn(plan.resetAt)}
-        </span>
+        <div className="popup-plan-top">
+          <span className="popup-plan-name">
+            {plan.tier.name}
+            {paymentFailing ? <Badge tone="err">payment failed</Badge> : null}
+          </span>
+          <span className="popup-plan-left">
+            {paymentFailing
+              ? `${plan.relistQuotaPerPeriod} relist${plan.relistQuotaPerPeriod === 1 ? "" : "s"}`
+              : relistsLeft(plan.quotaRemaining, plan.relistQuotaPerPeriod)}
+          </span>
+        </div>
+        {/* No bar while a card is failing, and no date either. A meter says how much
+            is available and none of it is: the tier is still theirs (ADR-0018) but
+            nothing can be spent until Stripe is paid, and the prompt below is what
+            says so. Drawing 41 of 50 there would be an invitation. */}
+        {paymentFailing ? null : (
+          <Meter
+            value={plan.quotaRemaining}
+            max={plan.relistQuotaPerPeriod}
+            valueText={relistsLeft(plan.quotaRemaining, plan.relistQuotaPerPeriod)}
+          />
+        )}
+        {paymentFailing || !resetsOn(plan.resetAt) ? null : (
+          <p className="popup-plan-foot">{resetsOn(plan.resetAt)}</p>
+        )}
       </div>
       {paymentFailing ? (
         <DunningPrompt tier={plan.tier.name} onManageBilling={onManageBilling} handoff={handoff} />
@@ -351,9 +367,9 @@ export function PlansScreen({
     <>
       <Header
         actions={
-          <button type="button" className="popup-quiet" onClick={onBack}>
+          <Button tone="ghost" onClick={onBack}>
             Back
-          </button>
+          </Button>
         }
       />
       <div className="popup-plans-body">
@@ -366,14 +382,14 @@ export function PlansScreen({
         <p className="popup-plans-fine">
           Cancel any time — you drop back to Free, never locked out.
         </p>
-        <button
-          type="button"
-          className="popup-quiet popup-plans-manage"
+        <Button
+          tone="ghost"
+          className="popup-plans-manage"
           onClick={onManageBilling}
           disabled={handoff.kind === "opening"}
         >
           {managing ? "Opening…" : "Manage billing"}
-        </button>
+        </Button>
       </div>
     </>
   );

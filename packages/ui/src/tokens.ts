@@ -11,15 +11,25 @@
  * is deliberate: the values are the canvas's, but the properties have to survive
  * being injected into a stranger's page (T41, #50), where a bare `--accent` or a
  * bare `.note` is a collision waiting to happen.
+ *
+ * **The palette was re-cut in 2026-08**, on the canvas first and then here. What
+ * it replaced was the POC popup's own colours, lifted verbatim when there was one
+ * screen and nothing else: a warm grey ramp, a mid-blue accent, and a dark theme
+ * that was Chrome's. Three things were missing rather than wrong — a fill quieter
+ * than a surface and louder than nothing (`subtle`), a focus ring (`ring`, and
+ * until it existed no control on either surface showed keyboard focus at all), and
+ * a resting elevation beside the lifted one (`shadow-sm`).
  */
 
 /** The two themes. Dark is not an afterthought — today's POC popup already has one. */
 export type Theme = "light" | "dark";
 
 /**
- * The themed values. `shadow` is not a colour and rides here anyway, because it
- * is themed: the light elevation is a grey wash and the dark one is near-black,
- * and a shadow left behind when the palette flips is a card floating on nothing.
+ * The themed values. `shadow` and `shadow-sm` are not colours and ride here
+ * anyway, because they are themed: the light elevations are a grey wash and the
+ * dark ones are near-black, and a shadow left behind when the palette flips is a
+ * card floating on nothing. `ring` is here for the same reason and one more — it
+ * is the accent at low alpha, so it moves whenever the accent does.
  */
 export type PaletteName =
   | "bg"
@@ -27,6 +37,7 @@ export type PaletteName =
   | "muted"
   | "line"
   | "hover"
+  | "subtle"
   | "accent"
   | "accent-hover"
   | "on-accent"
@@ -38,56 +49,80 @@ export type PaletteName =
   | "err-bg"
   | "disabled"
   | "stage"
+  | "ring"
+  | "shadow-sm"
   | "shadow";
 
 export const palette: Record<Theme, Record<PaletteName, string>> = {
   light: {
     bg: "#ffffff",
-    fg: "#1a1a1a",
-    muted: "#6b7280",
-    line: "#ececec",
-    hover: "#f7f8fa",
-    accent: "#0a5fd6",
-    "accent-hover": "#0b4fb0",
+    fg: "#0f172a",
+    muted: "#64748b",
+    line: "#e2e8f0",
+    // The fill under a pointer. Quieter than `subtle` is *louder* would be the
+    // wrong way round — `hover` is the stronger of the two, so a row that is
+    // hovered inside a table whose head is `subtle` still reads as the hovered one.
+    hover: "#f1f5f9",
+    // A fill for something that is structurally not a surface: a table head, an
+    // input, a code chip. The one token that stops those reaching for `hover` and
+    // then having nothing left to change under the pointer.
+    subtle: "#f8fafc",
+    accent: "#2563eb",
+    "accent-hover": "#1d4ed8",
     "on-accent": "#ffffff",
-    ok: "#0a7d28",
-    "ok-bg": "#e8f6ec",
-    warn: "#a15c00",
-    "warn-bg": "#fdf3e2",
-    err: "#c02626",
+    ok: "#15803d",
+    "ok-bg": "#f0fdf4",
+    warn: "#b45309",
+    "warn-bg": "#fffbeb",
+    err: "#b91c1c",
     // New in the canvas, and the one place it corrects the POC rather than copying
     // it: popup.html renders error notes on the *warning* background.
-    "err-bg": "#fdecec",
-    disabled: "#a5abb5",
+    "err-bg": "#fef2f2",
+    disabled: "#94a3b8",
     // The page behind a surface. The popup never shows it — it is the whole
     // viewport — but `apps/web` (T50) is cards on a page, and so is the canvas.
-    stage: "#eceef1",
-    shadow: "0 1px 2px rgba(16,19,26,.08), 0 8px 24px rgba(16,19,26,.10)",
+    stage: "#eef2f6",
+    // The accent at low alpha, and never anything else: a focus ring that is not
+    // the accent is a second accent nobody chose.
+    ring: "rgba(37,99,235,.32)",
+    // Two elevations, because a design with one has to choose between a card that
+    // floats when it is only sitting there and a dialog that does not lift at all.
+    "shadow-sm": "0 1px 2px rgba(15,23,42,.06)",
+    shadow: "0 1px 3px rgba(15,23,42,.08), 0 8px 24px rgba(15,23,42,.08)",
   },
   dark: {
-    bg: "#202124",
-    fg: "#e8eaed",
-    muted: "#9aa0a6",
-    line: "#34363a",
-    hover: "#26282c",
-    accent: "#4285f4",
-    "accent-hover": "#5b96f7",
-    "on-accent": "#10131a",
-    ok: "#6dd58c",
-    "ok-bg": "#1d2b21",
-    warn: "#e8b558",
-    "warn-bg": "#2e2617",
-    err: "#f28b82",
-    "err-bg": "#2e1b1b",
-    disabled: "#5f6368",
-    stage: "#17181a",
-    shadow: "0 1px 2px rgba(0,0,0,.5), 0 8px 24px rgba(0,0,0,.45)",
+    // Not the light theme inverted. The surface is a cool near-black with the page
+    // *darker* than the card, which is the arrangement that makes elevation read
+    // at all in the dark — a shadow under a card cannot be seen, a lighter card on
+    // a darker page can.
+    bg: "#14181f",
+    fg: "#e6eaf2",
+    muted: "#97a1b3",
+    line: "#262c36",
+    hover: "#1c2230",
+    subtle: "#1a1f29",
+    accent: "#60a5fa",
+    "accent-hover": "#93c5fd",
+    // Dark text on a light accent, which is the contrast that works when the
+    // accent has to be light enough to be seen against `bg`.
+    "on-accent": "#0b1220",
+    ok: "#4ade80",
+    "ok-bg": "#0f2419",
+    warn: "#fbbf24",
+    "warn-bg": "#2a2110",
+    err: "#fb7185",
+    "err-bg": "#2b1418",
+    disabled: "#4c566a",
+    stage: "#0b0e13",
+    ring: "rgba(96,165,250,.36)",
+    "shadow-sm": "0 1px 2px rgba(0,0,0,.5)",
+    shadow: "0 1px 3px rgba(0,0,0,.6), 0 12px 28px rgba(0,0,0,.45)",
   },
 };
 
 /**
- * The unthemed tokens: one family, six type steps, the spacing step, the radii and
- * the one duration this design has.
+ * The unthemed tokens: one family, the type steps, the spacing step, the radii and
+ * this design's motion.
  *
  * The type steps are the sheet's five — title, body, secondary, caption, micro —
  * plus `control`, which is the size every button on the sheet is drawn at. It is
@@ -100,6 +135,9 @@ export const palette: Record<Theme, Record<PaletteName, string>> = {
  * size while forgetting the weight.
  */
 export const fontFamily = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+
+/** Monospace, for the one kind of value that has to be read character by character. */
+export const monoFamily = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace';
 
 export const text = {
   title: "650 15.5px/1.3",
@@ -119,14 +157,24 @@ export const text = {
   // It lives here rather than as a `font-size` in one page's rules for the reason
   // the note above gives — a size kept in a component is a scale nobody agreed to.
   display: "650 24px/1.25",
+  // The small capitals over a table column or a field. It was a bare `font-size:
+  // 11.5px` in `admin-styles.ts` before this, which is exactly the seventh scale
+  // the note above is about — and it is now the same step on both surfaces.
+  label: "650 11.5px/1.4",
 } as const;
 
-/** The sheet's step: "gaps on a 6 / 9 / 14 / 20 step". 14 is also the popup's horizontal padding. */
+/**
+ * The sheet's step: "gaps on a 6 / 9 / 14 / 20 step". 14 is also the popup's
+ * horizontal padding. `xl` is the fifth, for the space between sections of a page
+ * rather than between parts of a control — the popup never needed one because it
+ * is a single column 360px wide.
+ */
 export const space = {
   xs: "6px",
   sm: "9px",
   md: "14px",
   lg: "20px",
+  xl: "28px",
 } as const;
 
 /**
@@ -143,13 +191,23 @@ export const radius = {
 } as const;
 
 /**
- * The spinner, which is the whole of this design's motion. The reduced value is
- * not "no animation": a still ring reads as a hung control, so it slows down
- * instead — which is what the POC popup and the canvas both already do.
+ * The spinner, which was the whole of this design's motion, and the two tokens
+ * that make a state change look like one rather than like a repaint.
+ *
+ * `fast` is short on purpose: a hover that takes longer than about 150ms reads as
+ * lag rather than as polish, and every rule that uses it is a colour change under
+ * a pointer. Nothing here animates layout.
+ *
+ * The reduced spin is not "no animation": a still ring reads as a hung control, so
+ * it slows down instead — which is what the POC popup and the canvas both already
+ * do. Every *other* transition is dropped outright under reduced motion, which the
+ * component sheet does in one rule.
  */
 export const motion = {
   spin: "0.7s",
   spinReduced: "2s",
+  fast: "120ms",
+  ease: "cubic-bezier(.2, .6, .3, 1)",
 } as const;
 
 /** The custom property a token is emitted as. One function, so no rule spells a name by hand. */
@@ -163,11 +221,14 @@ export function cssVarName(token: string): string {
  */
 export const staticTokens: Record<string, string> = {
   "font-family": fontFamily,
+  "font-mono": monoFamily,
   ...prefixed("text", text),
   ...prefixed("space", space),
   ...prefixed("radius", radius),
   spin: motion.spin,
   "spin-reduced": motion.spinReduced,
+  fast: motion.fast,
+  ease: motion.ease,
 };
 
 function prefixed(group: string, values: Record<string, string>): Record<string, string> {

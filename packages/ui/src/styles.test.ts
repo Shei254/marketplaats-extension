@@ -40,9 +40,28 @@ describe("the component rules", () => {
 
   it("slow the spinner down under reduced motion rather than stopping it", () => {
     expect(componentCss).toContain("@keyframes mp-spin");
-    expect(componentCss).toMatch(
-      /@media \(prefers-reduced-motion: reduce\) \{[^}]*animation-duration: var\(--mp-spin-reduced\);/s,
-    );
+    expect(reducedMotion()).toContain(".mp-spinner { animation-duration: var(--mp-spin-reduced); }");
+  });
+
+  it("and stop the shimmer, which says nothing when it is still", () => {
+    // The two animations are decided one at a time rather than by a blanket rule,
+    // because they fail differently: a still ring reads as a control that has
+    // hung, and a still gradient reads as a rectangle.
+    expect(reducedMotion()).toContain(".mp-skeleton { animation: none; }");
+  });
+
+  it("and drop every transition, since a hover is not worth motion sickness", () => {
+    expect(reducedMotion()).toContain("transition-duration: 1ms;");
+  });
+
+  it("give every control the same focus ring, because it was nowhere before", () => {
+    // A control that shows nothing on :focus-visible is unusable by keyboard and
+    // looks identical to one that works, which is why this is asserted rather
+    // than left to each component.
+    for (const control of ["btn", "icon-btn", "input", "select", "textarea", "check", "link"]) {
+      expect(componentCss, control).toContain(`.mp-${control}:focus-visible`);
+    }
+    expect(componentCss).toContain("box-shadow: 0 0 0 3px var(--mp-ring);");
   });
 
   it("namespace every class, because they have to survive a stranger's page", () => {
@@ -71,3 +90,10 @@ describe("uiCss", () => {
 
 const countOf = (text: string, character: string): number =>
   text.split(character).length - 1;
+
+/** The rules that only apply when the reader has asked for less movement. */
+function reducedMotion(): string {
+  const block = /@media \(prefers-reduced-motion: reduce\) \{(.*)\n\}/s.exec(componentCss);
+  if (!block?.[1]) throw new Error("the component rules no longer answer prefers-reduced-motion");
+  return block[1];
+}

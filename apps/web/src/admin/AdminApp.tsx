@@ -162,21 +162,30 @@ export function AdminApp({
     <>
       <UiStyles />
       <style dangerouslySetInnerHTML={{ __html: `${siteCss}\n${adminCss}` }} />
-      <div className="mp-root admin-page">
-        <header className="admin-header">
-          <span className="admin-brand">
-            <span className="admin-mark">
-              <Icon name="logo" />
+      <div className="mp-root admin-shell">
+        {/* Sticky, because the catalog under it is the one thing on this screen
+            that grows without limit — and an operator who has scrolled to the tier
+            they want should not have to scroll back to leave. */}
+        <header className="admin-topbar">
+          <div className="admin-topbar-inner">
+            <span className="admin-brand">
+              <span className="admin-mark">
+                <Icon name="logo" />
+              </span>
+              {BRAND.name}
+              {/* What this build *is*, rather than part of the product's name. */}
+              <span className="admin-brand-tag">admin</span>
             </span>
-            {BRAND.name} admin
-          </span>
-          {screen.screen === "catalog" || screen.screen === "not-an-operator" ? (
-            <button type="button" className="admin-who" onClick={leave}>
-              Sign out
-            </button>
-          ) : null}
+            {screen.screen === "catalog" || screen.screen === "not-an-operator" ? (
+              <Button tone="ghost" onClick={leave}>
+                Sign out
+              </Button>
+            ) : null}
+          </div>
         </header>
-        {body(screen, { api, onSignedOut: start, onRetry: start, onLeave: leave })}
+        <div className="admin-page">
+          {body(screen, { api, onSignedOut: start, onRetry: start, onLeave: leave })}
+        </div>
       </div>
     </>
   );

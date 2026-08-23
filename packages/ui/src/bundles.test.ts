@@ -2,6 +2,8 @@ import { build } from "esbuild";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
+import { palette } from "./tokens";
+
 /**
  * This package ships TypeScript source rather than a build of it, so the claim
  * that has to hold is that its consumers' bundlers can actually eat it. Nothing
@@ -34,9 +36,12 @@ describe("a consumer bundling this package from source", () => {
     `);
 
     // The rules travel as text and the palette as the record the sheet is
-    // generated from, which is the split `styles.ts` describes.
+    // generated from, which is the split `styles.ts` describes. The accent is
+    // read from the tokens rather than spelled: this is asserting that the
+    // palette reached the bundle, not what colour it is — that is the canvas's,
+    // and `tokens.test.ts` is where it is held to it.
     expect(output).toContain("mp-btn--locked");
-    expect(output).toContain("#0a5fd6");
+    expect(output).toContain(palette.light.accent);
   });
 
   it("gets the automatic JSX runtime from this package's tsconfig, not from its own", async () => {

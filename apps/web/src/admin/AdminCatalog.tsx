@@ -5,7 +5,7 @@ import type {
   TierEdit,
   UntaggedPrice,
 } from "@mprelist/contracts";
-import { Button, Note } from "@mprelist/ui";
+import { Badge, Button, Card, Note } from "@mprelist/ui";
 import { useCallback, useEffect, useState, type JSX } from "react";
 
 import type {
@@ -190,15 +190,34 @@ export function AdminCatalog({
   }
 
   return (
-    <>
-      <section className="admin-section">
-        <h2 className="admin-section-title">Tiers</h2>
-        <p className="admin-section-lede">
-          Every tier there is, including the drafts the Stripe sync creates and the free tier nobody
-          buys. Amounts live in Stripe and are not editable here.
-        </p>
-        {note ? <Note tone={note.tone === "ok" ? "ok" : "error"}>{note.message}</Note> : null}
-        <table className="admin-table">
+    <div className="admin-sections">
+      <Card
+        title="Tiers"
+        lede="Every tier there is, including the drafts the Stripe sync creates and the free tier nobody buys. Amounts live in Stripe and are not editable here."
+        // The section's own action, opposite its title: it makes a new row rather
+        // than doing anything to the ones below, which is what a header control is.
+        actions={
+          <Button
+            shape="rect"
+            tone={creating ? "secondary" : "primary"}
+            onClick={() => setCreating(!creating)}
+            disabled={busy}
+          >
+            {creating ? "Cancel" : "New plan"}
+          </Button>
+        }
+        flush
+      >
+        {note ? (
+          <div className="admin-card-pad admin-card-pad--top">
+            <Note tone={note.tone === "ok" ? "ok" : "error"}>{note.message}</Note>
+          </div>
+        ) : null}
+        {/* The table scrolls inside the card rather than pushing the page sideways:
+            five columns and three row actions do not fit a narrow window, and a
+            page that scrolls horizontally loses its own header. */}
+        <div className="admin-table-scroll">
+        <table className="mp-table admin-table">
           <thead>
             <tr>
               <th>Code</th>
@@ -222,16 +241,8 @@ export function AdminCatalog({
             ))}
           </tbody>
         </table>
-        <div className="admin-form-actions">
-          <Button
-            shape="rect"
-            tone={creating ? "secondary" : "primary"}
-            onClick={() => setCreating(!creating)}
-            disabled={busy}
-          >
-            {creating ? "Cancel" : "New plan"}
-          </Button>
         </div>
+        <div className="admin-card-pad">
         {creating ? (
           <NewPlanForm
             currency={currency}
@@ -264,9 +275,10 @@ export function AdminCatalog({
             onSave={(edit) => void save(editing, edit)}
           />
         ) : null}
-      </section>
+        </div>
+      </Card>
       <UnadoptedPrices answer={prices} />
-    </>
+    </div>
   );
 }
 
@@ -294,33 +306,38 @@ function TierRow({
       <td className="admin-code">{tier.tier.code}</td>
       <td>{tier.tier.name}</td>
       <td className="admin-numeric">{tier.relistQuotaPerPeriod}</td>
-      <td className="admin-price-id">
+      <td>
         {/* Every rhythm it is sold at (T62, #128) — monthly and annual Pro are one
             plan, so they are one row with two prices rather than two tiers. */}
-        {tier.prices.length === 0
-          ? "—"
-          : tier.prices.map((price) => (
-              <span key={price.interval} className="admin-price-line">
-                {price.stripePriceId} <b>{price.interval}</b>
-              </span>
-            ))}
+        {tier.prices.length === 0 ? (
+          <span className="admin-price-none">—</span>
+        ) : (
+          tier.prices.map((price) => (
+            <span key={price.interval} className="admin-price-line">
+              <code className="mp-code">{price.stripePriceId}</code>
+              <Badge>{price.interval}</Badge>
+            </span>
+          ))
+        )}
       </td>
       <td>
-        <span className={tier.published ? "admin-pill admin-pill--on" : "admin-pill"}>
-          {tier.published ? "on sale" : draft ? "draft" : "not on sale"}
-        </span>{" "}
-        {tier.isDefault ? <span className="admin-pill admin-pill--default">default</span> : null}
+        <span className="admin-states">
+          <Badge tone={tier.published ? "ok" : draft ? "warn" : "neutral"}>
+            {tier.published ? "on sale" : draft ? "draft" : "not on sale"}
+          </Badge>
+          {tier.isDefault ? <Badge tone="accent">default</Badge> : null}
+        </span>
       </td>
       <td>
         <div className="admin-row-actions">
-          <Button shape="rect" tone="secondary" onClick={onEdit} disabled={busy}>
+          <Button shape="rect" tone="ghost" onClick={onEdit} disabled={busy}>
             Edit
           </Button>
-          <Button shape="rect" tone="secondary" onClick={onAddPrice} disabled={busy}>
+          <Button shape="rect" tone="ghost" onClick={onAddPrice} disabled={busy}>
             Prices
           </Button>
           {tier.isDefault ? null : (
-            <Button shape="rect" tone="secondary" onClick={onMakeDefault} disabled={busy}>
+            <Button shape="rect" tone="ghost" onClick={onMakeDefault} disabled={busy}>
               Make default
             </Button>
           )}
@@ -389,49 +406,58 @@ function TierForm({
 
   return (
     <div className="admin-form">
-      <div className="admin-field">
-        <label htmlFor="tier-name">Name — display text, and yours to rewrite</label>
+      <p className="admin-form-title">Editing {tier.tier.name}</p>
+      <div className="admin-form-grid">
+      <div className="mp-field">
+        <label className="mp-label" htmlFor="tier-name">Name</label>
         <input
           id="tier-name"
           type="text"
+          className="mp-input"
           value={name}
           onChange={(event) => setName(event.target.value)}
         />
+        <span className="mp-hint">Display text, and yours to rewrite.</span>
       </div>
-      <div className="admin-field">
-        <label htmlFor="tier-quota">Relists per period — 0 on the default tier means no free tier</label>
+      <div className="mp-field">
+        <label className="mp-label" htmlFor="tier-quota">Relists per period</label>
         <input
           id="tier-quota"
           type="number"
+          className="mp-input"
           min={0}
           value={quota}
           onChange={(event) => setQuota(event.target.value)}
         />
+        <span className="mp-hint">0 on the default tier is how “there is no free tier” is said.</span>
       </div>
-      <div className="admin-field">
-        <label htmlFor="tier-features">Feature flags, as JSON</label>
+      </div>
+      <div className="mp-field">
+        <label className="mp-label" htmlFor="tier-features">Feature flags, as JSON</label>
         <textarea
+          className="mp-textarea"
           id="tier-features"
           value={features}
           onChange={(event) => setFeatures(event.target.value)}
         />
       </div>
-      <div className="admin-check">
+      <div className="mp-check-row">
         <input
           id="tier-published"
           type="checkbox"
+          className="mp-check"
           checked={published}
           onChange={(event) => setPublished(event.target.checked)}
         />
         <label htmlFor="tier-published">On sale</label>
       </div>
       {tier.prices.length === 0 ? (
-        <p className="admin-hint">
+        <p className="mp-hint">
           This tier has no Stripe Price, so it cannot go on sale. Add one below, or create it in Stripe
           tagged <code>metadata.tier_code = {tier.tier.code}</code> — either way the same sync adopts it.
         </p>
       ) : null}
-      <p className="admin-hint">
+      <p className="mp-hint">
         Lowering the quota under existing subscribers is allowed: what is left of their period is this
         number minus what they have spent, and never less than zero.
       </p>
@@ -530,44 +556,47 @@ function NewPlanForm({
 
   return (
     <div className="admin-form">
-      <div className="admin-field">
-        <label htmlFor="plan-code">Tier code — the stable handle, and the tag on the Stripe Price</label>
-        <input id="plan-code" type="text" value={tierCode} onChange={(e) => setTierCode(e.target.value)} />
+      <p className="admin-form-title">A new plan, created in Stripe and adopted here</p>
+      <div className="admin-form-grid">
+      <div className="mp-field">
+        <label className="mp-label" htmlFor="plan-code">Tier code</label>
+        <input id="plan-code" type="text" className="mp-input" value={tierCode} onChange={(e) => setTierCode(e.target.value)} />
+        <span className="mp-hint">The stable handle, and the tag on the Stripe Price.</span>
       </div>
-      <div className="admin-field">
-        <label htmlFor="plan-name">Name</label>
-        <input id="plan-name" type="text" value={name} onChange={(e) => setName(e.target.value)} />
+      <div className="mp-field">
+        <label className="mp-label" htmlFor="plan-name">Name</label>
+        <input id="plan-name" type="text" className="mp-input" value={name} onChange={(e) => setName(e.target.value)} />
       </div>
-      <div className="admin-field">
-        <label htmlFor="plan-amount">
-          Amount, in cents — 999 is 9.99 {pricedIn.toUpperCase()}
-        </label>
-        <input id="plan-amount" type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} />
+      <div className="mp-field">
+        <label className="mp-label" htmlFor="plan-amount">Amount, in cents</label>
+        <input id="plan-amount" type="number" className="mp-input" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} />
+        <span className="mp-hint">999 is 9.99 {pricedIn.toUpperCase()}.</span>
       </div>
-      {/* Shown, not chosen (T63, #129). Every tier is priced in what this Stripe
-          account settles in — a plan screen is a comparison, and two currencies on
-          it is not one a buyer can make. */}
-      <p className="admin-hint">
-        Priced in <b>{pricedIn.toUpperCase()}</b>, like every tier — that is what this Stripe account
-        settles in, and one catalog in two currencies is a plan screen nobody can compare.
-      </p>
-      <div className="admin-field">
-        <label htmlFor="plan-interval">Billed every</label>
-        <select id="plan-interval" value={interval} onChange={(e) => setInterval(e.target.value)}>
+      <div className="mp-field">
+        <label className="mp-label" htmlFor="plan-interval">Billed every</label>
+        <select id="plan-interval" className="mp-select" value={interval} onChange={(e) => setInterval(e.target.value)}>
           <option value="month">month</option>
           <option value="year">year</option>
         </select>
       </div>
-      <div className="admin-field">
-        <label htmlFor="plan-quota">Relists per period</label>
-        <input id="plan-quota" type="number" min={0} value={quota} onChange={(e) => setQuota(e.target.value)} />
+      <div className="mp-field">
+        <label className="mp-label" htmlFor="plan-quota">Relists per period</label>
+        <input id="plan-quota" type="number" className="mp-input" min={0} value={quota} onChange={(e) => setQuota(e.target.value)} />
       </div>
-      <p className="admin-hint">
+      </div>
+      {/* Shown, not chosen (T63, #129). Every tier is priced in what this Stripe
+          account settles in — a plan screen is a comparison, and two currencies on
+          it is not one a buyer can make. */}
+      <p className="mp-hint">
+        Priced in <b>{pricedIn.toUpperCase()}</b>, like every tier — that is what this Stripe account
+        settles in, and one catalog in two currencies is a plan screen nobody can compare.
+      </p>
+      <p className="mp-hint">
         The amount is written once. Stripe Prices cannot be edited — changing it later means creating a
         new Price in Stripe tagged <code>metadata.tier_code = {tierCode || "…"}</code>, which repoints this
         tier. Everybody already subscribed keeps the amount they signed up at.
       </p>
-      <p className="admin-hint">
+      <p className="mp-hint">
         It is created <b>not on sale</b>. Check what Stripe made, then put it on sale from the row above.
       </p>
       {problem ? <Note tone="error">{problem}</Note> : null}
@@ -640,24 +669,24 @@ function NewPriceForm({
 
   return (
     <div className="admin-form">
-      <p className="admin-hint">
+      <p className="mp-hint">
         A price for <b>{code}</b>. Adding a rhythm it does not sell at yet puts the two side by side on
         one plan card; picking one it already sells at creates a replacement Price — which is the only
         way to reprice, because Stripe Prices cannot be edited.
       </p>
-      <div className="admin-field">
-        <label htmlFor="price-interval">Billed every</label>
+      <div className="mp-field">
+        <label className="mp-label" htmlFor="price-interval">Billed every</label>
         <select id="price-interval" value={interval} onChange={(e) => setInterval(e.target.value)}>
           <option value="month">month{sellsAt.includes("month") ? " — already sold, replaces it" : ""}</option>
           <option value="year">year{sellsAt.includes("year") ? " — already sold, replaces it" : ""}</option>
         </select>
       </div>
-      <div className="admin-field">
-        <label htmlFor="price-amount">Amount, in cents — in {pricedIn.toUpperCase()}, like every tier</label>
+      <div className="mp-field">
+        <label className="mp-label" htmlFor="price-amount">Amount, in cents</label>
         <input id="price-amount" type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} />
       </div>
       {replacing ? (
-        <p className="admin-hint">
+        <p className="mp-hint">
           <b>Everybody already subscribed keeps the price they signed up at.</b> That is what Stripe&apos;s
           immutability means, and no screen can change it — they move when they cancel and buy again.
         </p>
@@ -703,21 +732,26 @@ function whyNotCreated(answer: CreateAnswer): string {
  */
 function UnadoptedPrices({ answer }: { answer: PricesAnswer }): JSX.Element {
   return (
-    <section className="admin-section">
-      <h2 className="admin-section-title">Stripe Prices with no tier</h2>
-      <p className="admin-section-lede">
-        Prices in Stripe carrying no <code>metadata.tier_code</code>. Not all of them are mistakes —
-        one-offs and experiments live here too — but a plan you meant to create and cannot find will be
-        in this list. Add the tag in Stripe and it becomes a tier.
-      </p>
+    <Card
+      title="Stripe Prices with no tier"
+      lede={
+        <>
+          Prices in Stripe carrying no <code className="mp-code">metadata.tier_code</code>. Not all of
+          them are mistakes — one-offs and experiments live here too — but a plan you meant to create
+          and cannot find will be in this list. Add the tag in Stripe and it becomes a tier.
+        </>
+      }
+      flush
+    >
       {answer.status !== "ready" ? (
-        <Note tone="warn">
-          Stripe could not be asked, so this list is unknown rather than empty.
-        </Note>
+        <div className="admin-card-pad admin-card-pad--top">
+          <Note tone="warn">Stripe could not be asked, so this list is unknown rather than empty.</Note>
+        </div>
       ) : answer.prices.length === 0 ? (
         <p className="admin-empty">Every Price in Stripe names a tier.</p>
       ) : (
-        <table className="admin-table">
+        <div className="admin-table-scroll">
+        <table className="mp-table admin-table">
           <thead>
             <tr>
               <th>Price</th>
@@ -732,15 +766,16 @@ function UnadoptedPrices({ answer }: { answer: PricesAnswer }): JSX.Element {
             ))}
           </tbody>
         </table>
+        </div>
       )}
-    </section>
+    </Card>
   );
 }
 
 function PriceRow({ price }: { price: UntaggedPrice }): JSX.Element {
   return (
     <tr>
-      <td className="admin-price-id">{price.id}</td>
+      <td><code className="mp-code">{price.id}</code></td>
       <td>{price.nickname ?? "—"}</td>
       <td className="admin-numeric">
         {(price.amount / 100).toFixed(2)} {price.currency.toUpperCase()}

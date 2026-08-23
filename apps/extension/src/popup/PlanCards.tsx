@@ -1,4 +1,4 @@
-import { Button, Icon, Note, Skeleton } from "@mprelist/ui";
+import { Badge, Button, Icon, Note, Skeleton } from "@mprelist/ui";
 import type { DisplayState, Plan, PlanPrice } from "@mprelist/contracts";
 import type { JSX } from "react";
 
@@ -93,7 +93,7 @@ function CurrentPlanCard({ current }: { current: DisplayState }): JSX.Element {
     <div className="popup-plan-card popup-plan-card--current">
       <div className="popup-plan-card-head">
         <span className="popup-plan-card-name">{current.tier.name}</span>
-        <span className="popup-plan-card-pill">Current</span>
+        <Badge tone="accent">Current</Badge>
       </div>
       <p className="popup-plan-card-grant">
         {relistsLeft(current.quotaRemaining, current.relistQuotaPerPeriod)}
@@ -121,7 +121,7 @@ function PlanCard({
     <div className={current ? "popup-plan-card popup-plan-card--current" : "popup-plan-card"}>
       <div className="popup-plan-card-head">
         <span className="popup-plan-card-name">{plan.tier.name}</span>
-        {current ? <span className="popup-plan-card-pill">Current</span> : null}
+        {current ? <Badge tone="accent">Current</Badge> : null}
       </div>
       {/* The quota, described in the rhythm of the first price — which is the
           cheapest, and the one somebody reads the card by. */}
@@ -140,13 +140,18 @@ function PlanCard({
          * at. Two buttons also put the two amounts side by side, which is the
          * comparison somebody is making.
          */
-        plan.prices.map((price) => (
+        plan.prices.map((price, index) => (
           <RhythmButton
             key={price.interval}
             plan={plan}
             price={price}
             handoff={handoff}
             opening={opening}
+            // The first rhythm is the card's own decision and the rest are its
+            // alternative. Two full-width slabs of accent read as one control cut
+            // in half; a primary and a secondary read as a choice with a default.
+            // Which is first is `/api/plans`'s order, and that is the cheapest.
+            alternative={index > 0}
             onUpgrade={onUpgrade}
           />
         ))
@@ -161,12 +166,15 @@ function RhythmButton({
   price,
   handoff,
   opening,
+  alternative = false,
   onUpgrade,
 }: {
   plan: Plan;
   price: PlanPrice;
   handoff: Handoff;
   opening: boolean;
+  /** Not the first rhythm this plan is sold at, so it is offered rather than urged. */
+  alternative?: boolean;
   onUpgrade: (tierCode: string, interval: string) => void;
 }): JSX.Element {
   // Keyed by tier *and* rhythm, so the button that was clicked is the one that
@@ -178,7 +186,7 @@ function RhythmButton({
       // Every other button locks while one is opening: two Checkout tabs from two
       // clicks is two sessions and one confused buyer, and the popup is about to be
       // destroyed by the first anyway.
-      tone={openingThis ? "busy" : opening ? "locked" : "primary"}
+      tone={openingThis ? "busy" : opening ? "locked" : alternative ? "secondary" : "primary"}
       onClick={() => onUpgrade(plan.tier.code, price.interval)}
     >
       {openingThis ? "Opening…" : priceAndRhythmOf(price)}

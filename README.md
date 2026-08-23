@@ -50,18 +50,22 @@ toolchain is the cost ADR-0011 accepted, and CI below is where it is paid;
 ## CI
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml), on every push to `master` and every pull request.
-**Two jobs, and neither waits for the other** — no artefact crosses between Gradle and npm and no version is
+**Three jobs, and none waits for another** — no artefact crosses between Gradle and npm and no version is
 shared, so a broken extension test has no business withholding the backend's verdict:
 
 | Job | Runs | Needs |
 |---|---|---|
 | `npm workspaces` | `npm ci`, then the three root scripts above | nothing but Node |
 | `apps/api` | `./gradlew build` — the suite, then the boot jar | a Docker daemon, which the runner has |
+| `deployable images` | `docker build` of both Dockerfiles (T55, #86) | the same daemon |
+
+The third one exists because nothing else ever reads those two files, and the moment they are first needed is
+the moment somebody is trying to deploy.
 
 The Node version is pinned in [`.nvmrc`](.nvmrc) rather than in the workflow, so `nvm use` and CI read one
 file instead of two copies; Java is 21, which is the toolchain `apps/api/build.gradle.kts` already states.
 
-There are **no path filters**, deliberately. Both jobs read inputs from outside the directory they are named
+There are **no path filters**, deliberately. Every job reads inputs from outside the directory it is named
 for — the API suite reads `infra/docker-compose.yml` and the Keycloak realm out of the working tree, the
 extension build reads the root `brand.json` — so a filter would keep a second copy of both lists, and a
 stale filter fails *silently*: a green run that looked at nothing.
@@ -160,8 +164,26 @@ lands on ask nobody to sign in —
 the popup holds the only session this product has ([ADR-0017](docs/adr/0017-web-surface-and-subscribing.md)).
 It reads the same `brand.json` as the extension and is built from the same `packages/ui`, so the two surfaces
 are one look. **One build, one `index.html`**: the router runs in the browser, so whatever serves `dist/` has
-to answer `/success` with that file rather than a 404 — `vite dev` and `vite preview` already do, and T55
-(#86) is where a real host is told to.
+to answer `/success` with that file rather than a 404 — `vite dev` and `vite preview` already do, and so does
+the nginx the deployed image serves it from (below).
+
+## Deploying it
+
+```bash
+cp infra/production.env.example production.env     # on the host, once. Gitignored; fill it in
+docker compose --env-file production.env -f infra/docker-compose.prod.yml up -d --build --wait
+```
+
+Four containers on one host: Postgres, Keycloak, and images built from source for `apps/api` and `apps/web`
+([ADR-0020](docs/adr/0020-deployment.md)). **A second compose file rather than an override of the local one**
+— that one commits every password on purpose and runs Keycloak's `start-dev`, and an override that forgot to
+remove one of those deploys a stack that works, with a published password on it. Here every credential and
+every address is a variable with no default, so a half-filled `production.env` is a refusal naming what is
+missing rather than a guess.
+
+TLS, the domain and the production realm are T56 (#87); the realm this imports has no default, so a stack
+pointed at nothing stops rather than importing the two development users. The runbook, what is decided before
+the first `up`, and how to take a backup are in [`infra/README.md` § Deploying](infra/README.md#deploying).
 
 ## Where to start reading
 

@@ -54,7 +54,18 @@ a hole.
 **One build, one `index.html`, which is a deploy-time obligation.** Every public path is answered by the
 same file and the router runs in the browser, so a host that returns 404 for `/success` breaks the flow
 slice C exists to prove — and it breaks it *after* the money has moved. `vite dev` and `vite preview` both
-fall back already; T55 (#86) has to say so to whatever serves `dist/`.
+fall back already, and since T55 (#86) so does the nginx in [`Dockerfile`](Dockerfile): one `try_files` in
+[`nginx.conf.template`](nginx.conf.template), read by `src/admin/deployed-config.test.ts` so that it stays
+there.
+
+**Where the API and the realm are is served to this bundle, not built into it** (T55, #86). Every page loads
+`/config.js` before the bundle: [`public/config.js`](public/config.js) commits it as an empty object, and the
+deployed image answers the same path from its own environment. What the bundle reads is a **patch** over
+`src/admin/admin-config.ts` — the shape `GET /api/client-config` already serves the extension
+([ADR-0013](../../docs/adr/0013-remote-client-configuration.md)) — so empty means the defaults are correct,
+one image runs in every environment, and a wrong address costs a restart instead of a rebuild. The redirect
+URI is not in it: it is `location.origin`, which is the one value that cannot disagree with where the browser
+will actually come back to.
 
 **No `@vitejs/plugin-react`.** Vite transforms `.tsx` with esbuild and takes the automatic JSX runtime from
 this workspace's `tsconfig.json` — the plugin would buy Fast Refresh and a Babel pass, on a site of static

@@ -1,0 +1,6 @@
+# What the image build must not carry in. `build/` is the reason this file exists: a local `./gradlew build`
+# leaves a jar and a full test report here, and copying them into the build context would put one machine's
+# output into an image that is meant to be built from source.
+build/
+.gradle/
+*.log

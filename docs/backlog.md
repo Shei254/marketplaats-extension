@@ -362,13 +362,34 @@ named as the first thing to move.
 
 Had **no ticket at all** in the 2026-08-13 plan. Nothing here is optional before a stranger can pay.
 
-#### [T55](https://github.com/Shei254/marketplaats-extension/issues/86) · Deploy the stack · **L** · Iteration 1
-API, Postgres, Keycloak, `apps/web`. **One API instance only** — `authToken` is signed with an RSA key
-generated per process, so a second instance signs with a second key; making that key configuration is the
-prerequisite for scaling out (see `enforcement-contract.md`, resolved build questions).
+#### [T55](https://github.com/Shei254/marketplaats-extension/issues/86) · Deploy the stack · **L** · Iteration 1 · **deployable, not deployed**
+API, Postgres, Keycloak, `apps/web`, described by `infra/docker-compose.prod.yml` and run with an environment
+file git never takes. **Both images build from source on the host** — `apps/api` through its Gradle wrapper,
+`apps/web` through Vite into nginx. Refs: [ADR-0020](adr/0020-deployment.md),
+[`infra/README.md` § Deploying](../infra/README.md#deploying), and the script in
+[`click-through.md`](click-through.md#go-live--the-stack-is-somewhere-else-t55-86).
+- **A second compose file, not an override of the local one.** An override *removes* things — a committed
+  password, `start-dev`, a published database port — and a removal that was forgotten deploys a stack that
+  works, with the laptop's admin password on it. `DeployedStackTest` asserts the differences rather than a
+  merge: the same two image tags, Keycloak's production mode, no relaxed `sslRequired`, no realm from
+  `infra/keycloak`, no published Postgres port, and no credential that is not a variable defaulting to
+  nothing.
 - **Whatever serves `apps/web` must answer every public path with its one `index.html`.** T50 is one build
   and the router runs in the browser, so a host left on its default returns 404 for `/success` — which is
-  the page a customer lands on *after* the money has moved. `vite dev` and `vite preview` already fall back.
+  the page a customer lands on *after* the money has moved. The nginx template does it, and a test in
+  `apps/web`'s suite reads that file so it goes on doing it.
+- **Where the API and the realm are is served to the bundle, not built into it** — `/config.js` as a patch
+  over `admin-config.ts`'s defaults, the same shape #36 serves the extension. One image runs anywhere and a
+  wrong address costs a restart rather than a rebuild. The redirect URI is not in it at all: it is
+  `location.origin`, which cannot disagree with where the browser will actually come back to.
+- **One API instance only** — `authToken` is signed with an RSA key generated per process, so a second
+  instance signs with a second key; making that key configuration is the prerequisite for scaling out (see
+  `enforcement-contract.md`, resolved build questions).
+- **What is left is the act of deploying**: a host, and then T56's domain, TLS and production realm. The
+  realm this file imports has no default, so a stack pointed at nothing stops rather than importing the two
+  dev users. Verified locally end to end — four healthy containers, Flyway migrated, `/success` answered,
+  `/config.js` carrying the deployment's own addresses, and Keycloak stamping the configured issuer — and
+  **against no public host at all**.
 
 #### [T56](https://github.com/Shei254/marketplaats-extension/issues/87) · Domain, TLS, and the production realm · **M** · T55, T60
 `www.` and `admin.` for `apps/web`. The realm imports on **first start only**, so the production realm must

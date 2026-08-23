@@ -2110,6 +2110,23 @@ volume. Anything you have no value for is commented out in that file, and the te
   and obtaining one is the extension's ([#32](https://github.com/Shei254/marketplaats-extension/issues/32))
   and the dashboard's ([#42](https://github.com/Shei254/marketplaats-extension/issues/42)), both in a browser.
 
+## How it is deployed
+
+One image, built from this directory alone: [`Dockerfile`](Dockerfile) is multi-stage — the Gradle wrapper
+builds `bootJar`, and a JRE runs it as a non-root user. The build context is `apps/api` and nothing above it,
+which is deliberate: this project's build reads the repository's `.env` and its suite reads four files out of
+the working tree, and none of that belongs in a deployed image. It also means the image is built with
+`bootJar` rather than `build` — the suite runs in CI and on a laptop, where a Docker daemon for Testcontainers
+is.
+
+Everything `application.yml` commits for the local stack is overridden from the environment there: the three
+`SPRING_DATASOURCE_*`, the issuer, the allowed origins and `mprelist.web.base-url`. `DeployedStackTest`
+asserts that `infra/docker-compose.prod.yml` still sets every one of them, and that every `MPRELIST_` setting
+it passes is one this application actually reads — a rename that left a deployed value being set and ignored
+would otherwise be silent, and `MPRELIST_WEB_BASE_URL` going quiet means a paying customer sent to a page
+that does not exist. See [ADR-0020](../../docs/adr/0020-deployment.md) and
+[`infra/README.md` § Deploying](../../infra/README.md#deploying).
+
 ## Not here yet
 
 **Every endpoint** of [`docs/enforcement-contract.md`](../../docs/enforcement-contract.md) now exists:

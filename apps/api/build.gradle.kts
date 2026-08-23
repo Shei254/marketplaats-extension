@@ -160,6 +160,10 @@ tasks.withType<Test>().configureEach {
     inputs.files(
         repository.file("infra/docker-compose.yml"),
         repository.file("infra/keycloak/mprelist-realm.json"),
+        // The deployed stack and its example environment (T55, #86). Nothing starts them; DeployedStackTest
+        // is entirely about the difference between them and the two lines above.
+        repository.file("infra/docker-compose.prod.yml"),
+        repository.file("infra/production.env.example"),
         // The extension's pinned key, which CrossOriginTest derives the allowed origin from.
         repository.file("apps/extension/public/manifest.template.json"),
         // `.env.example`, which EnvironmentFileTest holds to the two files above and to application.yml —

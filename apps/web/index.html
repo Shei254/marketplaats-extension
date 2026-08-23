@@ -29,6 +29,14 @@
       doing it across both surfaces.
     -->
     <div id="root"></div>
+    <!--
+      What the deployment says about where the API and the realm are (T55, #86),
+      and on a development machine it says nothing: `public/config.js` is committed
+      as an empty object, and the deployed image answers this same path from nginx
+      with the two values its environment carries. A classic script rather than a
+      module, so it has run before the deferred module below asks for it.
+    -->
+    <script src="/config.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

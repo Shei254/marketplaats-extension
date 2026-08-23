@@ -645,7 +645,9 @@ Extension                         Backend                    Stripe
   code and turned out not to be it: resolving the row answers everything verifying the token would, and better,
   since the caller's own access token already says who they are. **No ticket is open that needs to verify one**,
   so a second instance of this API is the thing that cannot be deployed today, and it is the reason to make the
-  key configuration when one is wanted.
+  key configuration when one is wanted. T55 (#86) deploys **one** instance for exactly this reason, and
+  [ADR-0020](adr/0020-deployment.md) names the ceiling: what stops this stack scaling out is this key rather
+  than the hardware.
 
 ## Open spikes
 - **Stable Marktplaats account identifier** — blocks `maxMpAccounts` as a sellable entitlement and the return

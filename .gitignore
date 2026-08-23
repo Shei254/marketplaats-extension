@@ -20,3 +20,8 @@ apps/extension/keys/
 # The example is committed and documents every variable; the file itself never is.
 /.env
 /.env.local
+
+# The deployed stack's own environment (T55, #86): `cp infra/production.env.example production.env` on the
+# host and fill it in. Every password in a real one is a password to production, and unlike `.env` above
+# there is no version of this file with committable values.
+/production.env

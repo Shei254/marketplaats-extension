@@ -135,10 +135,18 @@ export interface CapturedAd {
   price: {
     biddingEnabled: boolean;
     priceCent: number;
+    minimumBidPrice?: number;
     priceType: string;
   },
   reserved: boolean;
   shippingInformation: {
+    /**
+     * Optional, because the captured payloads this repository froze do not carry
+     * one — `createAd` falls back to the seller's own postcode. Required here
+     * instead would be four golden fixtures inventing a value Marktplaats never
+     * sent them.
+     */
+    dropOffLocationCode?: string;
     augmentedLabels: {
       carrierId: string;
       labels: {

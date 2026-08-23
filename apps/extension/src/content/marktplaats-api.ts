@@ -318,13 +318,20 @@ export async function createAd(draft: CapturedAd, photos: Photo[]): Promise<void
   form.append("title_nl-NL", draft.title || "");
   form.append("description_nl-NL", draft.description || "");
 
-  // MOVED: Placed up here to match the working payload order
   form.append("url", "");
+  form.append("url-input", "");
 
-  const typeAttr = draft.attributes?.find((a) => a.key === "type")?.value || draft.categoryInformation?.categoryName;
-  if (typeAttr) {
-    form.append("singleSelectAttribute[type]", typeAttr);
-  }
+  //1st edge case for dynamic fields
+  draft.attributes.forEach(attr => {
+    if (attr.attributeType == "SINGLE_SELECT") {
+      form.append(`singleSelectAttribute[${attr.key}]`, attr.value)
+    }
+
+    if (attr.attributeType == "MULTI_SELECT") {
+      form.append(`multiSelectAttribute[${attr.key}]`, attr.value)
+    }
+
+  })
 
   if (draft.deliveryMethod) form.append("deliveryMethod", draft.deliveryMethod);
 
@@ -333,6 +340,11 @@ export async function createAd(draft: CapturedAd, photos: Photo[]): Promise<void
   }
 
   if (draft.shippingInformation?.selectedShippingOptions?.length) {
+    const dropOffCode = draft.shippingInformation?.dropOffLocationCode || draft.contactInformation?.postcode;
+    if (dropOffCode) {
+      form.append("dropOffLocationCode", dropOffCode);
+    }
+
     const uniqueCarriers = Array.from(
         new Set(
             draft.shippingInformation.selectedShippingOptions
@@ -340,6 +352,7 @@ export async function createAd(draft: CapturedAd, photos: Photo[]): Promise<void
                 .filter(Boolean)
         )
     );
+
 
     uniqueCarriers.forEach((carrierCode) => {
       form.append("shippingMethod", carrierCode.toLowerCase());
@@ -360,7 +373,8 @@ export async function createAd(draft: CapturedAd, photos: Photo[]): Promise<void
     form.append("Dropdown-prijstype", priceType);
 
     // MOVED: minimumBidPrice is placed before typeValue in the working payload
-    form.append("price.minimumBidPrice", "");
+    const minBidPrice = draft.price.minimumBidPrice ? String(draft.price.minimumBidPrice) : "";
+    form.append("price.minimumBidPrice", minBidPrice);
     form.append("price.typeValue", priceType);
     form.append("previousPriceType", "");
 

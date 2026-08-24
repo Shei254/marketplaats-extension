@@ -31,7 +31,15 @@ describe("RelistOrchestrator", () => {
 
     const ads = await orchestrator.listAds();
 
-    expect(ads).toEqual([{ id: "ad-1", title: sampleAd().draft.title, priceCents: sampleAd().draft.price.priceCent }]);
+    // `Number(…)`: a summary's `priceCents` is a number, while the capture
+    // payload the fixture is built from carries its cents as a string.
+    expect(ads).toEqual([
+      {
+        id: "ad-1",
+        title: sampleAd().draft.title,
+        priceCents: Number(sampleAd().draft.price.priceCent),
+      },
+    ]);
   });
 
   /**

@@ -345,7 +345,11 @@ export async function createAd(draft: CapturedAd, photos: Photo[]): Promise<void
 
   const shippingInformation = draft.shippingInformation.selectedShippingOptions;
 
-  if (shippingInformation) {
+  // `?.length`, not truthiness: an ad with no carrier selected arrives as an
+  // empty array as readily as a missing field, and `[]` is truthy — which sent
+  // an empty `shippingDetails.price` and made the drop-off fallback below
+  // unreachable for the exact case it exists for.
+  if (shippingInformation?.length) {
     const uniqueShippingInfo = [...new Map(shippingInformation.map(info => [info.carrierId, info])).values()]
     uniqueShippingInfo.forEach(info => {
       form.append("shippingMethod", info.carrierId.toLowerCase());
@@ -372,12 +376,14 @@ export async function createAd(draft: CapturedAd, photos: Photo[]): Promise<void
   if (draft.price) {
     const priceType = draft.price.priceType;
 
-    form.append("Dropdown-prijstype", priceType);
+    // One `Dropdown-prijstype`, and for a minimum-bid ad it is FIXED: the
+    // dropdown carries the form's own mode while `price.typeValue` keeps naming
+    // the price type. It used to be appended twice, MIN_BID then FIXED.
+    form.append("Dropdown-prijstype", priceType === "MIN_BID" ? "FIXED" : priceType);
     form.append("price.typeValue", priceType);
 
     if (priceType != "FREE" && priceType != "SEE_DESCRIPTION") {
       if (priceType === "MIN_BID") {
-        form.append("Dropdown-prijstype", "FIXED");
         form.append("price.minimumBidPrice", String(Number(draft.price.minimumBidPriceCent) / 100));
       }
       form.append("price.value", String(Number(draft.price.priceCent) / 100));
@@ -385,8 +391,8 @@ export async function createAd(draft: CapturedAd, photos: Photo[]): Promise<void
 
     form.append("previousPriceType", "");
 
-    // MOVED: minimumBidPrice is placed before typeValue in the working payload
-    // FIXED: Only append if true. Omit entirely if false.
+    // Always sent, both ways round: the form carries the switch's state rather
+    // than its presence, which is what the live payload does.
     if (draft.price.biddingEnabled) {
       form.append("price.biddingEnabled", "on");
     } else {

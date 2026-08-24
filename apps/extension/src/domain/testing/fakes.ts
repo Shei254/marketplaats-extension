@@ -157,7 +157,11 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
     return [...this.ads.entries()].map(([id, ad]) => ({
       id,
       title: ad.draft.title,
-      priceCents: ad.draft.price.priceCent,
+      // The two ends of this disagree on the wire: the capture payload's
+      // `priceCent` is a string and the list payload's `priceCents` is a number.
+      // Production never crosses them — `content-script.ts` builds the summary
+      // from `ListingDraft` — so the conversion lives here, in the fake.
+      priceCents: Number(ad.draft.price.priceCent),
     }));
   }
 
@@ -225,7 +229,12 @@ export function sampleAd(title = "Vintage bike"): CapturedListing {
       itemId: "ad-1",
       title,
       description: "A nice bike",
-      price: { biddingEnabled: false, priceCent: 12000, priceType: "FIXED" },
+      price: {
+        biddingEnabled: false,
+        priceCent: "12000",
+        priceType: "FIXED",
+        minimumBidPriceCent: "0",
+      },
       categoryInformation: {
         categoryId: 1234,
         categoryName: "Fietsen",

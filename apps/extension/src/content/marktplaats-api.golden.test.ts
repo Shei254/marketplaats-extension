@@ -351,16 +351,18 @@ describe("createAd", () => {
     ["title_nl-NL", "Vintage herenfiets"],
     ["description_nl-NL", "Nette vintage herenfiets, weinig gebruikt."],
     ["url", ""],
+    ["url-input", ""],
     ["singleSelectAttribute[type]", "Herenfiets"],
     ["deliveryMethod", "SHIPPING_AND_PICKUP"],
     ["buyerProtectionAllowed", "on"],
     ["shippingMethod", "dhl"],
-    ["packageSize", "M"],
     ["shippingDetails.price", "695"],
     ["shippingDetails.provider", "other"],
+    ["dropOffLocationCode", "1011AB"],
+    ["packageSize", "M"],
     ["Dropdown-prijstype", "FAST_BID"],
-    ["price.minimumBidPrice", ""],
     ["price.typeValue", "FAST_BID"],
+    ["price.value", "125"],
     ["previousPriceType", ""],
     ["price.biddingEnabled", "on"],
     ["contactInformation.sellerName", "Jan Jansen"],
@@ -398,11 +400,12 @@ describe("createAd", () => {
         "&images.ids=img-2&images.urls=https%3A%2F%2Fimages.marktplaats.com%2Fstd%2F2.jpg" +
         "&images.ids=&title_nl-NL=Vintage+herenfiets" +
         "&description_nl-NL=Nette+vintage+herenfiets%2C+weinig+gebruikt." +
-        "&url=&singleSelectAttribute%5Btype%5D=Herenfiets" +
+        "&url=&url-input=&singleSelectAttribute%5Btype%5D=Herenfiets" +
         "&deliveryMethod=SHIPPING_AND_PICKUP&buyerProtectionAllowed=on" +
-        "&shippingMethod=dhl&packageSize=M&shippingDetails.price=695" +
-        "&shippingDetails.provider=other&Dropdown-prijstype=FAST_BID" +
-        "&price.minimumBidPrice=&price.typeValue=FAST_BID&previousPriceType=" +
+        "&shippingMethod=dhl&shippingDetails.price=695" +
+        "&shippingDetails.provider=other&dropOffLocationCode=1011AB&packageSize=M" +
+        "&Dropdown-prijstype=FAST_BID&price.typeValue=FAST_BID&price.value=125" +
+        "&previousPriceType=" +
         "&price.biddingEnabled=on&contactInformation.sellerName=Jan+Jansen" +
         "&contactInformation.phoneNumberSwitch=false" +
         "&syi-address-radio-home=syi-address-nl&address-index-filter=syi-address-nl" +
@@ -426,19 +429,28 @@ describe("createAd", () => {
     expect(http.matching("/plaats/api/image/upload")).toHaveLength(0);
   });
 
-  it("omits price.biddingEnabled entirely when bidding is off", async () => {
+  it("sends price.biddingEnabled=off when bidding is off", async () => {
     http = stubFetch(routes());
 
     await api.createAd(
-      goldenAd({ price: { biddingEnabled: false, priceCent: 12500, priceType: "FAST_BID" } }),
+      goldenAd({
+        price: {
+          biddingEnabled: false,
+          priceCent: "12500",
+          priceType: "FAST_BID",
+          minimumBidPriceCent: "0",
+        },
+      }),
       [],
     );
 
     const body = urlencoded(http.only("/plaats/ads"));
-    expect(body.pairs.map(([k]) => k)).not.toContain("price.biddingEnabled");
-    // Everything else about the price block is unchanged.
+    // The field is present either way — it carries the switch's state, not its
+    // presence. Everything else about the price block is unchanged.
     expect(body.pairs).toEqual(
-      FULL_PAIRS.filter(([k]) => !k.startsWith("images.") && k !== "price.biddingEnabled"),
+      FULL_PAIRS.filter(([k]) => !k.startsWith("images.")).map((pair) =>
+        pair[0] === "price.biddingEnabled" ? ["price.biddingEnabled", "off"] : pair,
+      ),
     );
   });
 
@@ -464,7 +476,9 @@ describe("createAd", () => {
       [],
     );
 
-    const shippingKeys = ["shippingMethod", "packageSize", "shippingDetails.price", "shippingDetails.provider"];
+    // `packageSize` is not in this list: it is sent unconditionally, including
+    // on a pickup-only ad. Everything that describes a carrier is dropped.
+    const shippingKeys = ["shippingMethod", "shippingDetails.price", "shippingDetails.provider"];
     const body = urlencoded(http.only("/plaats/ads"));
     expect(body.pairs).toEqual(
       FULL_PAIRS.filter(([k]) => !k.startsWith("images.") && !shippingKeys.includes(k)),
@@ -472,7 +486,7 @@ describe("createAd", () => {
   });
 
   it("deduplicates carriers and lowercases them, keeping one shippingMethod per carrier", async () => {
-    const option = goldenAd().shippingInformation.selectedShippingOptions[0]!;
+    const option = goldenAd().shippingInformation.selectedShippingOptions![0]!;
     http = stubFetch(routes());
 
     await api.createAd(
@@ -481,8 +495,8 @@ describe("createAd", () => {
           augmentedLabels: [],
           selectedShippingOptions: [
             option,
-            { ...option, id: "opt-2", cost: 995 },
-            { ...option, id: "opt-3", carrierId: "DPD", cost: 795 },
+            { ...option, id: "opt-2", cost: "995" },
+            { ...option, id: "opt-3", carrierId: "DPD", cost: "795" },
           ],
         },
       }),
@@ -498,13 +512,199 @@ describe("createAd", () => {
     expect(body.pairs).toContainEqual(["shippingDetails.price", "695"]);
   });
 
-  it("falls back to the category name when the ad has no `type` attribute", async () => {
+  it("emits nothing for an ad that carries no attributes", async () => {
     http = stubFetch(routes());
 
     await api.createAd(goldenAd({ attributes: [] }), []);
 
     const body = urlencoded(http.only("/plaats/ads"));
-    expect(body.pairs).toContainEqual(["singleSelectAttribute[type]", "Fietsen | Herenfietsen"]);
+    // There is no category-name fallback any more: an attribute field is emitted
+    // only for an attribute the capture actually carried.
+    expect(body.pairs).toEqual(
+      FULL_PAIRS.filter(([k]) => !k.startsWith("images.") && k !== "singleSelectAttribute[type]"),
+    );
+  });
+
+  it("names the attribute field after the attribute's own type, one field per value", async () => {
+    http = stubFetch(routes());
+
+    await api.createAd(
+      goldenAd({
+        attributes: [
+          { attributeType: "SINGLE_SELECT", key: "type", label: "Type", value: "Herenfiets", values: [] },
+          {
+            attributeType: "MULTI_SELECT",
+            key: "extras",
+            label: "Extra's",
+            value: "",
+            values: [
+              { key: "extras", value: "Verlichting" },
+              { key: "extras", value: "Slot" },
+            ],
+          },
+          { attributeType: "NUMERIC", key: "framehoogte", label: "Framehoogte", value: "56", values: [] },
+          { attributeType: "TEXT", key: "merk", label: "Merk", value: "Gazelle", values: [] },
+        ],
+      }),
+      [],
+    );
+
+    const body = urlencoded(http.only("/plaats/ads"));
+    expect(body.pairs.filter(([k]) => k.includes("Attribute["))).toEqual([
+      ["singleSelectAttribute[type]", "Herenfiets"],
+      ["multiSelectAttribute[extras]", "Verlichting"],
+      ["multiSelectAttribute[extras]", "Slot"],
+      ["numericAttribute[framehoogte]", "56"],
+      ["textAttribute[merk]", "Gazelle"],
+    ]);
+  });
+
+  it("drops an attribute whose type this build has no branch for", async () => {
+    http = stubFetch(routes());
+
+    await api.createAd(
+      goldenAd({
+        attributes: [
+          { attributeType: "COLOUR_PICKER", key: "kleur", label: "Kleur", value: "Zwart", values: [] },
+        ],
+      }),
+      [],
+    );
+
+    // Silently, which is the risk worth having written down: a type Marktplaats
+    // adds leaves the field off the payload rather than failing the relist.
+    const body = urlencoded(http.only("/plaats/ads"));
+    expect(body.pairs.filter(([k]) => k.includes("Attribute["))).toEqual([]);
+  });
+
+  it("converts the price from cents to euros, as the form field wants", async () => {
+    http = stubFetch(routes());
+
+    await api.createAd(
+      goldenAd({
+        price: {
+          biddingEnabled: false,
+          priceCent: "12599",
+          priceType: "FIXED",
+          minimumBidPriceCent: "0",
+        },
+      }),
+      [],
+    );
+
+    const body = urlencoded(http.only("/plaats/ads"));
+    expect(body.pairs).toContainEqual(["price.value", "125.99"]);
+  });
+
+  it("sends a minimum-bid ad as FIXED, carrying both the bid floor and the price", async () => {
+    http = stubFetch(routes());
+
+    await api.createAd(
+      goldenAd({
+        price: {
+          biddingEnabled: true,
+          priceCent: "12500",
+          priceType: "MIN_BID",
+          minimumBidPriceCent: "5000",
+        },
+      }),
+      [],
+    );
+
+    // `Dropdown-prijstype` appears exactly once, and says FIXED — the dropdown is
+    // the form's mode, `price.typeValue` is the price type.
+    const body = urlencoded(http.only("/plaats/ads"));
+    expect(body.pairs.filter(([k]) => k.startsWith("price.") || k === "Dropdown-prijstype")).toEqual([
+      ["Dropdown-prijstype", "FIXED"],
+      ["price.typeValue", "MIN_BID"],
+      ["price.minimumBidPrice", "50"],
+      ["price.value", "125"],
+      ["price.biddingEnabled", "on"],
+    ]);
+  });
+
+  it("never sends Dropdown-prijstype twice, whatever the price type", async () => {
+    for (const priceType of ["FIXED", "FAST_BID", "MIN_BID", "FREE", "SEE_DESCRIPTION"]) {
+      http = stubFetch(routes());
+
+      await api.createAd(
+        goldenAd({
+          price: {
+            biddingEnabled: false,
+            priceCent: "12500",
+            priceType,
+            minimumBidPriceCent: "5000",
+          },
+        }),
+        [],
+      );
+
+      const body = urlencoded(http.only("/plaats/ads"));
+      expect(body.pairs.filter(([k]) => k === "Dropdown-prijstype")).toHaveLength(1);
+    }
+  });
+
+  for (const priceType of ["FREE", "SEE_DESCRIPTION"]) {
+    it(`sends no amount at all for a ${priceType} ad`, async () => {
+      http = stubFetch(routes());
+
+      await api.createAd(
+        goldenAd({
+          price: {
+            biddingEnabled: false,
+            priceCent: "12500",
+            priceType,
+            minimumBidPriceCent: "0",
+          },
+        }),
+        [],
+      );
+
+      const body = urlencoded(http.only("/plaats/ads"));
+      const keys = body.pairs.map(([k]) => k);
+      expect(keys).not.toContain("price.value");
+      expect(keys).not.toContain("price.minimumBidPrice");
+      expect(body.pairs).toContainEqual(["price.typeValue", priceType]);
+    });
+  }
+
+  it("falls back to the seller's own drop-off when no carrier is selected", async () => {
+    http = stubFetch(routes());
+
+    await api.createAd(
+      goldenAd({
+        shippingInformation: {
+          augmentedLabels: [
+            {
+              carrierId: null,
+              labels: [
+                { carrierName: "", deliveryMethod: "PICKUP", label: "Zelf versturen", price: "4.95" },
+              ],
+            },
+          ],
+          selectedShippingOptions: [],
+        },
+      }),
+      [],
+    );
+
+    // An empty selection reaches this branch as readily as a missing one — the
+    // `[]`-is-truthy bug is what used to send an empty `shippingDetails.price`
+    // here instead.
+    const body = urlencoded(http.only("/plaats/ads"));
+    expect(body.pairs).toContainEqual(["shippingMethod", "diy"]);
+    expect(body.pairs).toContainEqual(["othersPrice", "4.95"]);
+    expect(body.pairs.map(([k]) => k)).not.toContain("shippingDetails.price");
+  });
+
+  it("sends the seller's postcode as the drop-off location code", async () => {
+    http = stubFetch(routes());
+
+    await api.createAd(goldenAd({ contactInformation: { name: "Jan Jansen", postcode: "" } }), []);
+
+    // Omitted entirely rather than sent empty when the capture has no postcode.
+    const body = urlencoded(http.only("/plaats/ads"));
+    expect(body.pairs.map(([k]) => k)).not.toContain("dropOffLocationCode");
   });
 
   it("defaults the bucket to 9 when the capture never resolved one", async () => {

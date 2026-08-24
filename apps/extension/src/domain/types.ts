@@ -141,7 +141,12 @@ export interface CapturedAd {
   reserved: boolean;
   shippingInformation: {
     augmentedLabels: {
-      carrierId: string;
+      /**
+       * Null for a seller's own drop-off — `createAd`'s fallback branch keys on
+       * exactly that, so this cannot narrow to `string` without making the
+       * branch unreachable.
+       */
+      carrierId: string | null;
       labels: {
         carrierName: string;
         deliveryMethod: string;

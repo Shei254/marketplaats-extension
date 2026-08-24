@@ -329,6 +329,11 @@ export async function createAd(draft: CapturedAd, photos: Photo[]): Promise<void
       attr.values.forEach(val => {
         form.append(`multiSelectAttribute[${attr.key}]`, val.value);
       })
+    } else if (attr.attributeType == "NUMERIC") {
+      form.append(`numericAttribute[${attr.key}]`, attr.value)
+    } else if (attr.attributeType == "TEXT") {
+      form.append(`textAttribute[${attr.key}]`, attr.value)
+
     }
   })
 

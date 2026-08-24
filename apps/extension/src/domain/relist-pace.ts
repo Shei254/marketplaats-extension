@@ -21,6 +21,13 @@
  * a person can click. The burst cap (ten an hour) is a different shape and stays
  * the backend's to enforce; no inter-action gap short enough to be usable can keep
  * somebody under it, and the cooldown row (#41) is what says so when it bites.
+ *
+ * **Both numbers are settings and neither is a constant.** {@link HUMAN_PACE} is
+ * what a build ships with; `mprelist.client-config.pacing` on the API replaces it
+ * on any deployment without a store release, and the rail underneath is
+ * `mprelist.safety.minimum-interval`. The one rule that holds between them is that
+ * the floor here stays above that rail — the two are held to each other by this
+ * file's own suite and by `apps/api`'s, since neither side can read the other's.
  */
 
 /** The randomised gap, as a range. Both ends in milliseconds. */
@@ -30,22 +37,29 @@ export interface PacingWindow {
 }
 
 /**
- * The built-in window, and the only source of one today.
+ * The built-in window, and what a build paces with until a deployment says
+ * otherwise.
  *
- * **45 to 90 seconds**, uniform. The floor is the load-bearing number: the
- * backend's `minimum-interval` is 30s, so anything under that guarantees the
- * cooldown a paced client is supposed to keep the user away from, and 45s leaves
- * room for a clock that disagrees and a request that takes a second. The ceiling
- * is comfort — 90s is a long time to watch a countdown, and it stays well under
- * the five minutes an MV3 worker is allowed to live.
+ * **10 to 30 seconds**, uniform. It was 45 to 90 until 2026-08, which was drawn
+ * against a 30s rail on the API and turned every second repost into most of a
+ * minute of watching a countdown. The rail moved with it — `minimum-interval` is
+ * 5s now — and the floor here is what has to stay above that one: a gap that could
+ * come in under the rail hands the user the very cooldown this exists to keep them
+ * away from. 10s over a 5s rail is double the room a request and two disagreeing
+ * clocks need, and it is the number the ticket asked for.
  *
- * **#36 is what makes this tunable without a store release**, and since T27 it
- * exists: an operator's `pacing` block reaches `RelistPacer` as a source rather
- * than a value, and this window is what that source answers with when nothing has
- * been served — which is every deployment on every day Marktplaats has not moved
- * anything. The seam T46 left is spent; nothing else in this file changed.
+ * **The ceiling is what keeps this from being a metronome**, which the floor alone
+ * cannot do: a fixed gap is as machine-shaped as no gap at all, only slower
+ * (ADR-0008). Three times the floor leaves a spread wide enough for that and still
+ * averages 20s, which is a wait a person will sit through.
+ *
+ * **Changing it needs no store release.** An operator's `pacing` block reaches
+ * `RelistPacer` as a source rather than a value (T27, #36), and this window is
+ * what that source answers with when nothing has been served — which is every
+ * deployment on every day nobody has tuned one. On the API it is two settings,
+ * `MPRELIST_PACING_MIN_MS` and `MPRELIST_PACING_MAX_MS`, and a restart.
  */
-export const HUMAN_PACE: PacingWindow = { minMs: 45_000, maxMs: 90_000 };
+export const HUMAN_PACE: PacingWindow = { minMs: 10_000, maxMs: 30_000 };
 
 /**
  * Where the window comes from **at the moment it is needed**, which since T27

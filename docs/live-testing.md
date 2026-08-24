@@ -168,7 +168,7 @@ What the popup shows, and what each one proves:
 | **You have no active ads.** | it reached Marktplaats and the account has none — an answer, not a failure |
 | **Could not load your ads. Open marktplaats.nl in a tab…** | the relay had no tab to talk to. The other messages name a login, a pending spike's endpoint, or the HTTP status Marktplaats refused with |
 | a row saying *Reposting…*, with every other button locked | one relist at a time (#79). That is serialisation, and it is not the gap below |
-| a row counting **45s**–**90s** down with *…so your reposts look like clicks rather than a script* | the pace (#54). Randomised, drawn per relist, and only between them — the first repost of a session waits for nothing |
+| a row counting **10s**–**30s** down with *…so your reposts look like clicks rather than a script* | the pace (#54). Randomised, drawn per relist, and only between them — the first repost of a session waits for nothing |
 | **Reposted** + *Reloading your ads…* | the ad was deleted and posted again, and the list and the quota are both being re-read |
 | *Nothing was reposted — your ad is untouched* + **Try again** | it failed before the delete. The unit is handed back (#35) |
 | *Your ad was removed but posting it again failed. It is saved in the extension* + **Retry** | the snapshot is holding the only copy (ADR-0003). **Retry resumes it rather than starting over**, which is what puts the ad back |

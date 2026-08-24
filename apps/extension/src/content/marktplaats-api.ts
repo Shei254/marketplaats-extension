@@ -320,11 +320,17 @@ export async function createAd(draft: CapturedAd, photos: Photo[]): Promise<void
 
   // MOVED: Placed up here to match the working payload order
   form.append("url", "");
+  form.append("url-input", "");
 
-  const typeAttr = draft.attributes?.find((a) => a.key === "type")?.value || draft.categoryInformation?.categoryName;
-  if (typeAttr) {
-    form.append("singleSelectAttribute[type]", typeAttr);
-  }
+  draft.attributes.forEach(attr => {
+    if (attr.attributeType == "SINGLE_SELECT") {
+      form.append(`singleSelectAttribute[${attr.key}]`, attr.value);
+    } else if (attr.attributeType == "MULTI_SELECT") {
+      attr.values.forEach(val => {
+        form.append(`multiSelectAttribute[${attr.key}]`, val.value);
+      })
+    }
+  })
 
   if (draft.deliveryMethod) form.append("deliveryMethod", draft.deliveryMethod);
 
@@ -332,41 +338,54 @@ export async function createAd(draft: CapturedAd, photos: Photo[]): Promise<void
     form.append("buyerProtectionAllowed", "on");
   }
 
-  if (draft.shippingInformation?.selectedShippingOptions?.length) {
-    const uniqueCarriers = Array.from(
-        new Set(
-            draft.shippingInformation.selectedShippingOptions
-                .map((option) => option.carrierId || option.code)
-                .filter(Boolean)
-        )
-    );
+  const shippingInformation = draft.shippingInformation.selectedShippingOptions;
 
-    uniqueCarriers.forEach((carrierCode) => {
-      form.append("shippingMethod", carrierCode.toLowerCase());
-    });
+  if (shippingInformation) {
+    const uniqueShippingInfo = [...new Map(shippingInformation.map(info => [info.carrierId, info])).values()]
+    uniqueShippingInfo.forEach(info => {
+      form.append("shippingMethod", info.carrierId.toLowerCase());
+    })
 
-    // MOVED: Package size comes before price details in the working payload
-    form.append("packageSize", "M");
-
-    const primaryShipping = draft.shippingInformation.selectedShippingOptions[0];
-    if (primaryShipping) {
-      form.append("shippingDetails.price", String(primaryShipping.cost));
-      form.append("shippingDetails.provider", "other");
-    }
+    form.append("shippingDetails.price", shippingInformation?.[0]?.cost || "");
+    form.append("shippingDetails.provider", "other");
+  } else {
+    draft.shippingInformation.augmentedLabels.forEach(label => {
+      if (label.carrierId == null) {
+        form.append("shippingMethod", "diy");
+        form.append("othersPrice", label.labels?.[0]?.price || "")
+      }
+    })
   }
 
-  if (draft.price) {
-    const priceType = draft.price.priceType || "FAST_BID";
-    form.append("Dropdown-prijstype", priceType);
+  const dropOffCode = draft.contactInformation?.postcode;
+  if (dropOffCode) {
+    form.append("dropOffLocationCode", dropOffCode);
+  }
 
-    // MOVED: minimumBidPrice is placed before typeValue in the working payload
-    form.append("price.minimumBidPrice", "");
+  form.append("packageSize", "M");
+
+  if (draft.price) {
+    const priceType = draft.price.priceType;
+
+    form.append("Dropdown-prijstype", priceType);
     form.append("price.typeValue", priceType);
+
+    if (priceType != "FREE" && priceType != "SEE_DESCRIPTION") {
+      if (priceType === "MIN_BID") {
+        form.append("Dropdown-prijstype", "FIXED");
+        form.append("price.minimumBidPrice", String(Number(draft.price.minimumBidPriceCent) / 100));
+      }
+      form.append("price.value", String(Number(draft.price.priceCent) / 100));
+    }
+
     form.append("previousPriceType", "");
 
+    // MOVED: minimumBidPrice is placed before typeValue in the working payload
     // FIXED: Only append if true. Omit entirely if false.
     if (draft.price.biddingEnabled) {
       form.append("price.biddingEnabled", "on");
+    } else {
+      form.append("price.biddingEnabled", "off");
     }
   }
 

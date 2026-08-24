@@ -109,14 +109,13 @@ thread.
    the screen, and the new ad has a new id, so a list that did not re-read would offer a Repost button for an
    ad that no longer exists.
 3. Immediately click **Repost** on another ad.
-   *Expect:* the row **counts down 45–90 seconds** and says *"…so your reposts look like clicks rather than
+   *Expect:* the row **counts down 10–30 seconds** and says *"…so your reposts look like clicks rather than
    a script"* — the pace (#54), not a refusal. When it reaches zero the relist runs and **succeeds**. That is
-   the point of pacing: it keeps you under #25's 30s rail rather than discovering it, so this step no longer
+   the point of pacing: it keeps you under #25's 5s rail rather than discovering it, so this step no longer
    produces the cooldown it used to.
-3a. To see the rail itself, set `mprelist.safety.minimum-interval: 5m` in `application.yml`, restart the API,
-   and repost twice.
+3a. To see the rail itself, set `MPRELIST_MINIMUM_INTERVAL=5m` in `.env`, restart the API, and repost twice.
    *Expect:* the second is refused with a **cooldown countdown**, and every row locks — the rails are per
-   user. Put the setting back afterwards.
+   user. Comment the line back out afterwards.
 4. Wait it out, then spend the remaining two.
    *Expect:* the header reads **`0 of 3`**.
 5. Click **Repost** again.
@@ -232,9 +231,11 @@ URIs exactly, so sign-in lands on `/` and the page rewrites the address bar to `
    returns the same person. The API enforces the role server-side as well — the screen only decides what to
    say, and without the button this step is a trap with no way out.
 3. Sign in as the admin (`dev-admin`).
-   *Expect:* the tier list, and the Price from slice C step 2 under **Stripe Prices with no tier** — a missing
-   `tier_code` must be visible, not silent. If Stripe is unreachable that list says so rather than showing
-   nothing, because empty is the *good* state.
+   *Expect:* a dashboard — a sidebar, the **Tiers** page open on it, and four counts over the table saying how
+   many plans there are, how many are on sale and how many are drafts. The Price from slice C step 2 is under
+   **Stripe prices** in the sidebar, which carries a count while it is not empty — a missing `tier_code` must be
+   visible, not silent. Open it: if Stripe is unreachable that page says so rather than showing nothing,
+   because empty is the *good* state.
 4. Set the default tier's quota to **0** and save.
 5. Sign in to the extension as a **fresh** user.
    *Expect:* they are provisioned, they see their ads, and every button is locked with an upgrade prompt.
@@ -304,11 +305,13 @@ variable and a restart. Run these from a `build:dev` extension with the service-
    *Expect:* **it does not start**, and the log names the four modes there are. A mode no client has a branch
    for is where "strictly data" is enforced rather than asserted. Same for `{"endpoint":{…}}` — a misspelt
    field deploys nothing, and this is the only moment anybody can be told.
-11d. Set `MPRELIST_CLIENT_CONFIG={"pacing":{"minMs":5000,"maxMs":6000}}`, restart, `await __clientConfig()`,
+11d. Set `MPRELIST_PACING_MIN_MS=2000` and `MPRELIST_PACING_MAX_MS=3000`, restart, `await __clientConfig()`,
    then repost two ads in a row from the popup.
-   *Expect:* the second waits about five seconds instead of 45–90. The backend's own 30s rail is untouched,
-   so it will refuse the second relist — which is correct and is the thing to see: the client's pacing is a
-   courtesy the server does not trust.
+   *Expect:* the second waits about two seconds instead of 10–30. The backend's own 5s rail is untouched, so
+   it will refuse that second relist — which is correct and is the thing to see: the client's pacing is a
+   courtesy the server does not trust, and a window set under the rail buys the cooldown it exists to avoid.
+   The window is two settings rather than a line of `MPRELIST_CLIENT_CONFIG` because it is the field anybody
+   actually changes; setting it in both places is refused at startup, and so is half of one.
 11e. Stop the API entirely and `await __clientConfig()`.
    *Expect:* `unavailable`, and `chrome.storage.local.get("clientConfig")` still holds the last document. A
    backend that blinked must not un-apply the hotfix that is holding relisting together.

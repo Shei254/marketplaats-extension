@@ -415,6 +415,10 @@ interaction signals of real clicks.
   has: the pacer now takes a *source* and asks it per call, and the worker's source is the served `pacing`
   block falling back to `HUMAN_PACE`. The acceptance criterion this ticket left open is closed; tuning is a
   restart of the API rather than a Web Store release.
+- **Retuned 2026-08**: the window is **10–30s** and the rail under it is `5s`. 45–90 was drawn against a 30s
+  rail and made every second repost most of a minute of watching a countdown; the pair moved together, since
+  the floor clearing the rail is the whole property. The seam this ticket left is what made the API side of
+  it a setting — `MPRELIST_PACING_MIN_MS` / `MPRELIST_PACING_MAX_MS`, beside `MPRELIST_MINIMUM_INTERVAL`.
 
 #### [T58](https://github.com/Shei254/marketplaats-extension/issues/89) · Chrome Web Store listing · **M** · T36, T46, T60
 Name, icons, screenshots, description naming Marktplaats **in the copy and not the title**, privacy policy

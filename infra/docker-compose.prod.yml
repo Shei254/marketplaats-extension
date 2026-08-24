@@ -149,6 +149,15 @@ services:
       # The patch this API serves the extension the day Marktplaats moves a path (#36). Empty on a healthy
       # day, which is what makes a restart of this container the whole of that fix.
       MPRELIST_CLIENT_CONFIG: ${MPRELIST_CLIENT_CONFIG:-}
+      # How long a repost waits for the one before it: the window the extension paces with, and the rail this
+      # API refuses under. Empty is the ordinary state for all three and means the numbers the images ship
+      # with — a build's own 10s–30s window, and a 5s rail. Passed through so that tuning them is this file's
+      # env and a restart, rather than a Web Store review for one of them and a release for the other.
+      MPRELIST_PACING_MIN_MS: ${MPRELIST_PACING_MIN_MS:-}
+      MPRELIST_PACING_MAX_MS: ${MPRELIST_PACING_MAX_MS:-}
+      # Unset rather than empty where nobody has set it: an empty duration is not a value this API can read,
+      # and `:-` with nothing after it would hand it one. The application.yml default is what fills the gap.
+      MPRELIST_MINIMUM_INTERVAL: ${MPRELIST_MINIMUM_INTERVAL:-5s}
     ports:
       - "${MPRELIST_API_PORT:-8080}:8080"
     healthcheck:

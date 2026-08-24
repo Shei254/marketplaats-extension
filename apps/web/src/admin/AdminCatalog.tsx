@@ -1,13 +1,8 @@
-import type {
-  AdminTier,
-  NewPlan,
-  NewPrice,
-  TierEdit,
-  UntaggedPrice,
-} from "@mprelist/contracts";
-import { Badge, Button, Card, Note } from "@mprelist/ui";
-import { useCallback, useEffect, useState, type JSX } from "react";
+import type { AdminTier, NewPlan, NewPrice, TierEdit } from "@mprelist/contracts";
+import { Badge, Button, Card, Checkbox, Field, Input, Note, Select, Textarea } from "@mprelist/ui";
+import { useCallback, useEffect, useState, type JSX, type ReactNode } from "react";
 
+import { AdminPrices } from "./AdminPrices";
 import type {
   AdminApi,
   CatalogAnswer,
@@ -16,16 +11,29 @@ import type {
   EditAnswer,
   PricesAnswer,
 } from "./admin-api";
+import { ADMIN_ROLE } from "./admin-config";
+import { DEFAULT_PAGE, type AdminPageId } from "./admin-nav";
+import { AdminShell } from "./AdminShell";
 
 /**
- * The tier catalog, and the Stripe Prices nobody tagged (T54, #85).
+ * The signed-in half of `/admin`: the pages, the data behind them, and the writes
+ * an operator makes (T54, #85; T62, #128).
+ *
+ * **One load for the whole surface.** The catalog, the untagged Stripe prices and
+ * the currency arrive together and are held here rather than in the page that
+ * shows them — which is what lets the sidebar carry a count for a page nobody has
+ * opened, and what stops switching pages from being a fetch.
  *
  * **A table rather than cards**, which is the one deliberate departure from
  * everything else in this repository: the plan cards are a screen somebody is
  * being sold something on, and this is a screen somebody compares eight numbers
- * across five rows on. There is no artboard for it — the canvas draws the popup
- * and the public pages — so it is built out of the same tokens rather than out of
- * a design nobody made.
+ * across five rows on.
+ *
+ * **One form, in one place.** The three forms — new plan, reprice, edit — are one
+ * piece of state and one panel directly under the heading, rather than three
+ * independent flags opening panels at the bottom of a table. An operator never has
+ * to find where the thing they clicked opened, two of them can never be open at
+ * once, and the row a form belongs to is marked while it is.
  *
  * **The form is total over what may be edited**, because the API's `PUT` is: every
  * field is sent on every save, so there is no partial state to reason about here
@@ -40,18 +48,20 @@ import type {
 export function AdminCatalog({
   api,
   onSignedOut,
+  onSignOut,
 }: {
   api: AdminApi;
   /** The token this tab holds has expired — there is no refresh, so this is a redirect. */
   onSignedOut: () => void;
+  /** Leaving on purpose, which ends the session at Keycloak as well as here. */
+  onSignOut: () => void;
 }): JSX.Element {
+  const [page, setPage] = useState<AdminPageId>(DEFAULT_PAGE);
   const [catalog, setCatalog] = useState<CatalogAnswer | null>(null);
   const [prices, setPrices] = useState<PricesAnswer | null>(null);
   const [currency, setCurrency] = useState<CurrencyAnswer | null>(null);
-  const [creating, setCreating] = useState(false);
-  /** Which tier is having a rhythm added or repriced, if any (T62, #128). */
-  const [pricing, setPricing] = useState<string | null>(null);
-  const [editing, setEditing] = useState<string | null>(null);
+  /** Which form is open, and there is only ever one. */
+  const [panel, setPanel] = useState<Panel>(null);
   const [note, setNote] = useState<{ tone: "ok" | "error"; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -90,7 +100,7 @@ export function AdminCatalog({
       }
       if (answer.status === "saved") {
         setNote({ tone: "ok", message: `${what} saved.` });
-        setEditing(null);
+        setPanel(null);
         await load();
         return;
       }
@@ -127,7 +137,7 @@ export function AdminCatalog({
       }
       if (answer.status === "created") {
         setNote({ tone: "ok", message: `${plan.name} created, and Stripe has the Price.` });
-        setCreating(false);
+        setPanel(null);
         await load();
         return;
       }
@@ -154,7 +164,7 @@ export function AdminCatalog({
       }
       if (answer.status === "created") {
         setNote({ tone: "ok", message: `${code} is now sold by the ${price.interval} too.` });
-        setPricing(null);
+        setPanel(null);
         await load();
         return;
       }
@@ -172,112 +182,245 @@ export function AdminCatalog({
     [api, applied],
   );
 
-  if (!catalog || !prices) return <p className="admin-empty">Loading the catalog…</p>;
-  if (catalog.status === "forbidden" || prices.status === "forbidden") {
+  const ready = catalog?.status === "ready" ? catalog : null;
+  const untagged = prices?.status === "ready" ? prices.prices.length : 0;
+
+  return (
+    <AdminShell
+      page={page}
+      onNavigate={(next) => {
+        setPage(next);
+        // A note is about the thing that just happened on the page it happened on;
+        // carried to another page it is a sentence with no subject in sight.
+        setNote(null);
+      }}
+      counts={{ prices: untagged }}
+      role={ADMIN_ROLE}
+      onSignOut={onSignOut}
+      actions={
+        // Nothing while a form is open, and that is the point of it: the panel is
+        // on screen with its own way out, and a second control in the corner
+        // saying "Close" is a second thing to have to read.
+        page === "tiers" && ready && !panel ? (
+          <Button shape="rect" onClick={() => setPanel({ kind: "new" })} disabled={busy}>
+            New plan
+          </Button>
+        ) : undefined
+      }
+    >
+      {page === "prices" ? (
+        <AdminPrices answer={prices} />
+      ) : (
+        <Tiers
+          catalog={catalog}
+          currency={currency}
+          panel={panel}
+          note={note}
+          busy={busy}
+          onReload={() => void load()}
+          onOpen={setPanel}
+          onSave={(code, edit) => void save(code, edit)}
+          onCreate={(plan) => void createPlan(plan)}
+          onAddPrice={(code, price) => void addPrice(code, price)}
+          onMakeDefault={(tier) => void makeDefault(tier)}
+        />
+      )}
+    </AdminShell>
+  );
+}
+
+/** Which form is open. Never two, which is what makes one panel enough. */
+type Panel = { kind: "new" } | { kind: "price"; code: string } | { kind: "edit"; code: string } | null;
+
+/**
+ * The catalog page: what the whole of it looks like at a glance, whichever form is
+ * open, and the rows.
+ */
+function Tiers({
+  catalog,
+  currency,
+  panel,
+  note,
+  busy,
+  onReload,
+  onOpen,
+  onSave,
+  onCreate,
+  onAddPrice,
+  onMakeDefault,
+}: {
+  catalog: CatalogAnswer | null;
+  currency: CurrencyAnswer | null;
+  panel: Panel;
+  note: { tone: "ok" | "error"; message: string } | null;
+  busy: boolean;
+  onReload: () => void;
+  onOpen: (panel: Panel) => void;
+  onSave: (code: string, edit: TierEdit) => void;
+  onCreate: (plan: NewPlan) => void;
+  onAddPrice: (code: string, price: NewPrice) => void;
+  onMakeDefault: (tier: AdminTier) => void;
+}): JSX.Element {
+  if (!catalog) return <p className="admin-empty">Loading the catalog…</p>;
+  if (catalog.status === "forbidden") {
     // Reachable only if the role went away between the token being minted and this
     // call — the screen above already checks it. Said rather than rendered empty.
     return <Note tone="error">This account no longer has the ADMIN role.</Note>;
   }
   if (catalog.status !== "ready") {
     return (
-      <div className="admin-empty">
+      <Card>
         <Note tone="warn">The catalog could not be loaded.</Note>
-        <Button shape="rect" tone="secondary" onClick={() => void load()}>
-          Try again
-        </Button>
-      </div>
+        <div className="admin-form-actions">
+          <Button shape="rect" tone="secondary" onClick={onReload}>
+            Try again
+          </Button>
+        </div>
+      </Card>
     );
   }
 
+  const open = panel?.kind === "edit" || panel?.kind === "price" ? panel.code : null;
+  const editing = panel?.kind === "edit" ? tierIn(catalog.tiers, panel.code) : null;
+  const pricing = panel?.kind === "price" ? tierIn(catalog.tiers, panel.code) : null;
+
   return (
     <div className="admin-sections">
-      <Card
-        title="Tiers"
-        lede="Every tier there is, including the drafts the Stripe sync creates and the free tier nobody buys. Amounts live in Stripe and are not editable here."
-        // The section's own action, opposite its title: it makes a new row rather
-        // than doing anything to the ones below, which is what a header control is.
-        actions={
-          <Button
-            shape="rect"
-            tone={creating ? "secondary" : "primary"}
-            onClick={() => setCreating(!creating)}
-            disabled={busy}
-          >
-            {creating ? "Cancel" : "New plan"}
-          </Button>
-        }
-        flush
-      >
-        {note ? (
-          <div className="admin-card-pad admin-card-pad--top">
-            <Note tone={note.tone === "ok" ? "ok" : "error"}>{note.message}</Note>
-          </div>
-        ) : null}
+      {note ? <Note tone={note.tone === "ok" ? "ok" : "error"}>{note.message}</Note> : null}
+      <Summary tiers={catalog.tiers} currency={currency} />
+      {panel?.kind === "new" ? (
+        <NewPlanForm
+          currency={currency}
+          busy={busy}
+          onCancel={() => onOpen(null)}
+          onCreate={onCreate}
+        />
+      ) : null}
+      {pricing ? (
+        <NewPriceForm
+          // Remounted per tier: the form holds the row's values as its own state,
+          // so a shared instance would open the next tier showing the last one's.
+          key={pricing.tier.code}
+          tier={pricing}
+          currency={currency}
+          busy={busy}
+          onCancel={() => onOpen(null)}
+          onAdd={(price) => onAddPrice(pricing.tier.code, price)}
+        />
+      ) : null}
+      {editing ? (
+        <TierForm
+          key={editing.tier.code}
+          tier={editing}
+          busy={busy}
+          onCancel={() => onOpen(null)}
+          onSave={(edit) => onSave(editing.tier.code, edit)}
+        />
+      ) : null}
+      <Card flush>
         {/* The table scrolls inside the card rather than pushing the page sideways:
             five columns and three row actions do not fit a narrow window, and a
-            page that scrolls horizontally loses its own header. */}
+            page that scrolls horizontally loses its own sidebar. */}
         <div className="admin-table-scroll">
-        <table className="mp-table admin-table">
-          <thead>
-            <tr>
-              <th>Code</th>
-              <th>Name</th>
-              <th>Relists</th>
-              <th>Stripe Price</th>
-              <th>State</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {catalog.tiers.map((tier) => (
-              <TierRow
-                key={tier.tier.code}
-                tier={tier}
-                busy={busy}
-                onEdit={() => setEditing(tier.tier.code === editing ? null : tier.tier.code)}
-                onAddPrice={() => setPricing(tier.tier.code === pricing ? null : tier.tier.code)}
-                onMakeDefault={() => void makeDefault(tier)}
-              />
-            ))}
-          </tbody>
-        </table>
-        </div>
-        <div className="admin-card-pad">
-        {creating ? (
-          <NewPlanForm
-            currency={currency}
-            busy={busy}
-            onCancel={() => setCreating(false)}
-            onCreate={(plan) => void createPlan(plan)}
-          />
-        ) : null}
-        {pricing ? (
-          <NewPriceForm
-            key={pricing}
-            code={pricing}
-            sellsAt={(catalog.tiers.find((tier) => tier.tier.code === pricing)?.prices ?? []).map(
-              (price) => price.interval,
-            )}
-            currency={currency}
-            busy={busy}
-            onCancel={() => setPricing(null)}
-            onAdd={(price) => void addPrice(pricing, price)}
-          />
-        ) : null}
-        {editing ? (
-          <TierForm
-            // Remounted per tier: the form holds the row's values as its own state,
-            // so a shared instance would open the next tier showing the last one's.
-            key={editing}
-            tier={catalog.tiers.find((tier) => tier.tier.code === editing) ?? null}
-            busy={busy}
-            onCancel={() => setEditing(null)}
-            onSave={(edit) => void save(editing, edit)}
-          />
-        ) : null}
+          <table className="mp-table admin-table">
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Name</th>
+                <th>Relists</th>
+                <th>Stripe Price</th>
+                <th>State</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {catalog.tiers.map((tier) => (
+                <TierRow
+                  key={tier.tier.code}
+                  tier={tier}
+                  busy={busy}
+                  open={open === tier.tier.code}
+                  editing={panel?.kind === "edit" && panel.code === tier.tier.code}
+                  pricing={panel?.kind === "price" && panel.code === tier.tier.code}
+                  onEdit={() =>
+                    onOpen(
+                      panel?.kind === "edit" && panel.code === tier.tier.code
+                        ? null
+                        : { kind: "edit", code: tier.tier.code },
+                    )
+                  }
+                  onAddPrice={() =>
+                    onOpen(
+                      panel?.kind === "price" && panel.code === tier.tier.code
+                        ? null
+                        : { kind: "price", code: tier.tier.code },
+                    )
+                  }
+                  onMakeDefault={() => onMakeDefault(tier)}
+                />
+              ))}
+            </tbody>
+          </table>
         </div>
       </Card>
-      <UnadoptedPrices answer={prices} />
+    </div>
+  );
+}
+
+/**
+ * The four numbers somebody opening this page wants before they read a single row:
+ * how many plans there are, how many can actually be bought, how many are half
+ * finished, and what the money is in.
+ *
+ * **Drafts are the one that is a job rather than a fact**, so it is the only tile
+ * that changes colour — a draft is a tier the Stripe sync invented and nobody
+ * finished, and it is the reason this screen exists.
+ */
+function Summary({
+  tiers,
+  currency,
+}: {
+  tiers: AdminTier[];
+  currency: CurrencyAnswer | null;
+}): JSX.Element {
+  const onSale = tiers.filter((tier) => tier.published).length;
+  const drafts = tiers.filter(isDraft).length;
+  const priced = currency?.status === "ready" ? currency.currency.toUpperCase() : "—";
+  return (
+    <div className="admin-stats">
+      <Stat label="Tiers" value={tiers.length} note="Everything in the catalog" />
+      <Stat label="On sale" value={onSale} note="Buyable from the extension" />
+      <Stat
+        label="Drafts"
+        value={drafts}
+        note={drafts === 0 ? "Nothing waiting on you" : "Started in Stripe, not finished here"}
+        attention={drafts > 0}
+      />
+      <Stat
+        label="Priced in"
+        value={priced}
+        note={priced === "—" ? "Stripe could not be asked" : "What Stripe settles in"}
+      />
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  note,
+  attention = false,
+}: {
+  label: string;
+  value: ReactNode;
+  note: string;
+  attention?: boolean;
+}): JSX.Element {
+  return (
+    <div className={attention ? "admin-stat admin-stat--attention" : "admin-stat"}>
+      <p className="admin-stat-label">{label}</p>
+      <p className="admin-stat-value">{value}</p>
+      <p className="admin-stat-note">{note}</p>
     </div>
   );
 }
@@ -290,19 +433,26 @@ export function AdminCatalog({
 function TierRow({
   tier,
   busy,
+  open,
+  editing,
+  pricing,
   onEdit,
   onAddPrice,
   onMakeDefault,
 }: {
   tier: AdminTier;
   busy: boolean;
+  /** This row is the one the open form belongs to. */
+  open: boolean;
+  editing: boolean;
+  pricing: boolean;
   onEdit: () => void;
   onAddPrice: () => void;
   onMakeDefault: () => void;
 }): JSX.Element {
-  const draft = !tier.published && tier.relistQuotaPerPeriod === 0 && tier.prices.length > 0;
+  const draft = isDraft(tier);
   return (
-    <tr data-draft={draft}>
+    <tr data-draft={draft} data-open={open}>
       <td className="admin-code">{tier.tier.code}</td>
       <td>{tier.tier.name}</td>
       <td className="admin-numeric">{tier.relistQuotaPerPeriod}</td>
@@ -330,10 +480,19 @@ function TierRow({
       </td>
       <td>
         <div className="admin-row-actions">
-          <Button shape="rect" tone="ghost" onClick={onEdit} disabled={busy}>
+          {/* Quiet until they are wanted: three solid buttons per row is a wall of
+              chrome down the right of the table, and the row is what an operator is
+              reading. The one whose form is open stops being quiet, so the panel at
+              the top of the page has a row it visibly belongs to. */}
+          <Button shape="rect" tone={editing ? "secondary" : "ghost"} onClick={onEdit} disabled={busy}>
             Edit
           </Button>
-          <Button shape="rect" tone="ghost" onClick={onAddPrice} disabled={busy}>
+          <Button
+            shape="rect"
+            tone={pricing ? "secondary" : "ghost"}
+            onClick={onAddPrice}
+            disabled={busy}
+          >
             Prices
           </Button>
           {tier.isDefault ? null : (
@@ -344,6 +503,37 @@ function TierRow({
         </div>
       </td>
     </tr>
+  );
+}
+
+/**
+ * The panel every form is drawn in: what you are doing, to what, and a way out of
+ * it that is in the same place every time.
+ */
+function FormPanel({
+  title,
+  lede,
+  onCancel,
+  children,
+}: {
+  title: string;
+  lede?: ReactNode;
+  onCancel: () => void;
+  children: ReactNode;
+}): JSX.Element {
+  return (
+    <section className="admin-form">
+      <div className="admin-form-head">
+        <div>
+          <h2 className="admin-form-title">{title}</h2>
+          {lede ? <p className="admin-form-lede">{lede}</p> : null}
+        </div>
+        <Button shape="rect" tone="ghost" onClick={onCancel} aria-label={`Close ${title}`}>
+          Close
+        </Button>
+      </div>
+      {children}
+    </section>
   );
 }
 
@@ -366,18 +556,16 @@ function TierForm({
   onCancel,
   onSave,
 }: {
-  tier: AdminTier | null;
+  tier: AdminTier;
   busy: boolean;
   onCancel: () => void;
   onSave: (edit: TierEdit) => void;
-}): JSX.Element | null {
-  const [name, setName] = useState(tier?.tier.name ?? "");
-  const [quota, setQuota] = useState(String(tier?.relistQuotaPerPeriod ?? 0));
-  const [features, setFeatures] = useState(JSON.stringify(tier?.features ?? {}, null, 2));
-  const [published, setPublished] = useState(tier?.published ?? false);
+}): JSX.Element {
+  const [name, setName] = useState(tier.tier.name);
+  const [quota, setQuota] = useState(String(tier.relistQuotaPerPeriod));
+  const [features, setFeatures] = useState(JSON.stringify(tier.features, null, 2));
+  const [published, setPublished] = useState(tier.published);
   const [problem, setProblem] = useState<string | null>(null);
-
-  if (!tier) return null;
 
   const submit = (): void => {
     const parsedQuota = Number(quota);
@@ -405,62 +593,59 @@ function TierForm({
   };
 
   return (
-    <div className="admin-form">
-      <p className="admin-form-title">Editing {tier.tier.name}</p>
+    <FormPanel
+      title={`Editing ${tier.tier.name}`}
+      lede={
+        <>
+          The tier stored under <code>{tier.tier.code}</code>. Its price is Stripe&apos;s and is not
+          edited here.
+        </>
+      }
+      onCancel={onCancel}
+    >
       <div className="admin-form-grid">
-      <div className="mp-field">
-        <label className="mp-label" htmlFor="tier-name">Name</label>
-        <input
-          id="tier-name"
-          type="text"
-          className="mp-input"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-        />
-        <span className="mp-hint">Display text, and yours to rewrite.</span>
+        <Field label="Name" hint="Display text, and yours to rewrite.">
+          <Input id="tier-name" value={name} onChange={(event) => setName(event.target.value)} />
+        </Field>
+        <Field
+          label="Relists per period"
+          hint="0 on the default tier is how “there is no free tier” is said."
+        >
+          <Input
+            id="tier-quota"
+            type="number"
+            min={0}
+            value={quota}
+            onChange={(event) => setQuota(event.target.value)}
+          />
+        </Field>
       </div>
-      <div className="mp-field">
-        <label className="mp-label" htmlFor="tier-quota">Relists per period</label>
-        <input
-          id="tier-quota"
-          type="number"
-          className="mp-input"
-          min={0}
-          value={quota}
-          onChange={(event) => setQuota(event.target.value)}
-        />
-        <span className="mp-hint">0 on the default tier is how “there is no free tier” is said.</span>
-      </div>
-      </div>
-      <div className="mp-field">
-        <label className="mp-label" htmlFor="tier-features">Feature flags, as JSON</label>
-        <textarea
-          className="mp-textarea"
+      <Field label="Feature flags, as JSON">
+        <Textarea
           id="tier-features"
           value={features}
           onChange={(event) => setFeatures(event.target.value)}
         />
-      </div>
-      <div className="mp-check-row">
-        <input
-          id="tier-published"
-          type="checkbox"
-          className="mp-check"
-          checked={published}
-          onChange={(event) => setPublished(event.target.checked)}
-        />
-        <label htmlFor="tier-published">On sale</label>
-      </div>
-      {tier.prices.length === 0 ? (
-        <p className="mp-hint">
-          This tier has no Stripe Price, so it cannot go on sale. Add one below, or create it in Stripe
-          tagged <code>metadata.tier_code = {tier.tier.code}</code> — either way the same sync adopts it.
-        </p>
-      ) : null}
-      <p className="mp-hint">
-        Lowering the quota under existing subscribers is allowed: what is left of their period is this
-        number minus what they have spent, and never less than zero.
-      </p>
+      </Field>
+      <Checkbox
+        id="tier-published"
+        label="On sale — people can buy this from the extension"
+        checked={published}
+        onChange={(event) => setPublished(event.target.checked)}
+      />
+      <ul className="admin-notes">
+        {tier.prices.length === 0 ? (
+          <li>
+            This tier has no Stripe price, so it cannot go on sale. Add one with <b>Prices</b> on its
+            row, or create it in Stripe tagged <code>metadata.tier_code = {tier.tier.code}</code> —
+            either way the same sync adopts it.
+          </li>
+        ) : null}
+        <li>
+          Lowering the quota under existing subscribers is allowed: what is left of their period is
+          this number minus what they have spent, and never less than zero.
+        </li>
+      </ul>
       {problem ? <Note tone="error">{problem}</Note> : null}
       <div className="admin-form-actions">
         <Button shape="rect" tone={busy ? "busy" : "primary"} onClick={submit}>
@@ -470,7 +655,7 @@ function TierForm({
           Cancel
         </Button>
       </div>
-    </div>
+    </FormPanel>
   );
 }
 
@@ -484,7 +669,7 @@ function TierForm({
  * a plan card and fails at Checkout.
  *
  * **The amount is written once.** It is the only place in this product where one
- * is set, and the hint says as much: Stripe Prices are immutable, so changing it
+ * is set, and the notes say as much: Stripe Prices are immutable, so changing it
  * later means a new Price — which is exactly what ADR-0019 refused to pretend a
  * form field could do.
  */
@@ -509,17 +694,12 @@ function NewPlanForm({
 
   if (!pricedIn) {
     return (
-      <div className="admin-form">
+      <FormPanel title="New plan" onCancel={onCancel}>
         <Note tone="warn">
           Stripe could not say what this account settles in, so a plan cannot be priced here right now.
           Creating one in the Stripe dashboard, tagged with its tier code, still works.
         </Note>
-        <div className="admin-form-actions">
-          <Button shape="rect" tone="secondary" onClick={onCancel}>
-            Close
-          </Button>
-        </div>
-      </div>
+      </FormPanel>
     );
   }
 
@@ -555,50 +735,60 @@ function NewPlanForm({
   };
 
   return (
-    <div className="admin-form">
-      <p className="admin-form-title">A new plan, created in Stripe and adopted here</p>
+    <FormPanel
+      title="New plan"
+      lede="Created in Stripe and adopted here, in one step."
+      onCancel={onCancel}
+    >
       <div className="admin-form-grid">
-      <div className="mp-field">
-        <label className="mp-label" htmlFor="plan-code">Tier code</label>
-        <input id="plan-code" type="text" className="mp-input" value={tierCode} onChange={(e) => setTierCode(e.target.value)} />
-        <span className="mp-hint">The stable handle, and the tag on the Stripe Price.</span>
+        <Field label="Tier code" hint="The stable handle, and the tag on the Stripe Price.">
+          <Input id="plan-code" value={tierCode} onChange={(e) => setTierCode(e.target.value)} />
+        </Field>
+        <Field label="Name" hint="What buyers see, and what Stripe calls the Product.">
+          <Input id="plan-name" value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+        <Field label="Amount, in cents" hint={`999 is 9.99 ${pricedIn.toUpperCase()}.`}>
+          <Input
+            id="plan-amount"
+            type="number"
+            min={0}
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+        </Field>
+        <Field label="Billed every">
+          <Select id="plan-interval" value={interval} onChange={(e) => setInterval(e.target.value)}>
+            <option value="month">month</option>
+            <option value="year">year</option>
+          </Select>
+        </Field>
+        <Field label="Relists per period" hint="How many reposts a subscriber gets each period.">
+          <Input
+            id="plan-quota"
+            type="number"
+            min={0}
+            value={quota}
+            onChange={(e) => setQuota(e.target.value)}
+          />
+        </Field>
       </div>
-      <div className="mp-field">
-        <label className="mp-label" htmlFor="plan-name">Name</label>
-        <input id="plan-name" type="text" className="mp-input" value={name} onChange={(e) => setName(e.target.value)} />
-      </div>
-      <div className="mp-field">
-        <label className="mp-label" htmlFor="plan-amount">Amount, in cents</label>
-        <input id="plan-amount" type="number" className="mp-input" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} />
-        <span className="mp-hint">999 is 9.99 {pricedIn.toUpperCase()}.</span>
-      </div>
-      <div className="mp-field">
-        <label className="mp-label" htmlFor="plan-interval">Billed every</label>
-        <select id="plan-interval" className="mp-select" value={interval} onChange={(e) => setInterval(e.target.value)}>
-          <option value="month">month</option>
-          <option value="year">year</option>
-        </select>
-      </div>
-      <div className="mp-field">
-        <label className="mp-label" htmlFor="plan-quota">Relists per period</label>
-        <input id="plan-quota" type="number" className="mp-input" min={0} value={quota} onChange={(e) => setQuota(e.target.value)} />
-      </div>
-      </div>
-      {/* Shown, not chosen (T63, #129). Every tier is priced in what this Stripe
-          account settles in — a plan screen is a comparison, and two currencies on
-          it is not one a buyer can make. */}
-      <p className="mp-hint">
-        Priced in <b>{pricedIn.toUpperCase()}</b>, like every tier — that is what this Stripe account
-        settles in, and one catalog in two currencies is a plan screen nobody can compare.
-      </p>
-      <p className="mp-hint">
-        The amount is written once. Stripe Prices cannot be edited — changing it later means creating a
-        new Price in Stripe tagged <code>metadata.tier_code = {tierCode || "…"}</code>, which repoints this
-        tier. Everybody already subscribed keeps the amount they signed up at.
-      </p>
-      <p className="mp-hint">
-        It is created <b>not on sale</b>. Check what Stripe made, then put it on sale from the row above.
-      </p>
+      <ul className="admin-notes">
+        {/* Shown, not chosen (T63, #129). Every tier is priced in what this Stripe
+            account settles in — a plan screen is a comparison, and two currencies
+            on it is not one a buyer can make. */}
+        <li>
+          Priced in <b>{pricedIn.toUpperCase()}</b>, like every tier — that is what this Stripe
+          account settles in.
+        </li>
+        <li>
+          The amount is written once. Stripe prices cannot be edited: changing it later means a new
+          price in Stripe tagged <code>metadata.tier_code = {tierCode || "…"}</code>, and everybody
+          already subscribed keeps the amount they signed up at.
+        </li>
+        <li>
+          It is created <b>not on sale</b>. Check what Stripe made, then put it on sale from its row.
+        </li>
+      </ul>
       {problem ? <Note tone="error">{problem}</Note> : null}
       <div className="admin-form-actions">
         <Button shape="rect" tone={busy ? "busy" : "primary"} onClick={submit}>
@@ -608,7 +798,7 @@ function NewPlanForm({
           Cancel
         </Button>
       </div>
-    </div>
+    </FormPanel>
   );
 }
 
@@ -622,20 +812,20 @@ function NewPlanForm({
  * an edit field and not find one.
  */
 function NewPriceForm({
-  code,
-  sellsAt,
+  tier,
   currency,
   busy,
   onCancel,
   onAdd,
 }: {
-  code: string;
-  sellsAt: string[];
+  tier: AdminTier;
   currency: CurrencyAnswer | null;
   busy: boolean;
   onCancel: () => void;
   onAdd: (price: NewPrice) => void;
 }): JSX.Element {
+  const code = tier.tier.code;
+  const sellsAt = tier.prices.map((price) => price.interval);
   const pricedIn = currency?.status === "ready" ? currency.currency : null;
   const [amount, setAmount] = useState("");
   const [interval, setInterval] = useState(sellsAt.includes("month") ? "year" : "month");
@@ -643,16 +833,11 @@ function NewPriceForm({
 
   if (!pricedIn) {
     return (
-      <div className="admin-form">
+      <FormPanel title={`Prices for ${tier.tier.name}`} onCancel={onCancel}>
         <Note tone="warn">
           Stripe could not say what this account settles in, so a price cannot be added here right now.
         </Note>
-        <div className="admin-form-actions">
-          <Button shape="rect" tone="secondary" onClick={onCancel}>
-            Close
-          </Button>
-        </div>
-      </div>
+      </FormPanel>
     );
   }
 
@@ -668,29 +853,50 @@ function NewPriceForm({
   };
 
   return (
-    <div className="admin-form">
-      <p className="mp-hint">
-        A price for <b>{code}</b>. Adding a rhythm it does not sell at yet puts the two side by side on
-        one plan card; picking one it already sells at creates a replacement Price — which is the only
-        way to reprice, because Stripe Prices cannot be edited.
-      </p>
-      <div className="mp-field">
-        <label className="mp-label" htmlFor="price-interval">Billed every</label>
-        <select id="price-interval" value={interval} onChange={(e) => setInterval(e.target.value)}>
-          <option value="month">month{sellsAt.includes("month") ? " — already sold, replaces it" : ""}</option>
-          <option value="year">year{sellsAt.includes("year") ? " — already sold, replaces it" : ""}</option>
-        </select>
+    <FormPanel
+      title={`Prices for ${tier.tier.name}`}
+      lede={
+        <>
+          A price for <code>{code}</code>, in {pricedIn.toUpperCase()}.
+        </>
+      }
+      onCancel={onCancel}
+    >
+      <div className="admin-form-grid">
+        <Field label="Billed every">
+          <Select id="price-interval" value={interval} onChange={(e) => setInterval(e.target.value)}>
+            <option value="month">
+              month{sellsAt.includes("month") ? " — already sold, replaces it" : ""}
+            </option>
+            <option value="year">
+              year{sellsAt.includes("year") ? " — already sold, replaces it" : ""}
+            </option>
+          </Select>
+        </Field>
+        <Field label="Amount, in cents" hint={`999 is 9.99 ${pricedIn.toUpperCase()}.`}>
+          <Input
+            id="price-amount"
+            type="number"
+            min={0}
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+        </Field>
       </div>
-      <div className="mp-field">
-        <label className="mp-label" htmlFor="price-amount">Amount, in cents</label>
-        <input id="price-amount" type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} />
-      </div>
-      {replacing ? (
-        <p className="mp-hint">
-          <b>Everybody already subscribed keeps the price they signed up at.</b> That is what Stripe&apos;s
-          immutability means, and no screen can change it — they move when they cancel and buy again.
-        </p>
-      ) : null}
+      <ul className="admin-notes">
+        <li>
+          A rhythm this plan does not sell at yet puts the two side by side on one plan card; picking
+          one it already sells at creates a replacement price — which is the only way to reprice,
+          because Stripe prices cannot be edited.
+        </li>
+        {replacing ? (
+          <li>
+            <b>Everybody already subscribed keeps the price they signed up at.</b> That is what
+            Stripe&apos;s immutability means, and no screen can change it — they move when they cancel
+            and buy again.
+          </li>
+        ) : null}
+      </ul>
       {problem ? <Note tone="error">{problem}</Note> : null}
       <div className="admin-form-actions">
         <Button shape="rect" tone={busy ? "busy" : "primary"} onClick={submit}>
@@ -700,8 +906,21 @@ function NewPriceForm({
           Cancel
         </Button>
       </div>
-    </div>
+    </FormPanel>
   );
+}
+
+/**
+ * A tier the Stripe sync invented from an unrecognised Price: quota 0, unbuyable,
+ * and something an operator has to finish. The one row on this screen that is a job
+ * rather than a fact.
+ */
+function isDraft(tier: AdminTier): boolean {
+  return !tier.published && tier.relistQuotaPerPeriod === 0 && tier.prices.length > 0;
+}
+
+function tierIn(tiers: AdminTier[], code: string): AdminTier | null {
+  return tiers.find((tier) => tier.tier.code === code) ?? null;
 }
 
 /** What each refusal of a *creation* means, which is not what the edit form's mean. */
@@ -719,71 +938,6 @@ function whyNotCreated(answer: CreateAnswer): string {
     default:
       return "The API could not be reached. Nothing was created.";
   }
-}
-
-/**
- * The Stripe Prices carrying no `tier_code` — the list that makes a forgotten tag
- * visible rather than silent (ADR-0019).
- *
- * **It lists and does nothing.** There is no adopt button, because Stripe accounts
- * hold Prices for one-offs, coupons and experiments, and only the operator can
- * tell an experiment from a mistake. Adopting is done in Stripe, by adding the
- * tag, which fires `price.updated` and goes through the sync that already exists.
- */
-function UnadoptedPrices({ answer }: { answer: PricesAnswer }): JSX.Element {
-  return (
-    <Card
-      title="Stripe Prices with no tier"
-      lede={
-        <>
-          Prices in Stripe carrying no <code className="mp-code">metadata.tier_code</code>. Not all of
-          them are mistakes — one-offs and experiments live here too — but a plan you meant to create
-          and cannot find will be in this list. Add the tag in Stripe and it becomes a tier.
-        </>
-      }
-      flush
-    >
-      {answer.status !== "ready" ? (
-        <div className="admin-card-pad admin-card-pad--top">
-          <Note tone="warn">Stripe could not be asked, so this list is unknown rather than empty.</Note>
-        </div>
-      ) : answer.prices.length === 0 ? (
-        <p className="admin-empty">Every Price in Stripe names a tier.</p>
-      ) : (
-        <div className="admin-table-scroll">
-        <table className="mp-table admin-table">
-          <thead>
-            <tr>
-              <th>Price</th>
-              <th>Nickname</th>
-              <th>Amount</th>
-              <th>Recurs</th>
-            </tr>
-          </thead>
-          <tbody>
-            {answer.prices.map((price) => (
-              <PriceRow key={price.id} price={price} />
-            ))}
-          </tbody>
-        </table>
-        </div>
-      )}
-    </Card>
-  );
-}
-
-function PriceRow({ price }: { price: UntaggedPrice }): JSX.Element {
-  return (
-    <tr>
-      <td><code className="mp-code">{price.id}</code></td>
-      <td>{price.nickname ?? "—"}</td>
-      <td className="admin-numeric">
-        {(price.amount / 100).toFixed(2)} {price.currency.toUpperCase()}
-      </td>
-      {/* A one-off is the commonest thing in this list that is not a mistake. */}
-      <td>{price.interval ?? "one-off"}</td>
-    </tr>
-  );
 }
 
 /** What each refusal means to the person looking at the form. */

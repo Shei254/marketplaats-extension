@@ -439,7 +439,9 @@ that ADR's own "revisit if" anticipated. Same audience and same guard as the adm
 
   **The pacing rails are for the user's own Marktplaats account**, not a throttle protecting ours (ADR-0008).
   Shipped (#25) as a `30s` minimum interval between consecutive relists and at most `10` inside a sliding `1h`
-  window — three settings, all configuration, none defaulted in code. The longer of the two rails answers, and
+  window; the interval is `5s` since 2026-08, moved down under the client's own `10s`–`30s` pacing window so
+  that a paced client clears it — three settings, all configuration, none defaulted in code, and the interval
+  also `MPRELIST_MINIMUM_INTERVAL`. The longer of the two rails answers, and
   the burst rail is measured from the cap-th most recent relist rather than the oldest in the window, so the
   wait it names is a moment at which this actually stops refusing. **Jitter around the interval is the
   extension's** ([#54](https://github.com/Shei254/marketplaats-extension/issues/54)) and can be nothing else:

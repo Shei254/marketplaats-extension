@@ -194,13 +194,38 @@ describe("a window that can change under the pacer", () => {
   });
 });
 
+/**
+ * The rail `apps/api` refuses under — `mprelist.safety.minimum-interval` in its
+ * `application.yml`, 5s since 2026-08.
+ *
+ * Restated here because neither side can read the other's configuration and the
+ * one rule between them is a rule about both. A copy that could go stale is worth
+ * more than no check at all: what it stands in for is silent from this side and
+ * shows up as a cooldown on every second repost.
+ */
+const BACKEND_RAIL_MS = 5_000;
+
 describe("the built-in window", () => {
   it("starts above the rail the backend refuses on", () => {
-    // `mprelist.safety.minimum-interval` is 30s. A gap that could come in under it
-    // would hand the user the cooldown this exists to keep them away from — which
-    // is the ticket's third criterion, and the reason the floor is not 30 exactly:
-    // a request takes time and two clocks disagree.
-    expect(HUMAN_PACE.minMs).toBeGreaterThan(30_000);
+    // A gap that could come in under the rail would hand the user the cooldown this
+    // exists to keep them away from — which is the ticket's third criterion, and the
+    // reason the floor is not the rail exactly: a request takes time and two clocks
+    // disagree.
+    expect(HUMAN_PACE.minMs).toBeGreaterThan(BACKEND_RAIL_MS);
+  });
+
+  it("and is the ten seconds it was asked for, rather than most of a minute", () => {
+    // The number in the request, and the reason the rail moved under it. Asserted as
+    // the floor alone, because the ceiling is free to be tuned and this is not: it is
+    // what somebody was promised when they asked for reposts that do not make them
+    // wait.
+    expect(HUMAN_PACE.minMs).toBe(10_000);
+  });
+
+  it("and is still a window rather than a metronome", () => {
+    // A fixed gap is as machine-shaped as no gap at all, only slower (ADR-0008), so
+    // two ends that differ is load-bearing rather than incidental.
+    expect(HUMAN_PACE.maxMs).toBeGreaterThan(HUMAN_PACE.minMs);
   });
 
   it("and stays well inside the life of an MV3 worker", () => {

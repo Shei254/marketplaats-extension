@@ -13,7 +13,11 @@ src/
   brand.ts        the root brand.json, and index.html's token substitution
   site-styles.ts  this surface's rules, as a string
   public/         success · cancel · privacy · terms · not-found   — no auth code reached
-  admin/          tier management                          — Keycloak PKCE + ADMIN role, T54 (#85)
+  admin/          the dashboard                            — Keycloak PKCE + ADMIN role, T54 (#85)
+    admin-nav.ts    the pages it has, as a table           — a second page is one row here
+    AdminShell.tsx  the sidebar and the frame one page is drawn in
+    AdminCatalog.tsx  the tiers page, and the writes behind it
+    AdminPrices.tsx   the Stripe prices carrying no tier
 ```
 
 ```bash
@@ -31,7 +35,7 @@ npm run preview -w @mprelist/web    # dist/, served the way a host would
 | `/cancel` | Stripe's `cancel_url`. Nothing was charged and nothing changed. |
 | `/privacy` | The privacy policy. **The Chrome Web Store listing (T58, #89) requires this URL**, so once that listing is live the address is published somewhere we do not control. |
 | `/terms` | What the product does, and that relisting deletes the ad first. |
-| `/admin` | The tier catalog an operator maintains, and the Stripe Prices nobody tagged. **The only authenticated thing in this build** (T54, #85). |
+| `/admin` | The dashboard an operator maintains the catalog from. **The only authenticated thing in this build** (T54, #85). |
 | anything else, `/` included | "There's nothing at this address", pointing back at the toolbar |
 
 **`/` is deliberately the fallback.** There is no landing page on the design canvas, and inventing one is a
@@ -92,6 +96,19 @@ the only thing here that talks to the API at all, and it arrived with it (T54, #
 `/admin` is a **surface rather than a page** (ADR-0017): its own frame, its own stylesheet, and the only
 authentication in this bundle. `main.tsx` chooses it before the public route table is consulted, which is why
 `pageFor("/admin")` still answers `not-found` — every page in that table is public, and a reader can trust it.
+
+**It is a dashboard rather than a screen** (2026-08). A sidebar says where you are, what else there is, who
+you are signed in as and how to leave — sticky the full height, because the catalog is the one thing here that
+grows without limit, and a strip across the top under 900px, which needs no toggle and so has no state to
+leave in the wrong position. The pages themselves are a table in `admin-nav.ts`: a row is a word in the
+sidebar, a heading and the sentence under it, so a page is a body and nothing else and cannot spell its own
+chrome differently. It is **not** a router — the realm registers the origin root as this client's one redirect
+URI, so a path under `/admin` is a URL a sign-in could not come back to, and which page is showing is state in
+the surface rather than an address.
+
+**The Stripe prices nobody tagged are a page, not a footer.** They used to sit under the tier table, which put
+a list nobody can act on beneath the list an operator works in. The sidebar carries a count when there is
+something in it, which is the one moment it is worth anybody's attention.
 
 **Arriving is the request to sign in.** There is no button: `/admin` signed out goes straight to Keycloak,
 Authorization Code + PKCE against the `mprelist-dashboard` client the realm has defined since #15 and which

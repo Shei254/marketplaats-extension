@@ -4,6 +4,7 @@
  * A third string beside the public site's, injected the same way — there is still
  * no CSS pipeline in this build. Every colour is a `var(--mp-…)`: the tokens are
  * the design canvas's, and a literal here would be this file quietly deciding one.
+ * `admin-styles.test.ts` holds both halves of that.
  *
  * **There is no artboard for any of this.** The canvas draws the popup and the
  * public pages; `/admin` is a tool for one person and is drawn out of the same
@@ -12,47 +13,67 @@
  *
  * <h2>What the 2026-08 pass changed</h2>
  *
- * It became a *screen* rather than a document. Before this it was a white page
- * with a rule under a heading and a bare table on it — every element at the same
- * weight, and nothing saying where one section stopped. Now:
+ * The first pass made it a *screen* rather than a document — the stage, cards, a
+ * sticky bar, and every control taken from the design system. This one makes it an
+ * *application*, because a screen has room for exactly one subject and this corner
+ * already had two stacked on top of each other:
  *
  * <ul>
- * <li><strong>The page is on the stage</strong>, and each section is a `Card` from
- * `@mprelist/ui`. That is the same shape `apps/web`'s public pages already have,
- * so the two halves of this one build stopped being two designs.
- * <li><strong>The bar at the top is sticky</strong>, because the table under it is
- * the only thing on this screen that grows without limit, and an operator who has
- * scrolled to the tier they want should still be able to leave.
- * <li><strong>Six things this file used to draw are the design system's now</strong>
- * — the table, the pills, every form control, the hints, the quiet button and the
- * focus ring it never had. What is left here is layout, plus the three column
- * treatments a catalog table needs.
+ * <li><strong>A sidebar, sticky the full height.</strong> It says where you are,
+ * what else there is, who you are signed in as and how to leave — and it says all
+ * of that at two pages as readably as at ten, which a bar with a brand on it does
+ * not. Under 900px it becomes a strip of nav across the top, with no toggle to
+ * leave in the wrong position.
+ * <li><strong>One page at a time.</strong> The Stripe prices nobody tagged used to
+ * sit under the catalog, which is a list nobody acts on beneath the list an
+ * operator works in. It is a page now, and the sidebar carries a count when there
+ * is something in it.
+ * <li><strong>A page heading, and four numbers under it.</strong> What the catalog
+ * looks like at a glance — how many plans, how many buyable, how many half
+ * finished — before anybody reads a row.
+ * <li><strong>One form, in one place</strong>, directly under the heading, with the
+ * row it belongs to marked. Three panels that opened at the bottom of a table were
+ * three places to go looking for the thing you just clicked.
  * </ul>
  */
 export const adminCss = `
 /* The stage. \`.mp-root\` paints itself --mp-bg, which is a card's colour and not a
-   page's; this rule is later in the sheet and the same specificity, which is how
+   page's; these rules are later in the sheet and the same specificity, which is how
    the public site's own \`.web-stage\` does it too. */
-.admin-shell {
+.admin-app {
+  display: flex;
+  align-items: flex-start;
   min-height: 100vh;
   background: var(--mp-stage);
 }
-
-.admin-topbar {
-  position: sticky;
-  top: 0;
-  z-index: 2;
+.admin-plain {
+  min-height: 100vh;
+  background: var(--mp-stage);
+}
+.admin-plain-bar {
   background: var(--mp-bg);
   border-bottom: 1px solid var(--mp-line);
-}
-.admin-topbar-inner {
-  max-width: 1080px;
-  margin: 0 auto;
   padding: 11px var(--mp-space-lg);
+}
+
+/* The sidebar: brand, where you are, who you are. Sticky at the full height of the
+   viewport, because the catalog is the one thing here that grows without limit and
+   an operator who has scrolled to the tier they want should still be able to see
+   both of those and still be able to leave. */
+.admin-sidebar {
+  position: sticky;
+  top: 0;
+  width: 248px;
+  flex: none;
+  height: 100vh;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--mp-space-sm);
+  flex-direction: column;
+  background: var(--mp-bg);
+  border-right: 1px solid var(--mp-line);
+}
+.admin-sidebar-head {
+  padding: var(--mp-space-md) var(--mp-space-lg);
+  border-bottom: 1px solid var(--mp-line);
 }
 .admin-brand {
   display: flex;
@@ -84,75 +105,241 @@ export const adminCss = `
   border: 1px solid var(--mp-line);
 }
 
+.admin-nav {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--mp-space-md) var(--mp-space-sm);
+}
+.admin-nav-group { display: flex; flex-direction: column; gap: 2px; }
+.admin-nav-group + .admin-nav-group { margin-top: var(--mp-space-md); }
+/* One group today. The heading is here because a flat list of five words is the
+   moment a navigation stops saying which of them are about the same thing. */
+.admin-nav-heading {
+  margin: 0 0 var(--mp-space-xs);
+  padding: 0 10px;
+  font: var(--mp-text-label) var(--mp-font-family);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--mp-muted);
+}
+.admin-nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--mp-space-sm);
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--mp-radius-block);
+  background: none;
+  color: var(--mp-muted);
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--mp-fast) var(--mp-ease),
+    color var(--mp-fast) var(--mp-ease);
+}
+.admin-nav-item:hover { background: var(--mp-hover); color: var(--mp-fg); }
+/* The design system rings its own controls; this is the one control this surface
+   draws for itself, so it takes the same ring rather than none. */
+.admin-nav-item:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--mp-ring);
+}
+/* Read off the attribute a screen reader reads, rather than a class kept in step
+   with it by hand. */
+.admin-nav-item[aria-current="page"] {
+  background: var(--mp-hover);
+  color: var(--mp-accent);
+  font-weight: 650;
+}
+.admin-nav-glyph { display: inline-flex; flex: none; }
+.admin-nav-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-sidebar-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mp-space-sm);
+  padding: var(--mp-space-md) var(--mp-space-lg);
+  border-top: 1px solid var(--mp-line);
+}
+.admin-who { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.admin-who-label { font: var(--mp-text-micro) var(--mp-font-family); color: var(--mp-muted); }
+.admin-who-role { display: flex; }
+
+/* The column one page is drawn in. */
+.admin-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
 .admin-page {
-  max-width: 1080px;
+  width: 100%;
+  max-width: 1120px;
   margin: 0 auto;
-  padding: var(--mp-space-lg) var(--mp-space-lg) 56px;
+  padding: var(--mp-space-xl) var(--mp-space-lg) 56px;
   color: var(--mp-fg);
 }
+.admin-page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--mp-space-md);
+  flex-wrap: wrap;
+  margin-bottom: var(--mp-space-lg);
+}
+.admin-page-headings { min-width: 0; }
+.admin-page-head h1 {
+  margin: 0;
+  font: var(--mp-text-display) var(--mp-font-family);
+  letter-spacing: -0.02em;
+}
+.admin-page-lede {
+  margin: 5px 0 0;
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  color: var(--mp-muted);
+  max-width: 72ch;
+}
+.admin-page-actions { display: flex; gap: var(--mp-space-sm); flex: none; }
 .admin-sections { display: flex; flex-direction: column; gap: var(--mp-space-lg); }
+/* A note carries its own margin, for the row it usually sits under. Between the
+   sections of a page the gap is the layout's, and both is a crooked stack. */
+.admin-sections > .mp-note { margin: 0; }
+
+/* What the catalog looks like before anybody reads a row. Four tiles rather than a
+   sentence, because three of them are counts and the fourth is a currency code. */
+.admin-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: var(--mp-space-md);
+}
+.admin-stat {
+  padding: var(--mp-space-md) var(--mp-space-lg);
+  background: var(--mp-bg);
+  border: 1px solid var(--mp-line);
+  border-radius: var(--mp-radius-card);
+  box-shadow: var(--mp-shadow-sm);
+}
+.admin-stat-label {
+  margin: 0;
+  font: var(--mp-text-label) var(--mp-font-family);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--mp-muted);
+}
+.admin-stat-value {
+  margin: 6px 0 0;
+  font: var(--mp-text-display) var(--mp-font-family);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.admin-stat-note { margin: 3px 0 0; font: var(--mp-text-micro) var(--mp-font-family); color: var(--mp-muted); }
+/* The one tile that is a job rather than a fact: a draft is a tier the Stripe sync
+   invented and nobody finished. */
+.admin-stat--attention { border-color: var(--mp-warn); background: var(--mp-warn-bg); }
+.admin-stat--attention .admin-stat-value { color: var(--mp-warn); }
 
 /* The catalog table. Everything about how a table *looks* is \`.mp-table\`'s; what
-   is here is the three columns that need a treatment of their own. */
+   is here is the columns that need a treatment of their own. */
 .admin-table-scroll { overflow-x: auto; }
 .admin-table { min-width: 720px; }
 .admin-code { font-weight: 650; color: var(--mp-fg); }
 .admin-numeric { font-variant-numeric: tabular-nums; }
-/* One line per rhythm a tier is sold at (T62, #128) — usually one, sometimes two. */
+/* One line per rhythm a tier is sold at (T62) — usually one, sometimes two. A
+   ticket number is spelled without its hash inside this string: the rule below that
+   forbids literal colours cannot tell one from a three-digit hex. */
 .admin-price-line { display: flex; align-items: center; gap: var(--mp-space-xs); }
 .admin-price-line + .admin-price-line { margin-top: 4px; }
 .admin-price-none { color: var(--mp-muted); }
 .admin-states { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
-/* The row actions are quiet until they are wanted: three secondary buttons per row
-   is a wall of chrome down the right of the table, and the row is what an operator
-   is reading. They keep their outline on focus and on hover, so nothing is hidden
-   from a keyboard. */
 .admin-row-actions { display: flex; gap: var(--mp-space-xs); justify-content: flex-end; }
 .admin-row-actions .mp-btn { padding: 5px 10px; }
-/* A draft is a tier the sync invented from an unrecognised Price: quota 0, unbuyable,
-   and something an operator has to finish.
-   Marked down its edge rather than by tinting the whole row, which is what it used
-   to do — the row's own \`draft\` badge is drawn on \`--mp-warn-bg\`, so a row painted
-   the same colour swallowed the one word that says what is wrong with it. */
+/* A draft, marked down its edge rather than by tinting the whole row: the row's own
+   \`draft\` badge is drawn on --mp-warn-bg, so a row painted the same colour
+   swallowed the one word that says what is wrong with it. */
 .admin-table tr[data-draft="true"] td:first-child { box-shadow: inset 2px 0 0 var(--mp-warn); }
+/* The row the open form belongs to. The form is at the top of the page and the row
+   can be a screen away, so each has to point at the other. */
+.admin-table tr[data-open="true"] td { background: var(--mp-hover); }
+.admin-table tr[data-open="true"] td:first-child { box-shadow: inset 2px 0 0 var(--mp-accent); }
 
-/* The forms. Each opens under the row or the section it belongs to, so it is a
-   panel inside a card rather than a card of its own. */
+/* The forms. One at a time, directly under the heading, in a panel that says what
+   it is and carries the way out of it in the same corner every time. */
 .admin-form {
-  margin: var(--mp-space-md) 0 0;
-  padding: var(--mp-space-md);
-  border: 1px solid var(--mp-line);
-  border-left: 2px solid var(--mp-accent);
-  border-radius: var(--mp-radius-block);
-  background: var(--mp-subtle);
   display: flex;
   flex-direction: column;
-  gap: var(--mp-space-sm);
+  gap: var(--mp-space-md);
+  padding: var(--mp-space-lg);
+  border: 1px solid var(--mp-line);
+  border-left: 3px solid var(--mp-accent);
+  border-radius: var(--mp-radius-card);
+  background: var(--mp-bg);
+  box-shadow: var(--mp-shadow-sm);
+}
+.admin-form-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--mp-space-md);
 }
 .admin-form-title {
   margin: 0;
-  font: var(--mp-text-secondary) var(--mp-font-family);
-  font-weight: 650;
+  font: var(--mp-text-title) var(--mp-font-family);
+  letter-spacing: -0.01em;
+}
+.admin-form-lede {
+  margin: 3px 0 0;
+  font: var(--mp-text-caption) var(--mp-font-family);
+  color: var(--mp-muted);
+  max-width: 68ch;
 }
 /* Two columns where the fields are short and one where they are not, without a
-   media query: a form of four short fields on a 1080px page reads as a form, and
-   the same four stacked reads as a questionnaire. */
+   media query: a form of four short fields on a wide page reads as a form, and the
+   same four stacked reads as a questionnaire. */
 .admin-form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: var(--mp-space-sm) var(--mp-space-md);
+  gap: var(--mp-space-md);
+  /* Three columns at most, whatever the window is. A number of cents in a field
+     500px wide is a field that has stopped saying what it wants. */
+  max-width: 780px;
 }
-.admin-form-actions { display: flex; gap: var(--mp-space-sm); margin-top: var(--mp-space-xs); }
-.admin-form-row { display: flex; gap: var(--mp-space-md); align-items: flex-end; flex-wrap: wrap; }
+.admin-form-actions { display: flex; gap: var(--mp-space-sm); flex-wrap: wrap; }
 
-/* A card whose body is flush still needs a gutter for anything that is not the
-   table — the note above it, and the forms that open under it. */
-.admin-card-pad { padding: var(--mp-space-md) var(--mp-space-lg) var(--mp-space-lg); }
-.admin-card-pad--top { padding: var(--mp-space-md) var(--mp-space-lg) 0; }
-.admin-card-pad:empty { display: none; }
+/* The rules a form cannot enforce and an operator has to know: Stripe's
+   immutability, what a quota does to somebody mid-period. A list rather than a
+   stack of paragraphs, because they are read the way small print is — scanned for
+   the one that applies. */
+.admin-notes {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font: var(--mp-text-micro) var(--mp-font-family);
+  color: var(--mp-muted);
+}
+.admin-notes code {
+  font-family: var(--mp-font-mono);
+  font-size: 0.94em;
+  color: var(--mp-fg);
+}
 
+/* Nothing to show, said in a sentence — an empty card reads as a failure. */
 .admin-empty {
-  padding: var(--mp-space-lg);
+  margin: 0;
+  padding: var(--mp-space-xl) var(--mp-space-lg);
+  text-align: center;
   font: var(--mp-text-secondary) var(--mp-font-family);
   color: var(--mp-muted);
 }
@@ -161,7 +348,7 @@ export const adminCss = `
 .admin-centred {
   max-width: 460px;
   margin: 0 auto;
-  padding: 72px var(--mp-space-md);
+  padding: 52px var(--mp-space-md);
   text-align: center;
 }
 .admin-centred h1 {
@@ -173,5 +360,28 @@ export const adminCss = `
   margin: 0 0 var(--mp-space-md);
   font: var(--mp-text-secondary) var(--mp-font-family);
   color: var(--mp-muted);
+}
+
+/* Narrow: the sidebar stops being a column and becomes a strip across the top. No
+   toggle, no state, and no button that can be left in the wrong position. */
+@media (max-width: 900px) {
+  .admin-app { display: block; }
+  .admin-sidebar {
+    position: static;
+    width: auto;
+    height: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--mp-line);
+  }
+  .admin-nav {
+    display: flex;
+    overflow-x: auto;
+    padding: var(--mp-space-sm) var(--mp-space-md);
+  }
+  .admin-nav-group { flex-direction: row; gap: var(--mp-space-xs); }
+  .admin-nav-group + .admin-nav-group { margin: 0 0 0 var(--mp-space-sm); }
+  .admin-nav-heading { display: none; }
+  .admin-nav-item { width: auto; flex: none; }
+  .admin-page { padding: var(--mp-space-lg) var(--mp-space-md) 40px; }
 }
 `.trim();

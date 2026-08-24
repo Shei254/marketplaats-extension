@@ -116,6 +116,29 @@ mprelist:
   client-config:
     document: ${MPRELIST_CLIENT_CONFIG:}
 
+    # The gap the extension leaves between two of its own relists, in milliseconds — a randomised window
+    # rather than a fixed wait, drawn per relist (ADR-0008; #54). It is the client's because it has to be:
+    # this API can refuse a relist that came too soon, it cannot make one arrive at a moment a person
+    # plausibly clicked.
+    #
+    # **Two settings rather than a line of that JSON**, and this is the only field of the document with a
+    # pair of its own. It is the one an operator tunes — the paths above move when Marktplaats moves them and
+    # not otherwise, while how long somebody waits between reposts is a judgement that gets revisited — and
+    # asking for `{"pacing":{"minMs":10000,"maxMs":30000}}` on one line of a shell to change a number is how
+    # a setting ends up not being changed. Setting `pacing` in the document *and* here is refused at startup:
+    # two settings for one value can disagree, and the only moment anybody can be told is this one.
+    #
+    # **Empty is the ordinary state** and means the window the installed build ships with — 10s to 30s since
+    # 2026-08 (`relist-pace.ts`). Both or neither: a floor with no ceiling is not a window, and half a window
+    # is the deploy that looks like it worked.
+    #
+    # The floor has to clear `mprelist.safety.minimum-interval` below, or every second repost meets the
+    # cooldown this window exists to keep a user away from. Nothing checks that across the two — the rail is
+    # ours and the window is the client's — so it is written here, where somebody changing one is reading.
+    pacing:
+      min-ms: ${MPRELIST_PACING_MIN_MS:}
+      max-ms: ${MPRELIST_PACING_MAX_MS:}
+
   # #52: the oldest extension build this API still serves, named in the `X-Mprelist-Client` header every
   # client sends. `0` is every build there has ever been, and it is the only value here that is not a
   # decision: raising it strands every user who has not updated, and a store review takes days, so it is for
@@ -170,19 +193,31 @@ mprelist:
   # protecting ours (ADR-0008) — relisting is delete-and-recreate against a private API, and the account that
   # gets flagged for a machine-shaped rhythm is the seller's. Nothing here is about our own load.
   #
-  # All three are here rather than defaulted in code, and none has a fallback, for the reconciliation block's
-  # reason: how fast is too fast is a judgement about a platform that publishes no number, and the day a ban
-  # wave says ours was wrong is a day to change a setting rather than to ship a release. A missing one fails
-  # startup instead of running with a rail nobody chose.
+  # All three are here rather than defaulted in code, for the reconciliation block's reason: how fast is too
+  # fast is a judgement about a platform that publishes no number, and the day a ban wave says ours was wrong
+  # is a day to change a setting rather than to ship a release. Nothing in `SafetyPolicy` carries a fallback,
+  # so a rail deleted from this file fails startup instead of running as a number nobody chose — which is
+  # still true of the first one below, whose `${...}` substitutes an environment into a value this file
+  # states rather than moving the statement out of it.
   safety:
     # How long after a relist before the next may be authorized. Zero turns this rail off — which is a
     # setting, and the one the suites whose subject is quota are run with.
     #
-    # Roughly how long a person takes to find their next ad and click it. This is the rail that keeps two
-    # relists from arriving in a volley; it is not a cap on anything, which is what the two below are for.
-    # Jitter around it is #54's and has to be the extension's: a backend can deny a call that came too soon,
-    # it cannot make one arrive at a human-shaped moment.
-    minimum-interval: 30s
+    # This is the rail that keeps two relists from arriving in a volley; it is not a cap on anything, which
+    # is what the two below are for. Jitter around it is #54's and has to be the extension's: a backend can
+    # deny a call that came too soon, it cannot make one arrive at a human-shaped moment.
+    #
+    # **5s since 2026-08**, down from 30s, and it moved because the client's window did: the extension now
+    # paces 10s to 30s, and a rail a paced client cannot clear is a rail every user meets on every second
+    # repost. The rail still refuses a volley — nothing arriving inside five seconds of the last was a person
+    # — and the cap below is what actually bounds an hour, which is where account safety is bought. Raising
+    # this is how to slow everybody down; `mprelist.client-config.pacing` above is how to move the client's
+    # window with it, and the floor of that window has to stay above this number.
+    #
+    # From the environment, unlike the two below, because it is the half of this block that gets tuned: a ban
+    # wave is a night to change a number and restart, not to cut a release. Zero turns the rail off — which is
+    # a setting, and the one the suites whose subject is quota are run with.
+    minimum-interval: ${MPRELIST_MINIMUM_INTERVAL:5s}
     # How many may be authorized inside the window below, and at least 1 — "none per window" is a gate
     # nobody gets through and no wait resolves, so it is refused where it is configured.
     #

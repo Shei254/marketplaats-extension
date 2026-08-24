@@ -109,7 +109,7 @@ export interface CapturedAd {
     key: string;
     label: string;
     value: string;
-    values: { key: string, value: string }
+    values: { key: string, value: string }[]
   }[],
   buyItNowEnabled: boolean;
   categoryInformation: {
@@ -134,8 +134,9 @@ export interface CapturedAd {
   phoneUpcallAllowed: boolean;
   price: {
     biddingEnabled: boolean;
-    priceCent: number;
+    priceCent: string;
     priceType: string;
+    minimumBidPriceCent: string
   },
   reserved: boolean;
   shippingInformation: {
@@ -148,12 +149,12 @@ export interface CapturedAd {
         price: string;
       }[],
     }[],
-    selectedShippingOptions: {
+    selectedShippingOptions?: {
       id: string;
       carrierId: string;
       carrierName: string;
       code: string;
-      cost: number;
+      cost: string;
       deliveryMethod: string;
       description: string;
       discountDetails: { discountType: string; originalCost: number };

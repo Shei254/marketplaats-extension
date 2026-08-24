@@ -31,6 +31,16 @@ import type { Http } from "./discovery";
  * starts one. That is why `signing-in` is a screen — the page is about to be
  * navigated away from, and half a second of nothing looks like a hang.
  *
+ * <h2>This component is the session, and nothing else is</h2>
+ *
+ * What is on screen once somebody is signed in — the sidebar, which page is
+ * showing, the forms — belongs to `AdminCatalog` and the shell it renders. Here
+ * there are four screens, and every one of them is a sentence about a session that
+ * does not exist yet: two waits and the two ways this build can fail to become
+ * one. They are drawn on a bar with the brand and nothing else, because there is
+ * nothing to navigate between and a sidebar would be a list of doors that are all
+ * locked.
+ *
  * <h2>The role decides a screen and never a permission</h2>
  *
  * `ADMIN` is enforced by the API on every route under `/api/admin` (#27), server
@@ -162,12 +172,18 @@ export function AdminApp({
     <>
       <UiStyles />
       <style dangerouslySetInnerHTML={{ __html: `${siteCss}\n${adminCss}` }} />
-      <div className="mp-root admin-shell">
-        {/* Sticky, because the catalog under it is the one thing on this screen
-            that grows without limit — and an operator who has scrolled to the tier
-            they want should not have to scroll back to leave. */}
-        <header className="admin-topbar">
-          <div className="admin-topbar-inner">
+      {screen.screen === "catalog" && api ? (
+        // The signed-in surface brings its own frame — a sidebar, and the page it
+        // is showing. Nothing above it decides what is on screen, which is what
+        // keeps this component about the session and only about the session.
+        <AdminCatalog api={api} onSignedOut={start} onSignOut={leave} />
+      ) : (
+        // The four screens that are not a session yet: a bar with the brand on it
+        // and one sentence under it. There is nothing to navigate between, so
+        // there is no navigation — a sidebar here would be a list of doors that
+        // are all locked.
+        <div className="mp-root admin-plain">
+          <header className="admin-plain-bar">
             <span className="admin-brand">
               <span className="admin-mark">
                 <Icon name="logo" />
@@ -176,29 +192,25 @@ export function AdminApp({
               {/* What this build *is*, rather than part of the product's name. */}
               <span className="admin-brand-tag">admin</span>
             </span>
-            {screen.screen === "catalog" || screen.screen === "not-an-operator" ? (
-              <Button tone="ghost" onClick={leave}>
-                Sign out
-              </Button>
-            ) : null}
-          </div>
-        </header>
-        <div className="admin-page">
-          {body(screen, { api, onSignedOut: start, onRetry: start, onLeave: leave })}
+          </header>
+          <div className="admin-page">{body(screen, { onRetry: start, onLeave: leave })}</div>
         </div>
-      </div>
+      )}
     </>
   );
 }
 
 interface Handlers {
-  api: AdminApi | null;
-  onSignedOut: () => void;
   onRetry: () => void;
   onLeave: () => void;
 }
 
-function body(screen: AdminScreen, { api, onSignedOut, onRetry, onLeave }: Handlers): JSX.Element {
+/**
+ * Everything that is not a catalog: the two waits and the two ways this build can
+ * fail to become a session. `catalog` is not here because it is not a message —
+ * it is the whole surface, and it is rendered above.
+ */
+function body(screen: AdminScreen, { onRetry, onLeave }: Handlers): JSX.Element | null {
   switch (screen.screen) {
     case "loading":
       return (
@@ -240,9 +252,9 @@ function body(screen: AdminScreen, { api, onSignedOut, onRetry, onLeave }: Handl
         </div>
       );
     case "catalog":
-      // `api` is non-null exactly here, which the switch makes true rather than
-      // asserts: it is built from the session this branch is the only one to hold.
-      return api ? <AdminCatalog api={api} onSignedOut={onSignedOut} /> : <Spinner label="Loading" />;
+      // Handled above, where the shell is. Reachable only in the frame between a
+      // session landing and `api` being built from it, which is no frames at all.
+      return null;
   }
 }
 

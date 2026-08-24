@@ -48,6 +48,15 @@ const DRAFT: AdminTier = {
   prices: [{ stripePriceId: "price_starter", interval: "month" }],
 };
 
+/** A Price in Stripe carrying no `tier_code`, which is what the second page lists. */
+const UNTAGGED = {
+  id: "price_loose",
+  nickname: null,
+  amount: 1200,
+  currency: "eur",
+  interval: null,
+};
+
 interface Backend {
   /** Roles the exchanged token carries; `null` means the code exchange fails. */
   roles?: string[] | null;
@@ -130,6 +139,18 @@ function clickInRowFor(code: string, label: string): Promise<void> {
   if (!found) throw new Error(`no ${label} button in the ${code} row`);
   return act(async () => found.click());
 }
+
+/** One entry in the sidebar, found by the word on it rather than by its position. */
+function sidebarItem(label: string): HTMLButtonElement {
+  const found = [...container.querySelectorAll<HTMLButtonElement>(".admin-nav-item")].find(
+    // `startsWith` rather than equality: an entry may be carrying a count.
+    (candidate) => candidate.textContent?.trim().startsWith(label),
+  );
+  if (!found) throw new Error(`no sidebar entry for ${label}`);
+  return found;
+}
+
+const goTo = (label: string): Promise<void> => act(async () => sidebarItem(label).click());
 
 /**
  * Wait for something to have happened, rather than for a number of ticks.
@@ -273,6 +294,10 @@ describe("coming back as an operator", () => {
     await arrive(s);
 
     expect(text()).toContain("Tiers");
+    expect(text()).toContain("price_pro");
+    // And the list that *is* Stripe's says so rather than showing nothing, which
+    // would read as "every Price is tagged" at the moment nobody can check.
+    await goTo("Stripe prices");
     expect(text()).toContain("Stripe could not be asked");
   });
 });
@@ -717,5 +742,116 @@ describe("a plan sold at more than one rhythm", () => {
 
     expect(text()).toContain("keeps the price they signed up at");
     expect(text()).toContain("Replace in Stripe");
+  });
+});
+
+
+describe("the sidebar", () => {
+  it("opens on the catalog, which is what an operator came here to work in", async () => {
+    const s = stack();
+
+    await arrive(s);
+
+    // Read off the attribute a screen reader reads: the rule that tints it reads
+    // the same one, so there is no second source of truth to fall out of step.
+    expect(container.querySelector(".admin-nav-item[aria-current='page']")?.textContent).toContain(
+      "Tiers",
+    );
+  });
+
+  it("keeps the untagged Stripe prices one click away instead of under the catalog", async () => {
+    // They used to be stacked beneath the tier table — a list nobody can act on,
+    // under the list an operator works in, at the end of every scroll.
+    const s = stack({ prices: () => json({ prices: [UNTAGGED] }) });
+
+    await arrive(s);
+    expect(text()).not.toContain("price_loose");
+
+    await goTo("Stripe prices");
+
+    expect(text()).toContain("price_loose");
+    // One page at a time: the catalog is not underneath it either.
+    expect(text()).not.toContain("Relists");
+  });
+
+  it("and says how many there are without the page being opened", async () => {
+    // The one moment that list is worth anybody's attention is when it is not empty.
+    const s = stack({ prices: () => json({ prices: [UNTAGGED] }) });
+
+    await arrive(s);
+
+    expect(sidebarItem("Stripe prices").textContent).toContain("1");
+  });
+
+  it("but draws no count when every Price in Stripe names a tier", async () => {
+    const s = stack();
+
+    await arrive(s);
+
+    expect(sidebarItem("Stripe prices").textContent?.trim()).toBe("Stripe prices");
+  });
+
+  it("carries the way out, wherever the catalog has been scrolled to", async () => {
+    // The sidebar is sticky at the full height for exactly this: the catalog is the
+    // one thing on this surface that grows without limit.
+    const s = stack();
+
+    await arrive(s);
+    await click("Sign out");
+    await until(() => s.navigated.length > 0, "the sign-out to reach the realm");
+
+    expect(s.navigated.at(-1)).toContain("/protocol/openid-connect/logout");
+  });
+});
+
+describe("the form an operator opened", () => {
+  it("is one panel in one place, whichever row it was opened from", async () => {
+    const s = stack();
+
+    await arrive(s);
+    await clickInRowFor("pro", "Prices");
+    expect(container.querySelector("#price-amount")).not.toBeNull();
+
+    // Opening another closes the first: two forms over one table is two places to
+    // look for the thing you just clicked.
+    await clickInRowFor("free", "Edit");
+
+    expect(container.querySelector("#price-amount")).toBeNull();
+    expect(container.querySelector<HTMLInputElement>("#tier-name")?.value).toBe("Free");
+  });
+
+  it("and the row it belongs to is marked, since the panel is above the table", async () => {
+    const s = stack();
+
+    await arrive(s);
+    await clickInRowFor("pro", "Edit");
+
+    const open = container.querySelector('tr[data-open="true"]');
+    expect(open?.querySelector(".admin-code")?.textContent).toBe("pro");
+  });
+});
+
+describe("the catalog at a glance", () => {
+  it("counts what is on sale and what is still a draft", async () => {
+    // The draft is the row this screen exists to let somebody finish, and it is the
+    // one that looks like every other row until you have read two columns.
+    const s = stack({ tiers: () => json({ tiers: [FREE, DRAFT, PRO] }) });
+
+    await arrive(s);
+
+    const drafts = [...container.querySelectorAll(".admin-stat")].find((stat) =>
+      stat.textContent?.startsWith("Drafts"),
+    );
+    expect(drafts?.textContent).toContain("1");
+    expect(drafts?.className).toContain("admin-stat--attention");
+  });
+
+  it("and says nothing is waiting when nothing is", async () => {
+    const s = stack();
+
+    await arrive(s);
+
+    expect(text()).toContain("Nothing waiting on you");
+    expect(container.querySelector(".admin-stat--attention")).toBeNull();
   });
 });

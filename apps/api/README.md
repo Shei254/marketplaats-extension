@@ -741,9 +741,9 @@ entitlement ([#25](https://github.com/Shei254/marketplaats-extension/issues/25),
 ```yaml
 mprelist:
   safety:
-    minimum-interval: 30s   # between one relist and the next; 0 turns this rail off
-    burst-limit: 10         # how many inside the window below, at least 1
-    burst-window: 1h        # sliding, not aligned to a clock
+    minimum-interval: ${MPRELIST_MINIMUM_INTERVAL:5s}   # between one relist and the next; 0 turns it off
+    burst-limit: 10                                     # how many inside the window below, at least 1
+    burst-window: 1h                                    # sliding, not aligned to a clock
 ```
 
 **These are rails for the user's own Marktplaats account, not a throttle protecting ours.** Relisting is
@@ -753,13 +753,24 @@ machine-shaped rhythm is the seller's. Nothing here is about load. Human-like *j
 the extension's ([#54](https://github.com/Shei254/marketplaats-extension/issues/54)) and can be nothing else:
 a backend can refuse a call that came too soon, it cannot make one arrive at a human-shaped moment.
 
-**Two rails, because one of them caps nothing.** Thirty seconds between relists permits a hundred and twenty
-an hour — a Power tier's whole month in under two — at a rhythm no human has. The interval is what keeps
-consecutive actions out of a volley; the burst cap is what keeps a properly paced volley from running all day.
+**Two rails, because one of them caps nothing.** Five seconds between relists permits seven hundred an hour,
+and thirty — what this was until 2026-08 — still permits a hundred and twenty, a Power tier's whole month in
+under two, at a rhythm no human has. The interval is what keeps consecutive actions out of a volley; the burst
+cap is what keeps a properly paced volley from running all day, and it is the one doing the work of bounding
+an hour.
 So a window shorter than `burst-limit` × `minimum-interval` would be a rail arithmetic can never reach, and a
 rail written off by arithmetic is one nobody decided to switch off: `theShippedRailsAreBothOnesThatCanBind` is
 what refuses to let that happen quietly. None of the three is defaulted in code, for the reconciliation
 window's reason — how fast is too fast is a judgement about a platform that publishes no number.
+
+**The interval is the one of the three that takes an environment variable**, `MPRELIST_MINIMUM_INTERVAL`,
+because it is the one that gets tuned: a ban wave is a night to change a number and restart. It also has a
+partner on the other side of the wire. The extension paces itself at **10s to 30s**
+([`relist-pace.ts`](../extension/src/domain/relist-pace.ts)), and the floor of that window has to stay above
+this rail — a client pacing under it meets a cooldown on every second repost, which is the exact experience
+the pacing exists to prevent. Neither side can read the other's configuration, so the pair is written down in
+both and asserted in both. `mprelist.client-config.pacing` [below](#the-night-marktplaats-moves-something) is
+how the client's half moves without a store release.
 
 **The longer of the two rails answers**, since waiting out the one that binds today and being refused by the
 other is a cooldown that runs to zero in front of a user and then refuses them anyway. The burst rail is
@@ -1859,6 +1870,23 @@ goes stale on its own schedule and is then served, confidently, to every install
 **Everything an operator can write is one environment variable**, `MPRELIST_CLIENT_CONFIG`, as one line of
 JSON. Not a block of YAML keys, because the endpoint names are the extension's and are camelCase
 (`listMyAds`) — a case an environment variable cannot carry into a map key.
+
+**With one exception, and it is the field anybody actually changes.** The pacing window — the gap the
+extension leaves between two of its own relists — is also `MPRELIST_PACING_MIN_MS` and
+`MPRELIST_PACING_MAX_MS`, in milliseconds:
+
+```
+MPRELIST_PACING_MIN_MS=10000
+MPRELIST_PACING_MAX_MS=30000     # empty means the 10s–30s window the installed build ships with
+```
+
+The rest of this document moves when Marktplaats moves it and not otherwise; how long somebody waits between
+reposts is a judgement that gets revisited, and re-pasting a JSON document on one line of a shell to change a
+number is how a setting ends up not being changed. Both ends or neither — half a window is refused, because
+the other end could only be the one built into the extension and that is not a number this API knows — and so
+is a window set in the document *and* here, since two settings for one value can disagree and this is the only
+moment anybody can be told. A window longer than five minutes is refused as well: the extension waits it out
+inside its MV3 service worker, which Chrome kills at about that, so a longer one is a relist that never starts.
 
 **A document this application cannot read stops it from starting**, which is the opposite of how it treats a
 Stripe key it has not been given, and the difference is who finds out. An unset Stripe key is a developer

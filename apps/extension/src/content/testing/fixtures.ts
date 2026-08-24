@@ -46,7 +46,7 @@ export function goldenAd(overrides: Partial<CapturedAd> = {}): CapturedAd {
         key: "type",
         label: "Type",
         value: "Herenfiets",
-        values: { key: "type", value: "Herenfiets" },
+        values: [{ key: "type", value: "Herenfiets" }],
       },
     ],
     buyItNowEnabled: false,
@@ -75,8 +75,11 @@ export function goldenAd(overrides: Partial<CapturedAd> = {}): CapturedAd {
     phoneUpcallAllowed: false,
     price: {
       biddingEnabled: true,
-      priceCent: 12500,
+      // Marktplaats sends the cents as a string, not a number — `createAd`
+      // divides by 100 to get the euros the form field wants.
+      priceCent: "12500",
       priceType: "FAST_BID",
+      minimumBidPriceCent: "0",
     },
     reserved: false,
     shippingInformation: {
@@ -99,7 +102,7 @@ export function goldenAd(overrides: Partial<CapturedAd> = {}): CapturedAd {
           carrierId: "DHL",
           carrierName: "DHL",
           code: "DHL_10",
-          cost: 695,
+          cost: "695",
           deliveryMethod: "SHIPPING",
           description: "Pakket tot 10 kg",
           discountDetails: { discountType: "NONE", originalCost: 695 },

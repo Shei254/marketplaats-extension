@@ -4,12 +4,15 @@ import type { IconName } from "@mprelist/ui";
  * The pages the admin corner has, as a table rather than as a switch buried in a
  * component.
  *
- * **This is the file a second page is added in.** T54 (#85) built `/admin` as one
- * screen, which was honest while there was one thing to look at — and it meant the
- * catalog and the Stripe prices nobody tagged were stacked on top of each other,
- * so the list an operator works in had a list nobody acts on underneath it. What
- * this table buys is that the shell around a page is written once: a row here is a
- * word in the sidebar, a heading, and the sentence that says what the page is for.
+ * **This is the file a second page is added in.** A row here is a word in the
+ * sidebar, a heading, and the sentence that says what the page is for — so the
+ * shell around a page is written once and a page spells none of its own chrome.
+ *
+ * **There is one row today.** The Stripe prices carrying no tier were briefly a
+ * page of their own; they are a warning on the catalog now, because a whole page
+ * for a list that is empty on a well-kept account is a door most operators open
+ * once. The table stays a table: it is what the second real page costs nothing to
+ * add through.
  *
  * **It is not a route table.** There is still no router in this build (see
  * `routes.ts`, and `main.tsx` for why `/admin` is chosen before the public table is
@@ -18,7 +21,7 @@ import type { IconName } from "@mprelist/ui";
  * is showing is state in the surface rather than an address, and `ADMIN_PATH`
  * stays the whole of what this corner claims.
  */
-export type AdminPageId = "tiers" | "prices";
+export type AdminPageId = "tiers";
 
 export interface AdminPage {
   id: AdminPageId;
@@ -48,16 +51,6 @@ export const ADMIN_PAGES: readonly AdminPage[] = [
       "Amounts are set in Stripe and shown here.",
     group: "Catalog",
     icon: "bolt",
-  },
-  {
-    id: "prices",
-    label: "Stripe prices",
-    title: "Stripe prices with no tier",
-    lede:
-      "Prices in your Stripe account that no plan uses. Mostly one-offs and experiments — but a plan " +
-      "you meant to create and cannot find will be here.",
-    group: "Catalog",
-    icon: "card",
   },
 ];
 

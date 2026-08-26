@@ -24,10 +24,11 @@
  * of that at two pages as readably as at ten, which a bar with a brand on it does
  * not. Under 900px it becomes a strip of nav across the top, with no toggle to
  * leave in the wrong position.
- * <li><strong>One page at a time.</strong> The Stripe prices nobody tagged used to
- * sit under the catalog, which is a list nobody acts on beneath the list an
- * operator works in. It is a page now, and the sidebar carries a count when there
- * is something in it.
+ * <li><strong>Nothing on the page that is not somebody's work.</strong> The Stripe
+ * prices nobody tagged used to sit open under the catalog — a list nobody acts on
+ * beneath the list an operator works in — and then were a page of their own, which
+ * is a whole door for a list that is empty on a well-kept account. They are a fold
+ * on the catalog now: silent when there is nothing, one line when there is.
  * <li><strong>A page heading, and four numbers under it.</strong> What the catalog
  * looks like at a glance — how many plans, how many buyable, how many half
  * finished — before anybody reads a row.
@@ -248,6 +249,32 @@ export const adminCss = `
    invented and nobody finished. */
 .admin-stat--attention { border-color: var(--mp-warn); background: var(--mp-warn-bg); }
 .admin-stat--attention .admin-stat-value { color: var(--mp-warn); }
+
+/* The Stripe Prices carrying no tier, folded back onto the catalog (ADR-0019) as
+   one line that opens. A warning rather than a card, because it is the only thing
+   on this page that is a job and is not a row — and closed by default, because on
+   a well-kept account there is nothing in it at all. */
+.admin-untagged {
+  padding: var(--mp-space-md) var(--mp-space-lg);
+  border: 1px solid var(--mp-warn);
+  border-radius: var(--mp-radius-card);
+  background: var(--mp-warn-bg);
+  font: var(--mp-text-secondary) var(--mp-font-family);
+}
+.admin-untagged-line {
+  cursor: pointer;
+  color: var(--mp-warn);
+  max-width: 80ch;
+}
+/* The list is Stripe's own words — ids, nicknames, amounts — and reads as text on
+   the page rather than as more of the warning above it. */
+.admin-untagged > .admin-table-scroll { margin-top: var(--mp-space-md); color: var(--mp-fg); }
+.admin-untagged-how {
+  margin: var(--mp-space-md) 0 0;
+  font: var(--mp-text-micro) var(--mp-font-family);
+  color: var(--mp-warn);
+}
+.admin-untagged-how code { font-family: var(--mp-font-mono); color: var(--mp-fg); }
 
 /* The catalog table. Everything about how a table *looks* is \`.mp-table\`'s; what
    is here is the columns that need a treatment of their own. */

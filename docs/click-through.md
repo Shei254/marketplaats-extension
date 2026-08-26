@@ -232,10 +232,11 @@ URIs exactly, so sign-in lands on `/` and the page rewrites the address bar to `
    say, and without the button this step is a trap with no way out.
 3. Sign in as the admin (`dev-admin`).
    *Expect:* a dashboard — a sidebar, the **Tiers** page open on it, and four counts over the table saying how
-   many plans there are, how many are on sale and how many are drafts. The Price from slice C step 2 is under
-   **Stripe prices** in the sidebar, which carries a count while it is not empty — a missing `tier_code` must be
-   visible, not silent. Open it: if Stripe is unreachable that page says so rather than showing nothing,
-   because empty is the *good* state.
+   many plans there are, how many are on sale and how many are drafts. Under those counts, one warning line
+   saying a price in Stripe carries no tier: the Price from slice C step 2 — a missing `tier_code` must be
+   visible, not silent. Open the line and it lists them. With every Price tagged there is no line at all,
+   because empty is the *good* state; if Stripe is unreachable the line says the list is unknown rather than
+   showing nothing.
 4. Set the default tier's quota to **0** and save.
 5. Sign in to the extension as a **fresh** user.
    *Expect:* they are provisioned, they see their ads, and every button is locked with an upgrade prompt.

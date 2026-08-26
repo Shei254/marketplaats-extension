@@ -140,18 +140,6 @@ function clickInRowFor(code: string, label: string): Promise<void> {
   return act(async () => found.click());
 }
 
-/** One entry in the sidebar, found by the word on it rather than by its position. */
-function sidebarItem(label: string): HTMLButtonElement {
-  const found = [...container.querySelectorAll<HTMLButtonElement>(".admin-nav-item")].find(
-    // `startsWith` rather than equality: an entry may be carrying a count.
-    (candidate) => candidate.textContent?.trim().startsWith(label),
-  );
-  if (!found) throw new Error(`no sidebar entry for ${label}`);
-  return found;
-}
-
-const goTo = (label: string): Promise<void> => act(async () => sidebarItem(label).click());
-
 /**
  * Wait for something to have happened, rather than for a number of ticks.
  *
@@ -295,9 +283,8 @@ describe("coming back as an operator", () => {
 
     expect(text()).toContain("Tiers");
     expect(text()).toContain("price_pro");
-    // And the list that *is* Stripe's says so rather than showing nothing, which
-    // would read as "every Price is tagged" at the moment nobody can check.
-    await goTo("Stripe prices");
+    // And the one list that *is* Stripe's says so rather than showing nothing,
+    // which would read as "every Price is tagged" at the moment nobody can check.
     expect(text()).toContain("Stripe could not be asked");
   });
 });
@@ -580,7 +567,6 @@ describe("creating a plan from the screen", () => {
 
     await arrive(s);
     await click("New plan");
-    await type("#plan-code", "starter");
     await type("#plan-name", "Starter");
     await type("#plan-amount", "500");
     await type("#plan-quota", "10");
@@ -593,6 +579,7 @@ describe("creating a plan from the screen", () => {
     const sent = JSON.parse(
       s.calls.find((call) => call.url.endsWith("/api/admin/plans"))?.body ?? "{}",
     ) as Record<string, unknown>;
+    // Nobody typed this: it is the name, filed (see `tier-code.ts`).
     expect(sent["tierCode"]).toBe("starter");
     expect(sent["amount"]).toBe(500);
     // No currency at all: the catalog has one (T63, #129) and no request names it.
@@ -621,7 +608,6 @@ describe("creating a plan from the screen", () => {
 
     await arrive(s);
     await click("New plan");
-    await type("#plan-code", "starter");
     await type("#plan-name", "Starter");
     await type("#plan-amount", "1");
     await click("Create in Stripe");
@@ -635,8 +621,7 @@ describe("creating a plan from the screen", () => {
 
     await arrive(s);
     await click("New plan");
-    await type("#plan-code", "pro");
-    await type("#plan-name", "Pro again");
+    await type("#plan-name", "Pro");
     await type("#plan-amount", "500");
     await click("Create in Stripe");
     await until(() => text().includes("already uses that code"), "the clash to be reported");
@@ -644,17 +629,32 @@ describe("creating a plan from the screen", () => {
     expect(text()).toContain("Codes are permanent");
   });
 
-  it("refuses a code that could not be a tier code, without asking the API", async () => {
+  it("files a plan under a code made from its name, and shows it while it is typed", async () => {
+    // The code used to be a second field beside the name — an identifier an
+    // operator had to invent, and one that could disagree with the name it was a
+    // copy of. Derived is not the same as secret: it is permanent and it turns up
+    // in Stripe, so the form prints it.
     const s = stack();
 
     await arrive(s);
     await click("New plan");
-    await type("#plan-code", "Not A Code");
-    await type("#plan-name", "Starter");
+    expect(container.querySelector("#plan-code")).toBeNull();
+
+    await type("#plan-name", "Zakelijk Pró Plus");
+
+    expect(text()).toContain("zakelijk-pro-plus");
+  });
+
+  it("and refuses a name there is no code to be made from, without asking the API", async () => {
+    const s = stack();
+
+    await arrive(s);
+    await click("New plan");
+    await type("#plan-name", "!!!");
     await type("#plan-amount", "500");
     await click("Create in Stripe");
 
-    expect(text()).toContain("lower-case letters");
+    expect(text()).toContain("needs a letter or a digit");
     expect(s.calls.some((call) => call.url.endsWith("/api/admin/plans"))).toBe(false);
   });
 
@@ -759,36 +759,15 @@ describe("the sidebar", () => {
     );
   });
 
-  it("keeps the untagged Stripe prices one click away instead of under the catalog", async () => {
-    // They used to be stacked beneath the tier table — a list nobody can act on,
-    // under the list an operator works in, at the end of every scroll.
-    const s = stack({ prices: () => json({ prices: [UNTAGGED] }) });
-
-    await arrive(s);
-    expect(text()).not.toContain("price_loose");
-
-    await goTo("Stripe prices");
-
-    expect(text()).toContain("price_loose");
-    // One page at a time: the catalog is not underneath it either.
-    expect(text()).not.toContain("Relists");
-  });
-
-  it("and says how many there are without the page being opened", async () => {
-    // The one moment that list is worth anybody's attention is when it is not empty.
-    const s = stack({ prices: () => json({ prices: [UNTAGGED] }) });
-
-    await arrive(s);
-
-    expect(sidebarItem("Stripe prices").textContent).toContain("1");
-  });
-
-  it("but draws no count when every Price in Stripe names a tier", async () => {
+  it("and is a list of one while there is one page, without a heading over it", async () => {
+    // A group heading over a single word labels nothing. It comes back with the
+    // page that makes the list worth grouping.
     const s = stack();
 
     await arrive(s);
 
-    expect(sidebarItem("Stripe prices").textContent?.trim()).toBe("Stripe prices");
+    expect(container.querySelectorAll(".admin-nav-item")).toHaveLength(1);
+    expect(container.querySelector(".admin-nav-heading")).toBeNull();
   });
 
   it("carries the way out, wherever the catalog has been scrolled to", async () => {
@@ -801,6 +780,51 @@ describe("the sidebar", () => {
     await until(() => s.navigated.length > 0, "the sign-out to reach the realm");
 
     expect(s.navigated.at(-1)).toContain("/protocol/openid-connect/logout");
+  });
+});
+
+describe("the Stripe prices that carry no tier", () => {
+  it("say nothing at all while every price in Stripe names one", async () => {
+    // Empty is the good state here, and the good state is silent: a card saying
+    // "nothing to sort out" is a thing to read on every visit.
+    const s = stack();
+
+    await arrive(s);
+
+    expect(container.querySelector(".admin-untagged")).toBeNull();
+    expect(text()).not.toContain("no tier");
+  });
+
+  it("and are one line on the catalog when there are some, closed until it is asked for", async () => {
+    // They have been in three places: stacked under the tier table, then a page of
+    // their own with a count in the sidebar — a whole door for a list that is empty
+    // on a well-kept account. This is the one that is silent when there is nothing.
+    const s = stack({ prices: () => json({ prices: [UNTAGGED] }) });
+
+    await arrive(s);
+
+    const fold = container.querySelector<HTMLDetailsElement>(".admin-untagged");
+    expect(fold?.open).toBe(false);
+    expect(fold?.querySelector("summary")?.textContent).toContain("One price in Stripe carries");
+    // On the catalog rather than instead of it: the list an operator works in is
+    // still the page.
+    expect(text()).toContain("Relists");
+  });
+
+  it("and the list itself is inside that fold, not under the tier table", async () => {
+    const s = stack({ prices: () => json({ prices: [UNTAGGED] }) });
+
+    await arrive(s);
+
+    const fold = container.querySelector(".admin-untagged");
+    expect(fold?.textContent).toContain("price_loose");
+    expect(fold?.textContent).toContain("12.00 EUR");
+    // A price with no recurrence is a one-off, which is the commonest thing in
+    // this list that is not a mistake.
+    expect(fold?.textContent).toContain("one-off");
+    // And it says the one thing that makes it go away, which happens in Stripe.
+    expect(fold?.textContent).toContain("metadata.tier_code");
+    expect(container.querySelector(".admin-table tbody")?.textContent).not.toContain("price_loose");
   });
 });
 

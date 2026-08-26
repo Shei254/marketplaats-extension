@@ -2,7 +2,6 @@ import type { AdminTier, NewPlan, NewPrice, TierEdit } from "@mprelist/contracts
 import { Badge, Button, Card, Checkbox, Field, Input, Note, Select, Textarea } from "@mprelist/ui";
 import { useCallback, useEffect, useState, type JSX, type ReactNode } from "react";
 
-import { AdminPrices } from "./AdminPrices";
 import type {
   AdminApi,
   CatalogAnswer,
@@ -14,6 +13,7 @@ import type {
 import { ADMIN_ROLE } from "./admin-config";
 import { DEFAULT_PAGE, type AdminPageId } from "./admin-nav";
 import { AdminShell } from "./AdminShell";
+import { tierCodeFrom } from "./tier-code";
 
 /**
  * The signed-in half of `/admin`: the pages, the data behind them, and the writes
@@ -21,8 +21,8 @@ import { AdminShell } from "./AdminShell";
  *
  * **One load for the whole surface.** The catalog, the untagged Stripe prices and
  * the currency arrive together and are held here rather than in the page that
- * shows them — which is what lets the sidebar carry a count for a page nobody has
- * opened, and what stops switching pages from being a fetch.
+ * shows them — so a second page costs a prop rather than a fetch, and the state
+ * every page reads is in one place while there is only one of them.
  *
  * **A table rather than cards**, which is the one deliberate departure from
  * everything else in this repository: the plan cards are a screen somebody is
@@ -39,8 +39,8 @@ import { AdminShell } from "./AdminShell";
  * field is sent on every save, so there is no partial state to reason about here
  * and no way for a field left untouched to arrive as a change.
  *
- * **What it will not offer**: creating a tier, deleting one, or typing a Stripe
- * Price id. A plan is created by tagging a Price in Stripe and the sync drafts the
+ * **What it will not offer**: creating a tier, deleting one, typing a Stripe
+ * Price id, or typing the code a plan is filed under (`tier-code.ts`). A plan is created by tagging a Price in Stripe and the sync drafts the
  * row (ADR-0019); a tier is retired by unpublishing it, since a subscription
  * references its tier behind a foreign key. Buttons for any of those would be
  * buttons the API refuses.
@@ -183,7 +183,6 @@ export function AdminCatalog({
   );
 
   const ready = catalog?.status === "ready" ? catalog : null;
-  const untagged = prices?.status === "ready" ? prices.prices.length : 0;
 
   return (
     <AdminShell
@@ -194,37 +193,33 @@ export function AdminCatalog({
         // carried to another page it is a sentence with no subject in sight.
         setNote(null);
       }}
-      counts={{ prices: untagged }}
       role={ADMIN_ROLE}
       onSignOut={onSignOut}
       actions={
         // Nothing while a form is open, and that is the point of it: the panel is
         // on screen with its own way out, and a second control in the corner
         // saying "Close" is a second thing to have to read.
-        page === "tiers" && ready && !panel ? (
+        ready && !panel ? (
           <Button shape="rect" onClick={() => setPanel({ kind: "new" })} disabled={busy}>
             New plan
           </Button>
         ) : undefined
       }
     >
-      {page === "prices" ? (
-        <AdminPrices answer={prices} />
-      ) : (
-        <Tiers
-          catalog={catalog}
-          currency={currency}
-          panel={panel}
-          note={note}
-          busy={busy}
-          onReload={() => void load()}
-          onOpen={setPanel}
-          onSave={(code, edit) => void save(code, edit)}
-          onCreate={(plan) => void createPlan(plan)}
-          onAddPrice={(code, price) => void addPrice(code, price)}
-          onMakeDefault={(tier) => void makeDefault(tier)}
-        />
-      )}
+      <Tiers
+        catalog={catalog}
+        prices={prices}
+        currency={currency}
+        panel={panel}
+        note={note}
+        busy={busy}
+        onReload={() => void load()}
+        onOpen={setPanel}
+        onSave={(code, edit) => void save(code, edit)}
+        onCreate={(plan) => void createPlan(plan)}
+        onAddPrice={(code, price) => void addPrice(code, price)}
+        onMakeDefault={(tier) => void makeDefault(tier)}
+      />
     </AdminShell>
   );
 }
@@ -238,6 +233,7 @@ type Panel = { kind: "new" } | { kind: "price"; code: string } | { kind: "edit";
  */
 function Tiers({
   catalog,
+  prices,
   currency,
   panel,
   note,
@@ -250,6 +246,7 @@ function Tiers({
   onMakeDefault,
 }: {
   catalog: CatalogAnswer | null;
+  prices: PricesAnswer | null;
   currency: CurrencyAnswer | null;
   panel: Panel;
   note: { tone: "ok" | "error"; message: string } | null;
@@ -288,6 +285,7 @@ function Tiers({
     <div className="admin-sections">
       {note ? <Note tone={note.tone === "ok" ? "ok" : "error"}>{note.message}</Note> : null}
       <Summary tiers={catalog.tiers} currency={currency} />
+      <Untagged answer={prices} />
       {panel?.kind === "new" ? (
         <NewPlanForm
           currency={currency}
@@ -422,6 +420,82 @@ function Stat({
       <p className="admin-stat-value">{value}</p>
       <p className="admin-stat-note">{note}</p>
     </div>
+  );
+}
+
+/**
+ * The Stripe Prices carrying no `tier_code`, folded back onto the catalog as a
+ * line that is closed until somebody opens it (ADR-0019).
+ *
+ * **It has been in three places, and this is why it is in this one.** It began
+ * stacked under the tier table — a list nobody can act on at the end of every
+ * scroll. It was then a page of its own with a count in the sidebar, which is
+ * worse in the ordinary case: a whole door for a list that is empty on a well-kept
+ * account. Here it is silent when there is nothing, one sentence when there is
+ * something, and the table only for whoever asks for it.
+ *
+ * **It lists and does nothing.** There is no adopt button, because Stripe accounts
+ * hold Prices for one-offs, coupons and experiments, and only the operator can
+ * tell an experiment from a mistake. Adopting is done in Stripe, by adding the
+ * tag, which fires `price.updated` and goes through the sync that already exists.
+ */
+function Untagged({ answer }: { answer: PricesAnswer | null }): JSX.Element | null {
+  // Nothing yet, or a refusal the catalog above has already said out loud. Either
+  // way this is not the line to say it on.
+  if (!answer || answer.status === "forbidden") return null;
+  if (answer.status !== "ready") {
+    return (
+      <Note tone="warn">
+        Stripe could not be asked which prices carry no tier, so that list is unknown rather than
+        empty.
+      </Note>
+    );
+  }
+  // Empty is the *good* state, and the good state says nothing at all.
+  if (answer.prices.length === 0) return null;
+  const count = answer.prices.length;
+  return (
+    <details className="admin-untagged">
+      {/* Left as the browser's own disclosure: a `display: flex` summary drops the
+          marker in two engines, and the marker is the whole of what says this line
+          opens. The count is in the sentence rather than in a badge beside it. */}
+      <summary className="admin-untagged-line">
+        {count === 1 ? "One price in Stripe carries" : `${count} prices in Stripe carry`} no tier.
+        Mostly one-offs and experiments — but a plan you meant to create and cannot find will be
+        here.
+      </summary>
+      <div className="admin-table-scroll">
+        <table className="mp-table">
+          <thead>
+            <tr>
+              <th>Price</th>
+              <th>Nickname</th>
+              <th>Amount</th>
+              <th>Recurs</th>
+            </tr>
+          </thead>
+          <tbody>
+            {answer.prices.map((price) => (
+              <tr key={price.id}>
+                <td>
+                  <code className="mp-code">{price.id}</code>
+                </td>
+                <td>{price.nickname ?? "—"}</td>
+                <td className="admin-numeric">
+                  {(price.amount / 100).toFixed(2)} {price.currency.toUpperCase()}
+                </td>
+                {/* A one-off is the commonest thing in this list that is not a mistake. */}
+                <td>{price.interval ?? "one-off"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="admin-untagged-how">
+        Add <code>metadata.tier_code</code> to a price in Stripe and it becomes a tier here on its
+        own — nothing needs doing on this screen.
+      </p>
+    </details>
   );
 }
 
@@ -672,6 +746,11 @@ function TierForm({
  * is set, and the notes say as much: Stripe Prices are immutable, so changing it
  * later means a new Price — which is exactly what ADR-0019 refused to pretend a
  * form field could do.
+ *
+ * **The code is not typed** — see `tier-code.ts`. It is derived from the name and
+ * printed while the name is being typed, because it is permanent and turns up in
+ * Stripe, and because two fields where the second is always a flattened copy of
+ * the first is a field that can disagree with itself.
  */
 function NewPlanForm({
   currency,
@@ -685,7 +764,6 @@ function NewPlanForm({
   onCreate: (plan: NewPlan) => void;
 }): JSX.Element {
   const pricedIn = currency?.status === "ready" ? currency.currency : null;
-  const [tierCode, setTierCode] = useState("");
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
   const [interval, setInterval] = useState("month");
@@ -703,14 +781,20 @@ function NewPlanForm({
     );
   }
 
+  const tierCode = tierCodeFrom(name);
+
   const submit = (): void => {
     const cents = Number(amount);
-    if (!/^[a-z0-9-]+$/.test(tierCode)) {
-      setProblem("A tier code is lower-case letters, digits and hyphens — it goes in a URL and in Stripe.");
-      return;
-    }
     if (!name.trim()) {
       setProblem("A plan needs a name. It is what Stripe calls the Product too.");
+      return;
+    }
+    // A name with no letter or digit anywhere in it — "!!!" — derives to nothing,
+    // and the code is what the plan is filed under. Said here rather than sent to
+    // an API that would refuse a blank, which is a round trip to be told what is
+    // already visible on this form.
+    if (!tierCode) {
+      setProblem("A name needs a letter or a digit in it: the code the plan is filed under is made from it.");
       return;
     }
     if (!Number.isInteger(cents) || cents < 0) {
@@ -741,10 +825,15 @@ function NewPlanForm({
       onCancel={onCancel}
     >
       <div className="admin-form-grid">
-        <Field label="Tier code" hint="The stable handle, and the tag on the Stripe Price.">
-          <Input id="plan-code" value={tierCode} onChange={(e) => setTierCode(e.target.value)} />
-        </Field>
-        <Field label="Name" hint="What buyers see, and what Stripe calls the Product.">
+        <Field
+          label="Name"
+          hint={
+            <>
+              What buyers see, and what Stripe calls the Product. Filed under{" "}
+              <code className="mp-code">{tierCode || "…"}</code>, which is permanent.
+            </>
+          }
+        >
           <Input id="plan-name" value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
         <Field label="Amount, in cents" hint={`999 is 9.99 ${pricedIn.toUpperCase()}.`}>

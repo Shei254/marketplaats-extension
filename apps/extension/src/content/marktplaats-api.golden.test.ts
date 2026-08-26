@@ -700,11 +700,49 @@ describe("createAd", () => {
   it("sends the seller's postcode as the drop-off location code", async () => {
     http = stubFetch(routes());
 
-    await api.createAd(goldenAd({ contactInformation: { name: "Jan Jansen", postcode: "" } }), []);
+    await api.createAd(
+      goldenAd({ contactInformation: { name: "Jan Jansen", postcode: "", phone: "0612345678" } }),
+      [],
+    );
 
     // Omitted entirely rather than sent empty when the capture has no postcode.
     const body = urlencoded(http.only("/plaats/ads"));
     expect(body.pairs.map(([k]) => k)).not.toContain("dropOffLocationCode");
+  });
+
+  it("sends the seller's number, with the switch on, when the ad allows an up-call", async () => {
+    http = stubFetch(routes());
+
+    await api.createAd(goldenAd({ phoneUpcallAllowed: true }), []);
+
+    const body = urlencoded(http.only("/plaats/ads"));
+    expect(body.pairs).toContainEqual(["contactInformation.phoneNumberSwitch", "true"]);
+    expect(body.pairs).toContainEqual(["contactInformation.phoneNumber", "0612345678"]);
+  });
+
+  it("and never the number without the switch, nor the switch over an empty number", async () => {
+    // Two halves of one pair. The golden ad above disallows the up-call, so the
+    // number is on file and must still not be sent; the second capture allows one
+    // and has nothing to send — a switch turned on over a blank field is a payload
+    // the site refuses, and the ad is worth more than the up-call.
+    http = stubFetch(routes());
+
+    await api.createAd(goldenAd(), []);
+    const off = urlencoded(http.only("/plaats/ads"));
+    expect(off.pairs).toContainEqual(["contactInformation.phoneNumberSwitch", "false"]);
+    expect(off.pairs.map(([key]) => key)).not.toContain("contactInformation.phoneNumber");
+
+    http = stubFetch(routes());
+    await api.createAd(
+      goldenAd({
+        phoneUpcallAllowed: true,
+        contactInformation: { name: "Jan Jansen", postcode: "1011AB", phone: "" },
+      }),
+      [],
+    );
+    const blank = urlencoded(http.only("/plaats/ads"));
+    expect(blank.pairs).toContainEqual(["contactInformation.phoneNumberSwitch", "false"]);
+    expect(blank.pairs.map(([key]) => key)).not.toContain("contactInformation.phoneNumber");
   });
 
   it("defaults the bucket to 9 when the capture never resolved one", async () => {

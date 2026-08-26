@@ -401,11 +401,14 @@ export async function createAd(draft: CapturedAd, photos: Photo[]): Promise<void
   }
 
   form.append("contactInformation.sellerName", draft.contactInformation.name || "");
-  // FIXED: Cast boolean to string, and reordered before syi-address fields
-  if (draft.phoneUpcallAllowed) {
+  // The switch is sent both ways round, like the bidding one above: the live form
+  // carries its state rather than its presence. The number only rides along with a
+  // `true`, and only when the capture actually has one — a switch turned on over an
+  // empty field is a payload the site refuses, so a capture with no number on file
+  // posts the ad without the up-call rather than not at all.
+  if (draft.phoneUpcallAllowed && draft.contactInformation.phone) {
     form.append("contactInformation.phoneNumberSwitch", "true");
     form.append("contactInformation.phoneNumber", draft.contactInformation.phone);
-
   } else {
     form.append("contactInformation.phoneNumberSwitch", "false");
   }

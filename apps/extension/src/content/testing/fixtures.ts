@@ -123,6 +123,7 @@ export function goldenAd(overrides: Partial<CapturedAd> = {}): CapturedAd {
     contactInformation: {
       name: "Jan Jansen",
       postcode: "1011AB",
+      phone: "0612345678",
     },
     ...overrides,
   };

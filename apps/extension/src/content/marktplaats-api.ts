@@ -402,7 +402,13 @@ export async function createAd(draft: CapturedAd, photos: Photo[]): Promise<void
 
   form.append("contactInformation.sellerName", draft.contactInformation.name || "");
   // FIXED: Cast boolean to string, and reordered before syi-address fields
-  form.append("contactInformation.phoneNumberSwitch", "false");
+  if (draft.phoneUpcallAllowed) {
+    form.append("contactInformation.phoneNumberSwitch", "true");
+    form.append("contactInformation.phoneNumber", draft.contactInformation.phone);
+
+  } else {
+    form.append("contactInformation.phoneNumberSwitch", "false");
+  }
   form.append("syi-address-radio-home", "syi-address-nl");
   form.append("address-index-filter", "syi-address-nl");
   form.append("contactInformation.postCode", draft.contactInformation.postcode || "");

@@ -182,6 +182,11 @@ export interface CapturedAd {
   contactInformation: {
     name: string;
     postcode: string;
+    /**
+     * The seller's number as Marktplaats holds it. Only ever sent when the ad
+     * says `phoneUpcallAllowed`, and the form carries the switch either way.
+     */
+    phone: string;
   }
 }
 

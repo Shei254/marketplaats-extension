@@ -242,7 +242,7 @@ export function sampleAd(title = "Vintage bike"): CapturedListing {
         parentCategoryName: "Fietsen en Brommers",
         verticals: [],
       },
-      contactInformation: { name: "Test Seller", postcode: "1011AB" },
+      contactInformation: { name: "Test Seller", postcode: "1011AB", phone: "0612345678" },
       gallery: { imageUrls: ["https://example.test/bike.jpg"] },
       attributes: [],
       adFeatures: [],

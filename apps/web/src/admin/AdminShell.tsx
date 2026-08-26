@@ -2,7 +2,7 @@ import { Badge, Button, Icon } from "@mprelist/ui";
 import type { JSX, ReactNode } from "react";
 
 import { BRAND } from "../brand";
-import { adminPage, navGroups, type AdminPageId } from "./admin-nav";
+import { ADMIN_PAGES, adminPage, navGroups, type AdminPageId } from "./admin-nav";
 
 /**
  * The frame every admin page is drawn in: a sidebar that says where you are, and a
@@ -35,7 +35,6 @@ import { adminPage, navGroups, type AdminPageId } from "./admin-nav";
 export function AdminShell({
   page,
   onNavigate,
-  counts = {},
   role,
   onSignOut,
   actions,
@@ -43,12 +42,6 @@ export function AdminShell({
 }: {
   page: AdminPageId;
   onNavigate: (page: AdminPageId) => void;
-  /**
-   * A number worth seeing without opening the page — the Stripe prices carrying no
-   * tier, today. Absent or zero draws nothing: a badge that says "0" is a badge
-   * saying there is nothing to see.
-   */
-  counts?: Partial<Record<AdminPageId, number>>;
   /** The realm role this session carries, which is the whole of what we know about who is here. */
   role: string;
   onSignOut: () => void;
@@ -57,6 +50,9 @@ export function AdminShell({
   children: ReactNode;
 }): JSX.Element {
   const current = adminPage(page);
+  // A heading over a single word is a label for nothing. It comes back with the
+  // page that makes the list worth grouping.
+  const grouped = ADMIN_PAGES.length > 1;
   return (
     <div className="mp-root admin-app">
       <aside className="admin-sidebar">
@@ -73,9 +69,8 @@ export function AdminShell({
         <nav className="admin-nav" aria-label="Admin sections">
           {navGroups().map(({ group, pages }) => (
             <div className="admin-nav-group" key={group}>
-              <p className="admin-nav-heading">{group}</p>
+              {grouped ? <p className="admin-nav-heading">{group}</p> : null}
               {pages.map((entry) => {
-                const count = counts[entry.id] ?? 0;
                 return (
                   <button
                     key={entry.id}
@@ -91,7 +86,6 @@ export function AdminShell({
                       <Icon name={entry.icon} size={16} />
                     </span>
                     <span className="admin-nav-label">{entry.label}</span>
-                    {count > 0 ? <Badge tone="warn">{count}</Badge> : null}
                   </button>
                 );
               })}

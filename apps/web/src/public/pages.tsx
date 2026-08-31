@@ -77,6 +77,12 @@ export function CancelPage(): JSX.Element {
  * (T20, #30), so the page's whole job is to say the change is with Stripe and to
  * point back at the toolbar — including the delay, which is the one thing a
  * returning user is about to notice for themselves.
+ *
+ * **Stripe is named and then glossed** (T64). Dropping the name would be worse
+ * than keeping it — it is what appears on the buyer’s bank statement — but it is
+ * not a name this product’s users are assumed to know. And since PayPal joined
+ * iDEAL, SEPA and card it is no longer "your card" they may have changed, so the
+ * copy asks about *how they pay* instead.
  */
 export function BillingPage(): JSX.Element {
   return (
@@ -84,11 +90,11 @@ export function BillingPage(): JSX.Element {
       <div className="web-badge web-badge--quiet">
         <Icon name="card" />
       </div>
-      <h1 className="web-title">That’s saved with Stripe</h1>
+      <h1 className="web-title">That’s saved</h1>
       <p className="web-copy">
-        Whatever you changed — your card, your plan, or cancelling — is saved. Open the{" "}
-        {BRAND.name} icon in your browser toolbar to see where that leaves you; a change can take a
-        moment to reach it.
+        Whatever you changed — how you pay, your plan, or cancelling — is saved with Stripe, the
+        payment provider we use. Open the {BRAND.name} icon in your browser toolbar to see where
+        that leaves you; a change can take a moment to reach it.
       </p>
       <Callout>
         Click the <b>{BRAND.name}</b> icon in your toolbar

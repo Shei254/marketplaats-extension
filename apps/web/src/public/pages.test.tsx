@@ -49,8 +49,17 @@ describe("the billing page", () => {
     // reopens the popup immediately may still see the old one. Saying so here is
     // cheaper than a support ticket.
     expect(markup).toContain("saved with Stripe");
+    // Glossed rather than assumed (T64). The name is worth keeping — it is the one
+    // on their statement — but not worth relying on them recognising.
+    expect(markup).toContain("the payment provider we use");
     expect(markup).toContain("take a moment");
     expect(markup).toContain("icon in your toolbar");
+  });
+
+  it("does not assume the thing they changed was a card", () => {
+    // Since T64 the same page catches somebody who pays by PayPal, iDEAL or SEPA,
+    // none of whom changed a card.
+    expect(markup).not.toContain("your card");
   });
 
   it("does not guess what they did", () => {

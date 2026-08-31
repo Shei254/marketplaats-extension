@@ -436,6 +436,12 @@ name every origin and redirect URI *before* it is first started — the extensio
 #### [T57](https://github.com/Shei254/marketplaats-extension/issues/88) · Live Stripe · **M** · T22, T55
 Live keys, Stripe Tax, VAT registration, iDEAL, SEPA and PayPal in live mode, webhook endpoint pointed at the
 deployed API. ADR-0006 is explicit that **Stripe Tax calculates and does not file**.
+- **Start PayPal's live recurring approval early — it can take five business days.** In *test* mode
+  recurring is on by default, which is why T64 was a checkbox; in live mode it is Payment methods →
+  PayPal → **Enable** in the *Recurring payments* section, and it then sits at `pending` until PayPal
+  grants access. This product sells subscriptions and nothing else, so until that lands PayPal is on the
+  plan screen and unusable at Checkout — a worse state than not offering it. It is the one item here
+  with a lead time nobody controls, so it goes first rather than last.
 
 #### [T46](https://github.com/Shei254/marketplaats-extension/issues/54) · Client-side pacing and jitter between relists · **M** · T26 · **shipped**
 **Moved here from "deferred", deliberately**, because serialisation (one relist at a time) is not a gap

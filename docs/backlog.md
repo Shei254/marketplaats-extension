@@ -149,9 +149,13 @@ it says Pro. Then cancel in the Portal and land back on Free.
 → [script](click-through.md#slice-c--i-can-pay-and-it-unlocks)
 
 #### [T22](https://github.com/Shei254/marketplaats-extension/issues/28) · Create Stripe Products and Prices · **S** · runbook
-**Test mode** for iteration 1. iDEAL and SEPA enabled. **No trial days** — the free tier is the trial
-([ADR-0006](adr/0006-billing.md), amended). Each Price tagged **`metadata.tier_code`** (`pro`, `power`),
-which is what T51 syncs on. Amounts are decided here, not in code.
+**Test mode** for iteration 1. iDEAL, SEPA and **PayPal** enabled (T64). **No trial days** — the free tier
+is the trial ([ADR-0006](adr/0006-billing.md), amended). Each Price tagged **`metadata.tier_code`**
+(`pro`, `power`), which is what T51 syncs on. Amounts are decided here, not in code.
+- **PayPal is a method here, never a second processor** ([ADR-0006](adr/0006-billing.md), amended
+  2026-09-01), so it is a dashboard checkbox and no code. Stripe enables **recurring** for PayPal
+  automatically on most accounts and not all — if the PayPal button is missing from a `subscription`
+  Checkout while present on a one-off, that setting is why, and it is not something the API can report.
 - **The Price's `nickname` is what names the tier**, and only if it has one — T51 writes it through a
   `coalesce`, so a Price with no nickname leaves Pro called Pro rather than renaming it to nothing. A tier
   the catalog has never heard of and whose Price has no nickname is named after its own code.
@@ -269,6 +273,38 @@ plus this link.
 - Stripe returns the browser to `apps/web`'s **`/billing`**, a page of its own rather than `/success`: the
   commonest reason to be in the Portal is cancelling. The three paths `apps/api` sends Stripe now live in one
   `WebPages`, held to `apps/web/src/routes.ts` by a test that reads it.
+
+#### [T64](https://github.com/Shei254/marketplaats-extension/issues/136) · PayPal as a payment method · **S** · T22
+PayPal joins iDEAL, SEPA and card **inside Stripe Checkout**. It is not a second processor, and
+[ADR-0006](adr/0006-billing.md) (amended 2026-09-01) costs that reading and rejects it, so nobody has to cost
+it twice.
+- **The only step that is not documentation is a dashboard checkbox**, and it is the one thing the API cannot
+  do or report: activate PayPal in the Stripe test dashboard and confirm **recurring** is on for it.
+- Nothing describes Stripe as a card processor, because on this account it never was one — ADR-0006 enabled
+  iDEAL and SEPA precisely because card-only would cost Dutch conversion. Privacy says "payment details",
+  Terms points at **Manage billing** rather than "the Stripe portal", and `/billing` no longer asks whether
+  they changed "your card".
+- **Stripe is named and then glossed, not removed.** It is the name on the buyer's bank statement, so a
+  document that hid its processor would be the worse document. It is simply not a name users are assumed to
+  know.
+- Refs: `docs/glossary.md` gains **Payment method**, which is the distinction the whole ticket turns on.
+
+#### [T65](https://github.com/Shei254/marketplaats-extension/issues/137) · The popup names the payment methods · **M** · T64, T49
+The plans screen says which methods are accepted before the hand-off, **read from Stripe** rather than typed
+here — because copy that names them is otherwise the "second answer beside the dashboard's" that
+`OpenCheckout` exists to avoid. Needs **ADR-0022** (0021 is taken).
+- **The subscription configuration, not the default one**: Stripe allows different method sets for one-off and
+  subscription flows, and advertising one a `subscription` Checkout never renders is the failure that matters.
+- **Raw Stripe tokens on the wire, display names in the popup** — what `PlanPrice` already does with
+  `currency` and `interval`.
+- **It degrades independently of the prices.** T49's all-or-nothing rule is justified on the plan screen being
+  a *comparison*; without this sentence the comparison is still right, so a failed fetch renders the cards and
+  no sentence rather than blanking a working screen.
+- **An unmapped token is omitted and logged** — a departure from `plans.ts`, whose rule guards against
+  *mistranslation* where the alternative here is silence.
+- Cache it like `CachedStripePrices` and keep "failures are not cached", but **say why its safety argument
+  does not transfer**: a Price is immutable and a method configuration is mutable in place, so this TTL is
+  doing real staleness work and is why a freshly-toggled method is not in the popup at once.
 
 ---
 
@@ -397,7 +433,7 @@ name every origin and redirect URI *before* it is first started — the extensio
 `https://<id>.chromiumapp.org/`, and both web origins.
 
 #### [T57](https://github.com/Shei254/marketplaats-extension/issues/88) · Live Stripe · **M** · T22, T55
-Live keys, Stripe Tax, VAT registration, iDEAL and SEPA in live mode, webhook endpoint pointed at the
+Live keys, Stripe Tax, VAT registration, iDEAL, SEPA and PayPal in live mode, webhook endpoint pointed at the
 deployed API. ADR-0006 is explicit that **Stripe Tax calculates and does not file**.
 
 #### [T46](https://github.com/Shei254/marketplaats-extension/issues/54) · Client-side pacing and jitter between relists · **M** · T26 · **shipped**

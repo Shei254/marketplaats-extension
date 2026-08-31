@@ -41,6 +41,11 @@ written. A change that moves code updates the ADRs naming it, alongside
 admin CRUD un-deferred). That session also cut the backlog into vertical slices and split **Go-Live** out as
 its own milestone — see [0016](0016-vertical-slices-and-review-gates.md) and [../backlog.md](../backlog.md).
 
+**Amended by the 2026-09-01 session:** 0006 (PayPal is a payment **method** inside Stripe, not a second
+processor — the second-processor reading is costed and rejected there rather than left to be costed
+again). Telling the buyer *which* methods are accepted is a separate decision with a separate revisit
+condition: T65 (#137), and 0022 when it lands.
+
 See also [../domain-model.md](../domain-model.md), [../glossary.md](../glossary.md) and
 [../enforcement-contract.md](../enforcement-contract.md).
 

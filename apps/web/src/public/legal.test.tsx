@@ -51,8 +51,13 @@ describe("the privacy policy", () => {
     expect(markup).toContain("only ever receive the id");
   });
 
-  it("says card details go to Stripe rather than to us", () => {
+  it("says payment details go to Stripe rather than to us, without saying card", () => {
+    // Naming Stripe stays: it is what appears on the buyer's bank statement, and a
+    // policy that hid its processor would be the worse document. What changed in
+    // T64 is "card details" — iDEAL, SEPA and PayPal are all offered, so describing
+    // only cards describes a minority of the payments this product takes.
     expect(markup).toContain("straight to Stripe");
+    expect(markup).not.toContain("Card details");
   });
 
   it("claims no analytics, because there is none to claim", () => {

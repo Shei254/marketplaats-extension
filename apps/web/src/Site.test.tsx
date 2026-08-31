@@ -20,7 +20,7 @@ describe("what the site serves", () => {
     // `apps/api` builds the Portal's `return_url` from its own copy of this path
     // (T21, #31), so an address answered "there's nothing here" would be the last
     // thing somebody sees after cancelling.
-    expect(render("/billing")).toContain("That’s saved with Stripe");
+    expect(render("/billing")).toContain("That’s saved");
   });
 
   it("draws the privacy policy at the path the Web Store listing will carry", () => {

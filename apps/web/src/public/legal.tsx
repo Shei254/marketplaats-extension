@@ -19,7 +19,7 @@ import { BRAND } from "../brand";
  * checked against it: what the API stores is `app_user.idp_subject`, a tier and a
  * count of reservations; the ad's text and photos are copied Marktplaats to
  * Marktplaats by the extension and only the ad's id ever reaches our API (#22);
- * card details go to Stripe and we keep the customer reference (#30); and a
+ * payment details go to Stripe and we keep the customer reference (#30); and a
  * lapsed subscription falls back to the free tier rather than locking anybody out
  * (ADR-0018). A privacy page that promised more than the schema can keep would be
  * worse than none.
@@ -43,7 +43,7 @@ export interface LegalDocument {
 
 export const PRIVACY: LegalDocument = {
   title: "Privacy",
-  updated: "20 August 2026",
+  updated: "1 September 2026",
   sections: [
     {
       heading: "What we store",
@@ -62,8 +62,9 @@ export const PRIVACY: LegalDocument = {
     {
       heading: "Payments",
       body:
-        `Card details go straight to Stripe and are never handled by ${BRAND.name}. We store the ` +
-        "customer reference Stripe gives us so we know which plan you are on.",
+        "Payment details go straight to Stripe, the payment provider we use, and to whichever way of " +
+        `paying you pick there. They are never handled by ${BRAND.name}. We store the customer ` +
+        "reference Stripe gives us so we know which plan you are on.",
     },
     {
       heading: "Who else gets it",
@@ -81,7 +82,7 @@ export const PRIVACY: LegalDocument = {
 
 export const TERMS: LegalDocument = {
   title: "Terms",
-  updated: "20 August 2026",
+  updated: "1 September 2026",
   sections: [
     {
       heading: `What ${BRAND.name} does`,
@@ -113,8 +114,9 @@ export const TERMS: LegalDocument = {
     {
       heading: "Cancelling",
       body:
-        "Cancel any time from the Stripe portal. You keep your paid plan until the period you paid " +
-        "for runs out, then drop back to the free plan — you are never locked out of your own ads.",
+        "Cancel any time from Manage billing in the extension, which opens the billing pages Stripe " +
+        "keeps for you. You keep your paid plan until the period you paid for runs out, then drop " +
+        "back to the free plan — you are never locked out of your own ads.",
     },
   ],
 };

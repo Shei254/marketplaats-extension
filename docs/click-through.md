@@ -179,9 +179,18 @@ rather than a 404 — a host that does not (T55, #86) breaks this step *after* t
 4. Click **Upgrade** on Pro.
    *Expect:* a Stripe Checkout tab opens. The popup closes — that is expected, not a bug. The tab is opened by
    the **service worker**, so if nothing happens the worker console is where to look, not the popup's.
+   *Also:* the page offers **iDEAL, PayPal and card** (T64). Nothing in `apps/api` names a payment method, so
+   a missing one is always the dashboard — and PayPal missing *here* while it works on a one-off Checkout is
+   Stripe's per-account **recurring** setting for PayPal, which is the one part of T64 that is not a checkbox.
 5. Pay with `4242 4242 4242 4242`.
    *Expect:* redirect to `apps/web`'s success page, which asks you to reopen the extension and **does not
    ask you to log in**.
+5a. Do 4 and 5 again on a fresh account, paying with **PayPal**.
+   *Expect:* the same success page and the same `customer.subscription.created`. **No PayPal business account
+   is connected in test mode and none is needed.** If Checkout lists PayPal among the methods, choosing it and
+   clicking **Pay** is the whole flow; if it renders PayPal's own *button*, that hand-off wants a personal
+   PayPal **Sandbox** account. The mirror (T20, #30) reads the subscription and never the method, so nothing
+   downstream of here can tell the two payments apart — which is the whole of why PayPal is a method.
 6. Reopen the popup.
    *Expect:* **`Pro · 50 relists left`** and unlocked buttons, and `resetAt` is **Stripe's** period end rather
    than a month from signing up. Relist once to confirm.

@@ -176,6 +176,17 @@ rather than a 404 — a host that does not (T55, #86) breaks this step *after* t
    and "Prices couldn't be loaded" rather than a guessed amount.
    *Also:* **Plans** in the header reaches the same screen without being out of relists, which is the only way
    in for somebody who is paying and wants to cancel.
+3a. Read the line under **Choose a plan**.
+   *Expect:* **"Pay with iDEAL, PayPal or card."** — the methods ticked in the Stripe dashboard rather than a
+   string in the popup (T65, #137, [ADR-0022](adr/0022-the-plan-screen-names-the-payment-methods.md)). Untick
+   one there and it leaves the sentence — **though not for up to `mprelist.stripe.payment-method-cache`
+   (15m)**. Unlike an amount, a configuration is mutable in place, so that TTL is real staleness rather than a
+   bound on a mistake; restart the API to see the change at once. A method the popup has no name for is left
+   out silently, so enabling Klarna changes nothing on screen — the API logs the whole offered set each time
+   it refreshes, and that log is where a missing name shows up.
+   *The half that matters more:* the cards never depend on any of this. When Stripe cannot be asked the line
+   is simply absent and **every card is still there** — the one place this route is deliberately not
+   all-or-nothing, because a missing sentence is not a wrong comparison.
 4. Click **Upgrade** on Pro.
    *Expect:* a Stripe Checkout tab opens. The popup closes — that is expected, not a bug. The tab is opened by
    the **service worker**, so if nothing happens the worker console is where to look, not the popup's.

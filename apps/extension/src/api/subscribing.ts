@@ -26,7 +26,7 @@ import type { AccessTokens } from "./display-state";
  * one layer after it was made.
  */
 export type PlansAnswer =
-  | { status: "ready"; plans: Plan[] }
+  | { status: "ready"; plans: Plan[]; paymentMethods: string[] }
   | { status: "signed-out" }
   | { status: "outdated" }
   | { status: "unavailable" };
@@ -94,8 +94,12 @@ export class Subscribing {
     if (response.status === 426) return { status: "outdated" };
     if (!response.ok) return UNAVAILABLE;
 
-    const plans = asPlans(await response.json().catch(() => null));
-    return plans ? { status: "ready", plans } : UNAVAILABLE;
+    const body = await response.json().catch(() => null);
+    const plans = asPlans(body);
+    // Read separately, and that separation is the point (T65, #137): the cards are
+    // refused whole if one field is wrong, and the ways to pay cannot take them with
+    // them. A malformed `paymentMethods` costs the sentence under the title.
+    return plans ? { status: "ready", plans, paymentMethods: asPaymentMethods(body) } : UNAVAILABLE;
   }
 
   /**
@@ -262,4 +266,25 @@ function urlIn(body: unknown): string | null {
   if (typeof body !== "object" || body === null) return null;
   const url = (body as Record<string, unknown>)["url"];
   return typeof url === "string" && url.length > 0 ? url : null;
+}
+
+/**
+ * What a buyer can pay with, in Stripe's spelling (T65, #137).
+ *
+ * **Never null, and never a reason to refuse the cards.** Unlike {@link asPlans}
+ * above, the all-or-nothing argument does not reach here: the screen is a
+ * comparison and this is a line under its title, so anything unreadable — absent,
+ * not an array, an array with a number in it — costs the sentence and nothing
+ * else. Non-strings are dropped rather than failing the lot, because one odd
+ * entry says nothing about the rest.
+ *
+ * The tokens are not checked against a list of known methods. What this product
+ * can *name* is `waysToPay`'s in `popup/plans.ts`, and a token nobody has named is
+ * simply not rendered — deciding that here would put the vocabulary in two places.
+ */
+export function asPaymentMethods(body: unknown): string[] {
+  if (typeof body !== "object" || body === null) return [];
+  const methods = (body as Record<string, unknown>)["paymentMethods"];
+  if (!Array.isArray(methods)) return [];
+  return methods.filter((method): method is string => typeof method === "string" && method.length > 0);
 }

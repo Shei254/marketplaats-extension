@@ -7,7 +7,9 @@ import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -25,6 +27,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
+import com.mprelist.billing.StripePaymentMethods;
 import com.mprelist.billing.StripePrice;
 import com.mprelist.billing.StripePrices;
 
@@ -51,6 +54,9 @@ class PlansTest {
 	/** What the fake answers, per price id. A test that wants a failure removes one. */
 	private static final Map<String, StripePrice> PRICES = new LinkedHashMap<>();
 
+	/** What the dashboard is pretending to offer. Emptied by the test about Stripe not answering (T65, #137). */
+	private static final List<String> METHODS = new ArrayList<>();
+
 	@DynamicPropertySource
 	static void trustTheTokensThisSuiteMints(DynamicPropertyRegistry properties) {
 		IDP.trustedAsTheIssuer(properties);
@@ -73,6 +79,8 @@ class PlansTest {
 		PRICES.clear();
 		PRICES.put("price_pro", new StripePrice(999, "eur", "month"));
 		PRICES.put("price_power", new StripePrice(1999, "eur", "month"));
+		METHODS.clear();
+		METHODS.addAll(List.of("ideal", "paypal", "card"));
 	}
 
 	@Test
@@ -169,6 +177,47 @@ class PlansTest {
 		assertThat(Json.of(answered).get("plans").isEmpty()).isTrue();
 	}
 
+	// --- what a buyer can pay with, which fails softly instead (T65, #137) ---------------------------------
+
+	/**
+	 * The methods ride beside the plans rather than inside one: they are the Stripe account's and not any
+	 * tier's, and a copy per card would be the same sentence three times.
+	 */
+	@Test
+	void whatCanBePaidWithComesBackBesideTheCards() {
+		JsonNode answer = Json.of(get());
+
+		assertThat(answer.get("paymentMethods").size()).isEqualTo(3);
+		assertThat(answer.get("paymentMethods").get(0).asString()).isEqualTo("ideal");
+	}
+
+	/**
+	 * <strong>The one rule this route breaks on purpose.</strong> Everything above is all-or-nothing because
+	 * the plan screen is a <em>comparison</em> and a partial one is a wrong picture. Take the payment methods
+	 * away and the comparison is untouched — every plan, rhythm and amount still says what it says — so this
+	 * arrives empty beside a perfectly good {@code 200} rather than turning it into a {@code 503}. Blanking a
+	 * working plan screen to protect a reassurance would lose the sale it was meant to win.
+	 */
+	@Test
+	void andAStripeThatCouldNotSayDoesNotTakeTheCardsWithIt() {
+		METHODS.clear();
+
+		HttpResponse<String> answered = get();
+
+		assertThat(answered.statusCode()).isEqualTo(200);
+		assertThat(Json.of(answered).get("plans").size()).isEqualTo(2);
+		assertThat(Json.of(answered).get("paymentMethods").isEmpty()).isTrue();
+	}
+
+	/** Stripe's own spelling, unedited. What each is *called* is the popup's `waysToPay`, one layer out. */
+	@Test
+	void andIsStripesVocabularyRatherThanAnythingReadable() {
+		METHODS.clear();
+		METHODS.add("sepa_debit");
+
+		assertThat(Json.of(get()).get("paymentMethods").get(0).asString()).isEqualTo("sepa_debit");
+	}
+
 	// --- fail-closed, which applies to display ------------------------------------------------------------
 
 	/**
@@ -219,6 +268,12 @@ class PlansTest {
 		@Primary
 		StripePrices prices() {
 			return id -> Optional.ofNullable(PRICES.get(id));
+		}
+
+		@Bean
+		@Primary
+		StripePaymentMethods paymentMethods() {
+			return () -> List.copyOf(METHODS);
 		}
 
 	}

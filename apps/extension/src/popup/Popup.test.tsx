@@ -109,7 +109,14 @@ function fakeWorker(
     msBeforeNextRelist: vi.fn(async () => 0),
     plans: vi.fn(async () => {
       asked.push("plans");
-      return subscribing.plans ?? ({ status: "ready", plans: [PRO, POWER] } as PlansAnswer);
+      return (
+        subscribing.plans ??
+        // The default answer carries the ways to pay because a real one always
+        // does — `asPaymentMethods` returns `[]` rather than nothing when the
+        // field is missing (T65, #137), so a double that omitted it would be
+        // testing a shape the wire cannot produce.
+        ({ status: "ready", plans: [PRO, POWER], paymentMethods: ["ideal", "paypal", "card"] } as PlansAnswer)
+      );
     }),
     checkout: vi.fn(async (tierCode: string, interval: string) => {
       asked.push(`checkout:${tierCode}:${interval}`);
@@ -685,6 +692,35 @@ describe("the plan cards", () => {
 
     expect(text()).toContain("Checkout opens in a new tab");
     expect(text()).toContain("you drop back to Free, never locked out");
+  });
+
+  it("say what a buyer can pay with, before they leave for a page they have never seen", async () => {
+    // The conversion point of T65 (#137): a Dutch buyer's question at this exact
+    // moment is whether iDEAL is on the other side of that tab, and ADR-0006 chose
+    // Stripe over a card-only arrangement to make sure it is. The default worker
+    // answers `ideal, paypal, card`.
+    const { worker } = fakeWorker();
+
+    await show(worker);
+    await click("Plans");
+
+    expect(text()).toContain("Pay with iDEAL, PayPal or card");
+  });
+
+  it("and say nothing at all when Stripe could not be asked what they are", async () => {
+    // The line degrades on its own. Every card, rhythm and amount is still here —
+    // which is the whole reason `GET /api/plans` carries the methods beside the
+    // plans rather than refusing both together.
+    const { worker } = fakeWorker(undefined, ADS, {
+      plans: { status: "ready", plans: [PRO, POWER], paymentMethods: [] },
+    });
+
+    await show(worker);
+    await click("Plans");
+
+    expect(text()).not.toContain("Pay with");
+    expect(text()).toContain("Checkout opens in a new tab");
+    expect(text()).toContain("9,99");
   });
 
   it("show the plan they are on beside the ones they could buy", async () => {

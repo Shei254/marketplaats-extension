@@ -39,9 +39,16 @@ import com.stripe.param.checkout.SessionCreateParams;
  * on an email address, which this application deliberately does not hold (#108). Nothing else about the person
  * is sent — not their name, not their address, and Stripe collects what it needs itself.
  *
- * <p>Which payment methods are offered — iDEAL and SEPA for a Dutch marketplace (ADR-0006) — is a setting on
- * the Stripe account rather than a parameter here (T22, #28). Naming them in code would mean a deploy to add
- * one, and would put a second answer beside the dashboard's.
+ * <p>Which payment methods are offered — iDEAL, SEPA, PayPal and card for a Dutch marketplace (ADR-0006) —
+ * is a setting on the Stripe account rather than a parameter here (T22, #28). Naming them in code would mean
+ * a deploy to add one, and would put a second answer beside the dashboard's.
+ *
+ * <p><strong>Since T65 (#137) the plan screen tells a buyer what those methods are, and it is not the second
+ * answer that warns against</strong>: it is read from the same dashboard setting when the cards are drawn,
+ * rather than written down a second time. It is also the reason no {@code payment_method_configuration} is
+ * set below and none should be — the session takes the account's default, which is the very configuration
+ * {@code CachedPaymentMethods} reads, so naming one here would make the sentence and the page it describes
+ * disagree. See ADR-0022.
  */
 @Service
 class OpenCheckout {

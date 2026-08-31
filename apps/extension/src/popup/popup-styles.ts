@@ -279,6 +279,12 @@ export const planCardCss = `
   color: var(--mp-muted);
 }
 
+/* The ways to pay (T65, #137), inside the lede rather than under it: it is the
+   same thought as "Checkout opens in a new tab" — what is about to happen — and a
+   second paragraph would read as a second point. Full-strength text against the
+   muted lede, because it is the half somebody is scanning for. */
+.popup-plans-ways { color: var(--mp-fg); }
+
 .popup-plans { display: flex; flex-direction: column; gap: 10px; }
 .popup-plan-card {
   border: 1px solid var(--mp-line);

@@ -18,7 +18,7 @@ import type { HandoffAnswer } from "../api/subscribing";
  */
 export type PlansView =
   | { status: "loading" }
-  | { status: "ready"; plans: Plan[] }
+  | { status: "ready"; plans: Plan[]; paymentMethods: string[] }
   | { status: "failed" };
 
 export const PLANS_LOADING: PlansView = { status: "loading" };
@@ -136,4 +136,51 @@ function every(interval: string): string {
     default:
       return `every ${interval}`;
   }
+}
+
+/**
+ * The ways to pay this popup can spell, in the order it says them (T65, #137).
+ *
+ * **Order first, because it is editorial.** iDEAL leads: this is a Dutch
+ * marketplace, iDEAL is how most of the country pays online, and ADR-0006 chose
+ * Stripe over a card-only arrangement precisely to keep it. PayPal is next as the
+ * name a hesitant buyer recognises fastest, then card. Deciding this here rather
+ * than at the API is the same division `priceOf` and `grantOf` already keep: the
+ * backend sends Stripe's vocabulary and the client decides how it reads.
+ *
+ * **Wallets are deliberately absent.** `apple_pay`, `google_pay` and `link` are
+ * usually turned on and are not what somebody hesitating over a subscription is
+ * looking for — naming them would pad the sentence, and the sentence is
+ * non-exhaustive on purpose. Leaving a method out never makes it false; only
+ * naming one that is off would.
+ */
+const WAYS_TO_PAY: ReadonlyArray<readonly [token: string, name: string]> = [
+  ["ideal", "iDEAL"],
+  ["paypal", "PayPal"],
+  ["card", "card"],
+  ["bancontact", "Bancontact"],
+  ["sepa_debit", "SEPA Direct Debit"],
+];
+
+/**
+ * "Pay with iDEAL, PayPal or card." — or nothing at all.
+ *
+ * **`null` is an ordinary answer and renders no sentence**: Stripe could not be
+ * asked, or it offers only methods this popup has no name for. The plan cards are
+ * unaffected either way, which is the whole reason `GET /api/plans` carries this
+ * beside them rather than refusing the lot (T65, #137).
+ *
+ * A token that is not in `WAYS_TO_PAY` is dropped rather than shown raw — a
+ * departure from `grantOf` and `priceOf` above, and worth saying why. Those render
+ * what Stripe spelled because the alternative was *mistranslation*: an unknown
+ * interval called "a month" is a lie about money. Here the alternative is silence,
+ * "or sepa_debit" in the one line whose job is to reassure is worse than absent,
+ * and the API logs the whole offered set whenever it refreshes — so a method
+ * nobody has named is visible where an operator is, not where a buyer is.
+ */
+export function waysToPay(methods: readonly string[]): string | null {
+  const named = WAYS_TO_PAY.filter(([token]) => methods.includes(token)).map(([, name]) => name);
+  if (named.length === 0) return null;
+  if (named.length === 1) return `Pay with ${named[0]}.`;
+  return `Pay with ${named.slice(0, -1).join(", ")} or ${named[named.length - 1]}.`;
 }

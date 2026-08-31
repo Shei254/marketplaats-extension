@@ -343,6 +343,14 @@ function DunningPrompt({
  * tab takes focus (ADR-0017), so a user who is not told will read the popup
  * vanishing as the click having failed.
  *
+ * **The ways to pay are named here, under the lede** (T65, #137). A Dutch buyer's
+ * commonest question at this exact moment is whether iDEAL is on the other side of
+ * that tab, and ADR-0006 chose Stripe over a card-only arrangement to make sure it
+ * is. The sentence is read from the Stripe dashboard rather than written here —
+ * `OpenCheckout` keeps the methods in one place and this reports it, so there is
+ * no second answer to drift (ADR-0022). When there is nothing to say it says
+ * nothing: no placeholder, no "loading", and the lede above stands on its own.
+ *
  * **"Manage billing" is here rather than on a card**, because it belongs to
  * whoever has billing at all rather than to any one plan — and it is shown to
  * everybody, including somebody who has never paid, because nothing on this screen
@@ -354,11 +362,14 @@ export function PlansScreen({
   onBack,
   onManageBilling,
   handoff,
+  waysToPay = null,
   children,
 }: {
   onBack: () => void;
   onManageBilling: () => void;
   handoff: Handoff;
+  /** "Pay with iDEAL, PayPal or card." — or `null`, which renders nothing at all. */
+  waysToPay?: string | null;
   /** `PlanCards` — the cards own the loading and failed states of the list itself. */
   children?: ReactNode;
 }): JSX.Element {
@@ -376,6 +387,7 @@ export function PlansScreen({
         <h1 className="popup-plans-title">Choose a plan</h1>
         <p className="popup-plans-lede">
           Checkout opens in a new tab. Come back here when you’re done.
+          {waysToPay ? <span className="popup-plans-ways"> {waysToPay}</span> : null}
         </p>
         {children}
         {handoff.kind === "failed" ? <Note tone="error">{handoff.message}</Note> : null}

@@ -289,10 +289,11 @@ it twice.
   know.
 - Refs: `docs/glossary.md` gains **Payment method**, which is the distinction the whole ticket turns on.
 
-#### [T65](https://github.com/Shei254/marketplaats-extension/issues/137) · The popup names the payment methods · **M** · T64, T49
+#### [T65](https://github.com/Shei254/marketplaats-extension/issues/137) · The popup names the payment methods · **M** · T64, T49 · **shipped**
 The plans screen says which methods are accepted before the hand-off, **read from Stripe** rather than typed
 here — because copy that names them is otherwise the "second answer beside the dashboard's" that
-`OpenCheckout` exists to avoid. Needs **ADR-0022** (0021 is taken).
+`OpenCheckout` exists to avoid.
+[ADR-0022](adr/0022-the-plan-screen-names-the-payment-methods.md).
 - **The subscription configuration, not the default one**: Stripe allows different method sets for one-off and
   subscription flows, and advertising one a `subscription` Checkout never renders is the failure that matters.
 - **Raw Stripe tokens on the wire, display names in the popup** — what `PlanPrice` already does with

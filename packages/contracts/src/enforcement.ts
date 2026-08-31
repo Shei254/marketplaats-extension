@@ -198,6 +198,21 @@ export interface Plan {
  */
 export interface Plans {
   plans: Plan[];
+  /**
+   * **What a buyer can pay with**, in Stripe's own spelling — `ideal`, `paypal`,
+   * `card`, `sepa_debit` (T65, #137). Read from the Stripe dashboard when the
+   * cards are drawn, so the popup renders the setting rather than a second copy
+   * of it, and formatted client-side for the reason `currency` and `interval`
+   * already are.
+   *
+   * **Always present, and empty is an ordinary answer.** It means "say nothing"
+   * — Stripe could not be asked, or nothing is turned on — and it deliberately
+   * does not distinguish those, because a client would do the same thing either
+   * way. Unlike a price that could not be fetched it does **not** take the
+   * screen with it: the cards are a comparison and this is a line under the
+   * title, so an empty list arrives beside a perfectly good `plans`.
+   */
+  paymentMethods: string[];
 }
 
 /**

@@ -86,6 +86,14 @@ mprelist:
     #
     # No fallback, like the rails below: the wrong value is silent in both directions.
     price-cache: 15m
+    # T65 (#137): how long the list of ways to pay is remembered — and **unlike `price-cache` above,
+    # this one really is a freshness setting**. A Stripe Price is immutable, so that cache cannot go
+    # stale and its TTL only bounds how long a mistake is shown. A payment method configuration is
+    # mutable in place: an operator who ticks PayPal in the dashboard waits this long before the plan
+    # screen says so. Shorter buys a faster answer to a change nobody makes weekly; longer buys fewer
+    # Stripe calls on a screen somebody is waiting on. Unset or unreachable costs the sentence and
+    # never the cards.
+    payment-method-cache: 15m
 
   # #36: what the extension should do differently from what it was built to do (ADR-0013) — Marktplaats's
   # internal paths, how the CSRF token is found, and the gap the client leaves between two relists.

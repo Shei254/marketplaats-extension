@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import com.mprelist.billing.StripePaymentMethods;
 import com.mprelist.billing.StripePrice;
 import com.mprelist.billing.StripePrices;
 import com.mprelist.catalog.SellablePlan;
@@ -37,13 +38,22 @@ import com.mprelist.catalog.TierPrice;
  * <p>Empty is not the same as unavailable. A catalog with nothing published answers {@code 200} and an empty
  * list, because that is true — a stack whose Stripe Prices have not been created yet (T22, #28) is selling
  * nothing, and saying "unavailable" would report a fault that is not there.
+ *
+ * <p><strong>The ways to pay do not join that rule, and the reason is the rule's own reason</strong> (T65,
+ * #137). All-or-nothing is argued above from the screen being a <em>comparison</em> — a buyer cannot tell a
+ * plan that is missing from a plan that does not exist, so a partial list is a wrong picture. Take the
+ * payment methods away and the comparison is untouched: every plan, every rhythm and every amount still says
+ * what it says, and all that is lost is a sentence telling somebody they can pay with iDEAL. Blanking a
+ * working plan screen to protect that would lose a sale to protect a reassurance, so an empty list here is
+ * carried alongside a perfectly good answer rather than turning it into a {@code 503}.
  */
 @Service
 class PlansOnOffer {
 
-	PlansOnOffer(TierCatalog catalog, StripePrices prices) {
+	PlansOnOffer(TierCatalog catalog, StripePrices prices, StripePaymentMethods methods) {
 		this.catalog = catalog;
 		this.prices = prices;
+		this.methods = methods;
 	}
 
 	/** @return the cards, or nothing at all when any price could not be had */
@@ -63,7 +73,12 @@ class PlansOnOffer {
 			cards.add(new Plan(sellable.tier(), sellable.grants().relistsPerPeriod(),
 					sellable.grants().features(), List.copyOf(priced)));
 		}
-		return oneCurrencyThroughout(cards) ? Optional.of(new Plans(List.copyOf(cards))) : Optional.empty();
+		if (!oneCurrencyThroughout(cards)) {
+			return Optional.empty();
+		}
+		// Asked last and allowed to answer nothing: the cards above are the page, and this is a line under
+		// its title.
+		return Optional.of(new Plans(List.copyOf(cards), this.methods.offered()));
 	}
 
 	/**
@@ -97,13 +112,22 @@ class PlansOnOffer {
 
 	private final StripePrices prices;
 
+	private final StripePaymentMethods methods;
+
 	private static final Logger LOG = LoggerFactory.getLogger(PlansOnOffer.class);
 
 	/**
 	 * The body {@code docs/enforcement-contract.md} names. A wrapper object rather than a bare array, like
-	 * every other answer this API gives: a top-level array is a shape that cannot grow a field.
+	 * every other answer this API gives: a top-level array is a shape that cannot grow a field — which is
+	 * exactly what it did in T65 (#137).
+	 *
+	 * <p>{@code paymentMethods} is Stripe's own spelling, unedited: {@code ideal}, {@code paypal},
+	 * {@code sepa_debit}. What each is <em>called</em> is the popup's, for the reason {@code currency} and
+	 * {@code interval} are already sent raw — the client formats, and a display name invented here would be a
+	 * second vocabulary travelling beside the first. **Always present and never null**, because empty already
+	 * means the one thing a client would do with absent: say nothing.
 	 */
-	record Plans(List<Plan> plans) {
+	record Plans(List<Plan> plans, List<String> paymentMethods) {
 	}
 
 	/**

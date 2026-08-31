@@ -72,4 +72,5 @@ vendor-risk reason, never a UX one — or if Stripe stops offering PayPal for EU
 
 **What the buyer is *told* about any of this is a separate decision**, because it has a separate revisit
 condition: the copy pass here only stops describing Stripe as a card processor, which it never was on this
-account. Reporting which methods are actually enabled is T65 (#137) and ADR-0022's.
+account. Reporting which methods are actually enabled is T65 (#137) and
+[ADR-0022](0022-the-plan-screen-names-the-payment-methods.md)'s.

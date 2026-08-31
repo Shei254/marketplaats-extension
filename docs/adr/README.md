@@ -32,6 +32,7 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0019](0019-plans-are-stripe-first-and-webhook-synced.md) | Plans created in Stripe, synced to the Tier catalog by webhook | Accepted, refines 0014 |
 | [0020](0020-deployment.md) | Deployed as four containers on one host, from a second compose file | Accepted |
 | [0021](0021-design-system-stays-ours.md) | The design system stays ours, and stays a CSS string | Accepted, refines 0016 |
+| [0022](0022-the-plan-screen-names-the-payment-methods.md) | The plan screen names the payment methods, read from Stripe | Accepted, refines 0006 |
 
 **Amended by the 2026-08-13 session:** 0006 (Stripe narrowed to money + lifecycle), 0007 (gating depth,
 `/api/me` display state, `marktplaatsAccountId` dropped), 0009 (monorepo, React popup, Options page removed).
@@ -44,7 +45,9 @@ its own milestone — see [0016](0016-vertical-slices-and-review-gates.md) and [
 **Amended by the 2026-09-01 session:** 0006 (PayPal is a payment **method** inside Stripe, not a second
 processor — the second-processor reading is costed and rejected there rather than left to be costed
 again). Telling the buyer *which* methods are accepted is a separate decision with a separate revisit
-condition: T65 (#137), and 0022 when it lands.
+condition: [0022](0022-the-plan-screen-names-the-payment-methods.md), which reads the list from Stripe when
+the cards are drawn rather than writing it down a second time — and breaks `/api/plans`' all-or-nothing rule
+on purpose, because a missing sentence is not a wrong comparison.
 
 See also [../domain-model.md](../domain-model.md), [../glossary.md](../glossary.md) and
 [../enforcement-contract.md](../enforcement-contract.md).

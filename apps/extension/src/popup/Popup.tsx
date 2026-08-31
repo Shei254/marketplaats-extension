@@ -14,6 +14,7 @@ import {
   MANAGING,
   NOT_OPENING,
   PLANS_LOADING,
+  waysToPay,
   type Handoff,
   type PlansView,
 } from "./plans";
@@ -178,7 +179,11 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
       setScreen(screenFor(answer));
       return;
     }
-    setPlans(answer.status === "ready" ? { status: "ready", plans: answer.plans } : { status: "failed" });
+    setPlans(
+      answer.status === "ready"
+        ? { status: "ready", plans: answer.plans, paymentMethods: answer.paymentMethods }
+        : { status: "failed" },
+    );
   }, [worker]);
 
   const backToAds = useCallback(() => {
@@ -349,7 +354,15 @@ function body(screen: Screen, handlers: Handlers): JSX.Element {
       );
     case "plans":
       return (
-        <PlansScreen onBack={backToAds} onManageBilling={manageBilling} handoff={handoff}>
+        <PlansScreen
+          onBack={backToAds}
+          onManageBilling={manageBilling}
+          handoff={handoff}
+          // Only once the cards are here. While they are loading there is nothing
+          // for the sentence to be about, and a screen that announced how to pay
+          // above three skeletons would be describing a page that is not there yet.
+          waysToPay={plans.status === "ready" ? waysToPay(plans.paymentMethods) : null}
+        >
           <PlanCards
             view={plans}
             current={screen.plan}

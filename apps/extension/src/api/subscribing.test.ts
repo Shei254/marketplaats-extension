@@ -2,7 +2,7 @@ import type { Plan } from "@mprelist/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { AccessToken } from "../auth/session";
-import { Subscribing, asPlans } from "./subscribing";
+import { Subscribing, asPaymentMethods, asPlans } from "./subscribing";
 
 const PRO: Plan = {
   tier: { code: "pro", name: "Pro" },
@@ -44,7 +44,11 @@ describe("asking what can be bought", () => {
   it("sends the token to the route the contract names", async () => {
     const { client, calls } = api();
 
-    await expect(client.plans()).resolves.toEqual({ status: "ready", plans: [PRO] });
+    await expect(client.plans()).resolves.toEqual({
+      status: "ready",
+      plans: [PRO],
+      paymentMethods: [],
+    });
     expect(calls[0]?.url).toBe("http://localhost:8080/api/plans");
     expect(calls[0]?.headers["authorization"]).toBe("Bearer an-access-token");
     expect(calls[0]?.headers["X-Mprelist-Client"]).toBe("extension/9.9.9");
@@ -56,7 +60,7 @@ describe("asking what can be bought", () => {
     // fault that is not there.
     const { client } = api({ answer: () => json({ plans: [] }) });
 
-    await expect(client.plans()).resolves.toEqual({ status: "ready", plans: [] });
+    await expect(client.plans()).resolves.toEqual({ status: "ready", plans: [], paymentMethods: [] });
   });
 
   it("reads a Stripe that could not be asked as unavailable", async () => {
@@ -153,6 +157,40 @@ describe("reading the plans off the wire", () => {
     expect(asPlans({})).toBeNull();
     expect(asPlans({ plans: {} })).toBeNull();
     expect(asPlans([PRO])).toBeNull();
+  });
+});
+
+describe("reading the ways to pay off the wire", () => {
+  it("is Stripe's own spelling, passed through unedited", () => {
+    // What each is *called* is `waysToPay`'s in popup/plans.ts. Translating here
+    // would put the vocabulary in two places, one layer apart.
+    expect(asPaymentMethods({ paymentMethods: ["ideal", "paypal"] })).toEqual(["ideal", "paypal"]);
+  });
+
+  it("is empty rather than null when there is nothing to read", () => {
+    // Empty already means the one thing a client would do with absent — say
+    // nothing — so there is no second state to branch on (T65, #137).
+    expect(asPaymentMethods({})).toEqual([]);
+    expect(asPaymentMethods(null)).toEqual([]);
+    expect(asPaymentMethods({ paymentMethods: "ideal" })).toEqual([]);
+    expect(asPaymentMethods({ paymentMethods: {} })).toEqual([]);
+  });
+
+  it("drops an entry that is not a method rather than failing the lot", () => {
+    // The opposite of `asPlans` above, deliberately: one odd entry says nothing
+    // about the rest, and there is no comparison here to be made wrong by a gap.
+    expect(asPaymentMethods({ paymentMethods: ["ideal", 7, null, "", "card"] })).toEqual([
+      "ideal",
+      "card",
+    ]);
+  });
+
+  it("never costs the cards, however wrong it is", () => {
+    // The whole reason it is read separately: the plan screen is a comparison and
+    // this is a line under its title, so a malformed list loses the sentence and
+    // leaves every plan, rhythm and amount exactly where it was.
+    expect(asPlans({ plans: [PRO], paymentMethods: "nonsense" })).toEqual([PRO]);
+    expect(asPaymentMethods({ plans: [PRO], paymentMethods: "nonsense" })).toEqual([]);
   });
 });
 

@@ -28,7 +28,10 @@ const POWER: Plan = {
   prices: [{ amount: 1999, currency: "eur", interval: "month" }],
 };
 
-const ON_SALE: PlansView = { status: "ready", plans: [PRO, POWER] };
+// `paymentMethods` is empty throughout: the ways to pay are the plans *screen*'s
+// line under the title (T65, #137), and no card reads them. That they can be
+// empty here without changing a single assertion is the separation working.
+const ON_SALE: PlansView = { status: "ready", plans: [PRO, POWER], paymentMethods: [] };
 
 const render = (
   view: PlansView,
@@ -77,7 +80,7 @@ describe("the cards", () => {
     const both: Plan = { ...PRO, prices: [...PRO.prices, { amount: 9900, currency: "eur", interval: "year" }] };
     // The buyer is on Free, which is not on sale, so its card is the synthetic one
     // and Pro's is the only one with buttons.
-    const shown = render({ status: "ready", plans: [both] });
+    const shown = render({ status: "ready", plans: [both], paymentMethods: [] });
 
     expect(shown).toContain("9,99");
     expect(shown).toContain("99,00");
@@ -160,7 +163,7 @@ describe("when there is nothing to show", () => {
   it("says nothing is on sale rather than that something went wrong", () => {
     // Every stack whose Stripe Prices have not been created yet (T22, #28). The
     // card for the plan they are on is still there, because they still have one.
-    const markup = render({ status: "ready", plans: [] });
+    const markup = render({ status: "ready", plans: [], paymentMethods: [] });
 
     expect(markup).toContain("no paid plans on offer");
     expect(markup).toContain("Your plan");

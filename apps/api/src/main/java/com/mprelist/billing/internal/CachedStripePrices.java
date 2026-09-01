@@ -66,15 +66,15 @@ class CachedStripePrices implements StripePrices {
 		if (client.isEmpty() || stripePriceId == null || stripePriceId.isBlank()) {
 			return Optional.empty();
 		}
-		Remembered held = this.prices.get(stripePriceId);
+		Remembered<StripePrice> held = this.prices.get(stripePriceId);
 		if (held != null && held.isFresh(this.now.get())) {
-			return Optional.of(held.price());
+			return Optional.of(held.answer());
 		}
 		Optional<StripePrice> fetched = fetch(client.get(), stripePriceId);
 		// Only what came back. A Stripe outage must cost a retry, not a TTL: remembering the absence would
 		// turn a five-second blip into fifteen minutes of "prices unavailable" for everybody.
 		fetched.ifPresent(price -> this.prices.put(stripePriceId,
-				new Remembered(price, this.now.get().plus(this.remembered))));
+				new Remembered<>(price, this.now.get().plus(this.remembered))));
 		return fetched;
 	}
 
@@ -105,20 +105,11 @@ class CachedStripePrices implements StripePrices {
 		}
 	}
 
-	/** One remembered answer and when it stops being one. */
-	private record Remembered(StripePrice price, Instant until) {
-
-		boolean isFresh(Instant now) {
-			return now.isBefore(this.until);
-		}
-
-	}
-
 	/**
 	 * Unbounded, and it is bounded in practice by something better than a size limit: the keys are the price
 	 * ids the tier catalog points at, which is a handful of rows an operator maintains by hand.
 	 */
-	private final Map<String, Remembered> prices = new ConcurrentHashMap<>();
+	private final Map<String, Remembered<StripePrice>> prices = new ConcurrentHashMap<>();
 
 	private final StripeAccount stripe;
 

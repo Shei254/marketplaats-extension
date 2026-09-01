@@ -112,3 +112,64 @@ configuration to sessions that name none, or this product starts passing one (of
 subscriptions than to one-offs) — `CachedPaymentMethods` reads the default
 and would then be reading the wrong object. Or if the sentence proves to be worth an A/B test, at which point
 what it says stops being a copy decision and becomes a measured one.
+
+## Amended 2026-09-01 — two readings this got wrong, found by a buyer who saw neither PayPal nor a bank
+
+The report was "PayPal and the bank option still don't appear in the checkout". Neither was this ADR's fault
+— the account is US-established, so PayPal is not offered to it at all and SEPA Direct Debit is
+unavailable ([ADR-0006](0006-billing.md), corrected the same day). But looking for it turned up two things
+this decision had actually got wrong.
+
+**`is_default` does not identify the configuration on its own.** The list also returns the configurations a
+Connect platform holds for its connected accounts, each carrying a default of its own and told apart by
+`parent`. Taking the first flagged object in list order picked a **child** configuration on the very account
+this was written against — `apple_pay, card, google_pay, link`, where the account's own default says
+`bancontact, blik, card, cashapp, eps, giropay, ideal, link`. Both objects are valid, neither read fails, and
+the plan screen was describing a set Checkout does not apply: the "second answer beside the dashboard's" this
+ADR was written to prevent, reached from the other side. **The reading is now this account's own default —
+`is_default` **and** no `parent`** — and two of ours claiming it is logged rather than resolved, because a
+guess dressed as an answer is the thing to avoid on a screen somebody is buying from. No own default at all
+answers nothing, rather than borrowing a connected account's.
+
+**And the recurring gap above is now partly closed, which the "revisit if" below anticipated.** That clause
+waits on Stripe exposing whether a method is approved for recurring payments. For three of them it already
+does, one field over on the object being read: **iDEAL, Bancontact and Sofort have no recurrence of their
+own** — each takes a single payment and leaves a SEPA Direct Debit mandate, which is what the subscription is
+then charged against. With `sepa_debit` off, a `subscription` Checkout renders none of them however firmly
+the configuration says `on`. So `offered()` now means *what a subscription Checkout will offer*, and drops
+those three when there is no mandate for them to leave.
+
+This is deliberately **a filter and not the table this ADR refused**: the condition is read from the same
+configuration rather than written down, so a method Stripe teaches to bill recurring tomorrow needs no edit
+unless it is one of these three. And the drift is in the safe direction the decision already relies on — it
+can only *omit* a method, and a sentence that never claimed to be exhaustive is not made false by an
+omission, only by a name that is not there at Checkout.
+
+**PayPal's own recurring approval is still not readable anywhere in Stripe's API**, so the Negative above
+stands, narrowed to it alone. What is new is that it is now visible after the fact: **every opened session
+logs the methods Stripe actually resolved for it** (`OpenCheckout`). The plan screen's sentence is a
+prediction from the account's configuration; the session is the ground truth, and it is the only place the
+session's currency and a method's recurring approval are both accounted for. A name in the sentence that is
+missing from that log line is exactly the residual, in the log where the operator is — which is what this
+investigation had to reconstruct by hand from a Stripe console.
+
+## Amended 2026-09-02 — the session log is not the ground truth this claimed
+
+The amendment above ends: *"every opened session logs the methods Stripe actually resolved for it … the
+sentence is a prediction; the session is the ground truth."* The first half is right and the second is too
+strong, and the gap is where the next day went.
+
+`payment_method_types` is resolved when the session is **created**. Stripe's Adaptive Pricing converts the
+presentment currency when the page is **opened**, and a converted cross-border subscription is offered card,
+Link, Apple Pay and Google Pay only. So the log names `paypal` on a session whose buyer is shown a card form,
+and two sessions created a minute apart — Adaptive Pricing on and off, same Kenyan buyer — log identical
+lists. The session accounts for the currency it was *created* in, not the one it is *presented* in.
+
+[ADR-0006](0006-billing.md), amended the same day, closes this by pinning the session to the Price's own
+currency, which makes created and presented the same thing again and restores the log line's claim. The
+narrower reading stands on its own though: **this log is evidence about the configuration, not about the
+page.** Anything that changes the offer between creation and render — Adaptive Pricing was one, and it was
+on by default — is invisible to it, and the only instrument for those is opening the URL.
+
+What is unchanged is the residual this ADR owes #137: PayPal's recurring approval is still unreadable in the
+API, and is still T57's.

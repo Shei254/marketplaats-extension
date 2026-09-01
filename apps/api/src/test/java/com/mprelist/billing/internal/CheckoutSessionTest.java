@@ -125,6 +125,22 @@ class CheckoutSessionTest {
 		assertThat(this.posted).containsEntry("subscription_data[metadata][app_user_id]", BUYER.id().toString());
 	}
 
+	/**
+	 * The one field that decides whether the other methods can appear at all. Stripe's Adaptive Pricing
+	 * converts a session into the buyer's local currency, and a converted <em>subscription</em> is offered
+	 * card, Link, Apple Pay and Google Pay only — so a Dutch marketplace that left it on would advertise
+	 * iDEAL, SEPA and PayPal on the plan screen and show a card form to anybody outside the eurozone. Nothing
+	 * fails, and the session's own {@code payment_method_types} still names all three, because the conversion
+	 * happens when the page is opened rather than when it is created. Asserted here because that makes it a
+	 * setting nothing else in this codebase can observe.
+	 */
+	@Test
+	void andIsPricedInThePricesOwnCurrencyRatherThanTheBuyersLocalOne() {
+		checkout(List.of(PRO), Optional.empty()).open(BUYER, "pro", "month");
+
+		assertThat(this.posted).containsEntry("adaptive_pricing[enabled]", "false");
+	}
+
 	@Test
 	void andSendsTheBrowserBackToTheLoginlessPages() {
 		checkout(List.of(PRO), Optional.empty()).open(BUYER, "pro", "month");

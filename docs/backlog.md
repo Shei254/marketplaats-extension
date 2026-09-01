@@ -152,10 +152,18 @@ it says Pro. Then cancel in the Portal and land back on Free.
 **Test mode** for iteration 1. iDEAL, SEPA and **PayPal** enabled (T64). **No trial days** — the free tier
 is the trial ([ADR-0006](adr/0006-billing.md), amended). Each Price tagged **`metadata.tier_code`**
 (`pro`, `power`), which is what T51 syncs on. Amounts are decided here, not in code.
+- **The account must be established in the Netherlands and the catalog priced in EUR**, and it is a
+  precondition rather than a preference ([ADR-0006](adr/0006-billing.md), corrected 2026-09-01). PayPal is
+  not offered to US-established accounts at all — not turned off, *absent from the payment method
+  configuration* — and iDEAL is EUR-only and bills a subscription through a SEPA Direct Debit mandate, which
+  such an account cannot have. The failure is silent: Checkout opens, a card form renders, a test card
+  completes a subscription, and the two methods ADR-0006 chose Stripe **for** are simply not there. **This
+  applies to the test account too**, or what iteration 1 exercises is not this decision.
 - **PayPal is a method here, never a second processor** ([ADR-0006](adr/0006-billing.md), amended
   2026-09-01), so it is a dashboard checkbox and no code. Stripe enables **recurring** for PayPal
   automatically on most accounts and not all — if the PayPal button is missing from a `subscription`
   Checkout while present on a one-off, that setting is why, and it is not something the API can report.
+  Since T65's amendment `OpenCheckout` logs what each session actually resolved to, which is where to look.
 - **The Price's `nickname` is what names the tier**, and only if it has one — T51 writes it through a
   `coalesce`, so a Price with no nickname leaves Pro called Pro rather than renaming it to nothing. A tier
   the catalog has never heard of and whose Price has no nickname is named after its own code.
@@ -274,12 +282,34 @@ plus this link.
   commonest reason to be in the Portal is cancelling. The three paths `apps/api` sends Stripe now live in one
   `WebPages`, held to `apps/web/src/routes.ts` by a test that reads it.
 
-#### [T64](https://github.com/Shei254/marketplaats-extension/issues/136) · PayPal as a payment method · **S** · T22
+#### [T64](https://github.com/Shei254/marketplaats-extension/issues/136) · PayPal as a payment method · **S** · T22 · **shipped**
 PayPal joins iDEAL, SEPA and card **inside Stripe Checkout**. It is not a second processor, and
 [ADR-0006](adr/0006-billing.md) (amended 2026-09-01) costs that reading and rejects it, so nobody has to cost
 it twice.
 - **The only step that is not documentation is a dashboard checkbox**, and it is the one thing the API cannot
   do or report: activate PayPal in the Stripe test dashboard and confirm **recurring** is on for it.
+- **Blocked on the account, not on the code (found 2026-09-01).** On the account the current test key points
+  at there is no checkbox to tick: it is US-established, and `paypal` is not a field on any of its payment
+  method configurations, because Stripe offers PayPal to EU- and UK-established merchants. A buyer reported
+  the button missing from Checkout and this was why. Nothing here lands until T22's account precondition is
+  met; [ADR-0006](adr/0006-billing.md) is corrected accordingly.
+- **Unblocked 2026-09-02, and the last mile was not the account.** The key now points at a
+  Netherlands-established account priced in EUR; `paypal` reads `available: true` / `on` in its own default
+  configuration, and a `subscription` Checkout resolves to `card, ideal, sepa_debit, klarna, link, paypal,
+  amazon_pay, satispay`. PayPal was **still** absent from the rendered page, and the cause was Stripe's
+  **Adaptive Pricing** — on by default, it converts the session into the buyer's local currency, and a
+  converted cross-border subscription is offered card, Link, Apple Pay and Google Pay only. Opened from
+  Nairobi the page showed KES and dropped iDEAL, SEPA and PayPal together; switching its currency selector
+  back to EUR brought all three back. `OpenCheckout` now sets `adaptive_pricing.enabled = false`, so the
+  Price's own currency is what reaches the buyer ([ADR-0006](adr/0006-billing.md), amended 2026-09-02).
+- **It is invisible to the session log**, which is worth knowing before the next one of these:
+  `payment_method_types` is resolved at session creation and the conversion happens at render, so the log
+  names `paypal` on a session whose buyer sees a card form. [ADR-0022](adr/0022-the-plan-screen-names-the-payment-methods.md)
+  is amended to stop calling that log the ground truth.
+- **Domain registration was ruled out, and is worth not re-checking.** Stripe requires it for PayPal only in
+  Elements and Checkout's *embeddable* form; this integration redirects to `checkout.stripe.com`, which is
+  Stripe's own domain. It becomes a hard prerequisite the day the checkout is embedded, and it fails by
+  silently hiding the button.
 - Nothing describes Stripe as a card processor, because on this account it never was one — ADR-0006 enabled
   iDEAL and SEPA precisely because card-only would cost Dutch conversion. Privacy says "payment details",
   Terms points at **Manage billing** rather than "the Stripe portal", and `/billing` no longer asks whether
@@ -311,6 +341,22 @@ here — because copy that names them is otherwise the "second answer beside the
 - Cache it like `CachedStripePrices` and keep "failures are not cached", but **say why its safety argument
   does not transfer**: a Price is immutable and a method configuration is mutable in place, so this TTL is
   doing real staleness work and is why a freshly-toggled method is not in the popup at once.
+- **Amended 2026-09-01, from a report that PayPal and the bank option were missing at Checkout.** The cause
+  was the account (T64 above), but two readings here were wrong and are now fixed —
+  [ADR-0022](adr/0022-the-plan-screen-names-the-payment-methods.md) carries the argument.
+  - **`is_default` does not identify the configuration on its own.** A Connect platform's configurations for
+    its connected accounts come back in the same list with defaults of their own, told apart by `parent`.
+    First-flagged-in-list-order picked a **child** on the real account, so the sentence described a set
+    Checkout never applies. The reading is now `is_default` **and** no `parent`; two of ours claiming it is
+    logged rather than resolved, and none of ours answers nothing rather than borrowing somebody else's.
+  - **`offered()` now means what a *subscription* Checkout will offer.** iDEAL, Bancontact and Sofort have no
+    recurrence of their own — each leaves a SEPA Direct Debit mandate behind, which is what is charged
+    afterwards — so with `sepa_debit` off they are enabled and still absent at the hand-off. Naming them
+    there is the one failure this sentence must not have. It is a filter read from the same object, **not**
+    the recurring table this ticket refused, and it can only omit a method, never invent one.
+  - **Every opened session logs what Stripe actually resolved for it** (`OpenCheckout`). The sentence is a
+    prediction; the session is the truth, and it is the only place the currency and PayPal's recurring
+    approval are both accounted for. That residual is still unreadable in the API and is still T57's.
 
 ---
 
@@ -441,6 +487,16 @@ name every origin and redirect URI *before* it is first started — the extensio
 #### [T57](https://github.com/Shei254/marketplaats-extension/issues/88) · Live Stripe · **M** · T22, T55
 Live keys, Stripe Tax, VAT registration, iDEAL, SEPA and PayPal in live mode, webhook endpoint pointed at the
 deployed API. ADR-0006 is explicit that **Stripe Tax calculates and does not file**.
+- **The live account has to be established in the Netherlands**, which is a company-formation fact and not a
+  dashboard setting — so it is the earliest item here, ahead even of PayPal's approval lead time below. An
+  account in the wrong country cannot offer iDEAL, SEPA or PayPal at all, and says so by quietly selling a
+  card-only plan screen ([ADR-0006](adr/0006-billing.md), corrected 2026-09-01). **Done in test as of
+  2026-09-02** — the test account is Netherlands-established and priced in EUR, and iDEAL, SEPA and PayPal
+  all render at Checkout. The live account is a company-formation fact and still ahead of everything here.
+- **Adaptive Pricing is a per-mode dashboard setting, so check it in live as well.** `OpenCheckout` turns it
+  off per session, which is authoritative for this application's own Checkout — but Payment Links have it on
+  always and cannot turn it off, so a link handed out for a subscription would sell the card-only version of
+  this product to anybody outside the eurozone.
 - **Start PayPal's live recurring approval early — it can take five business days.** In *test* mode
   recurring is on by default, which is why T64 was a checkbox; in live mode it is Payment methods →
   PayPal → **Enable** in the *Recurring payments* section, and it then sits at `pending` until PayPal

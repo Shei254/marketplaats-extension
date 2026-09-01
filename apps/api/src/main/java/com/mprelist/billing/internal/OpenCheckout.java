@@ -43,12 +43,19 @@ import com.stripe.param.checkout.SessionCreateParams;
  * is a setting on the Stripe account rather than a parameter here (T22, #28). Naming them in code would mean
  * a deploy to add one, and would put a second answer beside the dashboard's.
  *
+ * <p><strong>And they are only offered at all if the buyer is shown euros.</strong> Stripe's Adaptive
+ * Pricing converts a session into the buyer's own currency, and its rule for the converted ones is that a
+ * cross-border <em>subscription</em> supports card, Link, Apple Pay and Google Pay and nothing else. That
+ * silently deletes every method ADR-0006 chose Stripe for — iDEAL and SEPA are EUR-only, PayPal has no KES
+ * presentment — so the session below turns it off and the price's own currency is what reaches the page.
+ *
  * <p><strong>Since T65 (#137) the plan screen tells a buyer what those methods are, and it is not the second
  * answer that warns against</strong>: it is read from the same dashboard setting when the cards are drawn,
  * rather than written down a second time. It is also the reason no {@code payment_method_configuration} is
  * set below and none should be — the session takes the account's default, which is the very configuration
  * {@code CachedPaymentMethods} reads, so naming one here would make the sentence and the page it describes
- * disagree. See ADR-0022.
+ * disagree. See ADR-0022. What that prediction cannot see is what this session resolved to, so every opened
+ * session logs it.
  */
 @Service
 class OpenCheckout {
@@ -88,6 +95,12 @@ class OpenCheckout {
 		}
 		try {
 			Session session = client.get().checkout().sessions().create(sessionFor(buyer, price.get()));
+			// What Stripe actually resolved for this session, which is the only place the answer exists.
+			// `CachedPaymentMethods` predicts it from the account's configuration and cannot see the two
+			// things that narrow it here — the session's currency, and whether a method is approved for
+			// recurring payments (ADR-0022's open residual). A method the plan screen named and this line
+			// does not list is that gap, and this is where an operator finds it without a Stripe console.
+			LOG.info("Checkout for `{}` ({}) offers {}", tierCode, interval, session.getPaymentMethodTypes());
 			return new Checkout.Opened(session.getUrl());
 		}
 		catch (StripeException unavailable) {
@@ -105,7 +118,7 @@ class OpenCheckout {
 	}
 
 	/**
-	 * The session, and the four things it has to say.
+	 * The session, and the five things it has to say.
 	 *
 	 * <p>{@code success_url} and {@code cancel_url} point at {@code apps/web}'s public pages (T50, #81), which
 	 * carry no authentication at all — the browser Stripe redirects is not one this application knows
@@ -119,6 +132,19 @@ class OpenCheckout {
 				.addLineItem(SessionCreateParams.LineItem.builder()
 						.setPrice(price.stripePriceId())
 						.setQuantity(1L)
+						.build())
+				// The Price's own currency is what the buyer is shown, wherever they open the page from.
+				// Adaptive Pricing would convert it to theirs — KES for somebody in Nairobi — and Stripe
+				// offers a *converted* subscription only card, Link, Apple Pay and Google Pay. So the
+				// conversion is not a nicety on top of the methods: it deletes iDEAL, SEPA and PayPal, which
+				// are the whole of why ADR-0006 chose Stripe. **This is not the rule above being broken.**
+				// That rule is about which methods to offer and keeps them in the dashboard; this says which
+				// currency they are offered in, and a method that cannot be presented in it is not a choice
+				// anybody made. It is also the one thing the log below cannot see — `payment_method_types` is
+				// resolved when the session is created, the conversion happens when the page is opened, so
+				// with this left on the log names PayPal and the buyer is never shown it.
+				.setAdaptivePricing(SessionCreateParams.AdaptivePricing.builder()
+						.setEnabled(false)
 						.build())
 				.setSuccessUrl(this.web.paymentLanded())
 				.setCancelUrl(this.web.paymentAbandoned())

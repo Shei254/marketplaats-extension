@@ -141,12 +141,17 @@ function every(interval: string): string {
 /**
  * The ways to pay this popup can spell, in the order it says them (T65, #137).
  *
- * **Order first, because it is editorial.** iDEAL leads: this is a Dutch
- * marketplace, iDEAL is how most of the country pays online, and ADR-0006 chose
- * Stripe over a card-only arrangement precisely to keep it. PayPal is next as the
- * name a hesitant buyer recognises fastest, then card. Deciding this here rather
- * than at the API is the same division `priceOf` and `grantOf` already keep: the
- * backend sends Stripe's vocabulary and the client decides how it reads.
+ * **Membership and order are both editorial, and between them they are the whole
+ * of the editorial decision.** iDEAL leads: this is a Dutch marketplace, iDEAL is
+ * how most of the country pays online, and ADR-0006 chose Stripe over a card-only
+ * arrangement precisely to keep it. PayPal is next as the name a hesitant buyer
+ * recognises fastest, then card. Deciding this here rather than at the API is the
+ * same division `priceOf` and `grantOf` already keep: the backend sends Stripe's
+ * vocabulary and the client decides how it reads.
+ *
+ * **A method that does not belong in the sentence is left out of this list**, where
+ * the omission is explicit and reviewable — rather than dropped by position, which
+ * would edit the sentence by whatever happened to sort last.
  *
  * **Wallets are deliberately absent.** `apple_pay`, `google_pay` and `link` are
  * usually turned on and are not what somebody hesitating over a subscription is
@@ -163,12 +168,17 @@ const WAYS_TO_PAY: ReadonlyArray<readonly [token: string, name: string]> = [
 ];
 
 /**
- * "Pay with iDEAL, PayPal or card." — or nothing at all.
+ * "Pay with iDEAL, PayPal, card or SEPA Direct Debit." — or nothing at all.
  *
  * **`null` is an ordinary answer and renders no sentence**: Stripe could not be
  * asked, or it offers only methods this popup has no name for. The plan cards are
  * unaffected either way, which is the whole reason `GET /api/plans` carries this
  * beside them rather than refusing the lot (T65, #137).
+ *
+ * Every method this popup can spell is named, in `WAYS_TO_PAY`'s order. The
+ * sentence stays non-exhaustive because that list leaves the wallets out, not
+ * because it is truncated — a buyer meets the rest at Checkout regardless, and this
+ * line is there to get them to it rather than to enumerate it.
  *
  * A token that is not in `WAYS_TO_PAY` is dropped rather than shown raw — a
  * departure from `grantOf` and `priceOf` above, and worth saying why. Those render

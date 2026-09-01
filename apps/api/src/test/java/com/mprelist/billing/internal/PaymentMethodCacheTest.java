@@ -28,6 +28,11 @@ import com.sun.net.httpserver.HttpServer;
  * all ({@code id}, {@code active}, {@code name}) and methods that are turned off — and a mocked SDK call would
  * assert that our own mock was called while every one of those readings was upside down. So this serves
  * Stripe's own JSON and points the real client at it.
+ *
+ * <p>Two of the readings are not about shape at all and are the ones that have actually been wrong: which
+ * configuration in the list is <em>ours</em> (a Connect child claims {@code is_default} too), and which of
+ * its enabled methods a {@code subscription} Checkout will really render (the bank redirects need a SEPA
+ * mandate to charge again). Both are below.
  */
 class PaymentMethodCacheTest {
 
@@ -53,7 +58,7 @@ class PaymentMethodCacheTest {
 		});
 		this.stripe.start();
 		this.served = list(configuration("pmc_default", true, "Default",
-				on("ideal"), on("paypal"), on("card"), off("sepa_debit"), off("klarna")));
+				on("ideal"), on("paypal"), on("card"), on("sepa_debit"), off("klarna")));
 	}
 
 	@AfterEach
@@ -66,7 +71,7 @@ class PaymentMethodCacheTest {
 		// The whole reading, and every part of it is easy to get wrong invisibly: the token is the field's own
 		// name, "on" lives two levels down under `display_preference`, and a method that is off is not offered
 		// however present its field is.
-		assertThat(methods().offered()).containsExactly("ideal", "paypal", "card");
+		assertThat(methods().offered()).containsExactly("ideal", "paypal", "card", "sepa_debit");
 	}
 
 	/**
@@ -86,9 +91,9 @@ class PaymentMethodCacheTest {
 	 */
 	@Test
 	void aMethodNobodyHasHeardOfIsReportedRatherThanDropped() {
-		this.served = list(configuration("pmc_default", true, "Default", on("ideal"), on("twint")));
+		this.served = list(configuration("pmc_default", true, "Default", on("card"), on("twint")));
 
-		assertThat(methods().offered()).containsExactly("ideal", "twint");
+		assertThat(methods().offered()).containsExactly("card", "twint");
 	}
 
 	/**
@@ -99,9 +104,36 @@ class PaymentMethodCacheTest {
 	@Test
 	void andItIsTheDefaultConfigurationThatIsRead() {
 		this.served = list(configuration("pmc_one_off", false, "One-off", on("klarna")),
-				configuration("pmc_default", true, "Default", on("ideal")));
+				configuration("pmc_default", true, "Default", on("card")));
 
-		assertThat(methods().offered()).containsExactly("ideal");
+		assertThat(methods().offered()).containsExactly("card");
+	}
+
+	/**
+	 * <strong>And it is <em>this account's</em> default, not the first object in the list that claims to be
+	 * one.</strong> A Connect platform's configurations for its connected accounts come back in the same list
+	 * and carry defaults of their own; {@code parent} is what separates them. The child is served first here
+	 * deliberately, because list order is exactly what the earlier reading trusted — and on a real account it
+	 * put the plan screen on a set Checkout never applied.
+	 */
+	@Test
+	void andItIsThisAccountsDefaultRatherThanOneItHoldsForSomebodyElse() {
+		this.served = list(childConfiguration("pmc_connected", true, "Default", on("klarna")),
+				configuration("pmc_ours", true, "Default", on("card")));
+
+		assertThat(methods().offered()).containsExactly("card");
+	}
+
+	/**
+	 * Nothing rather than somebody else's answer. A platform account with no default of its own is a
+	 * configuration mistake, and naming a connected account's methods on our plan screen would be a
+	 * confident wrong answer where an absent sentence is a harmless one.
+	 */
+	@Test
+	void andAnAccountWhoseOnlyDefaultIsSomebodyElsesSaysNothing() {
+		this.served = list(childConfiguration("pmc_connected", true, "Default", on("ideal"), on("sepa_debit")));
+
+		assertThat(methods().offered()).isEmpty();
 	}
 
 	@Test
@@ -128,6 +160,45 @@ class PaymentMethodCacheTest {
 		assertThat(methods().offered()).isEmpty();
 	}
 
+	// --- and what a subscription can actually be billed on --------------------------------------------------
+
+	/**
+	 * <strong>iDEAL and Bancontact are enabled here and still not offered</strong>, because neither charges
+	 * anything a second time by itself: each takes one payment and leaves a SEPA Direct Debit mandate, and
+	 * with SEPA turned off there is no mandate to leave. Stripe drops them from a {@code subscription}
+	 * session, so naming them on a plan card would promise a button the hand-off does not show — the one
+	 * failure this sentence must not have.
+	 */
+	@Test
+	void aBankRedirectWithNoMandateToLeaveBehindIsNotOffered() {
+		this.served = list(configuration("pmc_default", true, "Default", on("ideal"), on("bancontact"),
+				on("card"), off("sepa_debit")));
+
+		assertThat(methods().offered()).containsExactly("card");
+	}
+
+	/** And comes back the moment SEPA is on, with no deploy — it is read, not written down. */
+	@Test
+	void andIsOfferedAgainAsSoonAsSepaDirectDebitIsOn() {
+		this.served = list(configuration("pmc_default", true, "Default", on("ideal"), on("bancontact"),
+				on("card"), on("sepa_debit")));
+
+		assertThat(methods().offered()).containsExactly("ideal", "bancontact", "card", "sepa_debit");
+	}
+
+	/**
+	 * The filter is three bank redirects and nothing else. PayPal bills recurring on its own, so a missing
+	 * SEPA says nothing about it — over-filtering would quietly delete the method this whole ticket was
+	 * about (T64, #136).
+	 */
+	@Test
+	void andAMethodThatChargesAgainByItselfIsNeverTakenOutWithThem() {
+		this.served = list(configuration("pmc_default", true, "Default", on("paypal"), on("card"),
+				off("sepa_debit")));
+
+		assertThat(methods().offered()).containsExactly("paypal", "card");
+	}
+
 	@Test
 	void andIsAskedForOnceHoweverOftenThePlanScreenIsOpened() {
 		CachedPaymentMethods methods = methods();
@@ -140,20 +211,20 @@ class PaymentMethodCacheTest {
 	}
 
 	/**
-	 * <strong>Unlike a Price, a configuration is mutable in place</strong> — an operator ticks PayPal and the
+	 * <strong>Unlike a Price, a configuration is mutable in place</strong> — an operator ticks Klarna and the
 	 * same object now says something else. So this TTL is real freshness work rather than the bound on a
 	 * mistake {@code price-cache} is, and it is why a newly enabled method is not on the plan screen at once.
 	 */
 	@Test
 	void untilItIsOldEnoughToHaveChangedInTheDashboard() {
 		CachedPaymentMethods methods = methods();
-		assertThat(methods.offered()).containsExactly("ideal", "paypal", "card");
+		assertThat(methods.offered()).containsExactly("ideal", "paypal", "card", "sepa_debit");
 
 		this.served = list(configuration("pmc_default", true, "Default", on("ideal"), on("paypal"),
-				on("card"), on("sepa_debit")));
+				on("card"), on("sepa_debit"), on("klarna")));
 		this.now = this.now.plus(REMEMBERED).plusSeconds(1);
 
-		assertThat(methods.offered()).containsExactly("ideal", "paypal", "card", "sepa_debit");
+		assertThat(methods.offered()).containsExactly("ideal", "paypal", "card", "sepa_debit", "klarna");
 		assertThat(this.asked).hasValue(2);
 	}
 
@@ -198,11 +269,27 @@ class PaymentMethodCacheTest {
 				+ "\"data\":[" + String.join(",", configurations) + "]}";
 	}
 
-	/** One configuration, shaped as Stripe writes it — non-method fields and all. */
+	/**
+	 * One of this account's own configurations, shaped as Stripe writes it — non-method fields and all,
+	 * including the {@code parent: null} that says it is nobody else's.
+	 */
 	private static String configuration(String id, boolean isDefault, String name, String... methods) {
+		return owned(id, isDefault, name, "null", methods);
+	}
+
+	/**
+	 * One a Connect platform holds for a connected account. It comes back in the same list, carries a
+	 * {@code parent}, and is entitled to a default of its own — which is the whole reason `is_default` alone
+	 * is not the reading.
+	 */
+	private static String childConfiguration(String id, boolean isDefault, String name, String... methods) {
+		return owned(id, isDefault, name, "\"pmc_platform\"", methods);
+	}
+
+	private static String owned(String id, boolean isDefault, String name, String parent, String... methods) {
 		return "{\"id\":\"" + id + "\",\"object\":\"payment_method_configuration\",\"active\":true,"
 				+ "\"is_default\":" + isDefault + ",\"livemode\":false,\"name\":\"" + name + "\","
-				+ String.join(",", methods) + "}";
+				+ "\"parent\":" + parent + "," + String.join(",", methods) + "}";
 	}
 
 	private static String on(String method) {

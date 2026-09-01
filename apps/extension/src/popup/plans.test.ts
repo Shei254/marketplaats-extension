@@ -124,8 +124,39 @@ describe("what a buyer can pay with", () => {
   });
 
   it("names SEPA and Bancontact when they are on, in the order it says them", () => {
+    // SEPA and Bancontact sort last, so this is also the check that they are named
+    // rather than quietly dropped for arriving late in `WAYS_TO_PAY`.
     expect(waysToPay(["sepa_debit", "bancontact", "ideal"])).toBe(
       "Pay with iDEAL, Bancontact or SEPA Direct Debit.",
+    );
+  });
+
+  it("names every method it can spell, rather than truncating to the first few", () => {
+    // Everything a Dutch account can turn on. ADR-0022 weighed a fixed three-name
+    // line as its option 1 and rejected it, because a sentence written here drifts
+    // from the dashboard. Truncating what Stripe returns would reinstate that drift
+    // by a side door: the popup would again be holding an opinion about which of
+    // the enabled methods are worth naming.
+    expect(waysToPay(["ideal", "paypal", "card", "bancontact", "sepa_debit"])).toBe(
+      "Pay with iDEAL, PayPal, card, Bancontact or SEPA Direct Debit.",
+    );
+  });
+
+  it("and the order is what does the editing, not the length", () => {
+    // No PayPal on this account. `WAYS_TO_PAY`'s order decides how the sentence
+    // reads and its membership decides what may appear at all — neither is
+    // positional, so nothing falls off the end.
+    expect(waysToPay(["ideal", "card", "bancontact", "sepa_debit"])).toBe(
+      "Pay with iDEAL, card, Bancontact or SEPA Direct Debit.",
+    );
+  });
+
+  it("says exactly what the slice C click-through script expects of it", () => {
+    // `docs/click-through.md` step 3a is the manual gate ADR-0016 closes slice C on,
+    // and step 4 then checks these are the same names Checkout offers. The four are
+    // what T22 keeps ticked in the dashboard, and a truncating cap would break this.
+    expect(waysToPay(["ideal", "paypal", "card", "sepa_debit"])).toBe(
+      "Pay with iDEAL, PayPal, card or SEPA Direct Debit.",
     );
   });
 });

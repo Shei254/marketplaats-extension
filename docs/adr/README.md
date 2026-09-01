@@ -49,6 +49,25 @@ condition: [0022](0022-the-plan-screen-names-the-payment-methods.md), which read
 the cards are drawn rather than writing it down a second time — and breaks `/api/plans`' all-or-nothing rule
 on purpose, because a missing sentence is not a wrong comparison.
 
+**Corrected later the same day, from a buyer who saw neither PayPal nor a bank option at Checkout:**
+[0006](0006-billing.md) assumed an EU-established Stripe account and this one is US-established, which is
+why neither method is on offer — so the EU account is now written down as a **precondition** of that
+decision rather than a fact about the current one. [0022](0022-the-plan-screen-names-the-payment-methods.md)
+is amended with the two readings the investigation found wrong: `is_default` alone can select a Connect
+child configuration rather than the account's own, and the list now means what a **subscription** Checkout
+will offer — iDEAL, Bancontact and Sofort need a SEPA mandate to charge again, so without SEPA they are
+enabled and still absent.
+
+**Amended by the 2026-09-02 session:** the account precondition above is met — it is Netherlands-established
+and priced in EUR — and PayPal was *still* absent from Checkout. The cause was Stripe's **Adaptive Pricing**,
+on by default, which converts a session into the buyer's local currency; a converted cross-border
+subscription is offered card, Link, Apple Pay and Google Pay only, so a buyer outside the eurozone loses
+iDEAL, SEPA and PayPal together. [0006](0006-billing.md) now pins the session to the Price's own currency and
+says why that parameter belongs in code rather than in the dashboard beside the method list.
+[0022](0022-the-plan-screen-names-the-payment-methods.md) is amended in turn: its session log is evidence
+about the configuration, not about the page, because the method set is resolved at creation and the
+conversion happens at render.
+
 See also [../domain-model.md](../domain-model.md), [../glossary.md](../glossary.md) and
 [../enforcement-contract.md](../enforcement-contract.md).
 

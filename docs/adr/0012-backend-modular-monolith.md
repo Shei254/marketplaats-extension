@@ -19,11 +19,15 @@ preserving ADR-0009's no-lock-in goal.
 
 ```
 com.mprelist
-├── identity/       public: UserRef, CurrentUser, UserProvisioned
-├── catalog/        public: TierId, TierCatalog, Entitlement, TierName
-├── subscription/   public: SubscriptionStatus, Subscription, QuotaPeriod, Subscriptions
-│   ├── internal/                 ◀ the table, through JdbcClient
-│   └── internal/stripe/          ◀ adapter, at #30
+├── identity/       public: UserRef, CurrentUser, UserProvisioned, RoutesNeedingARole
+│   └── internal/                 ◀ the resource server, the account row, and the client-version gate
+├── catalog/        public: TierId, TierName, TierPrice, TierCatalog, Entitlement,
+│   │                       CatalogEntry, SellablePlan, TierEdit, TierEdits, TierEdited,
+│   │                       Adoption, PriceAdoptions, TaggedPrice
+│   └── internal/                 ◀ the tier table, through JdbcClient
+├── subscription/   public: SubscriptionStatus, Subscription, QuotaPeriod, Subscriptions,
+│   │                       SubscriptionMirror, SubscriberOnStripe, Mirroring
+│   └── internal/                 ◀ the table, through JdbcClient, and provisioning on first sign-in
 ├── billing/        public: StripePrices, StripePrice, StripePaymentMethods, StripePlans,
 │   │                       NewPlanInStripe, PlanCreation, StripeAccountFacts,
 │   │                       UnadoptedPrices, UntaggedPrice
@@ -33,7 +37,10 @@ com.mprelist
 │   └── internal/                 ◀ the tables, and the decision itself
 ├── display/        public: /api/me, /api/plans
 │   └── internal/                 ◀ the snapshots, composed from the modules above
-└── admin/
+├── clientconfig/   public: /api/client-config
+│   └── internal/                 ◀ the patch served over what a release ships with
+└── admin/          public: /api/admin/**
+    └── internal/                 ◀ the tier catalog an operator maintains, and the ADMIN guard
 ```
 
 Those lists are the whole of what each module lets another see, so **a ticket that adds to one amends them
@@ -134,6 +141,32 @@ and the tree said one, and it is what makes `display` the composer of *five* mod
 join is `catalog`'s grant with `billing`'s amount, and now the payment methods beside them. That it reads
 `billing` and `billing` asks it nothing keeps the direction this module was created to preserve — it is still
 the leaf that asks everybody.
+
+**Amended 2026-09-02 — the other four lists, and an adapter that was never built.** The amendment above
+paid `billing`'s debt and named the failure that caused it. It then left four more of exactly that shape.
+`catalog` had grown from the four types listed here to thirteen: `SellablePlan` (T49, #80), the adoption
+trio `Adoption`, `PriceAdoptions` and `TaggedPrice` (T51, #82), the editing four `CatalogEntry`, `TierEdit`,
+`TierEdits` and `TierEdited` (T53, #84), and `TierPrice` (T62, #128). The note above forecast this precisely
+— *whichever of #26 and #29 first needs what a tier is called or what it costs* — and half of it was even
+kept: `TierName` is in the list, and `TierPrice` never followed it. A forecast that names the next amendment
+is not the same as making it, which is the whole lesson of this paragraph and the one above.
+`subscription` gained the write half of its module at T20, #30 — `SubscriptionMirror`, `SubscriberOnStripe`
+and `Mirroring`. `identity` gained `RoutesNeedingARole` (#27), which is how `admin` states a rule the filter
+chain applies without the chain having heard of `admin`. And `clientconfig` (T27, #36) was a whole module
+absent from the tree, the same failure as `billing`'s rather than a smaller one.
+
+**The `subscription/internal/stripe/` adapter this tree promised at #30 is removed because it was never
+built, and what happened instead is worth keeping.** The mirror is a *port on `subscription`* that `billing`
+calls — `SubscriptionRows` implements it, `MirrorSubscriptions` invokes it — not an adapter inside
+`subscription` that reaches for Stripe. So the count of modules that have heard of the Stripe library is
+still exactly one, and the dependency runs from the module that knows Stripe towards the module that owns
+the table, which is the direction this ADR wanted and not the one it drew. The tree was describing a plan;
+these lists are meant to describe the code.
+
+**What none of this fixes is that nothing checks it.** The boundary test enforces that `internal/` stays
+private, and no test compares these lists against the packages. Every amendment here has been a person
+noticing, which is why the drift is measured in tickets rather than in days. A test that walked each module's
+root package and diffed it against this file would end that, and is worth a ticket if a fifth list goes stale.
 
 Build tool **Gradle**, **Java 21**, migrations via **Flyway** — closing the corresponding open build
 question in `enforcement-contract.md`.

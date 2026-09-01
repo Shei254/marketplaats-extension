@@ -362,14 +362,17 @@ export function PlansScreen({
   onBack,
   onManageBilling,
   handoff,
-  waysToPay = null,
+  payWith,
   children,
 }: {
   onBack: () => void;
   onManageBilling: () => void;
   handoff: Handoff;
-  /** "Pay with iDEAL, PayPal or card." — or `null`, which renders nothing at all. */
-  waysToPay?: string | null;
+  /**
+   * The finished sentence — "Pay with iDEAL, PayPal or card." — or `null`, which renders
+   * nothing at all. Built by `waysToPay` in `plans.ts`; this end only places it.
+   */
+  payWith: string | null;
   /** `PlanCards` — the cards own the loading and failed states of the list itself. */
   children?: ReactNode;
 }): JSX.Element {
@@ -387,7 +390,7 @@ export function PlansScreen({
         <h1 className="popup-plans-title">Choose a plan</h1>
         <p className="popup-plans-lede">
           Checkout opens in a new tab. Come back here when you’re done.
-          {waysToPay ? <span className="popup-plans-ways"> {waysToPay}</span> : null}
+          {payWith ? <span className="popup-plans-ways"> {payWith}</span> : null}
         </p>
         {children}
         {handoff.kind === "failed" ? <Note tone="error">{handoff.message}</Note> : null}

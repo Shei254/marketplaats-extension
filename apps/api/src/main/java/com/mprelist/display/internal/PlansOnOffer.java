@@ -124,8 +124,8 @@ class PlansOnOffer {
 	 * <p>{@code paymentMethods} is Stripe's own spelling, unedited: {@code ideal}, {@code paypal},
 	 * {@code sepa_debit}. What each is <em>called</em> is the popup's, for the reason {@code currency} and
 	 * {@code interval} are already sent raw — the client formats, and a display name invented here would be a
-	 * second vocabulary travelling beside the first. **Always present and never null**, because empty already
-	 * means the one thing a client would do with absent: say nothing.
+	 * second vocabulary travelling beside the first. <strong>Always present and never null</strong>, because
+	 * empty already means the one thing a client would do with absent: say nothing.
 	 */
 	record Plans(List<Plan> plans, List<String> paymentMethods) {
 	}

@@ -36,9 +36,9 @@ class AccountCurrencies implements StripeAccountFacts {
 
 	@Override
 	public Optional<String> sellingCurrency() {
-		Remembered held = this.remembered;
-		if (held != null && held.isStillGoodAt(Instant.now())) {
-			return Optional.of(held.currency());
+		Remembered<String> held = this.remembered;
+		if (held != null && held.isFresh(Instant.now())) {
+			return Optional.of(held.answer());
 		}
 		Optional<StripeClient> client = this.stripe.client();
 		if (client.isEmpty()) {
@@ -53,7 +53,7 @@ class AccountCurrencies implements StripeAccountFacts {
 				LOG.warn("Stripe names no settlement currency for this account, so no plan can be priced");
 				return Optional.empty();
 			}
-			this.remembered = new Remembered(currency, Instant.now().plus(FOR_A_DAY));
+			this.remembered = new Remembered<>(currency, Instant.now().plus(FOR_A_DAY));
 			return Optional.of(currency);
 		}
 		catch (StripeException unavailable) {
@@ -63,18 +63,10 @@ class AccountCurrencies implements StripeAccountFacts {
 		}
 	}
 
-	private record Remembered(String currency, Instant until) {
-
-		boolean isStillGoodAt(Instant now) {
-			return now.isBefore(this.until);
-		}
-
-	}
-
 	private final StripeAccount stripe;
 
 	/** Written once and read many times; a stale read costs one extra call to Stripe. */
-	private volatile Remembered remembered;
+	private volatile Remembered<String> remembered;
 
 	private static final Duration FOR_A_DAY = Duration.ofDays(1);
 

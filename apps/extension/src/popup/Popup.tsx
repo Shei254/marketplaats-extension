@@ -361,7 +361,7 @@ function body(screen: Screen, handlers: Handlers): JSX.Element {
           // Only once the cards are here. While they are loading there is nothing
           // for the sentence to be about, and a screen that announced how to pay
           // above three skeletons would be describing a page that is not there yet.
-          waysToPay={plans.status === "ready" ? waysToPay(plans.paymentMethods) : null}
+          payWith={plans.status === "ready" ? waysToPay(plans.paymentMethods) : null}
         >
           <PlanCards
             view={plans}

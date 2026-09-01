@@ -82,14 +82,14 @@ class CachedPaymentMethods implements StripePaymentMethods {
 		if (client.isEmpty()) {
 			return List.of();
 		}
-		Remembered held = this.held;
+		Remembered<List<String>> held = this.held;
 		if (held != null && held.isFresh(this.now.get())) {
-			return held.methods();
+			return held.answer();
 		}
 		Optional<List<String>> fetched = fetch(client.get());
 		// Only what came back, exactly as the price cache does: remembering an outage would keep the sentence
 		// off the plan screen for a whole TTL after Stripe came back.
-		fetched.ifPresent(methods -> this.held = new Remembered(methods, this.now.get().plus(this.remembered)));
+		fetched.ifPresent(methods -> this.held = new Remembered<>(methods, this.now.get().plus(this.remembered)));
 		return fetched.orElseGet(List::of);
 	}
 
@@ -171,21 +171,12 @@ class CachedPaymentMethods implements StripePaymentMethods {
 		return List.copyOf(on);
 	}
 
-	/** One remembered answer and when it stops being one. */
-	private record Remembered(List<String> methods, Instant until) {
-
-		boolean isFresh(Instant now) {
-			return now.isBefore(this.until);
-		}
-
-	}
-
 	/**
 	 * One answer rather than the price cache's map: there is one Stripe account and it has one default
 	 * configuration, so there is nothing to key on. Volatile because two popups opening at once read it from
 	 * two request threads, and a torn read here would show one of them a sentence assembled from nothing.
 	 */
-	private volatile Remembered held;
+	private volatile Remembered<List<String>> held;
 
 	private final StripeAccount stripe;
 

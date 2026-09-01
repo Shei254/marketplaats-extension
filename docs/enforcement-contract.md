@@ -161,8 +161,15 @@ about their **software**. It therefore carries none, exactly like every other `4
         "relistQuotaPerPeriod": 50,
         "features": {},
         "prices": [ { "amount": 999,  "currency": "eur", "interval": "month" },
-                    { "amount": 9900, "currency": "eur", "interval": "year"  } ] } ] }
+                    { "amount": 9900, "currency": "eur", "interval": "year"  } ] } ],
+    "paymentMethods": [ "ideal", "paypal", "card" ] }
   ```
+
+- **`paymentMethods` is what the Stripe dashboard has turned on** (T65, #137,
+  [ADR-0022](adr/0022-the-plan-screen-names-the-payment-methods.md)), in Stripe's own spelling and in the
+  order Stripe wrote them. **Always present, never null**, because empty already means the one thing a client
+  would do with absent: say nothing. What each token is *called* is the client's, exactly as `currency` and
+  `interval` already are — a display name invented here would be a second vocabulary beside the first.
 
 - **`prices` is a list, cheapest rhythm first** (T62, #128). Monthly and annual Pro are **one plan** a buyer
   chooses a rhythm for — same quota, same row — so a card shows the tier once and its prices beside each
@@ -182,10 +189,16 @@ about their **software**. It therefore carries none, exactly like every other `4
   this API offers can produce one, so the way here is a Price created in the Stripe dashboard in another
   currency and tagged with a tier code — an operator's mistake, surfaced loudly rather than on a card somebody
   is deciding what to pay from.
-- **All of them or none of them.** One price that could not be fetched takes the whole answer with it, rather
-  than rendering the plans that did resolve: a plan screen is a *comparison*, and a buyer cannot tell a plan
-  that is missing from a plan that does not exist. In practice it is all-or-nothing anyway — an unreachable
-  Stripe fails every call, not one.
+- **All of them or none of them — of the _prices_.** One price that could not be fetched takes the whole
+  answer with it, rather than rendering the plans that did resolve: a plan screen is a *comparison*, and a
+  buyer cannot tell a plan that is missing from a plan that does not exist. In practice it is all-or-nothing
+  anyway — an unreachable Stripe fails every call, not one.
+- **`paymentMethods` is the one exception to the rule above, deliberately** (ADR-0022). It degrades on its
+  own: a failed method fetch arrives as `[]` beside a perfectly good `200` and every card is still there.
+  The comparison argument does not reach it — take the methods away and every plan, rhythm and amount still
+  says exactly what it said, so blanking a working plan screen because a reassurance failed would lose a sale
+  to protect a nicety. Empty deliberately conflates *Stripe could not be asked* with *nothing is turned on*:
+  a client renders no sentence either way, and the difference is in the log, where the operator is.
 - **An empty list is a different thing and is a `200`**: nothing is on sale, which is true of every stack
   whose Stripe Prices have not been created yet (T22, #28). Answering "unavailable" there would report a
   fault that is not there.

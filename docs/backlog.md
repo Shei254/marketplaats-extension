@@ -294,8 +294,13 @@ The plans screen says which methods are accepted before the hand-off, **read fro
 here — because copy that names them is otherwise the "second answer beside the dashboard's" that
 `OpenCheckout` exists to avoid.
 [ADR-0022](adr/0022-the-plan-screen-names-the-payment-methods.md).
-- **The subscription configuration, not the default one**: Stripe allows different method sets for one-off and
-  subscription flows, and advertising one a `subscription` Checkout never renders is the failure that matters.
+- **The default configuration** — reversed from this ticket's original "the subscription configuration, not
+  the default one", and [ADR-0022](adr/0022-the-plan-screen-names-the-payment-methods.md) is where the
+  argument is. `OpenCheckout` passes no `payment_method_configuration`, so Stripe applies the account default
+  and reading it *is* reading what the buyer will meet; reading a subscription configuration this product
+  never passes would have been the wrong object. The worry behind the original wording is **not** fully
+  answered and is recorded as a Negative there: nothing checks whether a method is approved for *recurring*
+  payments, which for PayPal is a separate account setting no API here can report (T64, T57).
 - **Raw Stripe tokens on the wire, display names in the popup** — what `PlanPrice` already does with
   `currency` and `interval`.
 - **It degrades independently of the prices.** T49's all-or-nothing rule is justified on the plan screen being

@@ -1417,21 +1417,42 @@ our own table on every request, uncached. The TTL is therefore not about keeping
 long a mistake could go on being shown. **Failures are not cached**: a Stripe outage must cost a retry, not
 fifteen minutes of "unavailable" for everybody.
 
-**All of them or none of them.** One price that could not be fetched takes the whole answer with it — `503`,
-empty body — rather than rendering the plans that did resolve. A plan screen is a *comparison*, and a buyer
-cannot tell a plan that is missing from a plan that does not exist, which is a wrong picture of the offer at
-the moment somebody is deciding what to pay for. An **empty list** is a different thing and is a `200`:
-nothing is on sale, which is true of every stack whose Stripe Prices have not been created yet.
+**All of them or none of them — of the _prices_.** One price that could not be fetched takes the whole answer
+with it — `503`, empty body — rather than rendering the plans that did resolve. A plan screen is a
+*comparison*, and a buyer cannot tell a plan that is missing from a plan that does not exist, which is a wrong
+picture of the offer at the moment somebody is deciding what to pay for. An **empty list** is a different
+thing and is a `200`: nothing is on sale, which is true of every stack whose Stripe Prices have not been
+created yet.
+
+**The route also says what a buyer may pay with, and that half degrades on its own**
+([#137](https://github.com/Shei254/marketplaats-extension/issues/137), T65,
+[ADR-0022](../../docs/adr/0022-the-plan-screen-names-the-payment-methods.md)). `paymentMethods` carries
+Stripe's own tokens — `ideal`, `paypal`, `card` — read from the account's **default** payment method
+configuration, which is the one Checkout applies because `OpenCheckout` names none. It is the deliberate
+exception to the paragraph above: a failed fetch is `[]` beside a perfectly good `200`, and every card is
+still there. Taking the methods away leaves the comparison untouched, so blanking a working plan screen
+because a reassurance failed would lose a sale to protect a nicety. The popup owns the display names and the
+order; a token it cannot spell is dropped from the sentence rather than shown raw, which is why the API logs
+the whole offered set on every refresh — that log is where a missing name is visible.
+
+**Two caches, similar names, different trades.** `mprelist.stripe.price-cache` bounds how long a *mistake* is
+shown, because a Stripe Price is immutable. `mprelist.stripe.payment-method-cache` is doing real freshness
+work, because a payment method configuration is **mutable in place**: tick PayPal in the dashboard and the
+same object now says something else, so the method is absent from the popup until that TTL expires. Both keep
+the rule that failures are not remembered; only one of them is bounding staleness.
 
 **No API key configured is the same answer as Stripe being down**, deliberately: the plan cards say
 "unavailable, retry" rather than rendering an invented amount, and the application says so once at startup
 because otherwise the only symptom is a screen that fails and a log that mentions nothing.
 
 `PlansTest` drives the route over a real port with Stripe as a fake bean — the join, the exclusions and the
-refusals. `StripePriceCacheTest` is the only thing here that talks to something Stripe-shaped: it serves
-Stripe's own JSON on a loopback port and points the real client at it, because what is at risk is the field
-mapping (`unit_amount` is not `amount`, the interval is nested under `recurring`) and a mocked SDK would pass
-with every one of those upside down.
+refusals — including that an unreachable method fetch still renders every card. **Two suites here talk to
+something Stripe-shaped**, both by serving Stripe's own JSON on a loopback port and pointing the real client
+at it, because what is at risk is the reading of a real body and a mocked SDK would pass with every field
+upside down. `StripePriceCacheTest` covers the field mapping (`unit_amount` is not `amount`, the interval is
+nested under `recurring`); `PaymentMethodCacheTest` covers the raw-JSON walk, which has no typed model to get
+wrong — a method is any field carrying a `display_preference` turned `on` — plus the TTL and the rule that a
+failure is not remembered.
 
 ## Where a plan card becomes a payment
 

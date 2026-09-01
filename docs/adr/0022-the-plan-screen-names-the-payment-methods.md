@@ -88,6 +88,15 @@ jar. It keeps Gson — Stripe's serialiser, nothing of ours — off the compile 
 - **Positive:** Enabling a method stays a checkbox. It now also changes what the popup says, with no deploy.
 - **Negative:** A second Stripe call on a route a user waits on. Cached, and it can fail without costing the
   cards — but it is one more thing between a click and a plan screen.
+- **Negative, and the one this decision owes #137.** Reading the default configuration settles *which object*
+  Checkout consults; it does not check that a method supports **recurring** payments. So the sentence can
+  still name a method a `subscription` Checkout will not render — which is the exact failure #137 gave as its
+  reason for asking for the subscription configuration instead, and choosing the default does not answer it.
+  PayPal is the live case: one-off and recurring are two different account settings, only the first is
+  visible on the configuration read here, and **nothing in this API can report the second** (T64, #136).
+  Until then a method ticked in the dashboard but not approved for recurring is advertised on the plan screen
+  and unusable at Checkout — a worse state than not naming it — and `backlog.md` T57 is where that is
+  tracked. What this ADR does buy is that the gap is now one setting wide rather than two.
 - **Negative, and the sharp one:** **this cache is a freshness setting and the price cache is not.** A Stripe
   Price is immutable, so `price-cache` only bounds how long a mistake is shown. A payment method
   configuration is mutable in place, so a method enabled in the dashboard is absent from the popup for up to
@@ -97,7 +106,9 @@ jar. It keeps Gson — Stripe's serialiser, nothing of ours — off the compile 
   the log is the only thing that will say so.
 
 ## Revisit if
-Stripe stops applying the default configuration to sessions that name none, or this product starts passing
-one (offering a different set to subscriptions than to one-offs) — `CachedPaymentMethods` reads the default
+Stripe exposes whether a method is approved for recurring payments, at which point the residual above stops
+being a documented gap and becomes a filter this class should apply. Or if Stripe stops applying the default
+configuration to sessions that name none, or this product starts passing one (offering a different set to
+subscriptions than to one-offs) — `CachedPaymentMethods` reads the default
 and would then be reading the wrong object. Or if the sentence proves to be worth an A/B test, at which point
 what it says stops being a copy decision and becomes a measured one.

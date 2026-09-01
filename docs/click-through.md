@@ -177,7 +177,8 @@ rather than a 404 — a host that does not (T55, #86) breaks this step *after* t
    *Also:* **Plans** in the header reaches the same screen without being out of relists, which is the only way
    in for somebody who is paying and wants to cancel.
 3a. Read the line under **Choose a plan**.
-   *Expect:* **"Pay with iDEAL, PayPal or card."** — the methods ticked in the Stripe dashboard rather than a
+   *Expect:* **"Pay with iDEAL, PayPal, card or SEPA Direct Debit."** — the methods ticked in the Stripe
+   dashboard (T22 keeps that list: iDEAL, SEPA, PayPal and card) in the popup's own order, rather than a
    string in the popup (T65, #137, [ADR-0022](adr/0022-the-plan-screen-names-the-payment-methods.md)). Untick
    one there and it leaves the sentence — **though not for up to `mprelist.stripe.payment-method-cache`
    (15m)**. Unlike an amount, a configuration is mutable in place, so that TTL is real staleness rather than a
@@ -190,9 +191,12 @@ rather than a 404 — a host that does not (T55, #86) breaks this step *after* t
 4. Click **Upgrade** on Pro.
    *Expect:* a Stripe Checkout tab opens. The popup closes — that is expected, not a bug. The tab is opened by
    the **service worker**, so if nothing happens the worker console is where to look, not the popup's.
-   *Also:* the page offers **iDEAL, PayPal and card** (T64). Nothing in `apps/api` names a payment method, so
-   a missing one is always the dashboard — and PayPal missing *here* while it works on a one-off Checkout is
-   Stripe's per-account **recurring** setting for PayPal, which is the one part of T64 that is not a checkbox.
+   *Also:* the page offers **iDEAL, SEPA, PayPal and card** (T64) — the same four the sentence in 3a named,
+   which is the check that matters: the popup read them from the dashboard rather than holding a copy.
+   Nothing in `apps/api` names a payment method, so a missing one is always the dashboard — and PayPal
+   missing *here* while it works on a one-off Checkout is Stripe's per-account **recurring** setting for
+   PayPal, which is the one part of T64 that is not a checkbox. That is also the gap ADR-0022 records as
+   unclosed: 3a can name a method this page then does not offer.
 5. Pay with `4242 4242 4242 4242`.
    *Expect:* redirect to `apps/web`'s success page, which asks you to reopen the extension and **does not
    ask you to log in**.

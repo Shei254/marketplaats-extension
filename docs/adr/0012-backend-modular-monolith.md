@@ -24,10 +24,15 @@ com.mprelist
 ├── subscription/   public: SubscriptionStatus, Subscription, QuotaPeriod, Subscriptions
 │   ├── internal/                 ◀ the table, through JdbcClient
 │   └── internal/stripe/          ◀ adapter, at #30
+├── billing/        public: StripePrices, StripePrice, StripePaymentMethods, StripePlans,
+│   │                       NewPlanInStripe, PlanCreation, StripeAccountFacts,
+│   │                       UnadoptedPrices, UntaggedPrice
+│   └── internal/                 ◀ the Stripe client and its caches, and the three routes
+│                                   /api/checkout, /api/portal, /api/stripe/webhook
 ├── enforcement/    public: /authorize, /complete, Quotas, RemainingQuota
 │   └── internal/                 ◀ the tables, and the decision itself
-├── display/        public: /api/me
-│   └── internal/                 ◀ the snapshot, composed from the four above
+├── display/        public: /api/me, /api/plans
+│   └── internal/                 ◀ the snapshots, composed from the modules above
 └── admin/
 ```
 
@@ -113,6 +118,22 @@ nobody asks it anything; it is the leaf that asks everybody.
 `subscription` also publishes **`QuotaPeriod`** as of #22: `[periodStart, periodEnd)` is one concept in the
 glossary and travelled as two parameters, which is a pair the compiler cannot tell apart and an invariant
 ("it runs forward") with no single home. The gate hands the window whole to the count that reads it.
+
+**Amended in #137, and the amendment is mostly a debt being paid.** `billing` is the module ADR-0014 created
+to keep Stripe behind a port, and it was never in the tree above at all. It arrived across #80, #29, #30 and
+#84 carrying nine public types and three routes, and each of those tickets was a chance to write the list
+that nobody took. So most of its entry above is not what T65 added — it is what was already on disk, written
+down at last. T65's own contribution to that list is one line: **`StripePaymentMethods`**, the port `display`
+asks what a buyer may pay with, which is the second thing `billing` lets another module ask of Stripe and the
+first that is not about money. The rule this ADR states — *a ticket that adds to one amends them here* —
+cannot survive a module that was never listed, because there is nothing to add to; that is the failure this
+amendment is really fixing, and it is worth more than the line that exposed it.
+
+`display` gains **`/api/plans`** in the same amendment (T49, #80). It is a second route this module publishes
+and the tree said one, and it is what makes `display` the composer of *five* modules rather than four: the
+join is `catalog`'s grant with `billing`'s amount, and now the payment methods beside them. That it reads
+`billing` and `billing` asks it nothing keeps the direction this module was created to preserve — it is still
+the leaf that asks everybody.
 
 Build tool **Gradle**, **Java 21**, migrations via **Flyway** — closing the corresponding open build
 question in `enforcement-contract.md`.

@@ -171,6 +171,10 @@ tasks.withType<Test>().configureEach {
         // edit to it has to be able to change a verdict rather than leave the last one standing.
         repository.file(".env.example"),
         repository.file(".env"),
+        // ADR-0012, whose module tree ModuleBoundaryTest holds to the packages. A document rather than a
+        // config file, and the only reason editing it can turn the suite red instead of leaving the last
+        // verdict standing.
+        repository.file("docs/adr/0012-backend-modular-monolith.md"),
     ).withPropertyName("workingTreeFilesReadAtTestTime").withPathSensitivity(PathSensitivity.RELATIVE)
 
     // The same file `bootRun` gets, so that running the suite and running the application read one

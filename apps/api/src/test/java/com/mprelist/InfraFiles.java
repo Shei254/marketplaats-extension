@@ -7,7 +7,8 @@ import java.nio.file.Path;
 
 /**
  * The files this suite reads out of the working tree rather than off the classpath — {@code infra/}'s four,
- * and the extension manifest whose pinned key this application's allowed origin is derived from.
+ * the extension manifest whose pinned key this application's allowed origin is derived from, and ADR-0012,
+ * whose module tree {@code ModuleBoundaryTest} holds to the packages.
  *
  * <p>Named here once because three things have to agree on where they are: the tests that read them,
  * {@code build.gradle.kts} — whose {@code inputs.files} is the only reason an edit to either does not leave
@@ -69,6 +70,17 @@ final class InfraFiles {
 	/** Read for one line of it, and it is the line that keeps the file above from being committed by mistake. */
 	static Path gitignore() {
 		return repositoryRoot().resolve(".gitignore");
+	}
+
+	/**
+	 * The ADR whose tree names what each module lets another see, read by {@code ModuleBoundaryTest} so that
+	 * the rule it states — <em>a ticket that adds to one amends them here</em> — is enforced rather than
+	 * remembered. It is a document rather than a config file, and it is here for the same reason the rest
+	 * are: it is read from the working tree, so {@code build.gradle.kts} has to call it an input or an edit
+	 * to it leaves the previous run's verdict standing.
+	 */
+	static Path moduleArchitectureAdr() {
+		return repositoryRoot().resolve("docs/adr/0012-backend-modular-monolith.md");
 	}
 
 	/**

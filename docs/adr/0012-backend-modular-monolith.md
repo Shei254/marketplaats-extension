@@ -163,10 +163,18 @@ still exactly one, and the dependency runs from the module that knows Stripe tow
 the table, which is the direction this ADR wanted and not the one it drew. The tree was describing a plan;
 these lists are meant to describe the code.
 
-**What none of this fixes is that nothing checks it.** The boundary test enforces that `internal/` stays
-private, and no test compares these lists against the packages. Every amendment here has been a person
-noticing, which is why the drift is measured in tickets rather than in days. A test that walked each module's
-root package and diffed it against this file would end that, and is worth a ticket if a fifth list goes stale.
+**And it is checked now, which is the part worth more than the lists.** Both amendments above happened
+because somebody read carefully, and that is why the drift was measured in tickets rather than in days.
+`ModuleBoundaryTest` reads the tree above and holds each module's list to the public types in that module's
+package: a type made public without being written down now fails the build. The reading is itself checked —
+a second case asserts every module still appears as `<module>/ public: …`, because a tree that was reformatted
+would otherwise leave the first comparing a real package against nothing and passing green. And
+`build.gradle.kts` declares this file a test input, without which editing it would leave the previous run's
+verdict standing; that is the same trap the infra files hit, and it is recorded there too.
+
+The check reads *names*, not judgement. It cannot say whether a type **should** have been made public — the
+thing this ADR says a list kept only in code gets wrong — so the amendment rule stands and this only makes
+breaking it loud.
 
 Build tool **Gradle**, **Java 21**, migrations via **Flyway** — closing the corresponding open build
 question in `enforcement-contract.md`.

@@ -8,6 +8,8 @@ import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -36,6 +38,9 @@ class PlanCreationTest {
 
 	private static final NewPlanInStripe PRO = new NewPlanInStripe("pro", "Pro", 999, "eur", "month");
 
+	/** What {@code AccountCurrencies} hardcodes, mirrored here because the test has to outlive it. */
+	private static final Duration FOR_A_DAY = Duration.ofDays(1);
+
 	private HttpServer stripe;
 
 	/** Every request Stripe was sent: its path, its form and its idempotency key. */
@@ -47,6 +52,9 @@ class PlanCreationTest {
 	private boolean stripeAgrees = true;
 
 	private String settlesIn = "eur";
+
+	/** The clock {@code AccountCurrencies} reads, so a day can pass without sleeping through one. */
+	private Instant now = Instant.parse("2026-09-01T09:00:00Z");
 
 	@BeforeEach
 	void startStripe() throws IOException {
@@ -153,13 +161,13 @@ class PlanCreationTest {
 	 */
 	@Test
 	void theCatalogIsPricedInWhatThisAccountSettlesIn() {
-		assertThat(new AccountCurrencies(account()).sellingCurrency()).contains("eur");
+		assertThat(currencies().sellingCurrency()).contains("eur");
 		assertThat(paths()).containsExactly("/v1/account");
 	}
 
 	@Test
 	void andThatIsAskedOfStripeOnceRatherThanPerForm() {
-		AccountCurrencies currencies = new AccountCurrencies(account());
+		AccountCurrencies currencies = currencies();
 
 		currencies.sellingCurrency();
 		currencies.sellingCurrency();
@@ -172,13 +180,13 @@ class PlanCreationTest {
 	void andAStripeThatCannotBeAskedOffersNothingRatherThanAGuess() {
 		this.stripeAgrees = false;
 
-		assertThat(new AccountCurrencies(account()).sellingCurrency()).isEmpty();
+		assertThat(currencies().sellingCurrency()).isEmpty();
 	}
 
 	/** And a failure is not remembered, or one outage would cost a day of nobody being able to create a plan. */
 	@Test
 	void andThatFailureIsNotRemembered() {
-		AccountCurrencies currencies = new AccountCurrencies(account());
+		AccountCurrencies currencies = currencies();
 		this.stripeAgrees = false;
 		currencies.sellingCurrency();
 
@@ -187,18 +195,40 @@ class PlanCreationTest {
 		assertThat(currencies.sellingCurrency()).isPresent();
 	}
 
+	/**
+	 * <strong>And the day is a real one.</strong> Every case above lands inside the TTL, so until this one
+	 * nothing here distinguished "remembered for a day" from "remembered forever" — the currency is read once
+	 * at startup either way. Re-onboarding an account into another settlement currency is rare and is exactly
+	 * when a plan created afterwards would be priced in the old one.
+	 */
+	@Test
+	void andAfterADayItIsAskedAgain() {
+		AccountCurrencies currencies = currencies();
+		assertThat(currencies.sellingCurrency()).contains("eur");
+
+		this.settlesIn = "gbp";
+		this.now = this.now.plus(FOR_A_DAY).plusSeconds(1);
+
+		assertThat(currencies.sellingCurrency()).contains("gbp");
+		assertThat(paths()).containsExactly("/v1/account", "/v1/account");
+	}
+
 	/** An account Stripe has not finished onboarding names none, and there is nothing safe to guess. */
 	@Test
 	void andAnAccountWithNoSettlementCurrencyOffersNothing() {
 		this.settlesIn = "";
 
-		assertThat(new AccountCurrencies(account()).sellingCurrency()).isEmpty();
+		assertThat(currencies().sellingCurrency()).isEmpty();
 	}
 
 	// --- the stub ------------------------------------------------------------------------------------------------
 
 	private CreateStripePlans plans() {
 		return new CreateStripePlans(account());
+	}
+
+	private AccountCurrencies currencies() {
+		return new AccountCurrencies(account(), FOR_A_DAY, () -> this.now);
 	}
 
 	private StripeAccount account() {

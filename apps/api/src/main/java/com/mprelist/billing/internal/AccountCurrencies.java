@@ -3,9 +3,11 @@ package com.mprelist.billing.internal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.mprelist.billing.StripeAccountFacts;
@@ -30,14 +32,35 @@ import com.stripe.model.Account;
 @Service
 class AccountCurrencies implements StripeAccountFacts {
 
+	/**
+	 * {@code @Autowired} because there are two constructors and Spring will not guess, the reason
+	 * {@link CachedStripePrices} gives: without it the context fails to start looking for a default one.
+	 *
+	 * <p>The day is passed rather than configured, unlike the two caches beside this one. Their TTLs are
+	 * operational — one bounds how long a mistake is shown, the other is real staleness — and an operator has
+	 * cause to move them. This one is neither: a settlement currency is fixed when the account is opened, so
+	 * there is no value here anybody would tune, and a property nobody sets is a knob to keep working.
+	 */
+	@Autowired
 	AccountCurrencies(StripeAccount stripe) {
+		this(stripe, FOR_A_DAY, Instant::now);
+	}
+
+	/**
+	 * Package-private, for the suite that ages this clock rather than sleeping through a day — the same seam
+	 * {@link CachedStripePrices} and {@link CachedPaymentMethods} open, and for the same reason: a TTL no test
+	 * can reach is a TTL nothing checks.
+	 */
+	AccountCurrencies(StripeAccount stripe, Duration remembered, Supplier<Instant> now) {
 		this.stripe = stripe;
+		this.remembered = remembered;
+		this.now = now;
 	}
 
 	@Override
 	public Optional<String> sellingCurrency() {
-		Remembered<String> held = this.remembered;
-		if (held != null && held.isFresh(Instant.now())) {
+		Remembered<String> held = this.held;
+		if (held != null && held.isFresh(this.now.get())) {
 			return Optional.of(held.answer());
 		}
 		Optional<StripeClient> client = this.stripe.client();
@@ -53,7 +76,7 @@ class AccountCurrencies implements StripeAccountFacts {
 				LOG.warn("Stripe names no settlement currency for this account, so no plan can be priced");
 				return Optional.empty();
 			}
-			this.remembered = new Remembered<>(currency, Instant.now().plus(FOR_A_DAY));
+			this.held = new Remembered<>(currency, this.now.get().plus(this.remembered));
 			return Optional.of(currency);
 		}
 		catch (StripeException unavailable) {
@@ -65,8 +88,12 @@ class AccountCurrencies implements StripeAccountFacts {
 
 	private final StripeAccount stripe;
 
+	private final Duration remembered;
+
+	private final Supplier<Instant> now;
+
 	/** Written once and read many times; a stale read costs one extra call to Stripe. */
-	private volatile Remembered<String> remembered;
+	private volatile Remembered<String> held;
 
 	private static final Duration FOR_A_DAY = Duration.ofDays(1);
 

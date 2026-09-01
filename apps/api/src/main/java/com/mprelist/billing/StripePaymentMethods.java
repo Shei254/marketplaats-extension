@@ -17,6 +17,13 @@ import java.util.List;
  * there is still exactly one place the answer lives; the popup is reading it rather than holding a copy. A
  * hardcoded sentence in the popup would have been the second answer that comment warns about (ADR-0022).
  *
+ * <p><strong>It is what a *subscription* Checkout will offer, which is narrower than what the dashboard has
+ * ticked.</strong> iDEAL, Bancontact and Sofort take one payment and leave a SEPA Direct Debit mandate for
+ * the recurrence, so with SEPA turned off they are enabled on the account and still absent from the session —
+ * and they are left out here rather than named on a plan card the hand-off then contradicts. This product
+ * sells nothing but subscriptions, so there is no second caller wanting the wider list. PayPal's separate
+ * recurring approval is not readable anywhere in Stripe's API and remains the known gap (ADR-0022).
+ *
  * <p><strong>Empty means "no sentence", and it is deliberately two things at once</strong> — Stripe could not
  * be asked, or its configuration turns everything off. Both render nothing, so the caller has no branch to
  * write; the difference is in the log, where the operator is, rather than in a contract nobody could act on
@@ -26,8 +33,8 @@ import java.util.List;
 public interface StripePaymentMethods {
 
 	/**
-	 * @return the methods Checkout will offer, in Stripe's spelling, or an empty list when Stripe could not
-	 * be asked or has nothing turned on
+	 * @return the methods a subscription Checkout will offer, in Stripe's spelling, or an empty list when
+	 * Stripe could not be asked or has nothing turned on that can carry a subscription
 	 */
 	List<String> offered();
 

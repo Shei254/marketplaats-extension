@@ -193,10 +193,14 @@ rather than a 404 — a host that does not (T55, #86) breaks this step *after* t
    the **service worker**, so if nothing happens the worker console is where to look, not the popup's.
    *Also:* the page offers **iDEAL, SEPA, PayPal and card** (T64) — the same four the sentence in 3a named,
    which is the check that matters: the popup read them from the dashboard rather than holding a copy.
-   Nothing in `apps/api` names a payment method, so a missing one is always the dashboard — and PayPal
-   missing *here* while it works on a one-off Checkout is Stripe's per-account **recurring** setting for
-   PayPal, which is the one part of T64 that is not a checkbox. That is also the gap ADR-0022 records as
-   unclosed: 3a can name a method this page then does not offer.
+   One thing in `apps/api` does name methods, and only ever to withhold them: iDEAL, Bancontact and Sofort
+   bill again through a SEPA mandate, so `CachedPaymentMethods` drops them from 3a when **SEPA Direct Debit**
+   is off, logging an `INFO` line each refresh that names the ones it dropped. **iDEAL absent from 3a is
+   therefore either the dashboard or that** — read the log before hunting the dashboard. Nothing else in
+   `apps/api` names a method, so any other absence is the dashboard. PayPal missing *here* while it works on
+   a one-off Checkout is Stripe's per-account **recurring** setting for PayPal, which is the one part of T64
+   that is not a checkbox. That is also the gap ADR-0022 records as unclosed: 3a can name a method this page
+   then does not offer.
 5. Pay with `4242 4242 4242 4242`.
    *Expect:* redirect to `apps/web`'s success page, which asks you to reopen the extension and **does not
    ask you to log in**.

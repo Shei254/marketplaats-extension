@@ -3,6 +3,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 
 import { escapeHtml, readBrand, resolveJson, resolveTokens } from "./brand.mjs";
+import { LOCAL_STACK, readDeployment } from "./deployment.mjs";
 
 /**
  * Two builds from one script.
@@ -66,10 +67,25 @@ const brand = await readBrand();
 // the two cannot disagree about the file they came from.
 const manifestTemplate = JSON.parse(await readFile("public/manifest.template.json", "utf8"));
 
+// Where this build talks (T56, #87, ADR-0024). Read on **both** builds and used on
+// one: the file is what a release depends on, so a `deployment.json` that would
+// not ship should fail the build a developer runs a hundred times rather than
+// waiting for the release nobody wants to stop. What `--dev` then compiles in is
+// the local stack, which is the same split `__DEV__` draws everywhere else.
+//
+// Neither address can be served to an installed extension — the served document is
+// fetched *from* `apiBaseUrl`, and signing in precedes the first fetch of it — so
+// there is no version of this that is configuration. scripts/deployment.mjs is
+// where that argument is written down.
+const deployment = await readDeployment();
+const addresses = dev ? LOCAL_STACK : deployment;
+
 const define = {
   __DEV__: String(dev),
   __BRAND_NAME__: JSON.stringify(brand.name),
   __CLIENT_VERSION__: JSON.stringify(manifestTemplate.version),
+  __API_BASE_URL__: JSON.stringify(addresses.apiBaseUrl),
+  __AUTH_ISSUER__: JSON.stringify(addresses.issuer),
   // React ships two implementations of itself behind `process.env.NODE_ENV`: a
   // development one carrying warnings and dev-only bookkeeping, and a production
   // one. Nothing substitutes that for us — and `process` does not exist in a page
@@ -121,6 +137,10 @@ await writeFile(`${outdir}/manifest.json`, `${JSON.stringify(manifest, null, 2)}
 const popup = resolveTokens(await readFile("src/popup/popup.html", "utf8"), brand, escapeHtml);
 await writeFile(`${outdir}/popup.html`, popup);
 
+// The addresses are named here because they are the one thing about a build that
+// is invisible afterwards and expensive to get wrong: two builds of the same
+// commit differ by exactly this, and the shipped one cannot be told to move.
 console.log(
-  `Built ${brand.name} (${dev ? "dev" : "production"}) into ${outdir}/ — load it unpacked in chrome://extensions.`,
+  `Built ${brand.name} (${dev ? "dev" : "production"}) against ${addresses.apiBaseUrl} `
+    + `into ${outdir}/ — load it unpacked in chrome://extensions.`,
 );

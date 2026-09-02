@@ -32,3 +32,26 @@ declare const __BRAND_NAME__: string;
  * version would be one the tests could not run without a browser.
  */
 declare const __CLIENT_VERSION__: string;
+
+/**
+ * Where our own API is, for this build — from the root `deployment.json` in
+ * `npm run build`, and from the local stack in `npm run build:dev` (T56, #87,
+ * ADR-0024).
+ *
+ * Substituted rather than fetched because it **cannot** be fetched: the served
+ * client-configuration document is requested from this very address, so an
+ * extension that does not already have it cannot ask for it.
+ * `scripts/deployment.mjs` carries the argument in full, along with every check
+ * that stops a build from shipping an address no installed extension could reach.
+ */
+declare const __API_BASE_URL__: string;
+
+/**
+ * And which Keycloak realm it signs into, from the same file and the same split.
+ *
+ * Substituted for a different reason than the one above, and the difference is
+ * order rather than addressing: signing in is what produces the token every API
+ * call carries, so it precedes the first fetch of that document — and a document
+ * arriving after sign-in cannot have said which realm to sign into.
+ */
+declare const __AUTH_ISSUER__: string;

@@ -90,16 +90,26 @@ from a working config:
   the identical four-name set. That is Let's Encrypt's *duplicate* limit — 5 per 7 days, refilling one every
   34 hours — and it is spent not by renewals (six a year, per certificate) but by the ordinary loop of
   getting a Caddyfile right, and thereafter by every deploy.
-- **Iterate against the staging CA.** `acme_ca https://acme-staging-v02.api.letsencrypt.org/directory` in the
-  global block while the four hostnames are being made to resolve; remove it once they do. Staging issues
+- **Iterate against the staging CA.** `acme_ca https://acme-staging-v02.api.letsencrypt.org/directory` while
+  the four hostnames are being made to resolve; back to production once they do. Staging issues
   browser-untrusted certificates, which is the point — it proves the plumbing without spending real
-  issuances.
+  issuances. *Built as `MPRELIST_ACME_CA` in `production.env` rather than as a line edited in the global
+  block: the Caddyfile is committed, and switching should not mean a modified file on the host.*
 
-**`admin.<domain>` needs a rewrite, because the bundle decides by path.** `apps/web/src/main.tsx` renders the
-admin surface on `isAdminPath(location.pathname)`, and knows nothing about the host — deliberately, since one
-image runs anywhere. So Caddy rewrites `/` to `/admin` on that hostname, preserving the query so that
-`returningFromSignIn` still recognises an arrival from Keycloak. See [ADR-0017](0017-web-surface-and-subscribing.md),
+**`admin.<domain>` needs the browser's address changed, because the bundle decides by path.**
+`apps/web/src/main.tsx` renders the admin surface on `isAdminPath(location.pathname)`, and knows nothing about
+the host — deliberately, since one image runs anywhere. See [ADR-0017](0017-web-surface-and-subscribing.md),
 whose "`www.` serves `/`, `admin.` serves `/admin`" was always a statement about a proxy.
+
+> **Corrected 2026-09-02, in T56.** This paragraph said *rewrite*, and a rewrite cannot do it. `rewrite` is
+> internal to the proxy: it changes which path Caddy asks nginx for and leaves the browser's address alone —
+> and nginx answers every path with the same `index.html` regardless, so the bundle would boot at
+> `location.pathname === "/"` and render the public site's not-found page. The rewrite would have been
+> *inert*, on both sides silently. What is built is `redir / /admin{uri}`: a 302 that reaches the address
+> bar, carrying the path and query of the request, so `/` becomes `/admin/` and `/?code=…&state=…` becomes
+> `/admin/?code=…&state=…` — which is what `returningFromSignIn` needs and what `isAdminPath` accepts,
+> trailing slash included. `DeployedStackTest` names the directive rather than the outcome, so that this
+> paragraph's original sentence cannot be applied back.
 
 ### Every service gets a memory limit, and both JVMs get a heap percentage
 ```
@@ -141,6 +151,18 @@ an RSA key generated per process, so a second instance refuses the first's `comp
 - **Negative:** GHCR is a third party in the deploy path. A GitHub outage now blocks deploys as well as CI,
   and Packages storage and transfer are billed on private repositories past the account's included
   allowance — small at ~350 MB and ~60 MB with layer reuse, but it wants old tags pruned.
+  > **Built 2026-09-02, in T56.** `.github/workflows/prune-ghcr.yml`, weekly and on demand, keeps every release, the
+  > newest ten `sha-<commit>` builds per image, and every manifest a kept image still points at; the rest
+  > goes. It is a workflow of its own rather than a step in a deploy, because a delete in the path of a
+  > release runs while somebody is watching a migration. The retention rules are a tested module rather than
+  > inline `jq` — a prune fails by taking the digest a release was stamped onto, or an untagged child of a
+  > kept index, and both are silent until a `docker pull` fails on the host. The delete right is the
+  > workflow's own `GITHUB_TOKEN` under `packages: write`, which GitHub documents as **public preview**; if
+  > that is withdrawn the fallback is a PAT with `delete:packages` in a secret, and there is no
+  > `packages: delete` permission to ask for instead. One consequence worth stating where the *Positive*
+  > above claims an immutable answer to "what is running": that claim is a release's, not a bare commit's.
+  > A `sha-<commit>` deployed through the dispatch override is kept for ten further pushes to `master` and
+  > then collected, so anything meant to outlive that wants a tag.
 - **Negative:** an SSH key that can trigger a production deploy now exists in GitHub. The forced command
   narrows what it can do to one script; it does not remove the key.
 - **Negative:** five containers inside 4 GB is a budget, and a budget with no load data behind it is a

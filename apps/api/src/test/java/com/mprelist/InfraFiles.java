@@ -6,9 +6,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
- * The files this suite reads out of the working tree rather than off the classpath — {@code infra/}'s four,
- * the extension manifest whose pinned key this application's allowed origin is derived from, and ADR-0012,
- * whose module tree {@code ModuleBoundaryTest} holds to the packages.
+ * The files this suite reads out of the working tree rather than off the classpath — {@code infra/}'s, the
+ * root {@code brand.json}, the extension manifest whose pinned key this application's allowed origin is
+ * derived from, and ADR-0012, whose module tree {@code ModuleBoundaryTest} holds to the packages.
  *
  * <p>Named here once because three things have to agree on where they are: the tests that read them,
  * {@code build.gradle.kts} — whose {@code inputs.files} is the only reason an edit to either does not leave
@@ -40,6 +40,33 @@ final class InfraFiles {
 	/** The realm {@link KeycloakFromCompose} imports, mounted into a container rather than read here. */
 	static Path keycloakRealm() {
 		return repositoryRoot().resolve("infra/keycloak/mprelist-realm.json");
+	}
+
+	/**
+	 * The realm a <em>deployment</em> imports (T56, #87) — the one {@code MPRELIST_REALM_DIR} points at, with
+	 * no dev users in it and every origin a {@code ${…}} substitution.
+	 *
+	 * <p>It is imported on first start and never again while that database exists, so the whole of the cost
+	 * of it being wrong is a {@code down -v} on production. {@code ProductionRealmTest} starts a Keycloak on
+	 * it for that reason: this is the file in this repository whose mistakes are the most expensive and the
+	 * least visible.
+	 */
+	static Path productionKeycloakRealm() {
+		return repositoryRoot().resolve("infra/keycloak-production/mprelist-realm.json");
+	}
+
+	/** The proxy in front of the deployed stack, which is the only thing on that host that binds a port. */
+	static Path caddyfile() {
+		return repositoryRoot().resolve("infra/caddy/Caddyfile");
+	}
+
+	/**
+	 * Everything a user sees the product called (T48, #78). Read here for one field of it: the realm above
+	 * carries a {@code displayName}, which is the product's name on the page somebody signs in on — and it
+	 * is the one copy of that name outside the file that is supposed to hold the only one.
+	 */
+	static Path brandFile() {
+		return repositoryRoot().resolve("brand.json");
 	}
 
 	/**

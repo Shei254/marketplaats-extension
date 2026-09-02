@@ -1,9 +1,17 @@
-# The whole of CI: three jobs that never wait for each other.
+# The whole of CI: three test jobs that never wait for each other, and two that wait for all of them.
 #
 # `apps/api` is Gradle and everything else is npm (docs/adr/0011-repository-layout.md), and the two have
 # nothing to say to one another — no artefact crosses, no version is shared, neither builds the other. So
 # they are jobs rather than steps and neither carries a `needs:`: a broken extension test must not withhold
 # the backend's verdict, in a monorepo whose workspaces deploy separately.
+#
+# **`deploy` does carry one, and that is not an exception to the rule above.** The rule is about *verdicts*:
+# neither suite tells you anything about the other, so neither may withhold the other's result. A deploy is
+# not a verdict, it is an **act** — one act that puts both images on one host and runs a Flyway migration
+# against the only copy of every subscription this product knows about. Gating an act on evidence is not the
+# same as gating a report on an unrelated report (T56, #87, and ADR-0023, which argues it in full). The 3am
+# override is a `workflow_dispatch` input, so that path exists, is deliberate, and appears in the log —
+# rather than being absent and improvised into an SSH session that goes around all of this.
 #
 # There are deliberately **no path filters**, tempting though they are on a private repository that pays
 # for minutes. Every job reads files outside the directory it is named for: `apps/api/build.gradle.kts`
@@ -17,14 +25,31 @@ name: CI
 on:
   push:
     branches: [master]
+    # A version tag is how a release is deployed (infra/README.md § Deploying). It runs the same three test
+    # jobs a branch push does — the act below waits for all of them — and then retags the digest `master`
+    # already built and tested, rather than building a second time.
+    tags: ['v*']
   pull_request:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag to deploy — v1.2.3, or sha-<commit> for something unreleased'
+        required: true
+        type: string
+      hotfix:
+        description: 'Deploy even if a test job failed. The 3am path, and it is in the log because it is here'
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   # A newer push to a branch supersedes the one before it. `master` is exempt, which is what the
   # expression is for: every commit there is one somebody may bisect to, and a cancelled run leaves it
   # with no verdict at all.
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+  # Tags are exempt for a second reason: a cancelled tag run is a deploy stopped somewhere in the middle of
+  # itself, which is the one state this pipeline has no way to describe.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/tags/') }}
 
 permissions:
   # Nothing here writes anything back. Stated rather than inherited: the repository-wide default is a
@@ -121,6 +146,11 @@ jobs:
   images:
     name: deployable images
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Written to only on `master`; the step below is what restricts that, not this line. A pull request
+      # from a fork is issued a read-only token whatever is asked for here.
+      packages: write
     # The API image compiles this repository inside it, from a cold Gradle cache every run — a BuildKit
     # cache mount is a developer's second build, not a runner's first.
     timeout-minutes: 30
@@ -135,5 +165,203 @@ jobs:
       # production environment, and this repository has none and must not invent one to satisfy a build.
       # The contexts are the two the compose file names — `apps/api` alone, and the repository root for
       # `apps/web`, which builds against `packages/` and the root `brand.json`.
-      - run: docker build -f apps/api/Dockerfile apps/api
-      - run: docker build -f apps/web/Dockerfile .
+      #
+      # **On `master` they are also pushed, and that is the whole of ADR-0023's first half.** The deployed
+      # host is 1 vCPU and 4 GB, and the first `docker build` above compiles this repository inside the
+      # image — which on that machine is a third JVM competing for a gigabyte with the two processes it is
+      # replacing. So it happens here, once, and the host pulls.
+      - id: names
+        # GHCR accepts a lowercase path and nothing else, and `github.repository` carries whatever case the
+        # owner's account has. Computed rather than written down, so a fork or a rename needs no edit here.
+        run: echo "repository=ghcr.io/${GITHUB_REPOSITORY,,}" >>"$GITHUB_OUTPUT"
+
+      # Only on `master`, and only for the push event — a pull request from a fork cannot be given a token
+      # that writes packages, and a *tag* deliberately does not push either: the release below retags the
+      # digest this job already produced for that same commit, so pushing again would move `sha-<commit>` to
+      # a second build of the same source and quietly undo the property the retag exists to have.
+      - if: github.ref == 'refs/heads/master'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - run: docker build -f apps/api/Dockerfile -t ${{ steps.names.outputs.repository }}/api:sha-${{ github.sha }} apps/api
+      - run: docker build -f apps/web/Dockerfile -t ${{ steps.names.outputs.repository }}/web:sha-${{ github.sha }} .
+
+      - if: github.ref == 'refs/heads/master'
+        run: |
+          docker push ${{ steps.names.outputs.repository }}/api:sha-${{ github.sha }}
+          docker push ${{ steps.names.outputs.repository }}/web:sha-${{ github.sha }}
+
+  # --- the two acts ---------------------------------------------------------------------------------------
+  #
+  # Everything above reports. Everything below changes something outside this repository, and both wait for
+  # all three of the jobs above to be green (ADR-0023, and the header of this file).
+
+  deploy:
+    name: deploy
+    runs-on: ubuntu-latest
+    needs: [npm, api, images]
+    # Only a version tag, or somebody choosing to. Never a branch push and never a pull request: this job
+    # runs a Flyway migration against the only copy of every subscription this product has.
+    if: >-
+      always()
+      && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
+      && (inputs.hotfix
+          || (needs.npm.result == 'success' && needs.api.result == 'success'
+              && needs.images.result == 'success'))
+    timeout-minutes: 20
+    permissions:
+      # To read the two images and to write the second name onto their digests. Nothing else: this job holds
+      # no credential of the product's, which is ADR-0020's "the environment file on the host is the
+      # boundary" doing the work it was written to do. `production.env` never leaves that machine, so the
+      # blast radius of a compromised workflow is *it can deploy an image*.
+      contents: read
+      packages: write
+    steps:
+      # The same two lines as the `images` job, **not** a `needs.images.outputs` reference. This job runs on
+      # the hotfix path *when that one has failed*, and a job output from a failed job is the empty string —
+      # which would make every reference below `/api:v1.0.0`, with no registry in it, at the moment somebody
+      # is least able to read an error carefully. Two lines that cannot disagree beat one that can be absent.
+      - id: names
+        run: echo "repository=ghcr.io/${GITHUB_REPOSITORY,,}" >>"$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # **A release is a second name on a digest, not a second build.** `imagetools create` adds `v1.0.0` to
+      # the manifest `master` already pushed and this run's three jobs were run against, so what reaches the
+      # host is provably what was tested — not a rebuild of the same source, which lock files narrow but do
+      # not guarantee (a transitive range, or `node:24-alpine` moving underneath, are each enough). It also
+      # costs seconds rather than the thirty-minute ceiling above.
+      #
+      # **A name, once it means a digest, never comes to mean another one.** That is ADR-0023's "'what is
+      # running right now' has an immutable answer even if somebody later moves a tag", and it takes the two
+      # branches below rather than one `create`:
+      #
+      #   - **`sha-…` is never created here.** It is CI's own name for a commit's build, and the dispatch
+      #     input documents it as the way to deploy something unreleased — so the request is to run an image
+      #     that *exists*, and creating it would re-point another commit's name at this commit's bytes. It is
+      #     verified to exist and used as it is.
+      #   - **`v…` is created once.** If it already exists it must already be this digest, which is the
+      #     ordinary case for a re-run after a failed SSH step, and anything else is a release name being
+      #     moved — refused, loudly, before anything is deployed.
+      #
+      # Every value below reaches the shell through the environment rather than through `${{ }}` inside the
+      # script. One of them is a `workflow_dispatch` string somebody types, and interpolating that into a
+      # `run:` is how a release name becomes a command on the runner; the other two are safe and are passed
+      # the same way so that the rule has no exceptions to remember.
+      - id: tag
+        env:
+          REQUESTED_TAG: ${{ inputs.tag || github.ref_name }}
+          REPOSITORY: ${{ steps.names.outputs.repository }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          tag="$REQUESTED_TAG"
+          # A first sieve, not the boundary — `mprelist-deploy` on the host checks the same value against a
+          # full pattern before it uses it, and that is what makes this safe. This one keeps a malformed tag
+          # from reaching `imagetools` as an argument at all.
+          case "$tag" in
+            v[0-9]*.[0-9]*.[0-9]*|sha-[0-9a-f][0-9a-f]*) ;;
+            *) echo "::error::\`$tag\` is not a deployable tag (v1.2.3 or sha-<commit>)"; exit 1 ;;
+          esac
+          echo "tag=$tag" >>"$GITHUB_OUTPUT"
+
+          digest() {
+            docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$1" 2>/dev/null || true
+          }
+
+          for image in api web; do
+            source="$REPOSITORY/$image:sha-$COMMIT"
+            target="$REPOSITORY/$image:$tag"
+
+            case "$tag" in
+              sha-*)
+                [ -n "$(digest "$target")" ] \
+                  || { echo "::error::$target does not exist. Only a build master pushed can be deployed."; exit 1; }
+                echo "$target already names a build; nothing to retag."
+                continue
+                ;;
+            esac
+
+            wanted="$(digest "$source")"
+            [ -n "$wanted" ] \
+              || { echo "::error::$source does not exist. Tag a commit master has already built."; exit 1; }
+
+            existing="$(digest "$target")"
+            if [ -z "$existing" ]; then
+              docker buildx imagetools create --tag "$target" "$source"
+            elif [ "$existing" = "$wanted" ]; then
+              echo "$target already points at $wanted; nothing to do."
+            else
+              echo "::error::$target already means $existing, and this run would move it to $wanted. A "\
+                "release name is not re-used — tag a new version instead."
+              exit 1
+            fi
+          done
+
+      # One connection, to a key that `authorized_keys` restricts with
+      # `command="/usr/local/bin/mprelist-deploy"` — so it deploys and **cannot obtain a shell**. What it is
+      # allowed to say is the tag, which arrives there as SSH_ORIGINAL_COMMAND and is checked against one
+      # pattern before it is used.
+      #
+      # Plain `ssh` rather than an action, because this is the step whose supply chain matters most: the
+      # whole point of the arrangement above is that a malicious dependency inside Actions can deploy an
+      # image and can read no credential of ours. `known_hosts` is a secret rather than a
+      # `StrictHostKeyChecking=no`, or the key is offered to whoever answers.
+      - name: Deploy
+        env:
+          SSH_KEY: ${{ secrets.MPRELIST_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.MPRELIST_DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_TARGET: ${{ secrets.MPRELIST_DEPLOY_TARGET }}
+          DEPLOY_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" >~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" >~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$DEPLOY_TARGET" "$DEPLOY_TAG"
+
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    # The same three, for a different reason than `deploy`'s. Nothing about the backend suite says anything
+    # about an extension zip — but a release that exists for a version which never deployed is a version
+    # number pointing at nothing, and this is the artefact somebody uploads to the Web Store weeks later.
+    needs: [npm, api, images]
+    if: startsWith(github.ref, 'refs/tags/v')
+    timeout-minutes: 15
+    permissions:
+      # To create the release and attach the zip to it.
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # **The zip is CI's, and uploading it is not.** There is no automated Web Store publish and there
+      # should not be: every submission waits on a review of days to weeks, and the id it is signed with is
+      # the Store's (infra/README.md § Before the first `up`). What this gets right is the *bytes* — built
+      # from the tag, against the committed `deployment.json`, by something with no local state.
+      - run: npm ci
+      - run: npm run build -w @mprelist/extension
+
+      - name: Attach the extension to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          zip="$RUNNER_TEMP/extension-${GITHUB_REF_NAME}.zip"
+          (cd apps/extension/dist && zip -qr "$zip" .)
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" "$zip" --clobber

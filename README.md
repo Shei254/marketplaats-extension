@@ -30,7 +30,10 @@ npm run build
 The workspace globs are `apps/*` and `packages/*`, so a reserved directory becomes a real workspace simply by
 gaining a `package.json` — the root file does not have to be edited again. The root scripts fan out with
 `--workspaces --if-present`, so a workspace without that script — or without a `package.json` at all, like
-the Gradle `apps/api` — is skipped rather than a failure. To work in one place:
+the Gradle `apps/api` — is skipped rather than a failure. `npm test` then runs one thing that is not a
+workspace: the rules in [`.github/scripts`](.github/scripts), on Node's own test runner, because the
+workflow that deletes images from GHCR should not be the one part of this repository nothing exercises. To
+work in one place:
 
 ```bash
 npm run build -w @mprelist/extension
@@ -62,13 +65,14 @@ is shared, so a broken extension test has no business withholding the backend's 
 The third one exists because nothing else ever reads those two files, and the moment they are first needed is
 the moment somebody is trying to deploy.
 
-**A fourth job deploys, and it is the one thing here that does wait.** Pushing a version tag runs it; it
-`needs:` all three above ([ADR-0023](docs/adr/0023-ci-builds-the-images-and-the-host-pulls.md)). That is not
-a contradiction of the rule: the rule is about **verdicts**, and neither suite may withhold the other's
-*result*. A deploy is an **act** — one that puts both images on one host and runs a Flyway migration against
-the only copy of every subscription this product knows about — and gating an act on evidence is a different
-thing. A `workflow_dispatch` input carries the hotfix override, so that path exists and is logged rather than
-being improvised into an SSH session.
+**Two more jobs act, and they are the ones that do wait.** Pushing a version tag runs both, and both
+`needs:` all three above ([ADR-0023](docs/adr/0023-ci-builds-the-images-and-the-host-pulls.md)): `deploy`
+retags the digest `master` already built and hands it to the host over a one-command SSH key, and `release`
+attaches the extension zip to the GitHub release. That is not a contradiction of the rule: the rule is about
+**verdicts**, and neither suite may withhold the other's *result*. A deploy is an **act** — one that puts
+both images on one host and runs a Flyway migration against the only copy of every subscription this product
+knows about — and gating an act on evidence is a different thing. A `workflow_dispatch` input carries the
+hotfix override, so that path exists and is logged rather than being improvised into an SSH session.
 
 The Node version is pinned in [`.nvmrc`](.nvmrc) rather than in the workflow, so `nvm use` and CI read one
 file instead of two copies; Java is 21, which is the toolchain `apps/api/build.gradle.kts` already states.
@@ -77,6 +81,28 @@ There are **no path filters**, deliberately. Every job reads inputs from outside
 for — the API suite reads `infra/docker-compose.yml` and the Keycloak realm out of the working tree, the
 extension build reads the root `brand.json` — so a filter would keep a second copy of both lists, and a
 stale filter fails *silently*: a green run that looked at nothing.
+
+**A second workflow runs on a clock rather than on a commit.**
+[`.github/workflows/prune-ghcr.yml`](.github/workflows/prune-ghcr.yml), weekly, deletes the `sha-<commit>`
+images the `images` job has been accumulating since ADR-0023 put a registry in the deploy path — keeping
+every release, the newest ten builds per image, and anything a kept image's manifest still points at. It is
+separate from `ci.yml` because it is the one thing here that deletes something it did not create in the same
+run, and that belongs behind its own trigger rather than one careless `needs:` away from every push. Run it
+by hand from the Actions tab with **dry run** ticked to see what it would take.
+
+**It bounds the unreleased-deploy path, and that is the one thing to know before raising or lowering
+`keep`.** `ci.yml`'s dispatch offers `sha-<commit>` for deploying something that was never tagged, and the
+retention here is age — so ten further pushes to `master` take that image. A release tag is what makes a
+build outlive the window, and it is the reason to prefer tagging one over deploying a bare commit. The
+failure is at least loud: the deploy job checks the digest exists and refuses before it reaches the host.
+
+The rules it deletes by are in [`.github/scripts/prune-ghcr.mjs`](.github/scripts/prune-ghcr.mjs) and are
+covered by `npm test`, which is why the workflow is short. They are the dangerous half — deleting the digest
+a release was stamped onto, or the untagged manifest a kept index points at, is invisible until a
+`docker pull` fails on the deployed host — and a retention policy written as `jq` inside a `run:` block is a
+policy nothing can exercise. The script imports **nothing outside Node's standard library**: it is the
+workflow holding delete rights, so it gets the shortest supply chain in the repository, and its tests run on
+Node's own runner for the same reason rather than adding a dependency to reach vitest.
 
 ## Credentials, in one file
 
@@ -193,9 +219,11 @@ that works, with a published password on it. Here every credential and every add
 default, so a half-filled `production.env` is a refusal naming what is missing rather than a guess. It never
 leaves the host: GitHub holds an SSH key restricted to one script, and no credential of this product's.
 
-The domain and the production realm are T56 (#87). You do not have to wait for the domain to deploy — the
-realm is `sslRequired: external`, so a bare IP is refused rather than served, and **sslip.io** gives you four
-real hostnames with real certificates on the IP you already have. What you *must* do before publishing the
+The domain is T56 (#87)'s last open item; the production realm it imports is
+[`infra/keycloak-production`](infra/keycloak-production/), and `ProductionRealmTest` starts a real Keycloak on
+it, because that import happens once and undoing it is a `down -v`. You do not have to wait for the domain
+to deploy — the realm is `sslRequired: external`, so a bare IP is refused rather than served, and
+**sslip.io** gives you four real hostnames with real certificates on the IP you already have. What you *must* do before publishing the
 extension is settle the addresses, because they are compiled into it and cannot be served to it
 ([ADR-0024](docs/adr/0024-the-extension-addresses-are-built-in.md)). The runbook, the ordering before the
 first `up`, the memory budget and the three layers of backup are in

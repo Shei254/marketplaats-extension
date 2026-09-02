@@ -7,6 +7,7 @@ import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
@@ -25,7 +26,7 @@ import org.testcontainers.utility.MountableFile;
 import tools.jackson.databind.JsonNode;
 
 /**
- * A Keycloak that has just imported {@code infra/keycloak/mprelist-realm.json}, on the image
+ * A Keycloak that has just imported one of this repository's two realm exports, on the image
  * {@code infra/docker-compose.yml} runs — the realm file and the version that reads it, and nothing of the
  * local stack, so the suite needs no stack up.
  *
@@ -49,6 +50,8 @@ import tools.jackson.databind.JsonNode;
  * {@code MPRELIST_EXTENSION_ID} gets, {@link #withNoExtensionIdSet()} what one who never did gets. Both are
  * shipped states — until #13 pins an id, the second is every developer's — so both are proven, by
  * {@link KeycloakRealmTest} and {@link KeycloakRealmWithoutAnExtensionIdTest} respectively.
+ * {@link #productionRealm(Map)} is the third, and it is a different file rather than a different variable:
+ * the export a deployment imports ({@code ProductionRealmTest}).
  */
 final class KeycloakFromCompose implements AutoCloseable {
 
@@ -102,7 +105,7 @@ final class KeycloakFromCompose implements AutoCloseable {
 
 	/** The realm a developer who set {@code MPRELIST_EXTENSION_ID} gets. */
 	static KeycloakFromCompose withTheExtensionIdSet() {
-		return new KeycloakFromCompose(Map.of("MPRELIST_EXTENSION_ID", EXTENSION_ID));
+		return new KeycloakFromCompose(InfraFiles.keycloakRealm(), Map.of("MPRELIST_EXTENSION_ID", EXTENSION_ID));
 	}
 
 	/**
@@ -111,17 +114,33 @@ final class KeycloakFromCompose implements AutoCloseable {
 	 * the import as an unset variable and the realm file's own default is what applies.
 	 */
 	static KeycloakFromCompose withNoExtensionIdSet() {
-		return new KeycloakFromCompose(Map.of());
+		return new KeycloakFromCompose(InfraFiles.keycloakRealm(), Map.of());
 	}
 
-	private KeycloakFromCompose(Map<String, String> environment) {
+	/**
+	 * The realm a <em>deployment</em> imports (T56, #87) — a different file, and the reason this class takes
+	 * one at all rather than naming the local stack's.
+	 *
+	 * <p>It is worth a container of its own because that import happens exactly once, on a machine with
+	 * paying customers on it, and undoing it is a {@code down -v}. Reading the JSON instead would prove that
+	 * the file says what we think and nothing about whether Keycloak agrees — a substitution that does not
+	 * happen, a client Keycloak refuses to import, and a realm that comes up perfectly are three outcomes one
+	 * text assertion cannot tell apart.
+	 *
+	 * @param environment the variables the deployed compose file passes into the import
+	 */
+	static KeycloakFromCompose productionRealm(Map<String, String> environment) {
+		return new KeycloakFromCompose(InfraFiles.productionKeycloakRealm(), environment);
+	}
+
+	private KeycloakFromCompose(Path realm, Map<String, String> environment) {
 		Map<String, String> imported = new LinkedHashMap<>(environment);
 		imported.put("MPRELIST_SSL_REQUIRED", ComposeFile.setting("MPRELIST_SSL_REQUIRED"));
 
 		this.container = new GenericContainer<>(ComposeFile.image("quay.io/keycloak/keycloak"))
 				.withCommand("start-dev", "--import-realm")
 				.withEnv(imported)
-				.withCopyFileToContainer(MountableFile.forHostPath(InfraFiles.keycloakRealm()),
+				.withCopyFileToContainer(MountableFile.forHostPath(realm),
 						"/opt/keycloak/data/import/mprelist-realm.json")
 				.withExposedPorts(8080)
 				// The realm's own discovery document: the import runs before the HTTP port opens, so this

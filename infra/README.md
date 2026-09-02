@@ -93,6 +93,14 @@ issuer — every client in the realm shares that.
 The `ADMIN` realm role is defined and held by `dev-admin`, for
 [#27 (T18 · `admin` module + role guard)](https://github.com/Shei254/marketplaats-extension/issues/27).
 
+**There is a second export, and everything above this line is about the first one.**
+[`keycloak-production/mprelist-realm.json`](keycloak-production/mprelist-realm.json) is what a deployment
+imports (T56, #87) — the same three clients and the same role, with no users at all and every origin a
+`${…}` the compose file fills in. The differences are exactly the ones a `down -v` on production is the price
+of getting wrong, so `ProductionRealmTest` starts a Keycloak on it: it registers the published extension,
+signs the admin corner in from **both** site hostnames, refuses a third, and opens no account this
+repository's published password would.
+
 ### Strangers make their own accounts
 
 ```jsonc
@@ -201,8 +209,13 @@ timer". Neither is a default, so the realm sets both:
 | `ssoSessionMaxLifespan` | 30 days | An idle timeout is capped by it, so leaving the 10-hour default at 30-day idle would mean a daily interactive sign-in anyway |
 | `accessTokenLifespan` | 5 min | Already the default. Pinned because ADR-0010 accepted that "revocation is only as fast as the access-token TTL" — that window should move deliberately, not under an upgrade |
 
-**These are a dev realm's numbers.** A 30-day session is a laptop's convenience; a deployed realm should
-decide its own, and `revokeRefreshToken` is the only row here that is right everywhere.
+**These are a dev realm's numbers, and the deployed realm keeps two of them on purpose** (T56, #87).
+`infra/keycloak-production/mprelist-realm.json` carries the same 30 days, because the *reason* for the idle
+timeout is not convenience: it is the MV3 service worker sleeping longer than Keycloak's 30-minute default
+between one relist and the next, which is as true of a paying user as of a laptop. The max lifespan is the
+row that is a security dial rather than a constraint, and 30 days is a decision — a month's cadence of
+interactive sign-in — rather than an inherited number. What bounds a stolen refresh token is the rotation in
+the first two rows and the five-minute access token, not this.
 
 One consequence for [#33 (T24)](https://github.com/Shei254/marketplaats-extension/issues/33): with
 `refreshTokenMaxReuse: 0`, two of the extension's fetches waking and refreshing concurrently means the second
@@ -355,9 +368,10 @@ The same four pieces of software, none of the same settings — plus a fifth in 
 laptop's stack and is not fit to deploy — `start-dev`, a published database port, and every password
 committed on purpose.
 
-> **State:** this section describes what T56 builds. T55 left the stack *deployable and not deployed*, and
-> what follows is the shape it is being deployed into rather than a record of a machine that exists. The
-> parts already true are marked as such.
+> **State:** everything below is built and committed — the compose file, the Caddyfile, the production realm,
+> the pipeline and the two host scripts — and **nothing is deployed**. What is left is a host, a DNS name, and
+> the ordered steps on this page. `ProductionRealmTest` starts a real Keycloak on the realm that import
+> depends on, so the file this page is most afraid of getting wrong is the one thing here already proven.
 
 ## The host, and what it never does
 
@@ -371,8 +385,37 @@ no rebuild, so what runs is provably what was tested. The compose file names ima
 
 ```bash
 # on the host, once
+fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+echo '/swapfile none swap sw 0 0' >>/etc/fstab   # Hostinger's images ship with little or no swap
+
 docker login ghcr.io -u <user> --password-stdin   # a READ-ONLY token: read:packages, never the push token
+
+git clone <this repository> /opt/mprelist         # the compose file, the Caddyfile and the realm live here
+cp /opt/mprelist/infra/production.env.example /opt/mprelist/production.env   # then fill it in
+install -m 755 /opt/mprelist/infra/deploy/mprelist-deploy /opt/mprelist/infra/deploy/mprelist-backup /usr/local/bin/
 ```
+
+**The checkout is yours to keep current, and the deploy script deliberately does not touch it.** Doing that
+would put a second credential on this machine — a repository read key beside the read-only GHCR token — which
+ADR-0023 does not. The cost is one rule: **a release that changes anything under `infra/` needs a `git pull`
+here before the tag is pushed**, or new images run against an old compose file. Nothing enforces it.
+
+Then the key Actions connects with, in `~/.ssh/authorized_keys`, restricted to one command:
+
+```
+command="/usr/local/bin/mprelist-deploy",no-agent-forwarding,no-port-forwarding,no-pty ssh-ed25519 AAAA…
+```
+
+and the nightly dump, in root's crontab:
+
+```
+17 3 * * *  /usr/local/bin/mprelist-backup >>/var/log/mprelist-backup.log 2>&1
+```
+
+Three repository secrets are what the pipeline needs, and none of them is a credential of this product's:
+`MPRELIST_DEPLOY_SSH_KEY` (the private half of the key above), `MPRELIST_DEPLOY_TARGET` (`user@host`), and
+`MPRELIST_DEPLOY_KNOWN_HOSTS` (`ssh-keyscan` of the host — a secret rather than a
+`StrictHostKeyChecking=no`, or the key is offered to whoever answers).
 
 ## Before the first `up`
 
@@ -381,7 +424,7 @@ deliberately rather than discovered:
 
 | | |
 |---|---|
-| `MPRELIST_REALM_DIR` | The production realm export. **Not `./keycloak`** — that realm has two dev users sharing a published password and every redirect URI on localhost. No default, so a stack pointed at nothing stops rather than importing it. Its site origins must be `${…}` substitutions, the way `MPRELIST_EXTENSION_ID` already is (`mprelist-realm.json`), or the export freezes one deployment's hostnames into git |
+| `MPRELIST_REALM_DIR` | `./keycloak-production`, and **not `./keycloak`** — that realm has two dev users sharing a published password and every redirect URI on localhost. No default, so a stack pointed at nothing stops rather than importing it. The production export has no users at all and writes down no hostname: every origin in it is a `${…}` the compose file fills in, which is what keeps one deployment's addresses out of git. `ProductionRealmTest` starts a Keycloak on it and holds all of that |
 | `MPRELIST_EXTENSION_ID` | What the realm registers `https://<id>.chromiumapp.org/` for. The Web Store assigns a different id than this repository's key derives — see [§ Your extension id](#your-extension-id) |
 | The four hostnames | `www.` `admin.` `api.` `auth.`, with the apex redirecting to `www.` Both **site** origins go in the `mprelist-dashboard` client ([ADR-0017](../docs/adr/0017-web-surface-and-subscribing.md)) |
 
@@ -438,13 +481,23 @@ who did not know why it was loopback. Hostinger's own firewall wants 80, 443 and
   every `up` starts Caddy with nothing to renew, so it requests a **new** certificate for the same four
   names — Let's Encrypt's duplicate limit, 5 per 7 days, refilling one per 34 hours. Renewals never approach
   that (six a year); the ordinary loop of getting a Caddyfile right does, and then so does every deploy.
-- **Iterate against staging.** Put `acme_ca https://acme-staging-v02.api.letsencrypt.org/directory` in the
-  global block until all four hostnames resolve, then remove it. Staging certificates are browser-untrusted,
-  which is the point: the plumbing is proven without spending a real issuance.
+- **Iterate against staging, which is what the example file already does.** `MPRELIST_ACME_CA` decides which
+  directory Caddy asks, and `production.env.example` ships it pointed at *staging* with production commented
+  out — because a first deployment is precisely the loop that spends the limit, and forgetting to switch this
+  way round fails visibly in a browser on the first page load, while forgetting the other way round fails
+  invisibly and then not for 34 hours. Switch it once all four hostnames resolve and the click-through
+  passes. A variable rather than a line in the Caddyfile because the Caddyfile is committed, and switching
+  should not mean a modified file on the host.
 
-`admin.<domain>` needs a **rewrite of `/` to `/admin`, preserving the query** — `apps/web` picks its surface
-by path and knows nothing about the host, so without it that hostname serves the public site. The query
-matters because a sign-in returns to the origin root with a `code` in it.
+`admin.<domain>` needs `/` **redirected** to `/admin`, carrying the query — `apps/web` picks its surface by
+path and knows nothing about the host, so without it that hostname serves the public site's not-found page.
+The query matters because a sign-in returns to the origin root with a `code` in it.
+
+**A `rewrite` will not do**, which is what ADR-0023 originally said and
+[corrected](../docs/adr/0023-ci-builds-the-images-and-the-host-pulls.md): a rewrite is internal to the proxy
+and never reaches the address bar, and the surface is chosen in the browser from `location.pathname`. nginx
+answers every path with the same `index.html` anyway, so the rewrite would change nothing and look like it
+had. The Caddyfile carries `redir / /admin{uri}` and `DeployedStackTest` holds it there.
 
 ## The memory budget
 
@@ -457,8 +510,13 @@ the largest process and `restart: unless-stopped` bringing it back, over and ove
 postgres 512M   keycloak 1G   api 1G   web 64M   caddy 128M    ≈ 2.7 GB
 ```
 
-plus a 2 GB swapfile; Hostinger's images ship with little or none. **`mem_limit` alone is a trap**: JVMs read
+plus the 2 GB swapfile [§ The host](#the-host-and-what-it-never-does) creates; Hostinger's images ship with
+little or none. **`mem_limit` alone is a trap**: JVMs read
 their cgroup, so a 1 GB limit gives the API a 256 MB heap. It is given `-XX:MaxRAMPercentage=70` explicitly.
+
+The numbers are a guess that predates any traffic and are meant to move. `DeployedStackTest` asserts their
+**sum** rather than any one of them, because what must not move is the ~1.3 GB left for the OS, dockerd, the
+page cache and a concurrent `pg_dump`.
 
 ## Deploying, and what happens when it fails
 
@@ -466,10 +524,20 @@ their cgroup, so a 1 GB limit gives the API a 256 MB heap. It is given `-XX:MaxR
 git tag v1.0.0 && git push origin v1.0.0
 ```
 
-That is the deploy. Actions runs the three test jobs, retags the digest, and connects over SSH with a key
-restricted in `authorized_keys` by `command="/usr/local/bin/mprelist-deploy"` — it can run that script and
-**cannot get a shell**. The script: `pg_dump` first, then `pull`, then `up -d --wait`. A failure fails the
-job loudly and stops.
+That is the deploy. Actions runs the three test jobs, retags the digest `master` already built for that
+commit — `imagetools create`, not a second build — and connects over SSH with a key restricted in
+`authorized_keys` by `command="/usr/local/bin/mprelist-deploy"`: it can run that script and **cannot get a
+shell**. The script takes a `pg_dump` first, writes the tag into `production.env`, pulls, and `up -d --wait`.
+A failure fails the job loudly and stops.
+
+**Two things about the tag.** It must be on a commit `master` has already built, or there is no
+`sha-<commit>` digest to rename and the job stops saying so. And `MPRELIST_IMAGE_TAG` in `production.env` is
+the record of what is running: the script rewrites that one line, so `docker compose ps` afterwards needs no
+argument and answers about the same build.
+
+**The 3am path is a `workflow_dispatch`** — Actions → CI → Run workflow, with the image tag and the `hotfix`
+box. It deploys past a failed test job, and it is in this pipeline rather than absent so that the thing
+somebody does at 3am is one that leaves a log entry, instead of an SSH session that goes around all of it.
 
 **There is no automatic rollback, and that is deliberate.** If a deploy applies `V8` and the API then fails
 its healthcheck, rolling the image back to the build that predates `V8` starts Flyway against a schema whose
@@ -516,4 +584,17 @@ docker compose --env-file production.env -f infra/docker-compose.prod.yml \
   is why the deploy above accepts downtime instead.
 - **No secret manager.** `production.env` on the host is the boundary, and ADR-0023 leans on it.
 - **No automated Web Store publish.** CI attaches the extension zip to the GitHub release so the shipped
-  bytes are CI's; uploading it is yours. Every release waits on a review of days to weeks regardless.
+  bytes are CI's — built from the tag, against the committed `deployment.json`, by something with no local
+  state. Uploading it is yours. Every release waits on a review of days to weeks regardless.
+- **No health check of its own.** `up -d --wait` is what a deploy waits on, and after that nothing watches.
+  Let's Encrypt's expiry mail to `MPRELIST_ACME_EMAIL` is the only alert this stack sends.
+- **Nothing prunes GHCR *on a deploy*.** ADR-0023 named the bill as a cost of the registry — private-repository
+  storage and transfer are billed past the account's allowance, and every green `master` adds a
+  `sha-<commit>` pair. A weekly `.github/workflows/prune-ghcr.yml` now takes them, keeping every release and
+  the newest ten builds per image, so the growth is bounded rather than monotonic. What it deliberately is
+  not is part of the deploy: a delete in the path of a release is a delete running while somebody is
+  watching a migration, and the two failures want separate logs.
+- **Caddy does not wait for the backends to be healthy**, only for them to start. The opposite was written
+  first and is worse: an unhealthy API would keep the only container binding 80 and 443 from starting, taking
+  the marketing site down with it and blocking the ACME challenge — a one-container outage becoming an
+  expired certificate. `up -d --wait` already fails a deploy whose API is unhealthy, with or without it.

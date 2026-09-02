@@ -491,6 +491,31 @@ Grown from **M** on 2026-09-02: the grilling that produced
 [ADR-0023](adr/0023-ci-builds-the-images-and-the-host-pulls.md) and
 [ADR-0024](adr/0024-the-extension-addresses-are-built-in.md) found work underneath this ticket that nothing
 else covers. Refs: [`infra/README.md` § Deploying](../infra/README.md#deploying).
+
+**Everything in this repository is built as of 2026-09-02; what is left is a host and a domain.** The
+extension builds against a committed `deployment.json`, the pipeline pushes and retags and deploys, Caddy is
+the fifth container and the other four publish nothing, every service has a memory limit, the production
+realm exists and a real Keycloak is started on it by `ProductionRealmTest`, and the deploy and nightly-dump
+scripts are in `infra/deploy/`. The open items are the ones no commit can close: buy or choose the hostnames
+(T60), provision the VPS, create the Web Store draft to learn the id, and run the click-through.
+
+Three things this ticket leaves standing, recorded rather than discovered later:
+- **The host's checkout is updated by hand**, deliberately. Doing it in the deploy script would mean a
+  repository read key on that machine beside the read-only GHCR token, which ADR-0023 does not put there. So
+  a release that changes anything under `infra/` needs a `git pull` on the host first, and nothing enforces
+  it.
+- **Nothing pruned GHCR**, which ADR-0023 names as a cost of the registry. Every green `master` adds a
+  `sha-<commit>` pair; ~350 MB with layer reuse, billed past the account's allowance. **Closed by
+  `.github/workflows/prune-ghcr.yml`**, weekly and by hand, keeping every release, the newest ten builds per
+  image, and every manifest a kept image still points at. The rules are a tested module rather than inline
+  `jq`, because the way a prune fails — taking the digest a release was stamped onto, or an untagged child of
+  a kept index — is silent until a `docker pull` fails on the host.
+- **The production realm's session lifetimes were decided here**, which T56 did not ask for and could not
+  avoid: the export needs values, and `infra/README.md` § Refresh-token rotation said only that "a deployed
+  realm should decide its own". It keeps the 30-day idle timeout, because the reason for it is the MV3
+  service worker sleeping past Keycloak's 30-minute default rather than a laptop's convenience, and takes the
+  30-day max lifespan as a deliberate monthly cadence of interactive sign-in. Neither is what bounds a stolen
+  refresh token — the rotation and the five-minute access token are.
 - **The extension cannot currently be built for anything but localhost**, and this is the item without which
   the rest is untestable. `api-config.ts` and `auth-config.ts` hold the addresses as constants,
   `scripts/build.mjs` injects nothing, and #36's served document deliberately does not carry them — nor can
@@ -503,9 +528,11 @@ else covers. Refs: [`infra/README.md` § Deploying](../infra/README.md#deploying
 - **Caddy as a fifth container**, four hostnames — `www.` `admin.` `api.` `auth.`, apex to `www.` —
   `caddy_data` as a named volume, and the staging CA while iterating. `api`, `web` and `keycloak` stop
   publishing ports at all.
-- **`admin.<domain>` needs a proxy rewrite of `/` → `/admin`, query preserved.** ADR-0017's "`admin.` serves
+- **`admin.<domain>` needs a proxy *redirect* of `/` → `/admin`, query carried.** ADR-0017's "`admin.` serves
   `/admin`" was always a claim about a proxy: `main.tsx` chooses its surface by path and knows nothing about
-  the host, so untouched, that hostname serves the public site.
+  the host, so untouched, that hostname serves the public site. **A rewrite cannot do it** — it never reaches
+  the browser, and nginx answers every path with the same `index.html` anyway, so it would be inert and look
+  correct. ADR-0023 said "rewrite" and carries the correction.
 - **The realm imports on first start only**, so the production export must name every origin and redirect URI
   *before* it is first started — the extension's `https://<id>.chromiumapp.org/` and **both** web origins —
   and must template the site origins as `${…}` the way `MPRELIST_EXTENSION_ID` already is, or one

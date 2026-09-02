@@ -15,11 +15,11 @@ import org.junit.jupiter.api.Test;
  * laptop (T55, #86).
  *
  * <p><strong>Nothing here starts a container.</strong> What is asserted is the difference between the two
- * compose files, because that difference <em>is</em> the ticket: the same four pieces of software run with
- * none of the settings that make the local stack convenient. Every one of these has a failure mode that is
- * silent from the deployed side — a Keycloak still in development mode serves sign-ins perfectly well, and a
- * realm imported from {@code ./keycloak} gives a stranger the account called {@code dev} with a password this
- * repository publishes.
+ * compose files, because that difference <em>is</em> the ticket: the same four pieces of software, plus a
+ * proxy in front of them (T56, #87), run with none of the settings that make the local stack convenient.
+ * Every one of these has a failure mode that is silent from the deployed side — a Keycloak still in
+ * development mode serves sign-ins perfectly well, and a realm imported from {@code ./keycloak} gives a
+ * stranger the account called {@code dev} with a password this repository publishes.
  *
  * <p>The other half of it is in {@code apps/web}'s own suite ({@code deployed-config.test.ts}), which holds
  * the nginx template to the bundle that reads what it serves — including the one line the backlog names for
@@ -108,14 +108,150 @@ class DeployedStackTest {
 	}
 
 	/**
-	 * And the database is reachable from the two services that need it and from nothing else.
+	 * And it builds nothing: both of our own images are pulled by tag.
 	 *
-	 * <p>A published Postgres port is the one mistake here that a deployment cannot recover from by
-	 * restarting: what leaks is every subscriber's row and, given the password, everything else too.
+	 * <p>The host is 1 vCPU and 4 GB and {@code apps/api/Dockerfile} compiles this repository inside itself —
+	 * a third JVM wanting a gigabyte, on one shared core, competing with the two processes it is replacing
+	 * (ADR-0023). A {@code build:} that came back would not fail; it would make every deploy a thirty-minute
+	 * outage that looks like slowness.
 	 */
 	@Test
-	void andPublishesNoDatabasePort() {
-		assertThat(serviceIn(settings(), "postgres")).doesNotContain("ports:");
+	void andBuildsNeitherOfOurOwnImagesOnTheHost() {
+		assertThat(settings())
+				.withFailMessage("infra/docker-compose.prod.yml builds an image again. The deployed host "
+						+ "compiles nothing (ADR-0023): CI pushes both to GHCR and this file names tags.")
+				.doesNotContain("build:");
+
+		for (String service : new String[] { "api", "web" }) {
+			assertThat(serviceIn(settings(), service))
+					.contains("${MPRELIST_IMAGE_REPOSITORY:?")
+					.contains("${MPRELIST_IMAGE_TAG:?");
+		}
+	}
+
+	/**
+	 * And nothing but the proxy binds a port on that host.
+	 *
+	 * <p>This replaced an interim that asked an operator to write {@code 127.0.0.1:8080}-style values into
+	 * three variables, and the reason it replaced it is the mistake that arrangement invited: a port set to a
+	 * public value by somebody who did not know why it was loopback. There is now no such variable to set.
+	 *
+	 * <p>Postgres is first in the list because it is the one mistake here a deployment cannot recover from by
+	 * restarting — what leaks is every subscriber's row and, given the password, everything else too. Keycloak
+	 * is the quietest: a published port is a plain-HTTP one, which its own {@code sslRequired: external} then
+	 * refuses, and that reads as a broken deployment rather than as a setting working.
+	 */
+	@Test
+	void andPublishesNoPortExceptTheProxysOwn() {
+		for (String service : new String[] { "postgres", "keycloak", "api", "web" }) {
+			assertThat(serviceIn(settings(), service))
+					.withFailMessage("the %s service publishes a port. Only caddy may (ADR-0023).", service)
+					.doesNotContain("ports:");
+		}
+		assertThat(serviceIn(settings(), "caddy")).contains("80:80").contains("443:443");
+	}
+
+	/**
+	 * And every service is given a memory limit, inside a budget that leaves the host room to breathe.
+	 *
+	 * <p>Unbounded, each JVM sizes its heap against the whole host: Keycloak's image runs a high
+	 * {@code MaxRAMPercentage} and a Spring Boot container defaults to ≈25%, which on 4 GB can total more
+	 * than there is. What that looks like is not an error — it is the OOM killer taking the largest resident
+	 * process and {@code restart: unless-stopped} bringing it back, forever, with nothing in any log that
+	 * names a cause.
+	 *
+	 * <p>The ceiling is asserted rather than the individual numbers, because the numbers are a guess that
+	 * predates any traffic and are meant to move. What must not move is their sum: the OS, dockerd, the page
+	 * cache and a concurrent {@code pg_dump} live in what is left.
+	 */
+	@Test
+	void andGivesEveryServiceAMemoryLimitWithinTheHostsBudget() {
+		int total = 0;
+		for (String service : new String[] { "postgres", "keycloak", "api", "web", "caddy" }) {
+			Matcher limit = Pattern.compile("^\\s*mem_limit:\\s*(\\d+)([mg])\\s*$", Pattern.MULTILINE)
+					.matcher(serviceIn(settings(), service));
+			assertThat(limit.find())
+					.withFailMessage("the %s service has no mem_limit. On a 4 GB host that is not a missing "
+							+ "optimisation, it is an OOM-kill restart loop with no error in it.", service)
+					.isTrue();
+			total += Integer.parseInt(limit.group(1)) * ("g".equals(limit.group(2)) ? 1024 : 1);
+		}
+
+		assertThat(total)
+				.withFailMessage("the five limits total %d MB. The host has 4096, and what is left over is "
+						+ "the OS, dockerd, the page cache and whatever a pg_dump needs.", total)
+				.isLessThanOrEqualTo(2816);
+	}
+
+	/**
+	 * And the API is told what share of that limit its heap may be, which {@code mem_limit} alone does not say.
+	 *
+	 * <p>This is the one setting here that fails in the direction of looking correct. A modern JVM reads its
+	 * cgroup, so the limit above would bound it properly — to a 256 MB heap, a quarter of its allowance,
+	 * because ≈25% is the default. The stack would be exactly as bounded as intended and this application
+	 * would collect garbage far harder than it should, presenting as latency rather than as a crash.
+	 */
+	@Test
+	void andTellsTheApiWhatShareOfItItsHeapMayBe() {
+		assertThat(serviceIn(settings(), "api")).contains("MaxRAMPercentage");
+	}
+
+	/**
+	 * And the proxy keeps its certificates in a named volume, which is the silent one.
+	 *
+	 * <p>The certificate <em>and the ACME account key</em> live in {@code /data}. Without the volume every
+	 * {@code up} starts Caddy with nothing to renew, so it requests a <em>new</em> certificate for the
+	 * identical name set — Let's Encrypt's duplicate limit, 5 per 7 days, refilling one every 34 hours. It is
+	 * not renewals that spend that (six a year); it is every deploy. And nothing about it is visible until
+	 * the sixth one in a week is refused.
+	 */
+	@Test
+	void andKeepsTheProxysCertificatesWhereARestartCannotLoseThem() {
+		assertThat(serviceIn(settings(), "caddy")).contains("caddy_data:/data");
+		assertThat(settings()).containsPattern("(?m)^volumes:(.|\\n)*^  caddy_data:");
+	}
+
+	/**
+	 * And the proxy asks for nothing this file does not hand it.
+	 *
+	 * <p>A Caddyfile reads {@code {$NAME}} and substitutes the empty string for a variable that is not in its
+	 * environment. An empty site address is a Caddyfile that fails to parse — loudly, which is fine — but an
+	 * empty {@code redir} target or ACME directory is a proxy that starts and is wrong, and the two files
+	 * that have to agree about these names are edited months apart.
+	 */
+	@Test
+	void andTheProxyAsksForNoVariableThisFileDoesNotGiveIt() {
+		Set<String> given = namesMatching("^\\s+(MPRELIST_[A-Z0-9_]*):", serviceIn(settings(), "caddy"));
+
+		assertThat(namesMatching("\\{\\$(MPRELIST_[A-Z0-9_]*)}", InfraFiles.textOf(InfraFiles.caddyfile())))
+				.isSubsetOf(given);
+	}
+
+	/**
+	 * And it <em>redirects</em> the admin hostname's root, rather than rewriting it.
+	 *
+	 * <p>ADR-0017's "{@code admin.} serves {@code /admin}" was always a claim about a proxy:
+	 * {@code apps/web/src/main.tsx} chooses its surface with {@code isAdminPath(location.pathname)} and knows
+	 * nothing about the host, deliberately, since one image runs anywhere. Untouched, {@code admin.<domain>}
+	 * is the marketing site's not-found page.
+	 *
+	 * <p><strong>ADR-0023 specifies a {@code rewrite} and a rewrite cannot do it</strong>, which is the whole
+	 * reason this assertion names the directive instead of the outcome. A rewrite is internal: it changes
+	 * which path the proxy asks nginx for and leaves the browser's address alone — and nginx answers every
+	 * path with the same {@code index.html} anyway, so the bundle boots at {@code location.pathname === "/"}
+	 * and renders the public site. Nothing about that looks like a failure from either side of the proxy.
+	 * The ADR carries the correction; this is what stops the next person from applying its original sentence.
+	 */
+	@Test
+	void andRedirectsTheAdminHostnamesRootRatherThanRewritingIt() {
+		String caddyfile = InfraFiles.textOf(InfraFiles.caddyfile());
+
+		assertThat(caddyfile)
+				.withFailMessage("the admin hostname's root is not redirected to /admin. A `rewrite` is not a "
+						+ "substitute: it never reaches the browser, and the surface is chosen from "
+						+ "location.pathname. See ADR-0023's correction of 2026-09-02.")
+				.containsPattern("redir\\s+/\\s+/admin");
+		assertThat(caddyfile).doesNotContainPattern("rewrite\\s+/\\s+/admin");
 	}
 
 	/**
@@ -150,6 +286,24 @@ class DeployedStackTest {
 		Set<String> read = namesMatching("\\$\\{([A-Z][A-Z0-9_]*)", YamlSetting.applicationYaml());
 
 		assertThat(namesMatching("^\\s+(MPRELIST_[A-Z0-9_]*)\\s*:", serviceIn(settings(), "api"))).isSubsetOf(read);
+	}
+
+	/**
+	 * And the API answers the admin corner's browser, which is now a second origin rather than the site's.
+	 *
+	 * <p>{@code admin.<domain>} is a hostname of its own (ADR-0017, and {@code caddy} is what redirects its
+	 * root to {@code /admin}), and a hostname is an origin — so the screen that calls this API calls it from
+	 * somewhere {@code MPRELIST_WEB_BASE_URL} does not name. <strong>This exact mistake has been made twice
+	 * already</strong>, which {@code CrossOriginCallers} says in its own words: T53 shipped the {@code PUT} routes
+	 * and T54 the screen, and neither added what CORS needed. It is invisible from this side — a browser
+	 * refuses before the request is sent and this application logs nothing — and a deployment would have a
+	 * working payment flow beside an admin corner that answers nothing.
+	 */
+	@Test
+	void andAnswersTheAdminCornersBrowserAsWellAsTheSites() {
+		assertThat(settingIn("MPRELIST_WEB_ORIGIN"))
+				.contains("${MPRELIST_WEB_BASE_URL")
+				.contains("${MPRELIST_ADMIN_BASE_URL");
 	}
 
 	/**

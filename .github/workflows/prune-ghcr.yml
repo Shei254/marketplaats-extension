@@ -1,0 +1,85 @@
+# The registry's housekeeping, which ADR-0023 named as a cost of putting a registry in the deploy path and
+# left to nobody: "Packages storage and transfer are billed on private repositories past the account's
+# included allowance ... but it wants old tags pruned". Every green `master` adds a `sha-<commit>` to each of
+# the two packages, and until this file nothing ever removed one.
+#
+# **It is a separate workflow rather than a job in `ci.yml`, and the reason is the trigger.** `ci.yml` is
+# what a push, a pull request and a tag run; this runs on a clock, against the registry rather than against
+# the tree, and it is the only thing in this repository that deletes something it did not create in the same
+# run. Bolting that onto a file whose jobs are "report" and "act on the commit under test" would mean a
+# `if:` on the schedule and a second `permissions:` shape, and would put a delete one careless `needs:` away
+# from every push.
+#
+# **The rules are in `.github/scripts/prune-ghcr.mjs` and are unit-tested**, which is the other half of why
+# this file is short. A retention policy expressed as `jq` inside a `run:` block is a policy nothing can
+# exercise: the failure it has — deleting the digest a release was stamped onto, or the untagged manifest a
+# kept index points at — is invisible until a `docker pull` fails on the deployed host. `npm test` runs
+# those rules, so the dangerous half is covered by the same command that covers everything else.
+#
+# **Scheduled workflows run from the default branch only**, so editing this on a branch changes nothing
+# until it is on `master` — and `workflow_dispatch` is likewise offered from the default branch's copy.
+name: prune GHCR
+
+on:
+  schedule:
+    # Weekly, and deliberately not on the hour: GitHub's scheduler queues hardest at :00, and a cron that
+    # matters this little should not be waiting behind everybody else's midnight.
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      keep:
+        description: 'How many sha-<commit> builds to keep per image'
+        required: false
+        default: '10'
+        type: string
+      dry_run:
+        description: 'List what would be deleted and delete nothing. Worth doing once, first'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  # Two of these at once would race: both would list, both would decide, and the second would spend its run
+  # issuing deletes for versions the first already took. Never cancel one in flight — a prune stopped halfway
+  # has deleted a prefix of its list, which is harmless but wants no encouragement.
+  group: prune-ghcr
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  # The one that does the work. `packages: write` is what lets a workflow delete versions of a package owned
+  # by its own repository — GitHub documents that path as public preview, and the fallback if it is ever
+  # withdrawn is a PAT with `delete:packages` in a secret, which is a credential this repository would
+  # rather not hold. Note there is no `packages: delete` to ask for; write is the whole of it.
+  packages: write
+
+jobs:
+  prune:
+    name: prune old images
+    runs-on: ubuntu-latest
+    # Minutes of API calls at the very most. The default is six hours, which is what a hung fetch would bill.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      # No `npm ci`. The script imports nothing outside Node's standard library, which is worth keeping true:
+      # this is the workflow with delete rights, and the shortest supply chain in the repository belongs on
+      # it. It is also why nothing here is a third-party action beyond checkout and setup-node.
+      - name: Prune
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEEP: ${{ inputs.keep || '10' }}
+          DRY_RUN: ${{ inputs.dry_run || false }}
+        run: |
+          set -euo pipefail
+          # The same derivation `ci.yml` pushes with, for the same reason: GHCR is lowercase-only and
+          # `github.repository` carries whatever case the account has. The package name is the repository
+          # name and the image, because that is what `ghcr.io/<owner>/<repo>/<image>` makes it.
+          repository="${GITHUB_REPOSITORY,,}"
+          export OWNER="${repository%%/*}"
+          export PACKAGES="${repository#*/}/api,${repository#*/}/web"
+          node .github/scripts/prune-ghcr.mjs

@@ -504,8 +504,12 @@ Three things this ticket leaves standing, recorded rather than discovered later:
   repository read key on that machine beside the read-only GHCR token, which ADR-0023 does not put there. So
   a release that changes anything under `infra/` needs a `git pull` on the host first, and nothing enforces
   it.
-- **Nothing prunes GHCR**, which ADR-0023 names as a cost of the registry and nobody has automated. Every
-  green `master` adds a `sha-<commit>` pair; ~350 MB with layer reuse, billed past the account's allowance.
+- **Nothing pruned GHCR**, which ADR-0023 names as a cost of the registry. Every green `master` adds a
+  `sha-<commit>` pair; ~350 MB with layer reuse, billed past the account's allowance. **Closed by
+  `.github/workflows/prune-ghcr.yml`**, weekly and by hand, keeping every release, the newest ten builds per
+  image, and every manifest a kept image still points at. The rules are a tested module rather than inline
+  `jq`, because the way a prune fails — taking the digest a release was stamped onto, or an untagged child of
+  a kept index — is silent until a `docker pull` fails on the host.
 - **The production realm's session lifetimes were decided here**, which T56 did not ask for and could not
   avoid: the export needs values, and `infra/README.md` § Refresh-token rotation said only that "a deployed
   realm should decide its own". It keeps the 30-day idle timeout, because the reason for it is the MV3

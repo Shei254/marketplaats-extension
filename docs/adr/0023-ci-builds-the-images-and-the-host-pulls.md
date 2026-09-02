@@ -151,6 +151,18 @@ an RSA key generated per process, so a second instance refuses the first's `comp
 - **Negative:** GHCR is a third party in the deploy path. A GitHub outage now blocks deploys as well as CI,
   and Packages storage and transfer are billed on private repositories past the account's included
   allowance — small at ~350 MB and ~60 MB with layer reuse, but it wants old tags pruned.
+  > **Built 2026-09-02, in T56.** `.github/workflows/prune-ghcr.yml`, weekly and on demand, keeps every release, the
+  > newest ten `sha-<commit>` builds per image, and every manifest a kept image still points at; the rest
+  > goes. It is a workflow of its own rather than a step in a deploy, because a delete in the path of a
+  > release runs while somebody is watching a migration. The retention rules are a tested module rather than
+  > inline `jq` — a prune fails by taking the digest a release was stamped onto, or an untagged child of a
+  > kept index, and both are silent until a `docker pull` fails on the host. The delete right is the
+  > workflow's own `GITHUB_TOKEN` under `packages: write`, which GitHub documents as **public preview**; if
+  > that is withdrawn the fallback is a PAT with `delete:packages` in a secret, and there is no
+  > `packages: delete` permission to ask for instead. One consequence worth stating where the *Positive*
+  > above claims an immutable answer to "what is running": that claim is a release's, not a bare commit's.
+  > A `sha-<commit>` deployed through the dispatch override is kept for ten further pushes to `master` and
+  > then collected, so anything meant to outlive that wants a tag.
 - **Negative:** an SSH key that can trigger a production deploy now exists in GitHub. The forced command
   narrows what it can do to one script; it does not remove the key.
 - **Negative:** five containers inside 4 GB is a budget, and a budget with no load data behind it is a

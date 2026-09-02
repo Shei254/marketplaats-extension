@@ -588,9 +588,12 @@ docker compose --env-file production.env -f infra/docker-compose.prod.yml \
   state. Uploading it is yours. Every release waits on a review of days to weeks regardless.
 - **No health check of its own.** `up -d --wait` is what a deploy waits on, and after that nothing watches.
   Let's Encrypt's expiry mail to `MPRELIST_ACME_EMAIL` is the only alert this stack sends.
-- **Nothing prunes GHCR.** ADR-0023 names it as a cost — private-repository storage and transfer are billed
-  past the account's allowance, and every green `master` adds a `sha-<commit>` pair. Small at ~350 MB with
-  layer reuse, and a chore nobody has automated; the backlog carries it.
+- **Nothing prunes GHCR *on a deploy*.** ADR-0023 named the bill as a cost of the registry — private-repository
+  storage and transfer are billed past the account's allowance, and every green `master` adds a
+  `sha-<commit>` pair. A weekly `.github/workflows/prune-ghcr.yml` now takes them, keeping every release and
+  the newest ten builds per image, so the growth is bounded rather than monotonic. What it deliberately is
+  not is part of the deploy: a delete in the path of a release is a delete running while somebody is
+  watching a migration, and the two failures want separate logs.
 - **Caddy does not wait for the backends to be healthy**, only for them to start. The opposite was written
   first and is worse: an unhealthy API would keep the only container binding 80 and 443 from starting, taking
   the marketing site down with it and blocking the ACME challenge — a one-container outage becoming an

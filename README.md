@@ -30,7 +30,10 @@ npm run build
 The workspace globs are `apps/*` and `packages/*`, so a reserved directory becomes a real workspace simply by
 gaining a `package.json` — the root file does not have to be edited again. The root scripts fan out with
 `--workspaces --if-present`, so a workspace without that script — or without a `package.json` at all, like
-the Gradle `apps/api` — is skipped rather than a failure. To work in one place:
+the Gradle `apps/api` — is skipped rather than a failure. `npm test` then runs one thing that is not a
+workspace: the rules in [`.github/scripts`](.github/scripts), on Node's own test runner, because the
+workflow that deletes images from GHCR should not be the one part of this repository nothing exercises. To
+work in one place:
 
 ```bash
 npm run build -w @mprelist/extension
@@ -78,6 +81,28 @@ There are **no path filters**, deliberately. Every job reads inputs from outside
 for — the API suite reads `infra/docker-compose.yml` and the Keycloak realm out of the working tree, the
 extension build reads the root `brand.json` — so a filter would keep a second copy of both lists, and a
 stale filter fails *silently*: a green run that looked at nothing.
+
+**A second workflow runs on a clock rather than on a commit.**
+[`.github/workflows/prune-ghcr.yml`](.github/workflows/prune-ghcr.yml), weekly, deletes the `sha-<commit>`
+images the `images` job has been accumulating since ADR-0023 put a registry in the deploy path — keeping
+every release, the newest ten builds per image, and anything a kept image's manifest still points at. It is
+separate from `ci.yml` because it is the one thing here that deletes something it did not create in the same
+run, and that belongs behind its own trigger rather than one careless `needs:` away from every push. Run it
+by hand from the Actions tab with **dry run** ticked to see what it would take.
+
+**It bounds the unreleased-deploy path, and that is the one thing to know before raising or lowering
+`keep`.** `ci.yml`'s dispatch offers `sha-<commit>` for deploying something that was never tagged, and the
+retention here is age — so ten further pushes to `master` take that image. A release tag is what makes a
+build outlive the window, and it is the reason to prefer tagging one over deploying a bare commit. The
+failure is at least loud: the deploy job checks the digest exists and refuses before it reaches the host.
+
+The rules it deletes by are in [`.github/scripts/prune-ghcr.mjs`](.github/scripts/prune-ghcr.mjs) and are
+covered by `npm test`, which is why the workflow is short. They are the dangerous half — deleting the digest
+a release was stamped onto, or the untagged manifest a kept index points at, is invisible until a
+`docker pull` fails on the deployed host — and a retention policy written as `jq` inside a `run:` block is a
+policy nothing can exercise. The script imports **nothing outside Node's standard library**: it is the
+workflow holding delete rights, so it gets the shortest supply chain in the repository, and its tests run on
+Node's own runner for the same reason rather than adding a dependency to reach vitest.
 
 ## Credentials, in one file
 

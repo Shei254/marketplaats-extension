@@ -249,9 +249,19 @@ assigns a different id than the one our key derives (ADR-0010's second row, and 
 happens, `npm run extension-key -w @mprelist/extension -- set <the Web Store public key>` rewrites the
 manifest and prints the new id; the production realm then has to be built with *that* one. T56 (#87) owns it.
 
-Because the import runs once, changing the variable means `down -v` first. A wildcard would avoid all of
-this; ADR-0010 says not to, and a realm file that grew one for convenience is the one that gets copied to a
-deployed realm.
+Because the import runs once, changing the **variable** achieves nothing on its own — the realm has already
+been read, and it is not read again. On a laptop that means `down -v` and start over, which is what the local
+stack is for.
+
+**On a deployed stack it does not mean `down -v`, and an earlier version of this page said it did.** The
+*import* is first-start-only; the realm's *contents* are ordinary rows in Keycloak's database and stay
+editable in the admin console for as long as the realm exists. Changing a redirect URI, a web origin or the
+extension id after the fact is a field in a form. Taken literally, the old sentence wiped every account this
+product had in order to change one URI — so the ordering below (§ Before the first `up`) exists to make that
+edit unnecessary, not to make it impossible.
+
+A wildcard would avoid all of this; ADR-0010 says not to, and a realm file that grew one for convenience is
+the one that gets copied to a deployed realm.
 
 ### Redirect URIs are exact, and so is the way back out
 
@@ -335,97 +345,175 @@ no value of its own. Nothing else in the repository would notice one of them goi
 
 # Deploying
 
-The same four pieces of software, none of the same settings:
+The same four pieces of software, none of the same settings — plus a fifth in front of them.
 [`docker-compose.prod.yml`](docker-compose.prod.yml) and
 [`production.env.example`](production.env.example) (T55,
 [#86](https://github.com/Shei254/marketplaats-extension/issues/86), and
-[ADR-0020](../docs/adr/0020-deployment.md)). Everything above this line is a laptop's stack and is not fit to
-deploy — `start-dev`, a published database port, and every password committed on purpose.
+[ADR-0020](../docs/adr/0020-deployment.md)); the pipeline, the proxy and the resource budget are T56
+([#87](https://github.com/Shei254/marketplaats-extension/issues/87)) and
+[ADR-0023](../docs/adr/0023-ci-builds-the-images-and-the-host-pulls.md). Everything above this line is a
+laptop's stack and is not fit to deploy — `start-dev`, a published database port, and every password
+committed on purpose.
+
+> **State:** this section describes what T56 builds. T55 left the stack *deployable and not deployed*, and
+> what follows is the shape it is being deployed into rather than a record of a machine that exists. The
+> parts already true are marked as such.
+
+## The host, and what it never does
+
+A Hostinger VPS, **1 vCPU / 4 GB**. It **never compiles anything** — that is the whole of ADR-0023's first
+half, and the reason is arithmetic: `apps/api/Dockerfile` builds this repository inside itself, which is a
+third JVM wanting a gigabyte, on one shared core, competing with the two processes it is replacing.
+
+So the host pulls. GitHub Actions builds both images on every green push to `master` and pushes them to GHCR
+as `sha-<commit>`; a version tag adds `v…` to that **same digest** with `docker buildx imagetools create` —
+no rebuild, so what runs is provably what was tested. The compose file names image tags, not build contexts.
 
 ```bash
-cp infra/production.env.example production.env        # on the host, once. Gitignored; fill it in
-docker compose --env-file production.env -f infra/docker-compose.prod.yml up -d --build --wait
+# on the host, once
+docker login ghcr.io -u <user> --password-stdin   # a READ-ONLY token: read:packages, never the push token
 ```
 
-`--build` builds both of our own workspaces from source on the host — `apps/api` through its Gradle wrapper,
-`apps/web` through Vite and into nginx. There is no registry to pull from (ADR-0020), so the first deploy is
-slow and the ones after it are mostly cached.
+## Before the first `up`
 
-**Nothing starts until every variable is filled in.** Each is `${NAME:?…}` with no default, so compose
-refuses and names the one that is missing:
-
-```
-required variable MPRELIST_KEYCLOAK_ADMIN_PASSWORD is missing a value: the bootstrap admin password,
-created on first start only
-```
-
-## What has to be decided before the first `up`
-
-**Two of them are imported once**, and getting either wrong is a `down -v` on production rather than a
-restart — the realm is imported on first start and never again while its database exists:
+**Three things are imported or assigned once**, and the order between them is a cycle that has to be broken
+deliberately rather than discovered:
 
 | | |
 |---|---|
-| `MPRELIST_REALM_DIR` | The production realm export, which is [T56 (#87)](https://github.com/Shei254/marketplaats-extension/issues/87)'s to write. **Not `./keycloak`** — that realm has two dev users sharing a published password and every redirect URI on localhost. There is no default, so a stack pointed at nothing stops rather than importing it |
+| `MPRELIST_REALM_DIR` | The production realm export. **Not `./keycloak`** — that realm has two dev users sharing a published password and every redirect URI on localhost. No default, so a stack pointed at nothing stops rather than importing it. Its site origins must be `${…}` substitutions, the way `MPRELIST_EXTENSION_ID` already is (`mprelist-realm.json`), or the export freezes one deployment's hostnames into git |
 | `MPRELIST_EXTENSION_ID` | What the realm registers `https://<id>.chromiumapp.org/` for. The Web Store assigns a different id than this repository's key derives — see [§ Your extension id](#your-extension-id) |
+| The four hostnames | `www.` `admin.` `api.` `auth.`, with the apex redirecting to `www.` Both **site** origins go in the `mprelist-dashboard` client ([ADR-0017](../docs/adr/0017-web-surface-and-subscribing.md)) |
 
-**TLS is not in this file.** It terminates in front of the three published ports, which is T56's along with
-the domain and the realm above. Until it does, set the three port variables to loopback values so nothing
-public reaches them:
+**The cycle, and the way out.** The realm wants the published extension id at first start. The Web Store
+assigns that id only once a store item exists. Creating the item needs a built extension, which needs the
+deployed addresses, which need the realm. Break it at the store:
 
-```bash
-MPRELIST_WEB_PORT=127.0.0.1:8000
-MPRELIST_API_PORT=127.0.0.1:8001
-MPRELIST_KEYCLOAK_PORT=127.0.0.1:8002
+1. Create the Web Store item as an **unpublished draft**, with any buildable zip.
+2. Read the assigned id; `npm run extension-key -w @mprelist/extension -- set <the Web Store public key>`.
+3. *Then* fill in `production.env` and first-start the stack.
+4. Build the real extension against the deployed addresses (`deployment.json`,
+   [ADR-0024](../docs/adr/0024-the-extension-addresses-are-built-in.md)) and upload it to the draft.
+
+Getting this order wrong is recoverable — the realm's contents stay editable in the admin console, whatever
+[§ Your extension id](#your-extension-id) used to claim. Getting it *right* means never opening that console.
+
+## Hostnames before you own a domain
+
+The domain is T60 ([#91](https://github.com/Shei254/marketplaats-extension/issues/91))'s, and it has lead
+time nothing else here shares — a trademark search and Web Store name availability. **You do not have to wait
+for it to deploy**, and you must not deploy on a bare IP either: the realm is `sslRequired: external`, so
+Keycloak answers `403 HTTPS required` to any non-local plain-HTTP caller. That is the setting working, and it
+is asserted as correct in [`click-through.md`](../docs/click-through.md).
+
+Use **sslip.io**. `www.203-0-113-5.sslip.io` and its three siblings resolve to your VPS through public
+wildcard DNS, so Let's Encrypt issues ordinary certificates for them and you get the entire real setup —
+four hostnames, real HTTPS, `sslRequired` untouched, the full click-through including Stripe test webhooks —
+on an IP you have and a domain you have not bought.
+
+When the domain arrives, the switch is:
+
+| | |
+|---|---|
+| `production.env` | The three URL variables, then `up -d` |
+| Keycloak admin console | The `mprelist-dashboard` client's redirect URIs and web origins |
+| Stripe dashboard | The webhook endpoint. `success_url` and the Portal return follow `MPRELIST_WEB_BASE_URL` on their own |
+| Every existing session | Refused. `KC_HOSTNAME` changes the `iss` in every token and the API validates it. Free at zero users, a forced re-sign-in at any other number |
+| `deployment.json` + a rebuild | **The one that has a deadline.** See below |
+
+**Do all of this before the extension is published.** The extension's API and issuer addresses are compiled
+in and cannot be served to it (ADR-0024: the config document is fetched *from* `baseUrl`, and sign-in
+precedes the first fetch of it). After publication, moving them is a Web Store review — and the `426` lever
+cannot even tell the stranded builds to update, because saying so requires reaching the API they can no
+longer find.
+
+## TLS, and the two things about Caddy that are silent
+
+Caddy is the fifth container. `api`, `web` and `keycloak` **publish no ports at all** and exist only on the
+compose network; Caddy alone binds 80 and 443. That replaces the loopback-binding interim this page used to
+carry, and it removes the mistake that interim invited — a port variable set to a public value by somebody
+who did not know why it was loopback. Hostinger's own firewall wants 80, 443 and SSH open and nothing else.
+
+- **`caddy_data` is a named volume.** The certificate *and the ACME account key* live in `/data`. Without it
+  every `up` starts Caddy with nothing to renew, so it requests a **new** certificate for the same four
+  names — Let's Encrypt's duplicate limit, 5 per 7 days, refilling one per 34 hours. Renewals never approach
+  that (six a year); the ordinary loop of getting a Caddyfile right does, and then so does every deploy.
+- **Iterate against staging.** Put `acme_ca https://acme-staging-v02.api.letsencrypt.org/directory` in the
+  global block until all four hostnames resolve, then remove it. Staging certificates are browser-untrusted,
+  which is the point: the plumbing is proven without spending a real issuance.
+
+`admin.<domain>` needs a **rewrite of `/` to `/admin`, preserving the query** — `apps/web` picks its surface
+by path and knows nothing about the host, so without it that hostname serves the public site. The query
+matters because a sign-in returns to the origin root with a `code` in it.
+
+## The memory budget
+
+Nothing in either compose file set a limit before T56, and unbounded JVMs size their heaps against the whole
+host: Keycloak's image runs a high `MaxRAMPercentage`, the API's JVM defaults to ≈25%, and on 4 GB the two
+can total more than there is. What you see when that happens is not an error — it is the OOM killer taking
+the largest process and `restart: unless-stopped` bringing it back, over and over.
+
+```
+postgres 512M   keycloak 1G   api 1G   web 64M   caddy 128M    ≈ 2.7 GB
 ```
 
-Keycloak's realm is `sslRequired: external` here — the local stack's `MPRELIST_SSL_REQUIRED` relaxation is
-deliberately absent — so it answers `403 HTTPS required` to anything reaching it over plain HTTP from a
-non-local address. That is the setting working, and it is why the proxy in front is not optional.
+plus a 2 GB swapfile; Hostinger's images ship with little or none. **`mem_limit` alone is a trap**: JVMs read
+their cgroup, so a 1 GB limit gives the API a 256 MB heap. It is given `-XX:MaxRAMPercentage=70` explicitly.
 
-## What the site is told, and what it was built with
+## Deploying, and what happens when it fails
 
-`apps/web` is one bundle and one `index.html` ([ADR-0017](../docs/adr/0017-web-surface-and-subscribing.md)),
-so two things are true of however it is served:
+```bash
+git tag v1.0.0 && git push origin v1.0.0
+```
 
-- **Every path is answered with that one file.** A host left on its default returns 404 for `/success`, which
-  is the page a customer lands on *after* the money has moved. `apps/web/nginx.conf.template` does it, and a
-  test in `apps/web`'s suite reads that file to make sure it goes on doing it.
-- **Where the API and the realm are is served, not built in.** nginx answers `/config.js` from its own
-  environment with a patch over the bundle's defaults, so one image runs anywhere and a wrong address costs a
-  restart. Empty means the defaults are right, which is what a development machine serves.
+That is the deploy. Actions runs the three test jobs, retags the digest, and connects over SSH with a key
+restricted in `authorized_keys` by `command="/usr/local/bin/mprelist-deploy"` — it can run that script and
+**cannot get a shell**. The script: `pg_dump` first, then `pull`, then `up -d --wait`. A failure fails the
+job loudly and stops.
 
-Both addresses are derived from `MPRELIST_KEYCLOAK_URL` and `MPRELIST_API_BASE_URL`, the same variables the
-API is given, so the admin corner cannot end up signing into one realm while the API trusts another.
+**There is no automatic rollback, and that is deliberate.** If a deploy applies `V8` and the API then fails
+its healthcheck, rolling the image back to the build that predates `V8` starts Flyway against a schema whose
+history holds a migration its classpath lacks — `validateOnMigrate` is on, so the rollback will not boot
+either. The recovery that works is a human reading the Flyway error.
+
+`production.env` never leaves the host. GitHub holds the SSH key and no credential of this product's at all
+(ADR-0020's "the environment file on the host is the boundary", now load-bearing): a compromised workflow can
+deploy an image and cannot read the live Stripe key.
 
 ## Afterwards
 
 ```bash
-docker compose --env-file production.env -f infra/docker-compose.prod.yml ps      # health of all four
+docker compose --env-file production.env -f infra/docker-compose.prod.yml ps      # health of all five
 docker compose --env-file production.env -f infra/docker-compose.prod.yml logs -f api
-docker compose --env-file production.env -f infra/docker-compose.prod.yml up -d --build --wait   # redeploy
 ```
 
-A redeploy rebuilds what changed and recreates only the containers whose configuration or image moved. The
-API's own settings — the client-config patch (#36), the pacing window, the Stripe secrets — are all read at
-start, so changing one is an edit to `production.env` and that command.
+The API's own settings — the client-config patch (#36), the pacing window, the Stripe secrets — are read at
+start, so changing one is an edit to `production.env` and `up -d`. No tag, no pipeline; nothing was rebuilt.
 
-**Back the database up before you need to.** Nothing here does it for you, and the volume is the only copy of
-every subscription this application knows about:
+**Backups, in three layers.** Each covers what the one below it cannot:
+
+| Layer | Recovery point | Covers |
+|---|---|---|
+| Hostinger's free weekly VPS backup, off the machine | up to 7 days | The VPS ceasing to exist |
+| A nightly `pg_dump` cron, 7 kept | ≤ 24 h | A bad migration, a bad admin action, `down -v` |
+| The deploy script's own dump, taken before it pulls | seconds | The migration it is about to run |
+
+The dumps are written to the **host filesystem, not into a volume** — that is what makes them survive
+`down -v`, which drops the realm and every account with it. Copying them to object storage (B2 and R2 are
+both free at this size) is the only layer that survives losing the Hostinger account, and is two lines in the
+same cron.
 
 ```bash
 docker compose --env-file production.env -f infra/docker-compose.prod.yml \
   exec -T postgres pg_dump -U mprelist mprelist | gzip > mprelist-$(date +%F).sql.gz
 ```
 
-**`down -v` on a deployed stack drops the realm too**, and the realm is imported once — so it takes every
-account with it, not only our own tables.
-
 ## What this deliberately is not
 
 - **One API instance.** The authorization grant is signed with an RSA key generated per process, so a second
-  instance signs with a second key and refuses the first one's `complete` calls. Making that key
-  configuration is the prerequisite for scaling out — `docs/enforcement-contract.md` § Resolved build
-  questions.
-- **No registry and no CI deploy.** The host builds. ADR-0020 says when that stops being the right trade.
-- **No secret manager.** `production.env` on the host is the boundary.
+  instance refuses the first's `complete` calls. Making that key configuration is the prerequisite for
+  scaling out — `docs/enforcement-contract.md` § Resolved build questions. It also rules out blue/green, which
+  is why the deploy above accepts downtime instead.
+- **No secret manager.** `production.env` on the host is the boundary, and ADR-0023 leans on it.
+- **No automated Web Store publish.** CI attaches the extension zip to the GitHub release so the shipped
+  bytes are CI's; uploading it is yours. Every release waits on a review of days to weeks regardless.

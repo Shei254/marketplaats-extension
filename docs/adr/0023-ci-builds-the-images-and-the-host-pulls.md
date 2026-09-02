@@ -90,16 +90,26 @@ from a working config:
   the identical four-name set. That is Let's Encrypt's *duplicate* limit — 5 per 7 days, refilling one every
   34 hours — and it is spent not by renewals (six a year, per certificate) but by the ordinary loop of
   getting a Caddyfile right, and thereafter by every deploy.
-- **Iterate against the staging CA.** `acme_ca https://acme-staging-v02.api.letsencrypt.org/directory` in the
-  global block while the four hostnames are being made to resolve; remove it once they do. Staging issues
+- **Iterate against the staging CA.** `acme_ca https://acme-staging-v02.api.letsencrypt.org/directory` while
+  the four hostnames are being made to resolve; back to production once they do. Staging issues
   browser-untrusted certificates, which is the point — it proves the plumbing without spending real
-  issuances.
+  issuances. *Built as `MPRELIST_ACME_CA` in `production.env` rather than as a line edited in the global
+  block: the Caddyfile is committed, and switching should not mean a modified file on the host.*
 
-**`admin.<domain>` needs a rewrite, because the bundle decides by path.** `apps/web/src/main.tsx` renders the
-admin surface on `isAdminPath(location.pathname)`, and knows nothing about the host — deliberately, since one
-image runs anywhere. So Caddy rewrites `/` to `/admin` on that hostname, preserving the query so that
-`returningFromSignIn` still recognises an arrival from Keycloak. See [ADR-0017](0017-web-surface-and-subscribing.md),
+**`admin.<domain>` needs the browser's address changed, because the bundle decides by path.**
+`apps/web/src/main.tsx` renders the admin surface on `isAdminPath(location.pathname)`, and knows nothing about
+the host — deliberately, since one image runs anywhere. See [ADR-0017](0017-web-surface-and-subscribing.md),
 whose "`www.` serves `/`, `admin.` serves `/admin`" was always a statement about a proxy.
+
+> **Corrected 2026-09-02, in T56.** This paragraph said *rewrite*, and a rewrite cannot do it. `rewrite` is
+> internal to the proxy: it changes which path Caddy asks nginx for and leaves the browser's address alone —
+> and nginx answers every path with the same `index.html` regardless, so the bundle would boot at
+> `location.pathname === "/"` and render the public site's not-found page. The rewrite would have been
+> *inert*, on both sides silently. What is built is `redir / /admin{uri}`: a 302 that reaches the address
+> bar, carrying the path and query of the request, so `/` becomes `/admin/` and `/?code=…&state=…` becomes
+> `/admin/?code=…&state=…` — which is what `returningFromSignIn` needs and what `isAdminPath` accepts,
+> trailing slash included. `DeployedStackTest` names the directive rather than the outcome, so that this
+> paragraph's original sentence cannot be applied back.
 
 ### Every service gets a memory limit, and both JVMs get a heap percentage
 ```

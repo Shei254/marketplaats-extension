@@ -1,21 +1,35 @@
-# The deployed stack — four containers on one host (T55, #86, and docs/adr/0020-deployment.md).
+# The deployed stack — five containers on one host (T55, #86, T56, #87, and docs/adr/0020-deployment.md,
+# amended by docs/adr/0023-ci-builds-the-images-and-the-host-pulls.md).
 #
 # Everything here is the same software as infra/docker-compose.yml and none of the same settings. What
 # changes between them is exactly what "deployed" means: no credential is committed, no port a browser has
-# no business reaching is published, Keycloak runs its production mode instead of `start-dev`, and both of
-# our own workspaces are images built from source rather than processes on a developer's machine.
+# no business reaching is published, Keycloak runs its production mode instead of `start-dev`, and our own
+# two workspaces are images CI built rather than processes on a developer's machine.
 #
 #   cp infra/production.env.example production.env    # once, on the host. Fill it in; it is gitignored
-#   docker compose --env-file production.env -f infra/docker-compose.prod.yml up -d --build --wait
+#   docker compose --env-file production.env -f infra/docker-compose.prod.yml up -d --wait
+#
+# **No `--build`, and no `build:` context anywhere below.** The host is 1 vCPU and 4 GB, and `apps/api`'s
+# image compiles this repository inside itself — a third JVM wanting a gigabyte, competing for it with the
+# two processes it is in the middle of replacing. So CI builds both images and pushes them to GHCR as
+# `sha-<commit>`, a version tag retags that same digest, and this file names tags. See ADR-0023, and
+# infra/deploy/mprelist-deploy, which is the script that pulls.
 #
 # Every `${…:?}` below is a variable with no default: compose refuses to start and names the one that is
-# missing, which is the only moment anybody is looking. The realm imports on **first start only** (T56, #87),
-# so `MPRELIST_REALM_DIR` and `MPRELIST_EXTENSION_ID` are the two whose cost is a `down -v` rather than a
-# restart.
+# missing, which is the only moment anybody is looking. The realm imports on **first start only**, so
+# `MPRELIST_REALM_DIR`, `MPRELIST_EXTENSION_ID` and the two site addresses the realm registers are the ones
+# whose cost is a `down -v` rather than a restart.
 #
-# **TLS is not here.** It terminates in front of this file — that is T56 (#87), together with the domain and
-# the production realm — and the three ports below are what it proxies to. Set them to `127.0.0.1:8080`-style
-# values once something is listening in front, so that nothing but the proxy can reach them.
+# **TLS terminates in the `caddy` service at the bottom, and nothing else binds a port.** The other four
+# exist only on this network. That is not the same as binding them to loopback, which is what this file used
+# to suggest: there is no longer a port variable that somebody can set to a public value.
+#
+# **Every service has a memory limit**, and the API has a heap percentage as well. Neither is tuning. On 4 GB
+# with no limits, Keycloak's image and the API's JVM each size a heap against the whole host and can total
+# more than there is; what an operator then sees is not an error but the OOM killer taking the largest
+# process and `restart: unless-stopped` bringing it back, forever. `mem_limit` alone would fix that and
+# introduce a quieter fault — a modern JVM reads its cgroup, so 1 GB becomes a 256 MB heap at the default
+# `MaxRAMPercentage` of ≈25%, which presents as latency rather than as a crash.
 
 name: mprelist-production
 
@@ -32,6 +46,10 @@ services:
       # Read by ./postgres/init-production/10-keycloak-database.sh, which runs once and creates the role
       # Keycloak signs in as. Not a second copy of the line below: this is where that role is *made*.
       MPRELIST_KEYCLOAK_DB_PASSWORD: ${MPRELIST_KEYCLOAK_DB_PASSWORD:?Keycloak's own database password}
+    # Shared buffers, the page cache Postgres keeps of its own, and every connection's work memory. The
+    # smallest number in the budget that is a real constraint rather than headroom: this is a subscription
+    # ledger, and the largest thing it reads is a `pg_dump`.
+    mem_limit: 512m
     volumes:
       - postgres-data:/var/lib/postgresql
       # Not ./postgres/init: that one writes a role whose password is the word `keycloak`, committed on
@@ -94,6 +112,12 @@ services:
       # the Web Store assigns a different id than our own key derives (T56, #87), and this is where the
       # production realm learns it — wrong here costs a `down -v`, so it has no default either.
       MPRELIST_EXTENSION_ID: ${MPRELIST_EXTENSION_ID:?the published extension id, imported into the realm once}
+      # And the two site origins the same import registers for `mprelist-dashboard` — the public site and the
+      # admin corner, which are one bundle at two hostnames (ADR-0017). They are here rather than in the realm
+      # file for the reason the extension id is: an export with one deployment's hostnames written into it is
+      # one deployment's export, committed to git. Same cost if they are wrong, and the same `down -v`.
+      MPRELIST_WEB_BASE_URL: ${MPRELIST_WEB_BASE_URL:?where the site is served from}
+      MPRELIST_ADMIN_BASE_URL: ${MPRELIST_ADMIN_BASE_URL:?where the admin corner is served from}
       # Mail, for the password reset a real user will need. Passed through with no value, exactly as the
       # local stack does it, so that the realm's own defaults apply where these are absent.
       MPRELIST_SMTP_HOST:
@@ -101,8 +125,12 @@ services:
       MPRELIST_SMTP_FROM:
       MPRELIST_SMTP_USER:
       MPRELIST_SMTP_PASSWORD:
-    ports:
-      - "${MPRELIST_KEYCLOAK_PORT:-8081}:8080"
+    # Its own image runs a high `MaxRAMPercentage`, so this limit is what the heap is sized against rather
+    # than the host's 4 GB. No flag of ours is needed beside it, unlike the API below.
+    mem_limit: 1g
+    # **No `ports`.** Reached at `auth.<domain>` through `caddy`, which is the only service here that binds
+    # anything. A published port would also be a plain-HTTP one, which this realm answers `403 HTTPS required`
+    # to from any non-local address — correctly.
     healthcheck:
       test:
         - CMD-SHELL
@@ -116,8 +144,11 @@ services:
       start_period: 15s
 
   api:
-    build:
-      context: ../apps/api
+    # Built by CI and pulled, never built here (ADR-0023). The tag is `sha-<commit>` for what `master`
+    # produced and `v1.0.0` for a release, and a release tag is the *same digest* CI tested with a second name
+    # on it — `docker buildx imagetools create` rather than a second build of the same source, which lock
+    # files narrow but do not guarantee.
+    image: ${MPRELIST_IMAGE_REPOSITORY:?where CI pushes the two images, e.g. ghcr.io/owner/repo}/api:${MPRELIST_IMAGE_TAG:?the release tag to run, which infra/deploy/mprelist-deploy writes}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -134,9 +165,13 @@ services:
       # rather than being a variable that can disagree with the export T56 imports.
       SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: ${MPRELIST_KEYCLOAK_URL:?the public https:// address Keycloak is served at}/realms/mprelist
       # Which browser origins may call this API. The extension's is a `chrome-extension://` origin built from
-      # the published id; the site's is the site.
+      # the published id; the site's is **two**, because the admin corner is served from a hostname of its own
+      # (T56, #87, ADR-0017) and an origin is a hostname. Comma-separated, which is how `allowed-origins`
+      # reads it — and both are needed: it is the admin corner that calls this API, and `www.` is what
+      # Checkout sends a browser back to. One without the other is a working payment flow beside an admin
+      # screen no browser will call, which is a pair of symptoms nobody would connect.
       MPRELIST_EXTENSION_ID: ${MPRELIST_EXTENSION_ID:?the published extension id, imported into the realm once}
-      MPRELIST_WEB_ORIGIN: ${MPRELIST_WEB_BASE_URL:?where the site is served from}
+      MPRELIST_WEB_ORIGIN: ${MPRELIST_WEB_BASE_URL:?where the site is served from},${MPRELIST_ADMIN_BASE_URL:?where the admin corner is served from}
       # And where a browser is sent after Checkout and after the Customer Portal. The same value as the
       # origin above because the site is served at the root of its own host; two settings because one is an
       # origin and the other is a URL, and `CrossOriginTest` holds them together.
@@ -158,8 +193,14 @@ services:
       # Unset rather than empty where nobody has set it: an empty duration is not a value this API can read,
       # and `:-` with nothing after it would hand it one. The application.yml default is what fills the gap.
       MPRELIST_MINIMUM_INTERVAL: ${MPRELIST_MINIMUM_INTERVAL:-5s}
-    ports:
-      - "${MPRELIST_API_PORT:-8080}:8080"
+      # **The limit below is not enough on its own, and it fails in the direction that looks like success.**
+      # A modern JVM reads its cgroup, so `mem_limit: 1g` correctly bounds this container — to a 256 MB heap,
+      # a quarter of its allowance, because ≈25% is the default `MaxRAMPercentage`. The stack would be
+      # properly bounded and this application would collect garbage far harder than it should, which presents
+      # as latency rather than as a crash: the harder of the two to trace back to a compose file.
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=70
+    mem_limit: 1g
+    # **No `ports`.** Reached at `api.<domain>` through `caddy`.
     healthcheck:
       # A 401 from a route that exists, which is a stronger statement than a listening port: it says the
       # application answered *and* that the resource server is in front of it. Anything else — a connection
@@ -174,10 +215,9 @@ services:
       start_period: 30s
 
   web:
-    build:
-      # The repository root, because this workspace builds against `packages/` and the root `brand.json`.
-      context: ..
-      dockerfile: apps/web/Dockerfile
+    # As above: CI's image, pulled by tag. The build context that used to be here was the repository root,
+    # which is the other reason this host compiles nothing — it would need a checkout as well as a toolchain.
+    image: ${MPRELIST_IMAGE_REPOSITORY:?where CI pushes the two images, e.g. ghcr.io/owner/repo}/web:${MPRELIST_IMAGE_TAG:?the release tag to run, which infra/deploy/mprelist-deploy writes}
     restart: unless-stopped
     environment:
       # What the bundle is *told*, rather than what it was built with — served as `/config.js` and read as a
@@ -185,8 +225,12 @@ services:
       # corner cannot end up signing into one realm while the API trusts another.
       MPRELIST_WEB_ISSUER: ${MPRELIST_KEYCLOAK_URL:?the public https:// address Keycloak is served at}/realms/mprelist
       MPRELIST_WEB_API_BASE_URL: ${MPRELIST_API_BASE_URL:?where this API is served from}
-    ports:
-      - "${MPRELIST_WEB_PORT:-80}:80"
+    # nginx and a directory of static files. The smallest number here by an order of magnitude, and the one
+    # most likely to be read as a mistake: it is not, there is no runtime in this container.
+    mem_limit: 64m
+    # **No `ports`.** Reached at both `www.` and `admin.<domain>` through `caddy`, which redirects the second
+    # of those to `/admin` — this bundle picks its surface by path and knows nothing about the host, so the
+    # browser's address is what has to change and an internal rewrite would not do it.
     healthcheck:
       # `/success` rather than `/`: it is a path no file matches, so what this proves is the fallback that
       # T55 exists to get right — the page a customer lands on after the money has moved.
@@ -196,5 +240,68 @@ services:
       retries: 10
       start_period: 5s
 
+  caddy:
+    # The fifth container, and the whole of what the internet can reach (T56, #87, ADR-0023). Its
+    # configuration is ./caddy/Caddyfile, which is where the four hostnames are, and the redirect that makes
+    # `admin.` serve the admin surface.
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    # Ordering only — **deliberately not `condition: service_healthy`**, which was the first thing written
+    # here and is worse than what it prevents. It would mean an unhealthy API keeps the one container that
+    # binds 80 and 443 from starting at all: a bad backend deploy would take the marketing site down with it
+    # and stop Let's Encrypt from reaching the ACME challenge, which is how a one-container outage becomes an
+    # expired certificate. And it buys nothing, because `up -d --wait` waits on every service's healthcheck
+    # regardless — a failing API already fails the deploy, with or without this.
+    depends_on:
+      - api
+      - web
+      - keycloak
+    environment:
+      # Read by the Caddyfile as `{$…}`. The same four addresses the API validates tokens against and the
+      # realm registers, which is why they are variables in one file and read in several.
+      MPRELIST_WEB_BASE_URL: ${MPRELIST_WEB_BASE_URL:?where the site is served from}
+      MPRELIST_ADMIN_BASE_URL: ${MPRELIST_ADMIN_BASE_URL:?where the admin corner is served from}
+      MPRELIST_API_BASE_URL: ${MPRELIST_API_BASE_URL:?where this API is served from}
+      MPRELIST_KEYCLOAK_URL: ${MPRELIST_KEYCLOAK_URL:?the public https:// address Keycloak is served at}
+      # The bare domain, which redirects to the site. Required rather than optional: sslip.io gives you an
+      # apex as readily as it gives you the four names, so there is no deployment that has no answer for this.
+      MPRELIST_APEX_URL: ${MPRELIST_APEX_URL:?the bare domain, which redirects to the site}
+      # Where Let's Encrypt writes when a certificate is about to expire and nothing has renewed it.
+      MPRELIST_ACME_EMAIL: ${MPRELIST_ACME_EMAIL:?the address Let us Encrypt sends expiry warnings to}
+      # **Staging while the hostnames are being made to resolve, production once they do.** Both URLs are in
+      # production.env.example. Getting a Caddyfile right is what spends Let's Encrypt's duplicate limit —
+      # 5 per 7 days for an identical name set — not renewals, which are six a year.
+      MPRELIST_ACME_CA: ${MPRELIST_ACME_CA:?the ACME directory URL, staging until the four hostnames resolve}
+    ports:
+      - "80:80"
+      - "443:443"
+      # HTTP/3. Same certificate, same routes; without it a browser that offers QUIC silently falls back,
+      # which is fine and is also a thing nobody would ever notice was happening.
+      - "443:443/udp"
+    volumes:
+      - type: bind
+        source: ./caddy/Caddyfile
+        target: /etc/caddy/Caddyfile
+        read_only: true
+      # **A named volume, and it is load-bearing.** The certificate *and the ACME account key* live in /data.
+      # Without this, every `up` starts Caddy with nothing to renew, so it asks for a **new** certificate for
+      # the identical four-name set — which is the duplicate limit above, spent by every deploy rather than by
+      # any renewal.
+      - caddy_data:/data
+      - caddy_config:/config
+    mem_limit: 128m
+    healthcheck:
+      # Caddy's own admin API on 2019, which is loopback-only inside the container. A listening 443 would say
+      # nothing about whether a certificate was ever obtained; this says the config loaded.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:2019/config/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
 volumes:
   postgres-data:
+  # Certificates and the ACME account key. Losing it is not an outage — Caddy issues again — it is five
+  # issuances a week and then a rate limit, on the day somebody is already debugging something else.
+  caddy_data:
+  caddy_config:

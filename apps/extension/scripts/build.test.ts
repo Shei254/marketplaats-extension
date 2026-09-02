@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { readBrand } from "./brand.mjs";
+import { LOCAL_STACK, readDeployment } from "./deployment.mjs";
 import { extensionIdFromKey } from "./extension-key.mjs";
 import { DEV_HOOK_NAMES } from "../src/background/dev-hooks";
 import { installChromeStub, type ChromeStub } from "../src/testing/chrome-stub";
@@ -188,6 +189,40 @@ describe("extension build", () => {
     expect(manifest.version).toMatch(/^\d+(\.\d+){0,3}$/);
     expect(await readFile(join(production.dir, "background.js"), "utf8"))
       .toContain(`extension/${manifest.version}`);
+  });
+
+  /**
+   * The two addresses are compiled in (T56, #87, ADR-0024), so — exactly as with
+   * the brand — the emitted bundle is the only honest place to assert it.
+   * `scripts/deployment.test.ts` proves the resolver, and a resolver nothing
+   * called would pass every one of those tests while `npm run build` went on
+   * emitting an extension that talks to the machine it was built on.
+   */
+  it("compiles deployment.json's addresses into the production bundles", async () => {
+    const deployment = await readDeployment();
+
+    expect(production.bundles["background.js"]).toContain(deployment.apiBaseUrl);
+    expect(production.bundles["background.js"]).toContain(deployment.issuer);
+  });
+
+  it("and leaves no address of the build machine's own in any of them", () => {
+    // The failure this ticket exists to remove, and it is silent in both
+    // directions: a build carrying localhost works perfectly on the machine that
+    // made it, and is inert on every machine that installs it from the Web Store.
+    // Asserted over every emitted bundle rather than the two configs, because
+    // what ships is the bundle.
+    for (const [name, source] of Object.entries(production.bundles)) {
+      expect(source, `${name} still points at the build machine`).not.toContain("localhost");
+      expect(source, `${name} still points at the build machine`).not.toContain("127.0.0.1");
+    }
+  });
+
+  it("while the dev build points at the local stack, which is the whole split", () => {
+    // `npm run build:dev` is the build loaded unpacked against `infra`'s compose
+    // stack (docs/live-testing.md). If both builds carried the same addresses,
+    // one of the two workflows would be broken and nothing here would say which.
+    expect(dev.bundles["background.js"]).toContain(LOCAL_STACK.apiBaseUrl);
+    expect(dev.bundles["background.js"]).toContain(LOCAL_STACK.issuer);
   });
 
   it("leaves no unresolved token in anything it emits", async () => {

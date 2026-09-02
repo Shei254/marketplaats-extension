@@ -375,49 +375,57 @@ if the domain has not arrived — the script is identical either way, which is t
    *Expect:* the pages, not a 404. **This is the step this ticket exists for**: one build and one
    `index.html`, so a host left on its default breaks the page a customer lands on after the money has moved
    — and the privacy URL is the one the Web Store listing publishes (T58, #89).
-4. `curl https://www.<domain>/config.js`.
+4. Open `https://admin.<domain>/` and watch the address bar.
+   *Expect:* it becomes `https://admin.<domain>/admin/`, and the admin corner renders rather than the public
+   site's not-found page. **A redirect and not an internal rewrite is the whole of this step**: nginx answers
+   every path with the same `index.html`, and the surface is chosen in the browser from `location.pathname`,
+   so a proxy rewrite would leave that at `/` and change nothing while looking correct
+   ([ADR-0023](adr/0023-ci-builds-the-images-and-the-host-pulls.md), corrected 2026-09-02). Then sign in and
+   confirm the `?code=…` survives the redirect.
+5. `curl https://www.<domain>/config.js`.
    *Expect:* the two addresses from `production.env`, not `localhost`. This is what the admin corner signs in
    and calls the API with; empty values here would mean it had fallen back to the addresses the bundle was
    built with.
-5. Sign in at `https://admin.<domain>/admin` as a realm admin and change a tier's quota.
+6. Sign in at `https://admin.<domain>/admin` as a realm admin and change a tier's quota.
    *Expect:* the sign-in leaves for the deployed Keycloak and comes back signed in, and the save succeeds.
    A `401` on the save with a successful sign-in is the API trusting a different issuer than the browser
-   used — check that step 4's issuer and `SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI` are the same
+   used — check that step 5's issuer and `SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI` are the same
    address.
-6. From your laptop, `psql postgres://mprelist@<host>:5432/mprelist`.
+7. From your laptop, `psql postgres://mprelist@<host>:5432/mprelist`.
    *Expect:* it cannot connect. The database publishes no port; the two services that need it are on the
    compose network.
-7. Reach Keycloak over plain `http://` from off the host — `curl -H 'Host: auth.<domain>' http://<ip>/`.
+8. Reach Keycloak over plain `http://` from off the host — `curl -H 'Host: auth.<domain>' http://<ip>/`.
    *Expect:* Caddy redirects to `https://`, and reaching the container directly is refused because it
    publishes no port at all. Before Caddy existed this step expected
    `403 {"error_description":"HTTPS required"}` from Keycloak itself, and that answer is still what the realm
    would give: it imports as `sslRequired: external` because this compose file, unlike the local one, never
    relaxes it. Two defences now, and the outer one is the one that should fire.
-8. Set `MPRELIST_CLIENT_CONFIG` in `production.env` to a nonsense `deleteAd` path and re-run the `up`
+9. Set `MPRELIST_CLIENT_CONFIG` in `production.env` to a nonsense `deleteAd` path and re-run the `up`
    command; then `curl` `/api/client-config` with a token.
    *Expect:* the patch is served. The night Marktplaats moves something, this is the whole fix and it is a
    restart of one container — the ADR-0013 lever, now on a stack a user's extension can actually reach.
-9. `docker compose … exec -T postgres pg_dump -U mprelist mprelist | gzip > mprelist-$(date +%F).sql.gz`.
+10. `docker compose … exec -T postgres pg_dump -U mprelist mprelist | gzip > mprelist-$(date +%F).sql.gz`.
    *Expect:* a file with a schema in it. Nothing backs this up for you and the volume is the only copy of
    every subscription this application knows about.
 
-10. Build the extension with `deployment.json` naming the deployed addresses, load it unpacked, and sign in.
+11. Build the extension with `deployment.json` naming the deployed addresses, load it unpacked, and sign in.
     *Expect:* the sign-in leaves for the deployed Keycloak and the popup renders a plan. Then edit one
     address to a name that does not resolve and rebuild.
     *Expect:* the popup's "unavailable" state, and **not** a build that silently falls back to `localhost` —
     an unresolved address fails the build ([ADR-0024](adr/0024-the-extension-addresses-are-built-in.md), the
     guard `brand.json` established in T48). This is what the note below used to say could not be checked.
-11. Push a tag while one test job is failing.
-    *Expect:* no deploy. The deploy job `needs:` all three, which is the only `needs:` in the workflow and
-    ADR-0023 says why an *act* may wait where a *verdict* may not. Then re-run it with the
+12. Push a tag while one test job is failing.
+    *Expect:* no deploy. The deploy job `needs:` all three — one of only two `needs:` in the workflow, the
+    other being the release that attaches the extension zip — and ADR-0023 says why an *act* may wait where a
+    *verdict* may not. Then re-run it with the
     `workflow_dispatch` override and confirm the override is visible in the run's own log.
-12. Kill the API container and watch it come back; then check `docker stats`.
+13. Kill the API container and watch it come back; then check `docker stats`.
     *Expect:* every container inside its limit, and the API's heap sized from `MaxRAMPercentage=70` rather
     than from the JVM's 25% default. An unexplained restart loop here is the OOM killer, not the application
     — which is the failure mode the budget exists to make legible.
 
 **What this does not check:** that `deployment.json` and `production.env` agree. Nothing can — the second is
-never committed — so step 10 is the only place a mismatch surfaces, and it surfaces as a real sign-in against
+never committed — so step 11 is the only place a mismatch surfaces, and it surfaces as a real sign-in against
 a real realm. **And what it deliberately does not check yet:** the *published* extension, which is T58
 (#89)'s, and which cannot be walked until the Web Store has assigned an id — see
 [`infra/README.md` § Before the first `up`](../infra/README.md#before-the-first-up) for why that ordering

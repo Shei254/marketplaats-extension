@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+#
+# A dump of the deployed database, and the only code in this repository that takes one (T56, #87).
+#
+# **One implementation, two callers**, which is why it takes a family rather than being two scripts:
+# `mprelist-deploy` calls it as `pre` before it pulls, and root's crontab calls it with no argument at all.
+# The alternative was a second copy of the pipeline below beside a second copy of these paths, and the thing
+# that would have drifted between them is the `.partial` — a truncated gzip is the worst possible thing to
+# find in a backup directory, because it is only ever discovered by the person restoring it.
+#
+#   17 3 * * *  /usr/local/bin/mprelist-backup >>/var/log/mprelist-backup.log 2>&1
+#
+# Three layers, of which this is the middle one — each covers what the one below it cannot:
+#
+#   Hostinger's free weekly VPS backup, off the machine   up to 7 days   the VPS ceasing to exist
+#   this, nightly, 7 kept                                 ≤ 24 h         a bad migration, a bad admin action, `down -v`
+#   this, called `pre` by a deploy                        seconds        the migration that deploy is about to run
+#
+# **Written to the host filesystem and not into a volume**, which is what makes these survive a `down -v` —
+# the command that drops the realm and every account with it. Copying $backup_dir to object storage is the
+# only layer that would also survive losing the Hostinger account, and it is two lines added at the end.
+
+set -euo pipefail
+
+readonly deploy_dir="${MPRELIST_DEPLOY_DIR:-/opt/mprelist}"
+readonly env_file="${MPRELIST_ENV_FILE:-$deploy_dir/production.env}"
+readonly compose_file="$deploy_dir/infra/docker-compose.prod.yml"
+readonly backup_dir="${MPRELIST_BACKUP_DIR:-/var/backups/mprelist}"
+readonly keep="${MPRELIST_BACKUP_KEEP:-7}"
+
+# `nightly` unless a caller says otherwise, and the note after it is free text — a deploy passes the tag it
+# is about to put on. The family is what pruning counts, so the two callers never delete each other's.
+readonly family="${1:-nightly}"
+readonly note="${2:-}"
+
+fail() {
+	echo "mprelist-backup: $1" >&2
+	exit 1
+}
+
+[[ "$family" =~ ^[a-z]+$ ]] || fail "\`$family\` is not a backup family. Expected a bare lowercase word."
+[[ "$keep" =~ ^[1-9][0-9]*$ ]] || fail "MPRELIST_BACKUP_KEEP is \`$keep\`. It must be at least 1 — pruning to zero would delete the dump just taken."
+[[ -f "$compose_file" ]] || fail "no $compose_file. Clone the repository to $deploy_dir first."
+[[ -f "$env_file" ]] || fail "no $env_file. Copy infra/production.env.example there and fill it in."
+
+compose() {
+	docker compose --env-file "$env_file" -f "$compose_file" "$@"
+}
+
+# Nothing to dump is not a failure, and it is the ordinary state exactly once: the first deploy, before there
+# is a database at all. Reported rather than silent, because on any other day it is the interesting line in
+# the log.
+if [[ -z "$(compose ps --status running --quiet postgres 2>/dev/null || true)" ]]; then
+	echo "$(date -uIseconds) no running database to dump"
+	exit 0
+fi
+
+mkdir -p "$backup_dir"
+
+# The timestamp comes directly after the family, so a plain name sort is chronological within one — which is
+# what the prune below depends on, and what putting the note first would quietly break the day `v1.0.10`
+# sorted before `v1.0.9`.
+dump="$backup_dir/$family-$(date -u +%Y%m%dT%H%M%SZ)${note:+-$note}.sql.gz"
+
+# Through `.partial` and then `mv`, so a dump interrupted halfway — the host rebooting, the disk filling — is
+# never left looking like one of the ones this keeps.
+compose exec -T postgres pg_dump -U mprelist mprelist | gzip >"$dump.partial"
+mv "$dump.partial" "$dump"
+echo "$(date -uIseconds) wrote $dump ($(du -h "$dump" | cut -f1))"
+
+# Prune this family only, so a week of deploys cannot age out the nightly dumps. By name rather than by
+# `find -mtime`, so that a week when the cron did not run does not delete the last dumps that exist — the
+# rule is "keep the newest $keep", not "keep $keep days", and the two differ exactly when something is wrong.
+#
+# shellcheck disable=SC2012  # `ls` is unsafe for arbitrary filenames; every name here was written above.
+mapfile -t stale < <(ls -1 "$backup_dir/$family-"*.sql.gz 2>/dev/null | head -n "-$keep")
+for old in "${stale[@]}"; do
+	echo "$(date -uIseconds) pruning $old"
+	rm -f "$old"
+done

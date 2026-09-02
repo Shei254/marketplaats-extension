@@ -62,13 +62,14 @@ is shared, so a broken extension test has no business withholding the backend's 
 The third one exists because nothing else ever reads those two files, and the moment they are first needed is
 the moment somebody is trying to deploy.
 
-**A fourth job deploys, and it is the one thing here that does wait.** Pushing a version tag runs it; it
-`needs:` all three above ([ADR-0023](docs/adr/0023-ci-builds-the-images-and-the-host-pulls.md)). That is not
-a contradiction of the rule: the rule is about **verdicts**, and neither suite may withhold the other's
-*result*. A deploy is an **act** — one that puts both images on one host and runs a Flyway migration against
-the only copy of every subscription this product knows about — and gating an act on evidence is a different
-thing. A `workflow_dispatch` input carries the hotfix override, so that path exists and is logged rather than
-being improvised into an SSH session.
+**Two more jobs act, and they are the ones that do wait.** Pushing a version tag runs both, and both
+`needs:` all three above ([ADR-0023](docs/adr/0023-ci-builds-the-images-and-the-host-pulls.md)): `deploy`
+retags the digest `master` already built and hands it to the host over a one-command SSH key, and `release`
+attaches the extension zip to the GitHub release. That is not a contradiction of the rule: the rule is about
+**verdicts**, and neither suite may withhold the other's *result*. A deploy is an **act** — one that puts
+both images on one host and runs a Flyway migration against the only copy of every subscription this product
+knows about — and gating an act on evidence is a different thing. A `workflow_dispatch` input carries the
+hotfix override, so that path exists and is logged rather than being improvised into an SSH session.
 
 The Node version is pinned in [`.nvmrc`](.nvmrc) rather than in the workflow, so `nvm use` and CI read one
 file instead of two copies; Java is 21, which is the toolchain `apps/api/build.gradle.kts` already states.
@@ -193,9 +194,11 @@ that works, with a published password on it. Here every credential and every add
 default, so a half-filled `production.env` is a refusal naming what is missing rather than a guess. It never
 leaves the host: GitHub holds an SSH key restricted to one script, and no credential of this product's.
 
-The domain and the production realm are T56 (#87). You do not have to wait for the domain to deploy — the
-realm is `sslRequired: external`, so a bare IP is refused rather than served, and **sslip.io** gives you four
-real hostnames with real certificates on the IP you already have. What you *must* do before publishing the
+The domain is T56 (#87)'s last open item; the production realm it imports is
+[`infra/keycloak-production`](infra/keycloak-production/), and `ProductionRealmTest` starts a real Keycloak on
+it, because that import happens once and undoing it is a `down -v`. You do not have to wait for the domain
+to deploy — the realm is `sslRequired: external`, so a bare IP is refused rather than served, and
+**sslip.io** gives you four real hostnames with real certificates on the IP you already have. What you *must* do before publishing the
 extension is settle the addresses, because they are compiled into it and cannot be served to it
 ([ADR-0024](docs/adr/0024-the-extension-addresses-are-built-in.md)). The runbook, the ordering before the
 first `up`, the memory budget and the three layers of backup are in

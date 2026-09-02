@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+#
+# The whole of a deploy (T56, #87, docs/adr/0023-ci-builds-the-images-and-the-host-pulls.md).
+#
+# Installed on the host as /usr/local/bin/mprelist-deploy and named in `authorized_keys` as the forced
+# command for the key GitHub Actions connects with:
+#
+#   command="/usr/local/bin/mprelist-deploy",no-agent-forwarding,no-port-forwarding,no-pty ssh-ed25519 AAAA…
+#
+# So a stolen key deploys and **cannot obtain a shell**. What it is allowed to say arrives in
+# SSH_ORIGINAL_COMMAND and is checked below against one pattern, because that string ends up inside an image
+# reference and inside `production.env`. **This is the boundary**; the workflow's own check on the same value
+# is a convenience that keeps a typo out of `imagetools`, and is not what makes this safe.
+#
+# **This host compiles nothing and pulls everything.** CI built both images and pushed them to GHCR; a
+# version tag is the *same digest* CI tested with a second name on it. All that happens here is a dump, a
+# pull, and an `up`.
+#
+# **There is no rollback, and that is deliberate.** If a deploy applies a migration and the new API then
+# fails its healthcheck, rolling the image back starts Flyway against a schema whose history holds a
+# migration its classpath lacks — `validateOnMigrate` is on by default, so the rollback refuses to boot as
+# well, and one container's outage becomes two attempts while somebody watches. The dump taken first is what
+# recovery is built on instead.
+#
+# **What this does not do is update the checkout it runs in.** The compose file, the Caddyfile and the
+# production realm live in `$MPRELIST_DEPLOY_DIR`, and keeping that current is the operator's step — a `git
+# pull` on the host, before tagging. Doing it here would mean a second credential (a repository read key
+# beside the read-only GHCR token), which ADR-0023 deliberately does not put on this machine. The cost is
+# real and is written down in infra/README.md § Deploying: a release that changes anything under `infra/`
+# needs that pull first, or new images run against an old compose file.
+
+set -euo pipefail
+
+# Where the checkout and its environment file are. Overridable so that a dry run somewhere else is possible,
+# but every default is the layout infra/README.md describes.
+readonly deploy_dir="${MPRELIST_DEPLOY_DIR:-/opt/mprelist}"
+readonly env_file="${MPRELIST_ENV_FILE:-$deploy_dir/production.env}"
+readonly compose_file="$deploy_dir/infra/docker-compose.prod.yml"
+
+# `v1.2.3`, optionally with a pre-release suffix, or the `sha-<commit>` every green push to master produces.
+# Anything else is refused rather than interpolated: this value is written into an env file and then into an
+# image reference, and it arrives over the network.
+readonly TAG_PATTERN='^(v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?|sha-[0-9a-f]{7,40})$'
+
+fail() {
+	echo "mprelist-deploy: $1" >&2
+	exit 1
+}
+
+# What the caller asked for. Over SSH the forced command replaces the requested one, which arrives here
+# instead; run by hand on the host it is an ordinary argument.
+requested="${SSH_ORIGINAL_COMMAND:-${1:-}}"
+[[ -n "$requested" ]] || fail "no tag given. Usage: mprelist-deploy <v1.2.3|sha-abc1234>"
+[[ "$requested" =~ $TAG_PATTERN ]] || fail "\`$requested\` is not a tag this deploys. Expected v1.2.3 or sha-<commit>."
+readonly tag="$requested"
+
+[[ -f "$compose_file" ]] || fail "no $compose_file. Clone the repository to $deploy_dir first."
+[[ -f "$env_file" ]] || fail "no $env_file. Copy infra/production.env.example there and fill it in."
+
+# Beside this script when both are run out of the repository, and on PATH once they are installed. Resolved
+# rather than assumed, so a dry run from a checkout exercises the same code the host will.
+backup="$(dirname "$(readlink -f "$0")")/mprelist-backup"
+[[ -x "$backup" ]] || backup="$(command -v mprelist-backup || true)"
+[[ -n "$backup" && -x "$backup" ]] || fail "cannot find mprelist-backup. Both scripts install together."
+
+compose() {
+	docker compose --env-file "$env_file" -f "$compose_file" "$@"
+}
+
+echo "==> Deploying $tag"
+
+# **The dump comes first**, so that every deploy leaves a restore point from seconds before the migration
+# that might break it. `set -e` is what makes a dump that failed stop the deploy, which is the whole reason
+# it is first.
+echo "==> Dumping"
+"$backup" pre "$tag"
+
+# **The pull comes before the write**, and the order is the point: the tag is handed to compose through the
+# environment, where it wins over `--env-file`, so a tag that does not exist in the registry fails here with
+# `production.env` still naming the build that is running. Written first, a bad tag would leave the file
+# pointing at an image nothing can pull — and the next `up -d`, by anybody, for any reason, would fail with
+# no deploy in progress to explain it.
+echo "==> Pulling"
+MPRELIST_IMAGE_TAG="$tag" compose pull
+
+# The one line in `production.env` that a deploy writes. Through a temporary file in the same directory and
+# then `mv`, so an interrupted write cannot leave the stack with half a tag — and the **mode is carried over
+# first**, because this file holds every password the deployment has and `mktemp` alone would be right only
+# by accident. Ownership is carried over where the caller is allowed to; where it is not, the caller already
+# owns the file, which is the only case in which this runs at all.
+echo "==> Setting MPRELIST_IMAGE_TAG=$tag"
+grep -q '^MPRELIST_IMAGE_TAG=' "$env_file" \
+	|| fail "$env_file has no MPRELIST_IMAGE_TAG line to set. Copy the current production.env.example."
+updated="$(mktemp "$env_file.XXXXXX")"
+trap 'rm -f "$updated"' EXIT
+chmod --reference="$env_file" "$updated"
+chown --reference="$env_file" "$updated" 2>/dev/null || true
+sed "s|^MPRELIST_IMAGE_TAG=.*|MPRELIST_IMAGE_TAG=$tag|" "$env_file" >"$updated"
+mv "$updated" "$env_file"
+trap - EXIT
+
+# `--wait` holds until every healthcheck passes, and `--wait-timeout` is what turns a stack that never comes
+# up into a failed deploy rather than a job that hangs until Actions kills it with no verdict.
+echo "==> Starting"
+compose up -d --wait --wait-timeout 300
+
+echo "==> Running $tag"
+compose ps

@@ -1,0 +1,73 @@
+# The fifth container, and the only one that binds a port on the host (T56, #87,
+# docs/adr/0023-ci-builds-the-images-and-the-host-pulls.md).
+#
+# **The point is not the certificates, it is the ports.** `api`, `web` and `keycloak` publish nothing at all
+# and exist only on the compose network; this file is the whole of what the internet can reach. That is
+# strictly stronger than binding them to loopback, which is what infra/README.md carried before it, because
+# it removes the mistake that arrangement invited — a port variable set to a public value by somebody who did
+# not know why it was loopback.
+#
+# Every address below comes from `production.env` rather than being written here, so one deployment's
+# hostnames are not frozen into git. The same four values are what the API validates tokens against and what
+# the realm registers, which is why they are variables in one place and read in four.
+{
+	# Let's Encrypt writes here when a certificate is about to expire and nothing renewed it. The one
+	# notification in this stack that arrives without anybody building it.
+	email {$MPRELIST_ACME_EMAIL}
+
+	# **Point this at staging while the four hostnames are being made to resolve.**
+	# `production.env.example` carries both URLs, one of them commented. Staging issues
+	# browser-untrusted certificates, which is exactly the point: it proves the plumbing without
+	# spending a real issuance against the *duplicate* limit — 5 per 7 days for an identical name
+	# set, refilling one every 34 hours. Renewals never approach that. The loop of getting this file
+	# right does.
+	acme_ca {$MPRELIST_ACME_CA}
+}
+
+# The public site. One nginx image serves both surfaces; which one it draws is a matter of path.
+{$MPRELIST_WEB_BASE_URL} {
+	encode zstd gzip
+	reverse_proxy web:80
+}
+
+# The admin corner — the same image, reached at a hostname whose root has to become `/admin`.
+#
+# `apps/web/src/main.tsx` picks its surface with `isAdminPath(location.pathname)` and knows nothing about the
+# host, deliberately, since one image runs anywhere. So ADR-0017's "`admin.` serves `/admin`" was always a
+# claim about a proxy, and this is the proxy.
+#
+# **A redirect, and not the `rewrite` ADR-0023 specifies — that one cannot work, and it fails silently.**
+# `rewrite` is internal: it changes which path this proxy asks nginx for and leaves the browser's address
+# alone. But nginx answers every path with the same `index.html`, and the surface is then chosen *in the
+# browser* from `location.pathname` — which would still be `/`. So a rewrite changes nothing at all, and
+# `admin.<domain>` serves the public site's not-found page. A redirect is what reaches the address bar.
+#
+# **The query rides along**, which is not decoration: a sign-in returns to the origin root carrying `code`
+# and `state`, and `returningFromSignIn` recognises an arrival from Keycloak by exactly that. `{uri}` is the
+# path *and* query of the request, and the matched path is exactly `/` — so the target is `/admin/` or
+# `/admin/?code=…`, and `isAdminPath` accepts the trailing slash on purpose. `/` is an exact match, so
+# `/assets/…`, `/config.js` and every other path pass through untouched.
+{$MPRELIST_ADMIN_BASE_URL} {
+	encode zstd gzip
+	redir / /admin{uri}
+	reverse_proxy web:80
+}
+
+{$MPRELIST_API_BASE_URL} {
+	reverse_proxy api:8080
+}
+
+# Keycloak, which has been waiting for this since T55: the compose file sets `KC_PROXY_HEADERS: xforwarded`
+# and `KC_HTTP_ENABLED`, and both are inert until something in front terminates TLS and sends
+# `X-Forwarded-Proto`. Caddy sends it by default. Without the pair, every absolute URL in a sign-in comes
+# back `http://` and the realm's own `sslRequired: external` then refuses it.
+{$MPRELIST_KEYCLOAK_URL} {
+	reverse_proxy keycloak:8080
+}
+
+# The apex, which serves nothing and exists so that a typed domain lands somewhere. A permanent redirect
+# rather than a proxy, because two hostnames serving one site is two hostnames to register everywhere else —
+# in the realm's web origins, in the API's allowed origin, in Stripe's return URLs.
+{$MPRELIST_APEX_URL} {
+	redir {$MPRELIST_WEB_BASE_URL}{uri} permanent
+}

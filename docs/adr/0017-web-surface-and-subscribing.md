@@ -89,9 +89,14 @@ host — deliberately, because one image has to run anywhere. Left alone, `admin
 site and `www.<domain>/admin` renders the admin corner, and nothing prevents either.
 
 [ADR-0023](0023-ci-builds-the-images-and-the-host-pulls.md) is where the split is actually made: Caddy
-rewrites `/` to `/admin` on that hostname, **preserving the query**, so that a sign-in returning to
+**redirects** `/` to `/admin` on that hostname, **carrying the query**, so that a sign-in returning to
 `admin.<domain>/?code=…` is still recognised by `returningFromSignIn` — which is what T54 built the
 query-based arrival for, and which is why the realm registers the origin root rather than a path beneath it.
+
+> **Corrected 2026-09-02, in T56**, along with ADR-0023's own paragraph: this said *rewrite*, and it has to be
+> a redirect. A rewrite is internal to the proxy and never reaches the address bar — and `location.pathname`
+> is precisely what the sentence above says the choice is made on. nginx answers every path with the same
+> `index.html` regardless, so the rewrite would have changed nothing while looking exactly like it had.
 
 The Go-Live consequence above is unchanged and is the reason this matters: both site origins have to be in
 the `mprelist-dashboard` client. The realm's *import* is first-start-only, but its *contents* stay editable

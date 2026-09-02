@@ -165,17 +165,22 @@ async function versionsOf(base, encodedPackage, token) {
       `${base}/packages/container/${encodedPackage}/versions?per_page=100&page=${page}`,
       { token },
     );
-    // A 404 here is not "no images yet". By the time this workflow can run at all it is on `master`, and
-    // the push that put it there is a push the `images` job built and pushed both packages on — so the
-    // empty window this used to tolerate closes the moment the file exists. What a 404 means afterwards is
-    // that something is wrong in a way no other symptom reports: an image renamed on one side only, an
-    // owner moved to an organisation, or the delete permission being withdrawn from under the token. Every
-    // one of those wants a red run, because the alternative is the failure `ci.yml` calls the one CI cannot
-    // have — a green weekly job that looked at nothing while the bill it exists to stop keeps growing.
+    // A 404 here is not "no images yet", and is not tolerated. The window in which it would have meant that
+    // is the window before `master` has ever pushed a package — and this file arrives on `master` in the
+    // same merge as the `images` job's push step, so the first green run there closes it. What it means
+    // afterwards is that something is wrong in a way nothing else reports, and every one of those wants a
+    // red run: the alternative is the failure `ci.yml` calls the one CI cannot have, a green weekly job
+    // that looked at nothing while the bill it exists to stop keeps growing.
+    //
+    // The causes are named in the message because they are not distinguishable from here — a 404 is all
+    // GHCR says — and the first of them is the one somebody will actually hit: a merge whose `images` job
+    // failed leaves no package at all, and the honest reading of that is "nothing has built one", not
+    // "somebody renamed something".
     if (response.status === 404) {
       throw new Error(
-        `No package ${decodeURIComponent(encodedPackage)} under ${base}. Either the image was renamed, the ` +
-          `owner moved, or this token cannot see packages — none of which this job should pass through.`,
+        `No package ${decodeURIComponent(encodedPackage)} under ${base}. Either no green \`master\` run has ` +
+          `pushed one yet, or the image was renamed, or the owner moved, or this token cannot see ` +
+          `packages — none of which this job should pass through as "nothing to prune".`,
       );
     }
     if (!response.ok) throw new Error(`Cannot list versions: ${response.status} ${await response.text()}`);

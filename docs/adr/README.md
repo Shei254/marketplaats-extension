@@ -23,16 +23,18 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0010](0010-extension-authentication.md) | Extension auth — launchWebAuthFlow + PKCE, public client | Accepted |
 | [0011](0011-repository-layout.md) | Repository layout — monorepo, one deployable per workspace | Accepted |
 | [0012](0012-backend-modular-monolith.md) | Backend — modular monolith (Spring Modulith), hexagonal modules | Accepted |
-| [0013](0013-remote-client-configuration.md) | Remote client configuration for the internal-API layer | Accepted |
+| [0013](0013-remote-client-configuration.md) | Remote client configuration for the internal-API layer | Accepted, refined by 0024 |
 | [0014](0014-tier-catalog-and-entitlements.md) | Tier catalog & entitlements ours, keyed to Stripe Prices | Accepted, refines 0006 |
 | [0015](0015-frozen-internal-api-golden-tests.md) | Internal-API layer frozen by golden-payload tests | Accepted |
 | [0016](0016-vertical-slices-and-review-gates.md) | Iteration 1 cut into vertical slices, each ending at a manual review | Accepted |
-| [0017](0017-web-surface-and-subscribing.md) | One web app, loginless public routes; subscribing starts in the popup | Accepted, amends 0011 |
+| [0017](0017-web-surface-and-subscribing.md) | One web app, loginless public routes; subscribing starts in the popup | Accepted, amends 0011, refined by 0023 |
 | [0018](0018-lapse-falls-back-to-the-default-tier.md) | A subscription that ends falls back to the default tier | Accepted, refines 0014 |
 | [0019](0019-plans-are-stripe-first-and-webhook-synced.md) | Plans created in Stripe, synced to the Tier catalog by webhook | Accepted, refines 0014 |
-| [0020](0020-deployment.md) | Deployed as four containers on one host, from a second compose file | Accepted |
+| [0020](0020-deployment.md) | Deployed as four containers on one host, from a second compose file | Accepted, amended by 0023 |
 | [0021](0021-design-system-stays-ours.md) | The design system stays ours, and stays a CSS string | Accepted, refines 0016 |
 | [0022](0022-the-plan-screen-names-the-payment-methods.md) | The plan screen names the payment methods, read from Stripe | Accepted, refines 0006 |
+| [0023](0023-ci-builds-the-images-and-the-host-pulls.md) | CI builds the images, a registry holds them, the host pulls; TLS in a fifth container | Accepted, amends 0020 |
+| [0024](0024-the-extension-addresses-are-built-in.md) | The extension's own addresses are built in, never served | Accepted, refines 0013 |
 
 **Amended by the 2026-08-13 session:** 0006 (Stripe narrowed to money + lifecycle), 0007 (gating depth,
 `/api/me` display state, `marktplaatsAccountId` dropped), 0009 (monorepo, React popup, Options page removed).
@@ -67,6 +69,17 @@ says why that parameter belongs in code rather than in the dashboard beside the 
 [0022](0022-the-plan-screen-names-the-payment-methods.md) is amended in turn: its session log is evidence
 about the configuration, not about the page, because the method set is resolved at creation and the
 conversion happens at render.
+
+**Amended by the 2026-09-02 deployment session:** 0020, once the host was known. One vCPU and 4 GB settles
+what that ADR left to judgement — the host cannot compile the API image while serving from it — so
+[0023](0023-ci-builds-the-images-and-the-host-pulls.md) moves the build to CI, the images to a registry and
+TLS into a fifth container, and supersedes 0020's "no registry and no CI deploy" while leaving the rest of it
+standing. [0024](0024-the-extension-addresses-are-built-in.md) records the constraint found underneath it:
+the extension's own API and issuer addresses cannot be served by [0013](0013-remote-client-configuration.md)'s
+document — not because of how it was built, but because the document is fetched *from* one of them and
+sign-in precedes the other — so they are build-time, and the domain has to be final before the Web Store
+sees a build. 0017's "`www.` serves `/`, `admin.` serves `/admin`" is refined rather than amended: it was
+always a statement about a proxy, and 0023 is where that proxy exists.
 
 See also [../domain-model.md](../domain-model.md), [../glossary.md](../glossary.md) and
 [../enforcement-contract.md](../enforcement-contract.md).

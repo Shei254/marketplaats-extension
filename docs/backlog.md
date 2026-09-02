@@ -473,16 +473,58 @@ file git never takes. **Both images build from source on the host** — `apps/ap
 - **One API instance only** — `authToken` is signed with an RSA key generated per process, so a second
   instance signs with a second key; making that key configuration is the prerequisite for scaling out (see
   `enforcement-contract.md`, resolved build questions).
-- **What is left is the act of deploying**: a host, and then T56's domain, TLS and production realm. The
-  realm this file imports has no default, so a stack pointed at nothing stops rather than importing the two
-  dev users. Verified locally end to end — four healthy containers, Flyway migrated, `/success` answered,
-  `/config.js` carrying the deployment's own addresses, and Keycloak stamping the configured issuer — and
-  **against no public host at all**.
+- **What is left is the act of deploying**: a host, and then T56. The realm this file imports has no
+  default, so a stack pointed at nothing stops rather than importing the two dev users. Verified locally end
+  to end — four healthy containers, Flyway migrated, `/success` answered, `/config.js` carrying the
+  deployment's own addresses, and Keycloak stamping the configured issuer — and **against no public host at
+  all**.
+- **Superseded in part, 2026-09-02.** The host turned out to be 1 vCPU / 4 GB, which is too small to compile
+  the API image while serving from it, so *"both images build from source on the host"* is no longer true:
+  CI builds, GHCR holds, the host pulls, and a tag retags a tested digest
+  ([ADR-0023](adr/0023-ci-builds-the-images-and-the-host-pulls.md), amending
+  [ADR-0020](adr/0020-deployment.md)). The compose file's `build:` contexts become `image:` tags, every
+  service gains a memory limit, and the three published ports go away entirely behind Caddy. Everything else
+  this ticket built stands.
 
-#### [T56](https://github.com/Shei254/marketplaats-extension/issues/87) · Domain, TLS, and the production realm · **M** · T55, T60
-`www.` and `admin.` for `apps/web`. The realm imports on **first start only**, so the production realm must
-name every origin and redirect URI *before* it is first started — the extension's
-`https://<id>.chromiumapp.org/`, and both web origins.
+#### [T56](https://github.com/Shei254/marketplaats-extension/issues/87) · Domain, TLS, the production realm, and the pipeline · **L** · T55, T60
+Grown from **M** on 2026-09-02: the grilling that produced
+[ADR-0023](adr/0023-ci-builds-the-images-and-the-host-pulls.md) and
+[ADR-0024](adr/0024-the-extension-addresses-are-built-in.md) found work underneath this ticket that nothing
+else covers. Refs: [`infra/README.md` § Deploying](../infra/README.md#deploying).
+- **The extension cannot currently be built for anything but localhost**, and this is the item without which
+  the rest is untestable. `api-config.ts` and `auth-config.ts` hold the addresses as constants,
+  `scripts/build.mjs` injects nothing, and #36's served document deliberately does not carry them — nor can
+  it, since it is fetched *from* `baseUrl` and sign-in precedes the first fetch of it (ADR-0024). A committed
+  `deployment.json`, resolved and enforced the way `brand.json` already is (T48), so an unresolved address
+  **fails the build** rather than shipping.
+- **The pipeline.** `images` gains a push to GHCR on `master`; a new tag-triggered job `needs:` all three
+  test jobs, retags the digest with `imagetools create`, and SSHes to a `command=`-restricted key. Plus a
+  `workflow_dispatch` hotfix override, and the extension zip attached to the GitHub release.
+- **Caddy as a fifth container**, four hostnames — `www.` `admin.` `api.` `auth.`, apex to `www.` —
+  `caddy_data` as a named volume, and the staging CA while iterating. `api`, `web` and `keycloak` stop
+  publishing ports at all.
+- **`admin.<domain>` needs a proxy rewrite of `/` → `/admin`, query preserved.** ADR-0017's "`admin.` serves
+  `/admin`" was always a claim about a proxy: `main.tsx` chooses its surface by path and knows nothing about
+  the host, so untouched, that hostname serves the public site.
+- **The realm imports on first start only**, so the production export must name every origin and redirect URI
+  *before* it is first started — the extension's `https://<id>.chromiumapp.org/` and **both** web origins —
+  and must template the site origins as `${…}` the way `MPRELIST_EXTENSION_ID` already is, or one
+  deployment's hostnames are frozen into git. (The import is once; the realm's *contents* stay editable in
+  the admin console. `infra/README.md` used to say otherwise and no longer does.)
+- **The publish cycle has to be broken deliberately**: the realm wants the Web Store's id, which exists only
+  once a store item does, which needs a build, which needs the realm. Create the store item as an
+  **unpublished draft** first, `extension-key … set`, then first-start.
+- **Do not wait for the domain to deploy, and do not deploy on a bare IP.** `sslRequired: external` refuses
+  plain HTTP from anywhere non-local — correctly. **sslip.io** gives four real hostnames with real
+  certificates on the IP you already have; the switch to the real domain is `production.env`, an admin-console
+  pass, a Stripe webhook URL, and a rebuilt extension. All of it **before** the extension is published, after
+  which moving an address is a Web Store review that the `426` lever cannot even announce.
+- **Memory.** Nothing in either compose file sets a limit and neither JVM has a heap cap; on 4 GB that is an
+  OOM-kill restart loop rather than an error. postgres 512M · keycloak 1G · api 1G · web 64M · caddy 128M,
+  `-XX:MaxRAMPercentage=70` on the API — `mem_limit` alone would leave it a 256 MB heap.
+- **Backups.** A pre-deploy `pg_dump`, a nightly cron keeping seven, both written to the host filesystem so
+  they survive `down -v`; Hostinger's free weekly VPS backup underneath. No automatic rollback — Flyway's
+  `validateOnMigrate` means rolling past an applied migration produces a second container that will not boot.
 
 #### [T57](https://github.com/Shei254/marketplaats-extension/issues/88) · Live Stripe · **M** · T22, T55
 Live keys, Stripe Tax, VAT registration, iDEAL, SEPA and PayPal in live mode, webhook endpoint pointed at the
@@ -534,7 +576,9 @@ Web Store name availability, domain availability, a trademark search. One edit t
 
 #### [T59](https://github.com/Shei254/marketplaats-extension/issues/90) · CI · **M** · **shipped**
 `.github/workflows/ci.yml`: two jobs, neither waiting for the other — `npm ci` and the three root scripts,
-and `./gradlew build` on the runner's Docker daemon. **No path filters**, because both jobs read inputs from
+and `./gradlew build` on the runner's Docker daemon. (A third, `deployable images`, followed with T55; the
+deploy job that `needs:` all three is T56's, and ADR-0023 says why an *act* may wait where a *verdict* may
+not.) **No path filters**, because both jobs read inputs from
 outside the directory they are named for and a stale filter fails silently. Node is pinned in `.nvmrc`, Java
 by the toolchain already in `build.gradle.kts`. See [the root README](../README.md#ci).
 

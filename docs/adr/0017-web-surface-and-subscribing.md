@@ -78,3 +78,23 @@ admin corner, and no customer ever has an account page on it.
 Customers need to manage anything without the extension installed — a team plan, invoices, multiple
 Marktplaats accounts (#47) — at which point `apps/web` gains a customer login and T35's account page comes
 back on its own merits rather than as the default shape.
+
+---
+
+## Refined 2026-09-02 (ADR-0023) — "`admin.` serves `/admin`" is work in the proxy, not in the bundle
+
+The consequence above reads as a description of something the build does. It is not, and cannot be:
+`apps/web/src/main.tsx` chooses its surface on `isAdminPath(location.pathname)` and knows nothing about the
+host — deliberately, because one image has to run anywhere. Left alone, `admin.<domain>/` renders the *public*
+site and `www.<domain>/admin` renders the admin corner, and nothing prevents either.
+
+[ADR-0023](0023-ci-builds-the-images-and-the-host-pulls.md) is where the split is actually made: Caddy
+rewrites `/` to `/admin` on that hostname, **preserving the query**, so that a sign-in returning to
+`admin.<domain>/?code=…` is still recognised by `returningFromSignIn` — which is what T54 built the
+query-based arrival for, and which is why the realm registers the origin root rather than a path beneath it.
+
+The Go-Live consequence above is unchanged and is the reason this matters: both site origins have to be in
+the `mprelist-dashboard` client. The realm's *import* is first-start-only, but its *contents* stay editable
+in the admin console — see `infra/README.md` § Deploying, where that distinction is now stated rather than
+implied.
+

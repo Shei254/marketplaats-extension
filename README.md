@@ -50,17 +50,25 @@ toolchain is the cost ADR-0011 accepted, and CI below is where it is paid;
 ## CI
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml), on every push to `master` and every pull request.
-**Three jobs, and none waits for another** — no artefact crosses between Gradle and npm and no version is
-shared, so a broken extension test has no business withholding the backend's verdict:
+**Three test jobs, and none waits for another** — no artefact crosses between Gradle and npm and no version
+is shared, so a broken extension test has no business withholding the backend's verdict:
 
 | Job | Runs | Needs |
 |---|---|---|
 | `npm workspaces` | `npm ci`, then the three root scripts above | nothing but Node |
 | `apps/api` | `./gradlew build` — the suite, then the boot jar | a Docker daemon, which the runner has |
-| `deployable images` | `docker build` of both Dockerfiles (T55, #86) | the same daemon |
+| `deployable images` | builds both Dockerfiles; on `master`, pushes them to GHCR as `sha-<commit>` (T55, #86) | the same daemon |
 
 The third one exists because nothing else ever reads those two files, and the moment they are first needed is
 the moment somebody is trying to deploy.
+
+**A fourth job deploys, and it is the one thing here that does wait.** Pushing a version tag runs it; it
+`needs:` all three above ([ADR-0023](docs/adr/0023-ci-builds-the-images-and-the-host-pulls.md)). That is not
+a contradiction of the rule: the rule is about **verdicts**, and neither suite may withhold the other's
+*result*. A deploy is an **act** — one that puts both images on one host and runs a Flyway migration against
+the only copy of every subscription this product knows about — and gating an act on evidence is a different
+thing. A `workflow_dispatch` input carries the hotfix override, so that path exists and is logged rather than
+being improvised into an SSH session.
 
 The Node version is pinned in [`.nvmrc`](.nvmrc) rather than in the workflow, so `nvm use` and CI read one
 file instead of two copies; Java is 21, which is the toolchain `apps/api/build.gradle.kts` already states.
@@ -170,20 +178,28 @@ the nginx the deployed image serves it from (below).
 ## Deploying it
 
 ```bash
-cp infra/production.env.example production.env     # on the host, once. Gitignored; fill it in
-docker compose --env-file production.env -f infra/docker-compose.prod.yml up -d --build --wait
+git tag v1.0.0 && git push origin v1.0.0     # that is the deploy
 ```
 
-Four containers on one host: Postgres, Keycloak, and images built from source for `apps/api` and `apps/web`
-([ADR-0020](docs/adr/0020-deployment.md)). **A second compose file rather than an override of the local one**
-— that one commits every password on purpose and runs Keycloak's `start-dev`, and an override that forgot to
-remove one of those deploys a stack that works, with a published password on it. Here every credential and
-every address is a variable with no default, so a half-filled `production.env` is a refusal naming what is
-missing rather than a guess.
+**Five containers on one host**, none of them built there: Postgres, Keycloak, Caddy, and `apps/api` and
+`apps/web` **pulled from GHCR** ([ADR-0020](docs/adr/0020-deployment.md), amended by
+[ADR-0023](docs/adr/0023-ci-builds-the-images-and-the-host-pulls.md)). CI builds and pushes on every green
+`master`; a tag retags that same digest and deploys it, so what runs is provably what was tested. The host is
+a 1 vCPU / 4 GB VPS and compiles nothing — that is the arithmetic ADR-0023 turns on.
 
-TLS, the domain and the production realm are T56 (#87); the realm this imports has no default, so a stack
-pointed at nothing stops rather than importing the two development users. The runbook, what is decided before
-the first `up`, and how to take a backup are in [`infra/README.md` § Deploying](infra/README.md#deploying).
+**A second compose file rather than an override of the local one** — that one commits every password on
+purpose and runs Keycloak's `start-dev`, and an override that forgot to remove one of those deploys a stack
+that works, with a published password on it. Here every credential and every address is a variable with no
+default, so a half-filled `production.env` is a refusal naming what is missing rather than a guess. It never
+leaves the host: GitHub holds an SSH key restricted to one script, and no credential of this product's.
+
+The domain and the production realm are T56 (#87). You do not have to wait for the domain to deploy — the
+realm is `sslRequired: external`, so a bare IP is refused rather than served, and **sslip.io** gives you four
+real hostnames with real certificates on the IP you already have. What you *must* do before publishing the
+extension is settle the addresses, because they are compiled into it and cannot be served to it
+([ADR-0024](docs/adr/0024-the-extension-addresses-are-built-in.md)). The runbook, the ordering before the
+first `up`, the memory budget and the three layers of backup are in
+[`infra/README.md` § Deploying](infra/README.md#deploying).
 
 ## Where to start reading
 

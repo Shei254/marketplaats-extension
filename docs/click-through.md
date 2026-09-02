@@ -355,18 +355,21 @@ repository. [ADR-0020](adr/0020-deployment.md) is the shape of it and
 [`infra/README.md` § Deploying](../infra/README.md#deploying) is the runbook.
 
 The realm this imports is **not** `infra/keycloak` — that is [T56 (#87)](https://github.com/Shei254/marketplaats-extension/issues/87)'s
-export, and it has to exist before step 2. Until TLS is in front (also T56), publish the three ports on
-loopback and reach them through an SSH tunnel rather than over the internet.
+export, and it has to exist before step 2. TLS is Caddy's, also T56: `api`, `web` and `keycloak` publish no
+ports of their own, so every step below reaches them through it. The four hostnames may be **sslip.io** ones
+if the domain has not arrived — the script is identical either way, which is the point of that phase.
 
 1. `cp infra/production.env.example production.env`, fill in everything except
    `MPRELIST_KEYCLOAK_ADMIN_PASSWORD`, and bring the stack up.
    *Expect:* it refuses to start and names that variable and what it is for. Every credential and every
    address here is a variable with no default, so a half-filled deployment is a refusal rather than a stack
    running on somebody's guess. Fill it in.
-2. `docker compose --env-file production.env -f infra/docker-compose.prod.yml up -d --build --wait`.
-   *Expect:* both images build from source on the host and all four containers report healthy. The API's own
-   check is a `401` from `/api/me` — the application answering *and* the resource server in front of it — so
-   `--wait` returning means more than a listening port. First build is slow; there is no registry (ADR-0020).
+2. `docker compose --env-file production.env -f infra/docker-compose.prod.yml up -d --wait`.
+   *Expect:* both images **pull** from GHCR — the host compiles nothing — and all five containers report
+   healthy. The API's own check is a `401` from `/api/me` — the application answering *and* the resource
+   server in front of it — so `--wait` returning means more than a listening port.
+   ([ADR-0023](adr/0023-ci-builds-the-images-and-the-host-pulls.md); before that amendment this step was
+   `--build`, and on a 1 vCPU host it is the step that made it necessary.)
 3. Open `https://www.<domain>/success` and `https://www.<domain>/privacy` directly, without going through
    any other page.
    *Expect:* the pages, not a 404. **This is the step this ticket exists for**: one build and one
@@ -384,10 +387,12 @@ loopback and reach them through an SSH tunnel rather than over the internet.
 6. From your laptop, `psql postgres://mprelist@<host>:5432/mprelist`.
    *Expect:* it cannot connect. The database publishes no port; the two services that need it are on the
    compose network.
-7. Reach Keycloak over plain `http://` from off the host, before TLS is in front of it.
-   *Expect:* `403 {"error_description":"HTTPS required"}`. The realm imports as `sslRequired: external`
-   because this compose file, unlike the local one, never relaxes it — so a deployment without TLS refuses
-   sign-ins rather than serving them insecurely.
+7. Reach Keycloak over plain `http://` from off the host — `curl -H 'Host: auth.<domain>' http://<ip>/`.
+   *Expect:* Caddy redirects to `https://`, and reaching the container directly is refused because it
+   publishes no port at all. Before Caddy existed this step expected
+   `403 {"error_description":"HTTPS required"}` from Keycloak itself, and that answer is still what the realm
+   would give: it imports as `sslRequired: external` because this compose file, unlike the local one, never
+   relaxes it. Two defences now, and the outer one is the one that should fire.
 8. Set `MPRELIST_CLIENT_CONFIG` in `production.env` to a nonsense `deleteAd` path and re-run the `up`
    command; then `curl` `/api/client-config` with a token.
    *Expect:* the patch is served. The night Marktplaats moves something, this is the whole fix and it is a
@@ -396,6 +401,24 @@ loopback and reach them through an SSH tunnel rather than over the internet.
    *Expect:* a file with a schema in it. Nothing backs this up for you and the volume is the only copy of
    every subscription this application knows about.
 
-**What this does not check, and cannot yet:** a published extension talking to it. The extension's API and
-issuer addresses are compiled in (`apps/extension/src/api/api-config.ts`, `auth/auth-config.ts`) and still
-name `localhost` — T56 (#87) is what points a build at the deployed stack, and T58 (#89) is what publishes it.
+10. Build the extension with `deployment.json` naming the deployed addresses, load it unpacked, and sign in.
+    *Expect:* the sign-in leaves for the deployed Keycloak and the popup renders a plan. Then edit one
+    address to a name that does not resolve and rebuild.
+    *Expect:* the popup's "unavailable" state, and **not** a build that silently falls back to `localhost` —
+    an unresolved address fails the build ([ADR-0024](adr/0024-the-extension-addresses-are-built-in.md), the
+    guard `brand.json` established in T48). This is what the note below used to say could not be checked.
+11. Push a tag while one test job is failing.
+    *Expect:* no deploy. The deploy job `needs:` all three, which is the only `needs:` in the workflow and
+    ADR-0023 says why an *act* may wait where a *verdict* may not. Then re-run it with the
+    `workflow_dispatch` override and confirm the override is visible in the run's own log.
+12. Kill the API container and watch it come back; then check `docker stats`.
+    *Expect:* every container inside its limit, and the API's heap sized from `MaxRAMPercentage=70` rather
+    than from the JVM's 25% default. An unexplained restart loop here is the OOM killer, not the application
+    — which is the failure mode the budget exists to make legible.
+
+**What this does not check:** that `deployment.json` and `production.env` agree. Nothing can — the second is
+never committed — so step 10 is the only place a mismatch surfaces, and it surfaces as a real sign-in against
+a real realm. **And what it deliberately does not check yet:** the *published* extension, which is T58
+(#89)'s, and which cannot be walked until the Web Store has assigned an id — see
+[`infra/README.md` § Before the first `up`](../infra/README.md#before-the-first-up) for why that ordering
+comes before the realm's first start rather than after it.

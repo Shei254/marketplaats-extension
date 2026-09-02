@@ -69,3 +69,22 @@ it: a malformed or misspelt document stops the API from starting rather than dep
 one, because the operator writing it is mid-outage and this is the only moment anybody can tell them. And a
 document a *client* cannot read is ignored whole — never half-applied — so an older build meets a newer
 document by falling back to what it shipped with.
+
+---
+
+## Refined 2026-09-02 (ADR-0024) — what this document may never carry
+
+The amendment above says the served patch holds the nine paths, the CSRF rules and the pacing window, and
+that our own addresses "live in the extension and nowhere else". That was a description of what was built.
+[ADR-0024](0024-the-extension-addresses-are-built-in.md) makes it a rule and gives the reason, because two
+source files still carry comments proposing the opposite:
+
+- **`baseUrl` cannot be served, because it is the address this document is fetched from.** An extension that
+  does not know where the API is cannot ask the API where it is.
+- **`issuer` cannot be served, because sign-in precedes the first fetch of this document.** A patch arriving
+  afterwards cannot have told the extension which realm to sign into.
+
+Neither is a limitation of #36. Both are properties of the order things happen in, and they would hold
+against any implementation of this ADR. The lever keeps its whole value for what it is for — a Marktplaats
+path moving is still minutes rather than days — and simply has no reach over where we ourselves are.
+

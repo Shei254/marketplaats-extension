@@ -1,6 +1,6 @@
 # ADR-0020: Deployed as four containers on one host, from a second compose file
 
-**Status:** Accepted (2026-08-23)
+**Status:** Accepted (2026-08-23), amended by [ADR-0023](0023-ci-builds-the-images-and-the-host-pulls.md) (2026-09-02)
 **Scope:** Go-Live. Settles what T55 ([#86](https://github.com/Shei254/marketplaats-extension/issues/86))
 deploys and how; T56 (#87) puts a domain, TLS and the production realm in front of it.
 
@@ -90,3 +90,34 @@ deployer; a registry is a second thing to run, secure and pay for before anythin
   instead of building.
 - The stack grows something that is not one process and one database — a queue, a second service, a read
   replica — which is the point at which "four containers on one host" stops describing it.
+
+---
+
+## Amended 2026-09-02 (ADR-0023) — the host was chosen, and two of these decisions did not survive it
+
+The second **Revisit if** trigger above fired, and earlier than expected, for a reason that ADR could not
+have known: it chose how to deploy before there was a machine to deploy onto. There is now, and it is a
+Hostinger VPS with **one vCPU and 4 GB**.
+
+**Superseded — "Images are built on the host from source, with no registry in between."** The API image
+compiles this repository inside itself. On one shared vCPU that is a third JVM, wanting a gigabyte on a box
+that had no memory limits at all, competing with the two processes it is in the middle of replacing. The
+Negative consequence above described this exactly; the host is simply smaller than the sentence assumed.
+[ADR-0023](0023-ci-builds-the-images-and-the-host-pulls.md) moves the build to CI and the images to GHCR, and
+a release **retags a tested digest rather than rebuilding**, so the deployed bytes are the tested bytes.
+
+**Superseded — the sentence `infra/README.md` drew from it, "No registry and no CI deploy. The host
+builds."** A version tag now deploys, over SSH, against a key restricted by `command=` to one script and no
+shell.
+
+**Amended — "four containers."** Five: Caddy terminates TLS, and `api`, `web` and `keycloak` stop publishing
+ports to the host entirely. The TLS this ADR deferred to T56 is designed there.
+
+**Unchanged, and load-bearing rather than incidental — "No secret manager. The environment file on the host
+is the boundary."** It is what keeps every credential this product has out of GitHub: a compromised Actions
+run can deploy an image and cannot read the live Stripe key.
+
+**Everything else stands.** One host. One API instance, for the per-process signing-key reason given above.
+A second compose file that is deliberately not an override of the first, and `DeployedStackTest` asserting
+the differences. Configuration as environment, with nothing that could be deployed by accident.
+

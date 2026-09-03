@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { amountInMinorUnits, decimalsIn, inMajorUnits } from "./money";
+import { amountInMinorUnits, decimalsIn, inMajorUnits, majorUnitsOf } from "./money";
 
 describe("what a currency's smallest unit is", () => {
   it("is a hundredth for the ones this catalog is priced in", () => {
@@ -80,5 +80,31 @@ describe("an amount Stripe reported, written back the way money is", () => {
     expect(inMajorUnits(1000, "eur")).toBe("10.00");
     expect(inMajorUnits(1200, "jpy")).toBe("1200");
     expect(inMajorUnits(10500, "kwd")).toBe("10.500");
+  });
+});
+
+describe("an amount handed to whatever is going to format it", () => {
+  it("is the major units, which is what Intl formats", () => {
+    expect(majorUnitsOf(999, "eur")).toBe(9.99);
+    expect(majorUnitsOf(1000, "eur")).toBe(10);
+  });
+
+  it("counted by the currency's own places rather than by a hundred", () => {
+    // The bug this replaces: a yen has no minor unit, so `/ 100` renders ¥1,200 as
+    // ¥12 on a card somebody is deciding to pay from.
+    expect(majorUnitsOf(1200, "jpy")).toBe(1200);
+    expect(majorUnitsOf(10500, "kwd")).toBe(10.5);
+  });
+
+  it("and formats through Intl the way a plan card shows it", () => {
+    const shown = (minor: number, currency: string): string =>
+      new Intl.NumberFormat("nl-NL", { style: "currency", currency: currency.toUpperCase() })
+        .format(majorUnitsOf(minor, currency))
+        .replace(/\u00a0/g, " ");
+
+    expect(shown(999, "eur")).toBe("€ 9,99");
+    // `JP¥` is what a Dutch locale calls a yen, and is `Intl`'s business rather
+    // than this module's — what is pinned here is the 1.200, not the symbol.
+    expect(shown(1200, "jpy")).toBe("JP¥ 1.200");
   });
 });

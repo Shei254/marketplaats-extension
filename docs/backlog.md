@@ -472,10 +472,15 @@ actually making. The form now takes both amounts and one submit creates one Stri
 - **The checkout half needed nothing.** The popup has drawn a button per rhythm since T62 and `POST
   /api/checkout` has required an `interval` since then too; what was missing was plans that had two prices to
   draw. The end-to-end path — the annual button sending `year` — is now pinned by a test.
-- **Left alone, deliberately:** `apps/extension/src/popup/plans.ts` still divides an amount by a hundred to
-  render it, which `money.ts` argues against. It is not wrong today — T63 prices the whole catalog in the
-  Stripe account's settlement currency, and this one is EUR — and the fix is to share `money.ts` across the
-  two workspaces rather than to copy it, which is a move worth making when something actually needs it.
+- **Both surfaces read an amount the same way.** `money.ts` lives in `packages/contracts`, beside the field
+  it converts — every `amount` on that contract is in the currency's smallest unit, and both clients have to
+  read it. The popup's plan card divided by a hundred until now, which is right for a euro and wrong for
+  every currency without cents: ¥1200 rendered as ¥12 on the screen somebody decides to pay from. **Amends
+  [ADR-0011](adr/0011-repository-layout.md)** — that package holds runtime code that is not an enum's values
+  for the first time, argued there on `packages/ui`'s own grounds: two consumers, and two copies of a
+  rounding rule is the pair that drifts.
+- **`formatEuro` in the popup's ad list is left alone**, and is not the same thing: those are Marktplaats's
+  own `priceCents` on a Dutch euro marketplace, not an amount this API carries in a currency Stripe named.
 - **A `500` closed on the way:** the rhythm vocabulary was checked where the Stripe Price is built, which
   throws unchecked and, once a plan could state several rhythms, threw *after* an earlier Price had been
   created and tagged — leaving a Price the webhook adopts into a draft tier under the code the retry is then

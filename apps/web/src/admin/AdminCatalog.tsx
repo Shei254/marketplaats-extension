@@ -1,4 +1,12 @@
-import type { AdminTier, NewPlan, NewPrice, TierEdit } from "@mprelist/contracts";
+import {
+  amountInMinorUnits,
+  decimalsIn,
+  inMajorUnits,
+  type AdminTier,
+  type NewPlan,
+  type NewPrice,
+  type TierEdit,
+} from "@mprelist/contracts";
 import {
   Badge,
   Button,
@@ -24,7 +32,6 @@ import type {
 import { ADMIN_ROLE } from "./admin-config";
 import { DEFAULT_PAGE, type AdminPageId } from "./admin-nav";
 import { AdminShell } from "./AdminShell";
-import { amountInMinorUnits, decimalsIn, inMajorUnits } from "./money";
 import { tierCodeFrom } from "./tier-code";
 
 /**

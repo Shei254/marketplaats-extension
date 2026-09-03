@@ -1,18 +1,27 @@
 /**
- * Amounts, as an operator writes them and as Stripe counts them (T66).
+ * Amounts, as this API carries them and as people read and write them (T66).
  *
- * **Stripe's wire unit is the currency's smallest one** — 999 is €9.99 — and that
- * is what every request and every stored price here carries. Nobody writes money
- * that way, though, so the form takes `9,99` and this is the one place the two
- * meet. Keeping the conversion here rather than in the form is what lets the
- * awkward halves of it — the currency's own number of decimal places, and the cent
- * that floating point loses — be pinned by a suite rather than reasoned about in a
- * component.
+ * **The wire unit is the currency's smallest one** — 999 is €9.99 — which is what
+ * every `amount` in this contract means, on `PlanPrice`, `NewPrice`, `NewPlan` and
+ * `UntaggedPrice` alike. Nobody reads or writes money that way, so every client
+ * has to convert, and this is the conversion said once beside the field it is
+ * about. `PlanPrice.amount` has always pointed here in words — *"turning it into
+ * one is a rounding decision and the place to make it is next to the currency's
+ * own rules"* — and this is that place.
  *
- * **No formatting for display lives here.** `Intl` renders an amount with its
- * symbol and its separators, and a *form field* wants neither: `€ 9,99` typed back
- * into an input is not something this can read again. So {@link inMajorUnits}
- * writes the plain digits and the currency is said beside the field.
+ * **It lives in the contract package rather than in either client** because both
+ * of them do it: the popup renders a plan card and `/admin` creates one, and two
+ * copies of a rounding rule is the pair that drifts. It is also why these are the
+ * only functions here that are not types — they read and write one wire field, so
+ * they are the contract's own vocabulary rather than a general money library.
+ *
+ * **No display formatting lives here.** `Intl` renders an amount with its symbol
+ * and its separators, and each surface wants its own: a form field cannot hold
+ * `€ 9,99` and read it back, while a plan card should show exactly that. So this
+ * hands over the number ({@link majorUnitsOf}) or the plain digits
+ * ({@link inMajorUnits}), and the client decides how it reads — the same division
+ * `interval` and `currency` already keep, where the API sends Stripe's vocabulary
+ * and the client spells it.
  */
 
 /**
@@ -74,6 +83,22 @@ export function amountInMinorUnits(typed: string, currency: string): number | nu
   const fraction = amount[2] ?? "";
   if (fraction.length > places) return null;
   return Number(amount[1] + fraction.padEnd(places, "0"));
+}
+
+/**
+ * `999` → `9.99`: the amount as a number, for whatever is going to format it.
+ *
+ * **What `Intl.NumberFormat` wants.** It formats major units — `format(9.99)` with
+ * `currency: "EUR"` gives `€ 9,99` — so a client rendering money needs the
+ * division, and doing it as `/ 100` at the call site is the hundred this module
+ * exists to stop being written down. A yen amount divided by a hundred is a price
+ * a hundred times too small on a plan card somebody is deciding to pay from.
+ *
+ * A number rather than a string because its one caller feeds it straight to
+ * `Intl`, and a string would only be parsed back.
+ */
+export function majorUnitsOf(minor: number, currency: string): number {
+  return minor / 10 ** decimalsIn(currency);
 }
 
 /**

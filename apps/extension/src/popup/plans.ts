@@ -1,4 +1,4 @@
-import type { Plan, PlanPrice } from "@mprelist/contracts";
+import { inMajorUnits, majorUnitsOf, type Plan, type PlanPrice } from "@mprelist/contracts";
 
 import type { HandoffAnswer } from "../api/subscribing";
 
@@ -82,15 +82,23 @@ export function handoffFailure(answer: HandoffAnswer, asked: "checkout" | "porta
  * something odd, so the fallback is the amount beside the code — which is a plan
  * card nobody can misread, where a thrown error would be a blank screen over a
  * currency somebody chose in the Stripe dashboard.
+ *
+ * **The division is the contract's, not this file's** (T66). `amount` is in the
+ * currency's smallest unit, and how many of those make one is a fact about the
+ * currency rather than about this card — a yen has no minor unit at all, so the
+ * `/ 100` that used to be written here rendered ¥1200 as ¥12 on the screen
+ * somebody decides to pay from. `/admin` writes the same amounts through the same
+ * module, so the plan an operator prices and the card a buyer reads cannot
+ * disagree about what the number means.
  */
 export function priceOf(price: PlanPrice): string {
   try {
     return new Intl.NumberFormat("nl-NL", {
       style: "currency",
       currency: price.currency.toUpperCase(),
-    }).format(price.amount / 100);
+    }).format(majorUnitsOf(price.amount, price.currency));
   } catch {
-    return `${(price.amount / 100).toFixed(2)} ${price.currency.toUpperCase()}`;
+    return `${inMajorUnits(price.amount, price.currency)} ${price.currency.toUpperCase()}`;
   }
 }
 

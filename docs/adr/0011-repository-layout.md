@@ -16,7 +16,7 @@ dashboard), and ADR-0009 already banks on sharing TypeScript between them. Optio
 apps/extension      the existing Chrome MV3 extension
 apps/api            Spring Boot (Gradle, Java 21, Flyway)
 apps/web            React SPA  (named apps/dashboard when this was decided — see the amendment)
-packages/contracts  shared API types, consumed by both clients
+packages/contracts  shared API types (and the reading of `amount`), consumed by both clients
 packages/ui         design tokens + components, consumed by apps/web and popup
 infra/              docker-compose for Postgres + Keycloak
 docs/               ADRs, specs, glossary — unchanged location
@@ -43,6 +43,21 @@ DNS at deploy time. See [ADR-0017](0017-web-surface-and-subscribing.md).
 
 `packages/ui` keeps its reason to exist unchanged — it still serves two consumers, now the popup and
 `apps/web` — and so does `packages/contracts`, which still types one API contract for both.
+
+## Amended by T66 (2026-09-03)
+`packages/contracts` gains its first runtime code that is not a list of the wire's enum values: `money.ts`,
+which converts the `amount` every price field on that contract carries — the currency's smallest unit — to
+and from what a person reads and types.
+
+**It is here rather than in a third package because it is about one wire field.** Both clients convert that
+field: the popup renders a plan card and `/admin` creates one, and two copies of a rounding rule is the pair
+that drifts — which is the same argument `packages/ui` was created on. A `packages/money` would earn its
+place if this ever grew into money handling generally; three functions reading one documented field are the
+contract's own vocabulary, and the field's doc comment had already said the conversion belongs *"next to the
+currency's own rules"*.
+
+**What it fixed on arrival:** the popup divided by a hundred, which is right for a euro and wrong for every
+currency without cents.
 
 ## What T59 cost (2026-08-20)
 The "mixed Gradle + npm CI" above, priced. It is **two jobs in one workflow, neither carrying a `needs:`** —

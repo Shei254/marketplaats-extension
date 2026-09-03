@@ -426,10 +426,48 @@ class AdminTierTest {
 	void andABodyThatLeavesOutWhatItCostsOrWhatItGrantsIsNotOne() {
 		// Guessing an amount would be inventing a price; guessing a quota would be inventing an entitlement.
 		assertThat(post(PLANS, "{\"tierCode\":\"starter\",\"name\":\"Starter\","
-				+ "\"interval\":\"month\",\"relistQuotaPerPeriod\":10,\"published\":true}").statusCode())
+				+ "\"relistQuotaPerPeriod\":10,\"published\":true}").statusCode())
 				.isEqualTo(400);
-		assertThat(post(PLANS, "{\"tierCode\":\"starter\",\"name\":\"Starter\",\"amount\":500,"
-				+ "\"interval\":\"month\",\"published\":true}").statusCode()).isEqualTo(400);
+		assertThat(post(PLANS, "{\"tierCode\":\"starter\",\"name\":\"Starter\","
+				+ "\"prices\":[{\"amount\":500,\"interval\":\"month\"}],\"published\":true}").statusCode())
+				.isEqualTo(400);
+	}
+
+	/**
+	 * A plan states every rhythm it is sold at, and each of them fully (T66).
+	 *
+	 * <p>An empty list is the same as no list — a plan nobody can be charged for — and a rhythm named twice is
+	 * two answers to one question rather than a plan sold two ways: adopted, the second would silently replace
+	 * the first, so it is refused where it was typed.
+	 */
+	@Test
+	void andEachRhythmItIsSoldAtIsStatedInFull() {
+		assertThat(post(PLANS, newPlan("starter", "[]")).statusCode()).isEqualTo(400);
+		assertThat(post(PLANS, newPlan("starter", "[{\"interval\":\"month\"}]")).statusCode()).isEqualTo(400);
+		assertThat(post(PLANS, newPlan("starter", "[{\"amount\":500}]")).statusCode()).isEqualTo(400);
+		assertThat(post(PLANS, newPlan("starter", "[{\"amount\":500,\"interval\":\"month\"},"
+				+ "{\"amount\":900,\"interval\":\"month\"}]")).statusCode()).isEqualTo(400);
+	}
+
+	/**
+	 * And at a rhythm Stripe actually bills by, refused before Stripe is asked for anything.
+	 *
+	 * <p><strong>Where this is said matters more than that it is said.</strong> The vocabulary check used to
+	 * live where the Price is built, which threw an unchecked exception out of the middle of the creation —
+	 * a {@code 500}, and since a plan may state several rhythms, a {@code 500} arriving <em>after</em> an
+	 * earlier rhythm's Price had already been created and tagged. That leaves a real Price in Stripe which the
+	 * {@code price.created} webhook then adopts into a draft tier, under a code the operator's retry is now
+	 * refused for. Saying it on the way in makes it the {@code 400} the contract always promised.
+	 */
+	@Test
+	void andAtARhythmStripeBillsBy() {
+		assertThat(post(PLANS, newPlan("starter", "[{\"amount\":500,\"interval\":\"fortnight\"}]"))
+				.statusCode()).isEqualTo(400);
+		// The one that used to half-create: a good rhythm, then a bad one.
+		assertThat(post(PLANS, newPlan("starter", "[{\"amount\":500,\"interval\":\"month\"},"
+				+ "{\"amount\":5000,\"interval\":\"quarter\"}]")).statusCode()).isEqualTo(400);
+		assertThat(post("/api/admin/tiers/pro/prices", "{\"amount\":900,\"interval\":\"quarter\"}")
+				.statusCode()).isEqualTo(400);
 	}
 
 	@Test
@@ -447,7 +485,7 @@ class AdminTierTest {
 	@Test
 	void andACurrencyCannotBeNamedAtAll() {
 		HttpResponse<String> refused = post(PLANS, "{\"tierCode\":\"starter\",\"name\":\"Starter\","
-				+ "\"amount\":500,\"currency\":\"usd\",\"interval\":\"month\","
+				+ "\"currency\":\"usd\",\"prices\":[{\"amount\":500,\"interval\":\"month\"}],"
 				+ "\"relistQuotaPerPeriod\":10,\"published\":false}");
 
 		// With no Stripe configured the catalog's own currency cannot be read either, so this is the same
@@ -594,10 +632,20 @@ class AdminTierTest {
 		return Json.of(me).get("quotaRemaining").asInt();
 	}
 
-	/** No currency: the catalog has one, read from Stripe, and no request may name another (T63, #129). */
+	/**
+	 * No currency: the catalog has one, read from Stripe, and no request may name another (T63, #129).
+	 *
+	 * <p>Sold both ways, which is what T66 made a plan able to say in one submit — an operator states the
+	 * monthly and the annual amount on the form that creates it rather than adding the second afterwards.
+	 */
 	private static String newPlan(String code) {
-		return "{\"tierCode\":\"" + code + "\",\"name\":\"Starter\",\"amount\":500,"
-				+ "\"interval\":\"month\",\"relistQuotaPerPeriod\":10,\"features\":{},\"published\":false}";
+		return newPlan(code, "[{\"amount\":500,\"interval\":\"month\"},"
+				+ "{\"amount\":5000,\"interval\":\"year\"}]");
+	}
+
+	private static String newPlan(String code, String prices) {
+		return "{\"tierCode\":\"" + code + "\",\"name\":\"Starter\",\"prices\":" + prices
+				+ ",\"relistQuotaPerPeriod\":10,\"features\":{},\"published\":false}";
 	}
 
 	private static String edit(int quota, boolean published) {

@@ -1,5 +1,6 @@
 package com.mprelist.admin.internal;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import com.mprelist.billing.NewPlanInStripe;
 import com.mprelist.billing.PlanCreation;
+import com.mprelist.billing.PlanRhythm;
 import com.mprelist.billing.StripeAccountFacts;
 import com.mprelist.billing.StripePlans;
 import com.mprelist.catalog.PriceAdoptions;
@@ -40,11 +42,19 @@ import com.mprelist.catalog.TierEdits;
  * three calls, and the last two are the ones the webhook and the edit form already make.
  *
  * <ol>
- * <li>{@code billing} creates a Product and a Price in Stripe, tagged {@code metadata.tier_code}.
- * <li>{@link PriceAdoptions#adopt} makes the draft row — the same call {@code ReceiveStripeEvents} makes.
+ * <li>{@code billing} creates a Product and a Price per rhythm in Stripe, each tagged
+ * {@code metadata.tier_code}.
+ * <li>{@link PriceAdoptions#adopt} makes the draft row and files each Price under its rhythm — the same call
+ * {@code ReceiveStripeEvents} makes.
  * <li>{@link TierEdits#apply} sets the quota, the flags and whether it is on sale — the same call
  * {@code PUT /api/admin/tiers/{code}} makes.
  * </ol>
+ *
+ * <p><strong>A plan states every rhythm it is sold at, and states them together</strong> (T66). T62 (#128)
+ * made a tier able to hold several Prices and left this form writing one, so monthly-and-annual was two acts
+ * an operator had to remember — and a plan created with one rhythm is a card offering no choice, which is the
+ * choice a buyer is actually making. So the request carries a list, and one submit is one Product with a
+ * Price each.
  *
  * <p>The {@code price.created} Stripe delivers moments later then finds the row already right, and is the
  * no-op {@link PriceAdoptions} was always documented to be. So there is still exactly one writer of the
@@ -129,9 +139,14 @@ class CreatePlans {
 		}
 		PlanCreation.Created created = (PlanCreation.Created) made;
 
-		// The webhook's own call, and then the edit form's. Nothing here writes a row of its own.
-		this.adoptions.adopt(new TaggedPrice(created.tierCode(), created.stripePriceId(), plan.interval(),
-				created.name()));
+		// The webhook's own call once per rhythm, and then the edit form's. Nothing here writes a row of its
+		// own. What is adopted is what Stripe *made*, which since T66 need not be everything that was asked
+		// for: a plan whose annual Price was refused after its monthly one landed is created selling by the
+		// month, and the answer carries the prices it actually has for the screen to notice the gap in.
+		for (PlanCreation.CreatedPrice price : created.prices()) {
+			this.adoptions.adopt(new TaggedPrice(created.tierCode(), price.stripePriceId(), price.interval(),
+					created.name()));
+		}
 		return switch (this.catalog.apply(plan.tierCode(), grant)) {
 			case TierEdited.Applied applied ->
 				ResponseEntity.status(201).body(AdministerTiers.asAdminTier(applied.tier()));
@@ -184,8 +199,11 @@ class CreatePlans {
 		PlanCreation.Created created = (PlanCreation.Created) made;
 
 		// The webhook's own call again, which is what slots the Price into the right rhythm — adding a row
-		// where there was none, and replacing the id where there was one.
-		this.adoptions.adopt(new TaggedPrice(code, created.stripePriceId(), price.interval(), null));
+		// where there was none, and replacing the id where there was one. One rhythm was asked for, so one
+		// came back; the loop is over a list that is always of length one rather than an index that assumes it.
+		for (PlanCreation.CreatedPrice one : created.prices()) {
+			this.adoptions.adopt(new TaggedPrice(code, one.stripePriceId(), one.interval(), null));
+		}
 		return this.catalog.everyTier().stream()
 				.filter(tier -> tier.tier().code().equals(code))
 				.findFirst()
@@ -203,8 +221,29 @@ class CreatePlans {
 				.orElse(null);
 	}
 
-	/** What the add-a-rhythm form sends: an amount and a rhythm, and nothing about the tier itself. */
+	/**
+	 * What the add-a-rhythm form sends: an amount and a rhythm, and nothing about the tier itself.
+	 *
+	 * <p>Also what one entry of the new-plan form's {@code prices} is, which is why {@link #asRhythm()} exists
+	 * on it: adding a rhythm to a plan and stating one while creating it are the same two fields, and reading
+	 * them in two places is two chances to guard them differently.
+	 */
 	record NewPriceRequest(Long amount, String interval) {
+
+		/**
+		 * @throws IllegalArgumentException on a price that does not say what it costs, or says a recurrence
+		 * Stripe has no word for — {@link PlanRhythm} is where the vocabulary lives, so this refusal happens
+		 * before Stripe is asked for anything
+		 */
+		PlanRhythm asRhythm() {
+			if (this.amount == null) {
+				throw new IllegalArgumentException("A price states what it costs");
+			}
+			if (this.interval == null || this.interval.isBlank()) {
+				throw new IllegalArgumentException("A price states how often it recurs");
+			}
+			return new PlanRhythm(this.amount, this.interval);
+		}
 
 		/**
 		 * The Stripe Product is named after the tier it belongs to, so a second rhythm does not create a
@@ -212,10 +251,7 @@ class CreatePlans {
 		 * because renaming a tier is the edit form's job and this form should not be able to do it by accident.
 		 */
 		NewPlanInStripe asPlanFor(String code, String name, String currency) {
-			if (this.amount == null) {
-				throw new IllegalArgumentException("A price states what it costs");
-			}
-			return new NewPlanInStripe(code, name == null ? code : name, this.amount, currency, this.interval);
+			return new NewPlanInStripe(code, name == null ? code : name, currency, List.of(asRhythm()));
 		}
 
 	}
@@ -226,16 +262,25 @@ class CreatePlans {
 	 * <p>Derived from what was asked for rather than from a clock or a random value, which is the only version
 	 * that works: Stripe replays the first answer for a repeated key, so two clicks on the same form have to
 	 * produce the same key and a genuinely different plan has to produce a different one. The tier code alone
-	 * would be enough today — a second plan under the same code is refused above — but the amount and currency
-	 * are in it so that a corrected retry after a Stripe refusal is a new request rather than a replay of the
-	 * refusal.
+	 * would be enough today — a second plan under the same code is refused above — but the amounts are in it
+	 * so that a corrected retry after a Stripe refusal is a new request rather than a replay of the refusal.
+	 * Since T66 that means every rhythm's amount: correcting only the annual one is still a correction.
 	 */
 	private static String idempotencyKeyFor(NewPlanRequest request) {
-		return "plan:" + request.tierCode() + ":" + request.amount() + ":" + request.interval();
+		return "plan:" + request.tierCode() + ":" + String.join(",", request.prices().stream()
+				.map(price -> price.amount() + "@" + price.interval())
+				.toList());
 	}
 
-	/** What the form sends. Boxed like {@code AdministerTiers}', and refused rather than defaulted. */
-	record NewPlanRequest(String tierCode, String name, Long amount, String interval,
+	/**
+	 * What the form sends. Boxed like {@code AdministerTiers}', and refused rather than defaulted.
+	 *
+	 * <p><strong>{@code prices} is a list because a plan is</strong> (T66): monthly and annual Pro are one
+	 * plan somebody picks a rhythm for, so both amounts are stated on the one form that creates it. A single
+	 * {@code amount} and {@code interval} was the shape T61 shipped, and it made the second rhythm a separate
+	 * act an operator had to remember — with a plan card offering no choice in between.
+	 */
+	record NewPlanRequest(String tierCode, String name, List<NewPriceRequest> prices,
 			Integer relistQuotaPerPeriod, Map<String, Object> features, Boolean published) {
 
 		/**
@@ -245,10 +290,16 @@ class CreatePlans {
 		 * {@code isDefault} made.
 		 */
 		NewPlanInStripe asPlan(String currency) {
-			if (this.amount == null) {
+			if (this.prices == null || this.prices.isEmpty()) {
 				throw new IllegalArgumentException("A plan states what it costs; guessing would be inventing a price");
 			}
-			return new NewPlanInStripe(this.tierCode, this.name, this.amount, currency, this.interval);
+			List<PlanRhythm> rhythms = this.prices.stream().map(price -> {
+				if (price == null) {
+					throw new IllegalArgumentException("A price states what it costs");
+				}
+				return price.asRhythm();
+			}).toList();
+			return new NewPlanInStripe(this.tierCode, this.name, currency, rhythms);
 		}
 
 		/**

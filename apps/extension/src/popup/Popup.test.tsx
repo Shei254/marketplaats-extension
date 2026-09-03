@@ -805,6 +805,36 @@ describe("handing off to Stripe", () => {
     expect(asked).toContain("checkout:pro:month");
   });
 
+  /**
+   * The other half of a plan sold two ways (T66): the rhythm the buyer picked is
+   * the one that reaches Stripe.
+   *
+   * The card already drew a button per price (T62, #128) — what T66 changed is that
+   * plans now actually have two, because the form that creates them writes both. So
+   * this is where the choice a buyer makes becomes the Price they are charged, and
+   * a card that sent the first rhythm whichever button was clicked would be an
+   * annual button charging by the month.
+   */
+  it("and the rhythm the buyer picked, where a plan is sold both ways", async () => {
+    const bothWays: Plan = {
+      ...PRO,
+      prices: [
+        { amount: 999, currency: "eur", interval: "month" },
+        { amount: 9900, currency: "eur", interval: "year" },
+      ],
+    };
+    const { worker, asked } = fakeWorker(undefined, ADS, {
+      plans: { status: "ready", plans: [bothWays], paymentMethods: [] },
+    });
+
+    await show(worker);
+    await click("Plans");
+    await click("€ 99,00 a year");
+
+    expect(asked).toContain("checkout:pro:year");
+    expect(asked).not.toContain("checkout:pro:month");
+  });
+
   it("says a plan is no longer on sale rather than that something broke", async () => {
     // What a client holding yesterday's cards gets, and nobody's error.
     const { worker } = fakeWorker(undefined, ADS, { checkout: { status: "gone" } });

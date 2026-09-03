@@ -1,5 +1,24 @@
-import type { AdminTier, NewPlan, NewPrice, TierEdit } from "@mprelist/contracts";
-import { Badge, Button, Card, Checkbox, Field, Input, Note, Select, Textarea } from "@mprelist/ui";
+import {
+  amountInMinorUnits,
+  decimalsIn,
+  inMajorUnits,
+  type AdminTier,
+  type NewPlan,
+  type NewPrice,
+  type TierEdit,
+} from "@mprelist/contracts";
+import {
+  Badge,
+  Button,
+  Card,
+  Checkbox,
+  Field,
+  Input,
+  Note,
+  Select,
+  Textarea,
+  type NoteTone,
+} from "@mprelist/ui";
 import { useCallback, useEffect, useState, type JSX, type ReactNode } from "react";
 
 import type {
@@ -62,7 +81,7 @@ export function AdminCatalog({
   const [currency, setCurrency] = useState<CurrencyAnswer | null>(null);
   /** Which form is open, and there is only ever one. */
   const [panel, setPanel] = useState<Panel>(null);
-  const [note, setNote] = useState<{ tone: "ok" | "error"; message: string } | null>(null);
+  const [note, setNote] = useState<{ tone: NoteTone; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -136,7 +155,23 @@ export function AdminCatalog({
         return;
       }
       if (answer.status === "created") {
-        setNote({ tone: "ok", message: `${plan.name} created, and Stripe has the Price.` });
+        // What Stripe made need not be everything that was asked for: two rhythms
+        // are two Stripe calls with no transaction spanning them, so the annual
+        // Price can be refused once the monthly one exists. The plan is real
+        // either way, and an operator told only "created" would believe they had
+        // made something they had not.
+        const missing = rhythmsMissingFrom(answer.tier, plan);
+        setNote(
+          missing.length === 0
+            ? { tone: "ok", message: `${plan.name} created, and Stripe has the ${priceWord(plan)}.` }
+            : {
+                tone: "warn",
+                message:
+                  `${plan.name} was created, but Stripe did not make ` +
+                  `${listedPrices(missing.map((rhythm) => rhythm.named))}. Add it from the ` +
+                  `plan’s row, where Stripe says what is wrong with it.`,
+              },
+        );
         setPanel(null);
         await load();
         return;
@@ -249,7 +284,7 @@ function Tiers({
   prices: PricesAnswer | null;
   currency: CurrencyAnswer | null;
   panel: Panel;
-  note: { tone: "ok" | "error"; message: string } | null;
+  note: { tone: NoteTone; message: string } | null;
   busy: boolean;
   onReload: () => void;
   onOpen: (panel: Panel) => void;
@@ -283,7 +318,7 @@ function Tiers({
 
   return (
     <div className="admin-sections">
-      {note ? <Note tone={note.tone === "ok" ? "ok" : "error"}>{note.message}</Note> : null}
+      {note ? <Note tone={note.tone}>{note.message}</Note> : null}
       <Summary tiers={catalog.tiers} currency={currency} />
       <Untagged answer={prices} />
       {panel?.kind === "new" ? (
@@ -482,7 +517,9 @@ function Untagged({ answer }: { answer: PricesAnswer | null }): JSX.Element | nu
                 </td>
                 <td>{price.nickname ?? "—"}</td>
                 <td className="admin-numeric">
-                  {(price.amount / 100).toFixed(2)} {price.currency.toUpperCase()}
+                  {/* Not `/ 100`: these are whatever currency somebody made them in,
+                      and a yen has no minor unit at all (T66). */}
+                  {inMajorUnits(price.amount, price.currency)} {price.currency.toUpperCase()}
                 </td>
                 {/* A one-off is the commonest thing in this list that is not a mistake. */}
                 <td>{price.interval ?? "one-off"}</td>
@@ -742,10 +779,23 @@ function TierForm({
  * not create anything, because the alternative is offering a currency that renders
  * a plan card and fails at Checkout.
  *
- * **The amount is written once.** It is the only place in this product where one
- * is set, and the notes say as much: Stripe Prices are immutable, so changing it
- * later means a new Price — which is exactly what ADR-0019 refused to pretend a
- * form field could do.
+ * **Both rhythms, on the one form** (T66). Monthly and annual are one plan a buyer
+ * picks a rhythm for — T62 (#128) made a tier able to hold both — so both amounts
+ * are stated where the plan is created. Before, the form wrote one and the second
+ * was a separate act an operator had to remember; in between, the plan card offered
+ * no choice, which is the choice a buyer is actually making. Neither is *required*:
+ * a plan sold only by the month is a real plan, and a form that insisted on an
+ * annual amount would be making one up to satisfy itself.
+ *
+ * **Money is typed the way money is written**, and turned into Stripe's smallest
+ * unit on the way out (`money.ts`). The field used to be labelled "Amount, in
+ * cents" and took `999` — the wire format on a screen, converted in an operator's
+ * head, into a Price that can never be edited afterwards.
+ *
+ * **Each amount is still written once.** This is the only place in this product
+ * where one is set, and the notes say as much: Stripe Prices are immutable, so
+ * changing it later means a new Price — which is exactly what ADR-0019 refused to
+ * pretend a form field could do.
  *
  * **The code is not typed** — see `tier-code.ts`. It is derived from the name and
  * printed while the name is being typed, because it is permanent and turns up in
@@ -765,8 +815,9 @@ function NewPlanForm({
 }): JSX.Element {
   const pricedIn = currency?.status === "ready" ? currency.currency : null;
   const [name, setName] = useState("");
-  const [amount, setAmount] = useState("");
-  const [interval, setInterval] = useState("month");
+  // One field per rhythm, keyed by the rhythm rather than held in two `useState`s:
+  // what is being collected is a price list, and the submit below reads it as one.
+  const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [quota, setQuota] = useState("0");
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -784,7 +835,6 @@ function NewPlanForm({
   const tierCode = tierCodeFrom(name);
 
   const submit = (): void => {
-    const cents = Number(amount);
     if (!name.trim()) {
       setProblem("A plan needs a name. It is what Stripe calls the Product too.");
       return;
@@ -797,8 +847,25 @@ function NewPlanForm({
       setProblem("A name needs a letter or a digit in it: the code the plan is filed under is made from it.");
       return;
     }
-    if (!Number.isInteger(cents) || cents < 0) {
-      setProblem("The amount is in cents, as a whole number — 999 is €9.99.");
+    // In RHYTHMS' order, so the cheapest rhythm is first however the fields were
+    // filled in — which is the order `GET /api/plans` answers in and the order a
+    // card reads.
+    const prices: NewPrice[] = [];
+    for (const rhythm of RHYTHMS) {
+      const typed = amounts[rhythm.interval]?.trim() ?? "";
+      if (!typed) continue;
+      const amount = amountInMinorUnits(typed, pricedIn);
+      if (amount === null) {
+        setProblem(amountProblem(rhythm, pricedIn));
+        return;
+      }
+      prices.push({ amount, interval: rhythm.interval });
+    }
+    if (prices.length === 0) {
+      setProblem(
+        "A plan states what it costs. Price it by the month, by the year, or both — a buyer picks " +
+          "which on the card.",
+      );
       return;
     }
     const relists = Number(quota);
@@ -810,8 +877,7 @@ function NewPlanForm({
     onCreate({
       tierCode,
       name: name.trim(),
-      amount: cents,
-      interval,
+      prices,
       relistQuotaPerPeriod: relists,
       features: {},
       published: false,
@@ -836,21 +902,33 @@ function NewPlanForm({
         >
           <Input id="plan-name" value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
-        <Field label="Amount, in cents" hint={`999 is 9.99 ${pricedIn.toUpperCase()}.`}>
-          <Input
-            id="plan-amount"
-            type="number"
-            min={0}
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-          />
-        </Field>
-        <Field label="Billed every">
-          <Select id="plan-interval" value={interval} onChange={(e) => setInterval(e.target.value)}>
-            <option value="month">month</option>
-            <option value="year">year</option>
-          </Select>
-        </Field>
+        {RHYTHMS.map((rhythm, index) => (
+          <Field
+            key={rhythm.interval}
+            label={`${rhythm.fieldLabel}, in ${pricedIn.toUpperCase()}`}
+            // Said once, under the first of them, rather than under each: it is one
+            // instruction about a pair of fields, and twice reads as two rules.
+            hint={
+              index === 0
+                ? `Written the way money is — ${exampleAmount(pricedIn)}. Leave one empty to not sell at it.`
+                : undefined
+            }
+          >
+            <Input
+              // Text rather than `type="number"`: a number field will not hold the
+              // comma a Dutch operator types, and it changes its own value on a
+              // stray scroll — which here would be a wrong price in an immutable
+              // Stripe Price. `inputMode` still brings up the numeric keypad.
+              id={`plan-amount-${rhythm.interval}`}
+              inputMode="decimal"
+              placeholder={exampleAmount(pricedIn)}
+              value={amounts[rhythm.interval] ?? ""}
+              onChange={(e) =>
+                setAmounts((typed) => ({ ...typed, [rhythm.interval]: e.target.value }))
+              }
+            />
+          </Field>
+        ))}
         <Field label="Relists per period" hint="How many reposts a subscriber gets each period.">
           <Input
             id="plan-quota"
@@ -868,6 +946,10 @@ function NewPlanForm({
         <li>
           Priced in <b>{pricedIn.toUpperCase()}</b>, like every tier — that is what this Stripe
           account settles in.
+        </li>
+        <li>
+          Price it at both rhythms and the plan card offers the buyer the choice; price it at one and
+          it sells at that one. A rhythm can be added later from the plan&apos;s row.
         </li>
         <li>
           The amount is written once. Stripe prices cannot be edited: changing it later means a new
@@ -932,13 +1014,13 @@ function NewPriceForm({
 
   const replacing = sellsAt.includes(interval);
   const submit = (): void => {
-    const cents = Number(amount);
-    if (!Number.isInteger(cents) || cents < 0) {
-      setProblem("The amount is in cents, as a whole number — 999 is €9.99.");
+    const minor = amountInMinorUnits(amount, pricedIn);
+    if (minor === null) {
+      setProblem(amountProblem(rhythmNamed(interval), pricedIn));
       return;
     }
     setProblem(null);
-    onAdd({ amount: cents, interval });
+    onAdd({ amount: minor, interval });
   };
 
   return (
@@ -954,19 +1036,23 @@ function NewPriceForm({
       <div className="admin-form-grid">
         <Field label="Billed every">
           <Select id="price-interval" value={interval} onChange={(e) => setInterval(e.target.value)}>
-            <option value="month">
-              month{sellsAt.includes("month") ? " — already sold, replaces it" : ""}
-            </option>
-            <option value="year">
-              year{sellsAt.includes("year") ? " — already sold, replaces it" : ""}
-            </option>
+            {RHYTHMS.map((rhythm) => (
+              <option key={rhythm.interval} value={rhythm.interval}>
+                {rhythm.interval}
+                {sellsAt.includes(rhythm.interval) ? " — already sold, replaces it" : ""}
+              </option>
+            ))}
           </Select>
         </Field>
-        <Field label="Amount, in cents" hint={`999 is 9.99 ${pricedIn.toUpperCase()}.`}>
+        <Field
+          label={`Amount, in ${pricedIn.toUpperCase()}`}
+          hint={`Written the way money is — ${exampleAmount(pricedIn)}.`}
+        >
           <Input
+            // Text, for the reason the new-plan form's fields are (T66).
             id="price-amount"
-            type="number"
-            min={0}
+            inputMode="decimal"
+            placeholder={exampleAmount(pricedIn)}
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
           />
@@ -997,6 +1083,119 @@ function NewPriceForm({
       </div>
     </FormPanel>
   );
+}
+
+/**
+ * The rhythms a plan may be sold at on this screen, cheapest first (T66).
+ *
+ * **One list, read by three things** — the new-plan form's fields, the add-a-rhythm
+ * form's options, and the sentence that says which rhythm Stripe would not make.
+ * They were three copies of `month` and `year` before, which is three places to
+ * edit if a plan is ever sold weekly and two of them to forget.
+ *
+ * Stripe bills by the day and the week too, and neither is offered: a subscription
+ * to a relisting quota is not something anybody sells by the day, and an option
+ * that exists is an option somebody can pick by accident into a Price that cannot
+ * be edited afterwards. A Price created in the Stripe dashboard at any rhythm is
+ * still adopted — the catalog stores whatever Stripe says — so this list narrows
+ * the form rather than the product.
+ */
+interface Rhythm {
+  /** Stripe's vocabulary, which is what travels on the wire and keys a tier's prices. */
+  interval: string;
+  /** What the amount field for it is labelled: "Monthly price". */
+  fieldLabel: string;
+  /** What a sentence calls it: "the monthly price". */
+  named: string;
+}
+
+const RHYTHMS: readonly Rhythm[] = [
+  { interval: "month", fieldLabel: "Monthly price", named: "monthly" },
+  { interval: "year", fieldLabel: "Yearly price", named: "yearly" },
+];
+
+/**
+ * The rhythm this screen knows by that interval, or a stand-in named after the
+ * interval itself.
+ *
+ * The fallback is not reachable from either caller today — both pass an interval
+ * that came from {@link RHYTHMS}. It is here because the alternative is returning
+ * `undefined` and making both call sites handle a case neither can produce, and
+ * because a rhythm's `interval` is a wire string: a plan created against a Price
+ * made in the Stripe dashboard at some other recurrence would arrive here, and a
+ * sentence reading "the week price" is better than a blank one.
+ */
+function rhythmNamed(interval: string): Rhythm {
+  return (
+    RHYTHMS.find((rhythm) => rhythm.interval === interval) ?? {
+      interval,
+      fieldLabel: "Price",
+      named: interval,
+    }
+  );
+}
+
+/**
+ * What to say about an amount that is not one.
+ *
+ * The two ways to get it wrong — not a number, and more decimal places than the
+ * currency has — are one sentence rather than two, because the correction is the
+ * same and the difference between them is not something an operator is wondering
+ * about while looking at the field.
+ */
+function amountProblem(rhythm: Rhythm, currency: string): string {
+  const places = decimalsIn(currency);
+  return (
+    `The ${rhythm.named} amount has to be an amount` +
+    (places === 0
+      ? `, with no decimal places — ${currency.toUpperCase()} does not have any.`
+      : `, with at most ${places} decimal places — ${exampleAmount(currency)}.`)
+  );
+}
+
+/** `9,99` — what an amount looks like in this currency, for a placeholder and a hint. */
+function exampleAmount(currency: string): string {
+  const places = decimalsIn(currency);
+  return places === 0 ? "1250" : `9,${"9".repeat(places)}`;
+}
+
+/**
+ * The rhythms this plan was asked to be sold at that the tier did not come back
+ * holding (T66).
+ *
+ * Two Prices are two Stripe calls with no transaction spanning them, so the annual
+ * one can be refused once the monthly one exists — and the plan is created either
+ * way, because that first Price is real, carries the tag and is adopted regardless.
+ * What is left is telling the operator, which is what this is read for.
+ */
+function rhythmsMissingFrom(tier: AdminTier, asked: NewPlan): Rhythm[] {
+  const sold = tier.prices.map((price) => price.interval);
+  return asked.prices
+    .filter((price) => !sold.includes(price.interval))
+    .map((price) => rhythmNamed(price.interval));
+}
+
+/** "the Price" or "the Prices", so the good news is not written in the plural about one. */
+function priceWord(plan: NewPlan): string {
+  return plan.prices.length === 1 ? "Price" : "Prices";
+}
+
+/**
+ * "the monthly price", or "the monthly and yearly prices" — the noun agreeing with
+ * the list in front of it.
+ *
+ * Only ever one today: a `Created` is never empty, so at most one of two rhythms
+ * can be missing. Written for the general case anyway because it is one line more
+ * and the alternative — a sentence hardcoded singular — reads wrong the first time
+ * a plan is sold at three rhythms, which is a wrongness nobody would go looking
+ * for.
+ */
+function listedPrices(names: string[]): string {
+  const joined =
+    names.length <= 1
+      ? (names[0] ?? "")
+      : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  return `the ${joined} price${names.length > 1 ? "s" : ""}`;
 }
 
 /**

@@ -350,12 +350,24 @@ about a *user*, and nothing here is about one.
 Added by the 2026-08-22 amendment to [ADR-0019](adr/0019-plans-are-stripe-first-and-webhook-synced.md), which
 that ADR's own "revisit if" anticipated. Same audience and same guard as the admin routes above.
 
-- **`POST /api/admin/plans`** takes a **NewPlan** — `{ tierCode, name, amount, currency, interval,
-  relistQuotaPerPeriod, features, published }` — and answers **`201`** with the **AdminTier** the sync made.
-- **It writes no row of its own.** It creates a Stripe Product and a Price tagged `metadata.tier_code`, then
-  makes the same two calls the webhook and the edit form already make. The `price.created` Stripe delivers
-  moments later finds the row already right and is a no-op, so a plan created here and one created in the
-  dashboard reach the catalog down one path.
+- **`POST /api/admin/plans`** takes a **NewPlan** — `{ tierCode, name, prices, relistQuotaPerPeriod,
+  features, published }` — and answers **`201`** with the **AdminTier** the sync made.
+- **`prices` is every rhythm the plan is sold at, stated together** — `[{ amount, interval }]`, at least one
+  and never the same `interval` twice. Monthly and annual are one plan a buyer picks a rhythm for, so both
+  amounts are written where the plan is created; a rhythm named twice is two answers to one question and is a
+  `400`. One `amount` and one `interval` was the shape until then, and it left the second rhythm a separate
+  act — with a plan card offering no choice in between.
+- **It writes no row of its own.** It creates one Stripe Product and a Price per rhythm, each tagged
+  `metadata.tier_code`, then makes the same two calls the webhook and the edit form already make — the
+  `adopt` once per Price. The `price.created` Stripe delivers moments later finds the row already right and is
+  a no-op, so a plan created here and one created in the dashboard reach the catalog down one path.
+- **The `201` says what the plan actually sells at**, which is not always everything that was asked for: two
+  Prices are two Stripe calls and nothing spans them, so the annual one can be refused once the monthly one
+  exists. The plan is created selling by the month — that first Price is real, tagged, and about to be adopted
+  whatever this answers, and refusing the lot would leave the operator's retry colliding with a code the sync
+  had meanwhile taken. A client compares the `prices` it gets back with the ones it sent, and the missing
+  rhythm is added through `POST /api/admin/tiers/{code}/prices`, which is where Stripe's own sentence about it
+  can be read.
 - **The amount is still not editable, anywhere.** It is written once, into the system that owns it. Repricing
   is done in Stripe: a new Price tagged with the same code repoints the tier through the sync, and everybody
   already subscribed keeps the amount they signed up at.
@@ -366,7 +378,8 @@ that ADR's own "revisit if" anticipated. Same audience and same guard as the adm
   convey and is exactly what the operator must change. The field is deliberately **not** `reason`: that word
   is this API's vocabulary for a denial about a *user*, read by clients that act on it, and confusing the two
   would report a Stripe validation message to somebody trying to relist an ad.
-- **`400` with an empty body** for a body this API could not read, including one naming no amount or no quota.
+- **`400` with an empty body** for a body this API could not read, including one naming no price, no amount,
+  no rhythm or no quota.
 - **`GET /api/admin/currency` → `200`:** `{ "currency": "eur" }` — the one currency **the whole catalog** is
   priced in, read from the Stripe account's own settlement currency. A form *shows* it; it does not offer it.
   **`503`** with an empty body when Stripe could not be asked, and the form then creates nothing rather than

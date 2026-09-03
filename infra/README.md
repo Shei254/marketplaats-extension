@@ -449,16 +449,25 @@ for it to deploy**, and you must not deploy on a bare IP either: the realm is `s
 Keycloak answers `403 HTTPS required` to any non-local plain-HTTP caller. That is the setting working, and it
 is asserted as correct in [`click-through.md`](../docs/click-through.md).
 
-Use **sslip.io**. `www.203-0-113-5.sslip.io` and its three siblings resolve to your VPS through public
-wildcard DNS, so Let's Encrypt issues ordinary certificates for them and you get the entire real setup —
-four hostnames, real HTTPS, `sslRequired` untouched, the full click-through including Stripe test webhooks —
-on an IP you have and a domain you have not bought.
+Use **sslip.io** or **nip.io** — the same service, run by the same two people, accepting the same addresses
+under two domains that Let's Encrypt counts separately, which is what makes the second one an escape hatch
+rather than a synonym. `www.203-0-113-5.sslip.io` and its three siblings resolve to your VPS through public
+wildcard DNS, so Let's Encrypt issues ordinary certificates for them and you get the entire real setup — the
+four hostnames and the apex, real HTTPS, `sslRequired` untouched, the full click-through including Stripe test
+webhooks — on an IP you have and a domain you have not bought. The apex is the name with no prefix,
+`203-0-113-5.sslip.io`, so `MPRELIST_APEX_URL` has an answer as readily as the other four.
+
+**All five have to be distinct** — the four, and the apex — and the reason to say so is that three of them are
+plausible as the apex and nothing upstream of Caddy objects. Caddy refuses to start — `ambiguous site
+definition: https://<name>` — and the refusal is doing you a favour rather than being strict: the apex block
+is a permanent redirect to `MPRELIST_WEB_BASE_URL`, so an apex that *is* the web address is a redirect loop,
+cached by every browser that reaches it, and it would have surfaced at the click-through rather than at boot.
 
 When the domain arrives, the switch is:
 
 | | |
 |---|---|
-| `production.env` | The three URL variables, then `up -d` |
+| `production.env` | All five URL variables, then `up -d` |
 | Keycloak admin console | The `mprelist-dashboard` client's redirect URIs and web origins |
 | Stripe dashboard | The webhook endpoint. `success_url` and the Portal return follow `MPRELIST_WEB_BASE_URL` on their own |
 | Every existing session | Refused. `KC_HOSTNAME` changes the `iss` in every token and the API validates it. Free at zero users, a forced re-sign-in at any other number |
@@ -469,6 +478,35 @@ in and cannot be served to it (ADR-0024: the config document is fetched *from* `
 precedes the first fetch of it). After publication, moving them is a Web Store review — and the `426` lever
 cannot even tell the stranded builds to update, because saying so requires reaching the API they can no
 longer find.
+
+### When issuance fails and it is not your fault
+
+Neither domain is on the [Public Suffix List](https://publicsuffix.org/list/). Let's Encrypt's
+*per-registered-domain* limit therefore counts *every* certificate issued for any `*.sslip.io` name, by
+anybody on earth, against **one** bucket that you share with every other user of the service. It has been
+exhausted: [cunnie/sslip.io#108](https://github.com/cunnie/sslip.io/issues/108), February 2026, `too many
+certificates (50000) already issued for "sslip.io" in the last 168h0m0s`. The ceiling has been raised more
+than once since — the operators put it at 250,000 a week and say a request for 500,000 was refused — which
+is the shape of a limit that keeps being reached rather than one with room in it.
+
+**This is a different limit from the duplicate one in § TLS below, and the difference is who spends it.** The
+duplicate limit — 5 per 7 days for an identical name set — is yours alone, and iterating against staging is
+how you keep from spending it. This one is everyone's. Staging does not conserve it, no amount of care on
+this host affects it, and the error names *your* hostname, so it arrives looking like something you did.
+
+The escape is to switch to the other domain, which is what the operators themselves recommend: `sslip.io`
+and `nip.io` are separate registered domains and therefore separate buckets. Every address is a variable in
+`production.env`, so on the host it is a `sed` and an `up -d` — but it is a **hostname change**, so it drags
+the whole of the table above with it, `deployment.json` and a rebuild included. A `sed` on the host cannot
+reach the extension's two compiled-in addresses (ADR-0024).
+
+There is a second reason to stay on these names briefly, and it is not about rate limits at all: **the IP is
+inside the hostname.** A rebuilt, migrated or renumbered VPS moves all five of them and costs exactly what
+buying the domain will — the same table, for a change nobody planned. Reserve a static IP before the first
+`up`, and treat "rebuild the droplet" as the same-sized operation as the domain switch itself.
+
+Neither service issues **wildcard** certificates. That costs nothing here — Caddy asks for the five names
+discretely — but it rules out the one shortcut somebody will eventually suggest.
 
 ## TLS, and the two things about Caddy that are silent
 

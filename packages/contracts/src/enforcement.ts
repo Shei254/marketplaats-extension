@@ -436,9 +436,19 @@ export interface UnadoptedPrices {
  * tier through the sync exactly as it always has.
  *
  * **The backend writes no row of its own.** It creates a Stripe Product and a
- * Price tagged `metadata.tier_code`, then calls the same two things the webhook
- * and the edit form already call. The `price.created` Stripe sends moments later
- * finds the row already right and is the no-op it was always documented to be.
+ * Price per rhythm, each tagged `metadata.tier_code`, then calls the same two
+ * things the webhook and the edit form already call. The `price.created` Stripe
+ * sends moments later finds the row already right and is the no-op it was always
+ * documented to be.
+ *
+ * **The `201` carries the tier as it actually is**, which is not always everything
+ * that was asked for: two rhythms are two Stripe calls with no transaction
+ * spanning them, so the annual Price can be refused once the monthly one exists.
+ * The plan is then created selling by the month — refusing the lot would be untrue,
+ * since that first Price is real and tagged and about to be adopted regardless —
+ * and the missing rhythm is added from the tier's own row, which is where Stripe's
+ * sentence about it can be read. So a client compares `prices` on the answer with
+ * the ones it sent rather than assuming they match.
  *
  * `409` (empty body) means a tier already exists under that code — adopting it
  * instead would repoint an existing tier's Price, which is right for a webhook and
@@ -449,13 +459,25 @@ export interface UnadoptedPrices {
  * operator.
  */
 export interface NewPlan {
-  /** The stable handle, and the tag the Price is created with. Must not already exist. */
+  /** The stable handle, and the tag the Prices are created with. Must not already exist. */
   tierCode: string;
   name: string;
-  /** In the currency's smallest unit, as Stripe counts it. Written once, never editable after. */
-  amount: number;
-  /** Stripe's vocabulary: `day`, `week`, `month` or `year`. */
-  interval: string;
+  /**
+   * **Every rhythm the plan is to be sold at, stated together** (T66) — a plan
+   * sold monthly and annually is created in one submit, as one Stripe Product with
+   * a Price each.
+   *
+   * T62 (#128) made a tier able to hold several prices and left this request
+   * carrying one, so the second rhythm was a separate act an operator had to
+   * remember — and in between, a plan card offered no choice, which is the choice
+   * a buyer is actually making.
+   *
+   * At least one, and never the same `interval` twice: a rhythm named twice is two
+   * answers to one question, and the second would silently replace the first. Each
+   * amount is **written once** — Stripe Prices cannot be edited, so repricing is a
+   * new Price and everybody already subscribed keeps the one they bought.
+   */
+  prices: NewPrice[];
   relistQuotaPerPeriod: number;
   features: Record<string, unknown>;
   published: boolean;

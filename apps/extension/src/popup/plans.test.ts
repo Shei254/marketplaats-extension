@@ -39,6 +39,24 @@ describe("what a plan costs", () => {
     // worse answer than an amount beside whatever the backend sent.
     expect(priceOf({ amount: 999, currency: "euros", interval: "month" })).toBe("9.99 EUROS");
   });
+
+  /**
+   * The smallest unit is the currency's own, not a hundredth (T66).
+   *
+   * This card used to divide by a hundred, which is right for a euro and wrong for
+   * every currency without cents — ¥1200 rendered as ¥12 on the screen somebody
+   * decides to pay from. The conversion is the contract's now, and `/admin` writes
+   * amounts through the same module, so what an operator prices and what a buyer
+   * reads cannot disagree about what the number means.
+   */
+  it("counts in the currency's own smallest unit rather than in hundredths", () => {
+    expect(priceOf({ amount: 1200, currency: "jpy", interval: "month" })).toMatch(/1\.200/);
+    expect(priceOf({ amount: 1200, currency: "jpy", interval: "month" })).not.toMatch(/12,00/);
+  });
+
+  it("including on the fallback, where the amount is spelled out beside its code", () => {
+    expect(priceOf({ amount: 1200, currency: "jpyy", interval: "month" })).toBe("12.00 JPYY");
+  });
 });
 
 describe("what a plan grants", () => {

@@ -2,7 +2,7 @@
   "name": "@mprelist/contracts",
   "version": "0.0.1",
   "private": true,
-  "description": "The API's wire types, consumed by both clients. See docs/enforcement-contract.md.",
+  "description": "The API's wire types, and the reading of the amounts they carry, consumed by both clients. See docs/enforcement-contract.md.",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"

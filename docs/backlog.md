@@ -444,6 +444,44 @@ named as the first thing to move.
   request carries a currency at all — and `GET /api/plans` refuses a mixed catalog whole, which covers the one
   way in that is left, a Price created in the Stripe dashboard.
 
+#### T66 · A plan is created at both rhythms, priced the way money is written · **M** · T62, T61 · **shipped**
+*No issue filed — this came in as a direct request rather than off the board, and is written down here so the
+next reader finds it where every other decision is.*
+
+T62 made a tier able to hold several Prices and left `/admin` writing one, so monthly-and-annual was two acts
+an operator had to remember — and in between, a plan card offered no choice, which is the choice a buyer is
+actually making. The form now takes both amounts and one submit creates one Stripe Product with a Price each.
+- **`NewPlan.prices` replaces `amount` + `interval`** — at least one rhythm, never the same one twice. The
+  duplicate is refused where it is typed rather than where it lands: adopted, the second would silently
+  replace the first.
+- **One Product, a Price per rhythm.** Calling the creation twice would put two identically named Products in
+  the Stripe dashboard — invisible to this application, since nothing reads Products, and permanently untidy
+  in somebody else's system. Each Price carries its own idempotency key, because Stripe scopes a key to the
+  body and one key across both would return the first Price twice.
+- **A half-made plan is reported as made.** Two Prices are two Stripe calls with nothing spanning them, so the
+  annual one can be refused once the monthly one exists — and that first Price is real, tagged, and about to
+  be adopted whatever the answer says. Refusing the lot would leave the retry colliding with a code the sync
+  had meanwhile taken, so the plan is created selling what it can and the screen names the rhythm that did
+  not land.
+- **Amounts are typed the way money is written** — `9,99`, not `999`. The wire unit is still Stripe's
+  smallest, and the conversion happens on the way out (`apps/web/src/admin/money.ts`), where the two awkward
+  parts are pinned by a suite: the digits are read as digits, since `Math.round(4.35 * 100)` is `434` and a
+  cent vanishing into an immutable Price is silent; and the number of decimal places is asked of `Intl` rather
+  than assumed to be two, since a yen has none and a dinar has three. More places than the currency has is
+  refused rather than rounded — rounding charges an amount nobody typed.
+- **The checkout half needed nothing.** The popup has drawn a button per rhythm since T62 and `POST
+  /api/checkout` has required an `interval` since then too; what was missing was plans that had two prices to
+  draw. The end-to-end path — the annual button sending `year` — is now pinned by a test.
+- **Left alone, deliberately:** `apps/extension/src/popup/plans.ts` still divides an amount by a hundred to
+  render it, which `money.ts` argues against. It is not wrong today — T63 prices the whole catalog in the
+  Stripe account's settlement currency, and this one is EUR — and the fix is to share `money.ts` across the
+  two workspaces rather than to copy it, which is a move worth making when something actually needs it.
+- **A `500` closed on the way:** the rhythm vocabulary was checked where the Stripe Price is built, which
+  throws unchecked and, once a plan could state several rhythms, threw *after* an earlier Price had been
+  created and tagged — leaving a Price the webhook adopts into a draft tier under the code the retry is then
+  refused for. `PlanRhythm` refuses it at construction now, so the contract's `400` is what a body naming a
+  rhythm Stripe has no word for actually gets. This narrows what may be **created**, not what may be adopted.
+
 ---
 
 ## Go-Live — making it reachable by somebody else

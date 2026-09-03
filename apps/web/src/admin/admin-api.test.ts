@@ -218,11 +218,14 @@ describe("the Prices nobody tagged", () => {
 });
 
 describe("creating a plan", () => {
+  /** Sold both ways, which is what one submit creates since T66. */
   const PLAN = {
     tierCode: "starter",
     name: "Starter",
-    amount: 500,
-    interval: "month",
+    prices: [
+      { amount: 500, interval: "month" },
+      { amount: 5000, interval: "year" },
+    ],
     relistQuotaPerPeriod: 10,
     features: {},
     published: false,

@@ -29,7 +29,7 @@ com.mprelist
 │   │                       SubscriptionMirror, SubscriberOnStripe, Mirroring
 │   └── internal/                 ◀ the table, through JdbcClient, and provisioning on first sign-in
 ├── billing/        public: StripePrices, StripePrice, StripePaymentMethods, StripePlans,
-│   │                       NewPlanInStripe, PlanCreation, StripeAccountFacts,
+│   │                       NewPlanInStripe, PlanRhythm, PlanCreation, StripeAccountFacts,
 │   │                       UnadoptedPrices, UntaggedPrice
 │   └── internal/                 ◀ the Stripe client and its caches, and the three routes
 │                                   /api/checkout, /api/portal, /api/stripe/webhook

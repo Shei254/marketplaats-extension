@@ -176,6 +176,13 @@ async function type(selector: string, value: string): Promise<void> {
   await act(async () => field.dispatchEvent(new Event("input", { bubbles: true })));
 }
 
+/** The body of the one `POST /api/admin/plans` this screen sent. */
+function sentPlan(s: ReturnType<typeof stack>): Record<string, unknown> {
+  return JSON.parse(
+    s.calls.find((call) => call.url.endsWith("/api/admin/plans"))?.body ?? "{}",
+  ) as Record<string, unknown>;
+}
+
 /** Arrive as if Keycloak had just redirected back, which is where a sign-in lands. */
 async function arrive(
   s: ReturnType<typeof stack>,
@@ -568,7 +575,7 @@ describe("creating a plan from the screen", () => {
     await arrive(s);
     await click("New plan");
     await type("#plan-name", "Starter");
-    await type("#plan-amount", "500");
+    await type("#plan-amount-month", "5.00");
     await type("#plan-quota", "10");
     await click("Create in Stripe");
     await until(
@@ -576,17 +583,150 @@ describe("creating a plan from the screen", () => {
       "the plan to reach the API",
     );
 
-    const sent = JSON.parse(
-      s.calls.find((call) => call.url.endsWith("/api/admin/plans"))?.body ?? "{}",
-    ) as Record<string, unknown>;
+    const sent = sentPlan(s);
     // Nobody typed this: it is the name, filed (see `tier-code.ts`).
     expect(sent["tierCode"]).toBe("starter");
-    expect(sent["amount"]).toBe(500);
+    expect(sent["prices"]).toEqual([{ amount: 500, interval: "month" }]);
     // No currency at all: the catalog has one (T63, #129) and no request names it.
     expect(sent["currency"]).toBeUndefined();
-    expect(sent["interval"]).toBe("month");
     // Not on sale: the operator checks what Stripe made, then publishes from the row.
     expect(sent["published"]).toBe(false);
+  });
+
+  /**
+   * Both rhythms on the form that creates the plan (T66).
+   *
+   * Monthly and annual are one plan a buyer picks a rhythm for, and T62 (#128) had
+   * already made a tier able to hold both — but the form wrote one, so the second
+   * was a separate act an operator had to remember. In between, the plan card
+   * offered no choice, which is the choice the buyer is actually making.
+   */
+  it("takes both rhythms at once, and sends them as one plan", async () => {
+    const s = stack();
+
+    await arrive(s);
+    await click("New plan");
+    await type("#plan-name", "Starter");
+    await type("#plan-amount-month", "5.00");
+    await type("#plan-amount-year", "50.00");
+    await type("#plan-quota", "10");
+    await click("Create in Stripe");
+    await until(
+      () => s.calls.some((call) => call.url.endsWith("/api/admin/plans")),
+      "the plan to reach the API",
+    );
+
+    expect(sentPlan(s)["prices"]).toEqual([
+      { amount: 500, interval: "month" },
+      { amount: 5000, interval: "year" },
+    ]);
+  });
+
+  /** Monthly first, because that is the order the popup reads a card in — cheapest first. */
+  it("and sends the cheaper rhythm first even when the annual one was typed first", async () => {
+    const s = stack();
+
+    await arrive(s);
+    await click("New plan");
+    await type("#plan-name", "Starter");
+    await type("#plan-amount-year", "50.00");
+    await type("#plan-amount-month", "5.00");
+    await click("Create in Stripe");
+    await until(
+      () => s.calls.some((call) => call.url.endsWith("/api/admin/plans")),
+      "the plan to reach the API",
+    );
+
+    expect(sentPlan(s)["prices"]).toEqual([
+      { amount: 500, interval: "month" },
+      { amount: 5000, interval: "year" },
+    ]);
+  });
+
+  it("and a plan sold only one way is still a plan", async () => {
+    // Not every plan is worth an annual rhythm, and a form that insisted on one
+    // would be inventing a price to satisfy itself.
+    const s = stack();
+
+    await arrive(s);
+    await click("New plan");
+    await type("#plan-name", "Starter");
+    await type("#plan-amount-year", "50.00");
+    await click("Create in Stripe");
+    await until(
+      () => s.calls.some((call) => call.url.endsWith("/api/admin/plans")),
+      "the plan to reach the API",
+    );
+
+    expect(sentPlan(s)["prices"]).toEqual([{ amount: 5000, interval: "year" }]);
+  });
+
+  it("but a plan priced at neither rhythm is refused without asking the API", async () => {
+    const s = stack();
+
+    await arrive(s);
+    await click("New plan");
+    await type("#plan-name", "Starter");
+    await click("Create in Stripe");
+
+    expect(text()).toContain("what it costs");
+    expect(s.calls.some((call) => call.url.endsWith("/api/admin/plans"))).toBe(false);
+  });
+
+  /**
+   * Money is typed the way money is written (T66), and turned into Stripe's unit here.
+   *
+   * The field used to be labelled "Amount, in cents" and took `999`. That is the
+   * wire format leaking onto a screen: an operator thinking in euros has to convert
+   * in their head, every time, to write a number into a Price that can never be
+   * edited afterwards.
+   */
+  it("takes an amount written the way money is, not in cents", async () => {
+    const s = stack();
+
+    await arrive(s);
+    await click("New plan");
+    await type("#plan-name", "Starter");
+    await type("#plan-amount-month", "9,99");
+    await click("Create in Stripe");
+    await until(
+      () => s.calls.some((call) => call.url.endsWith("/api/admin/plans")),
+      "the plan to reach the API",
+    );
+
+    expect(sentPlan(s)["prices"]).toEqual([{ amount: 999, interval: "month" }]);
+  });
+
+  it("and says so rather than rounding a price nobody typed", async () => {
+    const s = stack();
+
+    await arrive(s);
+    await click("New plan");
+    await type("#plan-name", "Starter");
+    await type("#plan-amount-month", "9.999");
+    await click("Create in Stripe");
+
+    expect(text()).toContain("2 decimal");
+    expect(s.calls.some((call) => call.url.endsWith("/api/admin/plans"))).toBe(false);
+  });
+
+  /**
+   * Two Prices are two Stripe calls with no transaction spanning them, so the plan
+   * can land selling by the month with the annual one refused. Saying nothing would
+   * leave an operator believing they had created something they had not.
+   */
+  it("says which rhythm did not land when Stripe made only one of the two", async () => {
+    const s = stack({ create: () => json(PRO, 201) });
+
+    await arrive(s);
+    await click("New plan");
+    await type("#plan-name", "Pro");
+    await type("#plan-amount-month", "9.99");
+    await type("#plan-amount-year", "99.00");
+    await click("Create in Stripe");
+    await until(() => text().includes("yearly"), "the missing rhythm to be reported");
+
+    expect(text()).toContain("Stripe did not make the yearly price");
   });
 
   it("says the amount is written once, because Stripe Prices cannot be edited", async () => {
@@ -609,7 +749,7 @@ describe("creating a plan from the screen", () => {
     await arrive(s);
     await click("New plan");
     await type("#plan-name", "Starter");
-    await type("#plan-amount", "1");
+    await type("#plan-amount-month", "0.01");
     await click("Create in Stripe");
     await until(() => text().includes("at least 50 cents"), "Stripe's refusal to be shown");
 
@@ -622,7 +762,7 @@ describe("creating a plan from the screen", () => {
     await arrive(s);
     await click("New plan");
     await type("#plan-name", "Pro");
-    await type("#plan-amount", "500");
+    await type("#plan-amount-month", "5.00");
     await click("Create in Stripe");
     await until(() => text().includes("already uses that code"), "the clash to be reported");
 
@@ -651,7 +791,7 @@ describe("creating a plan from the screen", () => {
     await arrive(s);
     await click("New plan");
     await type("#plan-name", "!!!");
-    await type("#plan-amount", "500");
+    await type("#plan-amount-month", "5.00");
     await click("Create in Stripe");
 
     expect(text()).toContain("needs a letter or a digit");
@@ -666,7 +806,7 @@ describe("creating a plan from the screen", () => {
     await click("New plan");
 
     expect(text()).toContain("could not say what this account settles in");
-    expect(container.querySelector("#plan-amount")).toBeNull();
+    expect(container.querySelector("#plan-amount-month")).toBeNull();
   });
 });
 
@@ -707,7 +847,7 @@ describe("a plan sold at more than one rhythm", () => {
 
     await arrive(s);
     await clickInRowFor("pro", "Prices");
-    await type("#price-amount", "9900");
+    await type("#price-amount", "99.00");
     await click("Add in Stripe");
     await until(
       () => s.calls.some((call) => call.url.endsWith("/prices") && call.method === "POST"),
@@ -717,6 +857,8 @@ describe("a plan sold at more than one rhythm", () => {
     const posted = s.calls.find((call) => call.url.endsWith("/prices") && call.method === "POST");
     expect(posted?.url).toBe("http://localhost:8080/api/admin/tiers/pro/prices");
     const sent = JSON.parse(posted?.body ?? "{}") as Record<string, unknown>;
+    // Typed as `99.00`: this form takes money the way it is written too (T66), and
+    // the smallest unit is what goes on the wire.
     expect(sent["amount"]).toBe(9900);
     // The rhythm Pro does not already sell at, which is what the form opened on.
     expect(sent["interval"]).toBe("year");

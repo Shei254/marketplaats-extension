@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 
 import com.mprelist.billing.NewPlanInStripe;
 import com.mprelist.billing.PlanCreation;
+import com.mprelist.billing.PlanRhythm;
 import com.stripe.StripeClient;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -36,7 +37,12 @@ import com.sun.net.httpserver.HttpServer;
  */
 class PlanCreationTest {
 
-	private static final NewPlanInStripe PRO = new NewPlanInStripe("pro", "Pro", 999, "eur", "month");
+	private static final NewPlanInStripe PRO = new NewPlanInStripe("pro", "Pro", "eur",
+			List.of(new PlanRhythm(999, "month")));
+
+	/** The shape T66 is about: one plan, one Product, and a price per rhythm somebody may buy it at. */
+	private static final NewPlanInStripe PRO_BOTH_WAYS = new NewPlanInStripe("pro", "Pro", "eur",
+			List.of(new PlanRhythm(999, "month"), new PlanRhythm(9900, "year")));
 
 	/** What {@code AccountCurrencies} hardcodes, mirrored here because the test has to outlive it. */
 	private static final Duration FOR_A_DAY = Duration.ofDays(1);
@@ -51,6 +57,12 @@ class PlanCreationTest {
 
 	private boolean stripeAgrees = true;
 
+	/** Which Price creation to start refusing at, so a plan can be half-made the way Stripe can half-make one. */
+	private int refusePricesFrom = Integer.MAX_VALUE;
+
+	/** How many Prices Stripe has been asked for, which is what gives each answer a different id. */
+	private int pricesAsked;
+
 	private String settlesIn = "eur";
 
 	/** The clock {@code AccountCurrencies} reads, so a day can pass without sleeping through one. */
@@ -63,11 +75,15 @@ class PlanCreationTest {
 			String path = exchange.getRequestURI().getPath();
 			this.sent.add(new Sent(path, formIn(new String(exchange.getRequestBody().readAllBytes(), UTF_8)),
 					exchange.getRequestHeaders().getFirst("Idempotency-Key")));
-			if (!this.stripeAgrees) {
+			boolean price = path.endsWith("/prices");
+			if (price) {
+				this.pricesAsked++;
+			}
+			if (!this.stripeAgrees || (price && this.pricesAsked >= this.refusePricesFrom)) {
 				respond(exchange, 400, "{\"error\":{\"message\":\"Amount must be at least 50 cents\"}}");
 				return;
 			}
-			respond(exchange, 200, answerFor(path, this.settlesIn));
+			respond(exchange, 200, answerFor(path, this.settlesIn, this.pricesAsked));
 		});
 		this.stripe.start();
 	}
@@ -83,8 +99,54 @@ class PlanCreationTest {
 	void aPlanBecomesAProductAndARecurringPrice() {
 		PlanCreation made = plans().create(PRO, "a-key");
 
-		assertThat(made).isEqualTo(new PlanCreation.Created("price_made", "pro", "Pro"));
+		assertThat(made).isEqualTo(new PlanCreation.Created("pro", "Pro",
+				List.of(new PlanCreation.CreatedPrice("price_made_1", "month"))));
 		assertThat(paths()).containsExactly("/v1/products", "/v1/prices");
+	}
+
+	/**
+	 * <strong>A plan sold monthly and annually is one Product and two Prices</strong> (T66), which is the
+	 * whole of why the rhythms arrive together rather than one form submit each.
+	 *
+	 * <p>Two calls to this method would make two Products with the same name — one plan appearing twice in
+	 * the Stripe dashboard, which is a thing an operator then has to know to ignore. The tier is made by the
+	 * tag on the Prices either way, so nothing here would have been visibly broken; it would just have been
+	 * untidy in somebody else's system, permanently.
+	 */
+	@Test
+	void andAPlanSoldTwoWaysIsOneProductWithAPricePerRhythm() {
+		PlanCreation made = plans().create(PRO_BOTH_WAYS, "a-key");
+
+		assertThat(made).isEqualTo(new PlanCreation.Created("pro", "Pro", List.of(
+				new PlanCreation.CreatedPrice("price_made_1", "month"),
+				new PlanCreation.CreatedPrice("price_made_2", "year"))));
+		assertThat(paths()).containsExactly("/v1/products", "/v1/prices", "/v1/prices");
+	}
+
+	/** Each with its own amount and its own recurrence, which is the pair a buyer is choosing between. */
+	@Test
+	void andEachRhythmCarriesItsOwnAmount() {
+		plans().create(PRO_BOTH_WAYS, "a-key");
+
+		assertThat(formsTo("/v1/prices")).extracting(form -> form.get("unit_amount") + "/"
+				+ form.get("recurring[interval]")).containsExactly("999/month", "9900/year");
+		assertThat(formsTo("/v1/prices")).allSatisfy(
+				form -> assertThat(form).containsEntry("metadata[tier_code]", "pro"));
+	}
+
+	/**
+	 * And both Prices are made against the Product the first one made, rather than each against its own.
+	 *
+	 * <p>Pinned separately from the call count above because it is the field that would still be wrong if
+	 * somebody later made the loop create a Product per rhythm: the paths would read the same and only this
+	 * would say so.
+	 */
+	@Test
+	void andBothAgainstTheOneProduct() {
+		plans().create(PRO_BOTH_WAYS, "a-key");
+
+		assertThat(formsTo("/v1/prices")).allSatisfy(
+				form -> assertThat(form).containsEntry("product", "prod_made"));
 	}
 
 	/**
@@ -112,7 +174,8 @@ class PlanCreationTest {
 	/** A one-off is not a subscription plan, so nothing here can make one: the recurrence is always sent. */
 	@Test
 	void andIsAlwaysRecurring() {
-		plans().create(new NewPlanInStripe("power", "Power", 1999, "eur", "year"), "a-key");
+		plans().create(new NewPlanInStripe("power", "Power", "eur", List.of(new PlanRhythm(1999, "year"))),
+				"a-key");
 
 		assertThat(formTo("/v1/prices")).containsEntry("recurring[interval]", "year");
 	}
@@ -128,8 +191,23 @@ class PlanCreationTest {
 		plans().create(PRO, "a-key");
 
 		assertThat(this.sent).extracting(Sent::idempotencyKey)
-				.containsExactly("a-key:product", "a-key:price")
+				.containsExactly("a-key:product", "a-key:price:month")
 				.doesNotContainNull();
+	}
+
+	/**
+	 * And a rhythm is in its own key, so the second Price is not a replay of the first's answer.
+	 *
+	 * <p>Stripe scopes a key to the request body and replays the first answer for a repeat, so two Prices
+	 * under one key would come back as one Price twice — a plan that looked created and was sold at one
+	 * rhythm, with the annual button charging the monthly amount.
+	 */
+	@Test
+	void andEachRhythmIsIdempotentUnderItsOwnKey() {
+		plans().create(PRO_BOTH_WAYS, "a-key");
+
+		assertThat(this.sent).extracting(Sent::idempotencyKey)
+				.containsExactly("a-key:product", "a-key:price:month", "a-key:price:year");
 	}
 
 	@Test
@@ -148,6 +226,36 @@ class PlanCreationTest {
 
 		assertThat(refused).isInstanceOf(PlanCreation.Refused.class);
 		assertThat(this.sent).isEmpty();
+	}
+
+	/**
+	 * <strong>A plan whose second rhythm Stripe would not make is still a plan</strong> (T66).
+	 *
+	 * <p>Two Prices are two calls and Stripe has no transaction spanning them, so the annual one can fail
+	 * after the monthly one is already made and tagged. Refusing the lot would be a lie — the monthly Price
+	 * exists, it carries the tag, and the sync is about to adopt it whatever this method returns — and the
+	 * operator's retry would then be refused for a code that is taken.
+	 *
+	 * <p>So what was made is reported, the tier is created selling what it can, and the missing rhythm is
+	 * added from the row's own Prices form, which is where Stripe's refusal for it can be read.
+	 */
+	@Test
+	void andWhatWasMadeIsReportedWhenARhythmIsRefusedAfterOneLanded() {
+		this.refusePricesFrom = 2;
+
+		PlanCreation made = plans().create(PRO_BOTH_WAYS, "a-key");
+
+		assertThat(made).isEqualTo(new PlanCreation.Created("pro", "Pro",
+				List.of(new PlanCreation.CreatedPrice("price_made_1", "month"))));
+	}
+
+	/** But a plan with no Price at all is nothing to adopt, so that is the refusal it always was. */
+	@Test
+	void andAPlanWhoseEveryRhythmWasRefusedIsRefused() {
+		this.refusePricesFrom = 1;
+
+		assertThat(plans().create(PRO_BOTH_WAYS, "a-key"))
+				.isEqualTo(new PlanCreation.Refused("Amount must be at least 50 cents"));
 	}
 
 	// --- what it is priced in (T63, #129) -----------------------------------------------------------------------
@@ -248,12 +356,19 @@ class PlanCreationTest {
 				.orElseThrow(() -> new AssertionError("nothing was sent to " + path)).form();
 	}
 
-	private static String answerFor(String path, String settlesIn) {
+	/** Every form sent to a path, in order — which is what a plan sold at two rhythms needs to be read by. */
+	private List<Map<String, String>> formsTo(String path) {
+		return this.sent.stream().filter(one -> one.path().equals(path)).map(Sent::form).toList();
+	}
+
+	private static String answerFor(String path, String settlesIn, int pricesAsked) {
 		if (path.endsWith("/products")) {
 			return "{\"id\":\"prod_made\",\"object\":\"product\"}";
 		}
 		if (path.endsWith("/prices")) {
-			return "{\"id\":\"price_made\",\"object\":\"price\"}";
+			// A different id per call: a plan sold two ways is two Prices, and a test that could not tell
+			// them apart could not see the second one being filed under the wrong rhythm.
+			return "{\"id\":\"price_made_" + pricesAsked + "\",\"object\":\"price\"}";
 		}
 		return "{\"id\":\"acct_1\",\"object\":\"account\",\"country\":\"NL\",\"default_currency\":\""
 				+ settlesIn + "\"}";

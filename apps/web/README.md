@@ -153,6 +153,9 @@ and **Prices** adds one — or replaces one it already has, which is the only wa
 Prices cannot be edited. The form says which of the two is about to happen and, when it is a replacement, that
 everybody already subscribed keeps the price they signed up at.
 
-**The feature flags are a JSON textarea**, which is honest rather than lazy: `features` is an open object,
-every tier carries `{}` today, and no flag has an implementation behind it. Checkboxes would be inventing a
-schema this product has not decided on.
+**The feature flags are a JSON textarea**, which was honest rather than lazy when it was written: `features`
+is an open object, every tier carried `{}`, and no flag had an implementation behind it, so checkboxes would
+have been inventing a schema this product had not decided on. **T68 decided one.** `bulk` is seeded with a
+value and read by two clients, so the textarea is now the wrong control for the one flag that exists —
+[ADR-0026](../../docs/adr/0026-a-feature-flag-is-a-field-spelled-once.md) makes the cap a number and T69
+builds it. Until then this is what the form shows.

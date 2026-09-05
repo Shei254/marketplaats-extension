@@ -38,7 +38,11 @@ MP sessions live only in the user's browser. Nothing here holds them server-side
   `authorize`'s `batch` field refusable. **Built** by T68 (`V8__seed_bulk_entitlement.sql`), which makes it
   the first flag anything reads — `Entitlement.grants(flag)` answers *whether*, and the value is the popup's
   to read, since the API sees one ad at a time and cannot count a batch. `scheduling` remains named here and
-  built nowhere.
+  built nowhere. **Those numbers are a seed and not the catalog.** ADR-0026 makes the cap a number an operator
+  types in `/admin`, spells the flag once in `packages/contracts/src/features.ts` for the form that writes one
+  and the popup that reads one, and writes a flag turned **off as `false`** rather than removing it — absence
+  is then what a tier the seed has never touched looks like. **Decided, and built by T69**; until it lands the
+  cap is a JSON textarea and `false` is a spelling nothing writes.
 - **UsageReservation** — one quota unit, held from `authorize` until `complete` settles or refunds it, for
   a User and an ad reference. Backend-owned; usage in a period is the reservations in it that were not
   refunded, so a relist still in flight already counts (ADR-0007).

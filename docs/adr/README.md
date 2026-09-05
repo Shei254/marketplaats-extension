@@ -36,6 +36,7 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0023](0023-ci-builds-the-images-and-the-host-pulls.md) | CI builds the images, a registry holds them, the host pulls; TLS in a fifth container | Accepted, amends 0020 |
 | [0024](0024-the-extension-addresses-are-built-in.md) | The extension's own addresses are built in, never served | Accepted, refines 0013 |
 | [0025](0025-bulk-repost-is-entitled-queued-and-paced-wider.md) | Bulk repost is a paid entitlement, run by the worker, paced wider | Accepted, realises 0007/0014's `bulk` flag |
+| [0026](0026-a-feature-flag-is-a-field-spelled-once.md) | A feature flag is a field an operator types, and the flag is spelled once | Accepted, refines 0014 |
 
 **Amended by the 2026-08-13 session:** 0006 (Stripe narrowed to money + lifecycle), 0007 (gating depth,
 `/api/me` display state, `marktplaatsAccountId` dropped), 0009 (monorepo, React popup, Options page removed).
@@ -90,6 +91,14 @@ purpose, and says why the tempting loosening is foreclosed: the pacing rails are
 ban. A bigger plan buys more relists per period, never a faster hour. The same session recorded T67 — the
 popup was reading `minimumBidPriceCents` as the seller's bid floor when it is bid activity — which is a
 correction rather than a decision and lives in [../internal-api-findings.md](../internal-api-findings.md).
+
+**Amended by the 2026-09-06 session:** [0026](0026-a-feature-flag-is-a-field-spelled-once.md) refines
+[0014](0014-tier-catalog-and-entitlements.md) on the half of the catalog 0014 left open: the `features`
+column stops being a JSON textarea in `/admin` and becomes a field, now that
+[0025](0025-bulk-repost-is-entitled-queued-and-paced-wider.md) has put a value in it. The flag itself is
+spelled once in `packages/contracts` and read from there by both the admin form and the popup, and "off" is
+written `false` rather than as a deleted key — which is what makes `V8__seed_bulk_entitlement.sql`'s own
+claim about the admin edit true on a machine that restores a dump.
 
 See also [../domain-model.md](../domain-model.md), [../glossary.md](../glossary.md) and
 [../enforcement-contract.md](../enforcement-contract.md).

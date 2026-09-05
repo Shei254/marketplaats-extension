@@ -76,3 +76,19 @@ reads as "nothing left" rather than as a negative. Nothing else is done — no p
 
 **Trials:** the section above still describes how one would work. None ships in iteration 1
 ([ADR-0006](0006-billing.md), amended).
+
+## Amended by ADR-0026 (2026-09-06)
+
+**"Iteration 1 gets quota, name, flags, `isDefault` and publish" is refined on the word *flags*.**
+[ADR-0026](0026-a-feature-flag-is-a-field-spelled-once.md) makes the `features` column a field an operator
+types rather than a JSON textarea, now that [ADR-0025](0025-bulk-repost-is-entitled-queued-and-paced-wider.md)
+has put a value in it. The catalog stays exactly as this ADR describes it — an open `jsonb` object, so adding
+a flag is still an admin edit rather than a migration and a deploy — and what changes is only who spells the
+shape: `packages/contracts/src/features.ts`, read from there by both the admin form that writes a flag and
+the popup that reads one.
+
+**"Off" acquires a spelling.** A flag an operator turns off is written `{"bulk": false}` and **not** removed
+from the object. `Entitlement.grants` and the popup have always answered *not granted* for both, so this
+changes no reader; it is decided for the seed's sake. `V8__seed_bulk_entitlement.sql` writes only where the
+key is absent and claims of itself that the admin edit is the durable way to take a flag off a tier — a claim
+a deleted key would falsify on any restored dump, in a file Flyway's checksum forbids correcting.

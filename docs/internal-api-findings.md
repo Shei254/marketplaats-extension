@@ -168,29 +168,37 @@ error:
 
 - `url` is emitted **immediately after the description**, not with the other empty fields.
 - `packageSize` comes **before** the price details, not after the shipping price.
-- `price.minimumBidPrice` comes **before** `price.typeValue`.
 - `contactInformation.phoneNumberSwitch` comes **before** the `syi-address-*` fields.
 - `bucket` is grouped **between `l1` and `l2`**, not after the category names.
 - `tmsid`, `timestamp`, `signature` are **last**, in that order.
+
+> **Two orderings here are now `coded`, not `observed`, and the distinction is the point of this file.**
+> `packageSize` used to sit after `dropOffLocationCode` and now sits before it, and
+> `price.minimumBidPrice` used to come before `price.typeValue` and now comes after it. Both moved in the
+> create-ad payload work, and **neither new position has been seen accepted by the live form** — the golden
+> test was re-frozen onto them, which pins what we send and proves nothing about what works. If a create
+> starts failing, these two are the first things to put back.
 
 Which exact orderings were tried and refused is *not* recorded — the comments say "to match the working
 payload order" and no failing variant was kept. That is the gap this note cannot close, and the reason the
 golden test freezes the sequence byte-for-byte: nobody can re-derive it cheaply.
 
-The full sequence for a maximal ad is **frozen** in `marktplaats-api.golden.test.ts` (`FULL_PAIRS`, 35 fields
+The full sequence for a maximal ad is **frozen** in `marktplaats-api.golden.test.ts` (`FULL_PAIRS`, 37 fields
 for two photos). Its shape:
 
 ```
 images.ids, images.urls        ×P, then one trailing empty `images.ids`
-title_nl-NL, description_nl-NL, url
-singleSelectAttribute[type]    ← the `type` attribute, else the category name
+title_nl-NL, description_nl-NL, url, url-input
+singleSelectAttribute[…]       ← one field per attribute, named after its own type
 deliveryMethod                 ← only if the draft has one
 buyerProtectionAllowed=on      ← only when true; omitted entirely when false
-shippingMethod ×carriers, packageSize=M, shippingDetails.{price,provider}
-                               ← the whole block only when a shipping option is selected
-Dropdown-prijstype, price.minimumBidPrice, price.typeValue, previousPriceType
-price.biddingEnabled=on        ← only when true; omitted entirely when false
-contactInformation.sellerName, contactInformation.phoneNumberSwitch=false
+shippingMethod ×carriers, shippingDetails.{price,provider}
+                               ← only when a shipping option is selected
+packageSize                    ← always, whether or not anything above was sent
+dropOffLocationCode            ← the seller's postcode; omitted when they have none
+Dropdown-prijstype, price.typeValue, price.minimumBidPrice, price.value, previousPriceType
+price.biddingEnabled           ← always, `on` or `off`
+contactInformation.sellerName, contactInformation.phoneNumberSwitch
 syi-address-radio-home, address-index-filter, contactInformation.postCode
 bundle-selection=FREE, selectedBundle=FREE
 xsrf.token
@@ -198,18 +206,33 @@ l1, bucket, l2, l2CategoryFullName
 tmsid, timestamp, signature
 ```
 
-**Booleans are omitted, not sent as `false`.** `buyerProtectionAllowed` and `price.biddingEnabled` appear
-only when true; the checkbox convention (`on`) is what the form uses. `phoneNumberSwitch` is the exception
-and is sent as the string `"false"`.
+**One boolean is omitted and one is sent both ways.** `buyerProtectionAllowed` appears only when true, on
+the checkbox convention (`on`). `price.biddingEnabled` is always present and carries the switch's *state*
+rather than its presence — `on` or `off`. `phoneNumberSwitch` is `"true"` only when the ad allows an up-call
+**and** the capture has a number, in which case `contactInformation.phoneNumber` rides with it; otherwise
+`"false"` alone, because a switch turned on over an empty field is a payload the site refuses.
 
-**Constants nobody has questioned**, all **frozen** and none understood: `packageSize=M`,
-`shippingDetails.provider=other`, `syi-address-radio-home=syi-address-nl`, `address-index-filter=syi-address-nl`,
-`bundle-selection=FREE`, `selectedBundle=FREE`, and `deleteAd`'s `reason=NO_DEAL_VIA_MP`. Each is a value the
-spike found in a working request and copied. `packageSize=M` in particular is sent for **every** shipped ad
-regardless of the carrier option's own weight band.
+**The two amounts are written differently, and that is not a slip.** `price.value` is a bare number
+(`125.99`), `price.minimumBidPrice` is nl-NL with two places (`50,00`). Each is a form field filled in the
+way that form fills it. Both are omitted for a `FREE` or `SEE_DESCRIPTION` ad, and `price.minimumBidPrice` is
+also omitted when there is no floor — guarded on `Number(…) > 0`, because the capture carries cents as
+**strings** and `"0"` is truthy. Guarding on the raw value put `price.minimumBidPrice=0,00` on every ad
+without a floor, which is a number the seller never chose.
 
-**Carriers are deduplicated and lowercased** — `carrierId || code`, `Set`, `toLowerCase()` — so two DHL
-options produce one `shippingMethod=dhl`.
+**`packageSize` is no longer a constant.** It is read off the selected carrier's own weight band —
+2kg → `XS`, 3kg → `S`, 10kg → `M`, 23kg → `L`, matched on those exact numbers — and falls back to `M` when
+there is no carrier to read one off. **A band that is none of the four emits no `packageSize` at all**, which
+is a hole rather than a decision: it is characterized in the golden suite so the next reader finds it, and
+nobody has asked the live form which of the two it wants.
+
+**Constants nobody has questioned**, all **frozen** and none understood: `shippingDetails.provider=other`,
+`syi-address-radio-home=syi-address-nl`, `address-index-filter=syi-address-nl`, `bundle-selection=FREE`,
+`selectedBundle=FREE`, and `deleteAd`'s `reason=NO_DEAL_VIA_MP`. Each is a value the spike found in a working
+request and copied.
+
+**Carriers are deduplicated and lowercased** — keyed on `carrierId`, `toLowerCase()` — so two DHL options
+produce one `shippingMethod=dhl`. **`shippingDetails.price` is the cheapest of the selected options**, not
+the first one in the array.
 
 **There is no response to read.** Reaching the end of `createAd` *is* the success signal; the layer never
 parses what comes back, and the new ad's id is never learned. That is why the popup reloads the list after a
@@ -296,6 +319,12 @@ Open questions, each with a ticket where there is one:
   back as `price.minimumBidPrice`, so it is *probably* the floor the seller set — but nobody has looked. If
   it turns out to be activity too, every reposted bid ad is being given a floor its owner never chose. Settle
   it against a real `MIN_BID` ad with bids on it before touching `createAd`. No ticket.
+- **Does the live form accept the two orderings that moved?** `packageSize` now precedes
+  `dropOffLocationCode`, and `price.minimumBidPrice` now follows `price.typeValue`. The golden test was
+  re-frozen onto both; neither has been seen accepted. First suspects if a create starts failing. No ticket.
+- **What should a weight band outside the four do?** 2/3/10/23kg map to XS/S/M/L and anything else emits no
+  `packageSize` at all, while a pickup-only ad still falls back to `M`. One of those two is wrong and the
+  form knows which. No ticket.
 - **Is the create-ad signature category-scoped?** We scrape one bicycle form for every ad. No ticket.
 - **What does a rejected `createAd` actually answer?** No status, body or shape has been recorded — which is
   why the failure table above says "compare and re-record" rather than naming one. No ticket.

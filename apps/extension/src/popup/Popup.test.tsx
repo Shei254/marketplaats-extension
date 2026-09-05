@@ -59,8 +59,8 @@ const POWER: Plan = {
 const OPENED: HandoffAnswer = { status: "opened", url: "https://checkout.stripe.com/c/pay/cs_1" };
 
 export const ADS: ListingSummary[] = [
-  { id: "m1", title: "Vintage Eames lounge chair", priceCents: 125_000 },
-  { id: "m2", title: "Trek Marlin 7 mountainbike (M)", priceCents: 48_000 },
+  { id: "m1", title: "Vintage Eames lounge chair", priceCents: 125_000, priceType: "FIXED", biddingEnabled: false },
+  { id: "m2", title: "Trek Marlin 7 mountainbike (M)", priceCents: 48_000, priceType: "FIXED", biddingEnabled: false },
 ];
 
 function fakeWorker(

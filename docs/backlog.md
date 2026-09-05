@@ -673,7 +673,7 @@ Neither of these is required before a stranger can pay, so neither belongs in Go
 together in the 2026-09-05 grilling and are written down together for that reason; only the second is a
 feature.
 
-#### [T67](https://github.com/Shei254/marketplaats-extension/issues/146) · The ad row stops reading `minimumBidPriceCents` as a bid floor · **S** · no deps
+#### [T67](https://github.com/Shei254/marketplaats-extension/issues/146) · The ad row stops reading `minimumBidPriceCents` as a bid floor · **S** · no deps · **shipped**
 A correction to T30a's row rendering, caught before it was ever committed.
 
 `ListingSummary.minimumBidPriceCents` is the minimum bid **placed** on an ad, not the floor its seller set,

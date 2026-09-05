@@ -4,13 +4,13 @@ import { describe, expect, it } from "vitest";
 import { ApiRequestError, NoMarktplaatsTabError } from "../adapters/relay-marktplaats-client";
 import { NotAuthenticatedError, SpikePendingError } from "../domain/marktplaats-client";
 import type { ListingSummary } from "../domain/types";
-import { describeAdsFailure, formatEuro } from "./ads";
+import { describeAdsFailure, describePrice, formatEuro } from "./ads";
 import { AdList } from "./AdList";
 import type { WorkerPort } from "./screen";
 
 const ADS: ListingSummary[] = [
-  { id: "m1", title: "Vintage Eames lounge chair", priceCents: 125_000 },
-  { id: "m2", title: "Trek Marlin 7 mountainbike (M)", priceCents: 48_000 },
+  { id: "m1", title: "Vintage Eames lounge chair", priceCents: 125_000, priceType: "FIXED", biddingEnabled: false },
+  { id: "m2", title: "Trek Marlin 7 mountainbike (M)", priceCents: 48_000, priceType: "FIXED", biddingEnabled: false },
 ];
 
 /** The list, rendered without any of its behaviour — that is `AdList.test.tsx`. */
@@ -30,7 +30,7 @@ describe("the ads themselves", () => {
   it("keep the whole title in the document, however narrow the window is", () => {
     // Truncation is CSS's job. Cutting the string instead would put an ad nobody
     // can identify in a 360px popup and leave nothing to hover for the rest.
-    const long = { id: "m3", title: "A".repeat(120), priceCents: 100 };
+    const long = { id: "m3", title: "A".repeat(120), priceCents: 100, priceType: "FIXED", biddingEnabled: false };
 
     expect(render({ status: "ready", ads: [long] })).toContain(`title="${"A".repeat(120)}"`);
   });
@@ -102,5 +102,77 @@ describe("prices", () => {
   it("are Dutch, because the marketplace and the seller are", () => {
     expect(formatEuro(125_000)).toMatch(/^€\s?1\.250,00$/);
     expect(formatEuro(0)).toMatch(/^€\s?0,00$/);
+  });
+});
+
+describe("what kind of price an ad has", () => {
+  const ad = (over: Partial<ListingSummary>): ListingSummary => ({
+    id: "m1",
+    title: "Lego Jurassic World Indominus rex",
+    priceCents: 0,
+    priceType: "FIXED",
+    biddingEnabled: false,
+    ...over,
+  });
+
+  it("is the seller's own word for it, beside the number", () => {
+    expect(describePrice(ad({ priceType: "FIXED", priceCents: 125_000 }))).toMatchObject({
+      label: "Vraagprijs",
+      bidding: false,
+    });
+    expect(describePrice(ad({ priceType: "FIXED", priceCents: 125_000 })).amount).toMatch(
+      /€\s?1\.250,00/,
+    );
+  });
+
+  it("is the whole answer where there is no number, rather than a zero", () => {
+    // The bug this exists for: three different things — free, priced in the
+    // description, taking bids — all drawn as "€ 0,00".
+    expect(describePrice(ad({ priceType: "FREE" }))).toMatchObject({
+      label: "Gratis",
+      amount: null,
+    });
+    expect(describePrice(ad({ priceType: "SEE_DESCRIPTION" }))).toMatchObject({
+      label: "Zie beschrijving",
+      amount: null,
+    });
+  });
+
+  it("names no number at all on a bid ad, whatever the row carries", () => {
+    // **T67.** There is no field here that is the floor the seller set:
+    // `minimumBidPriceCents` is the minimum bid *placed* and is no longer on the
+    // summary at all, and a bid ad's `priceCents` is `0` on the live rows and
+    // `12500` in the golden capture fixture, with nobody having established
+    // which. So the chip is the whole row, and a `priceCents` that happens to be
+    // set must not talk it into drawing one.
+    for (const priceType of ["FAST_BID", "MIN_BID"]) {
+      expect(describePrice(ad({ priceType }))).toMatchObject({ label: "Bieden", amount: null });
+      expect(describePrice(ad({ priceType, priceCents: 12_500 }))).toMatchObject({
+        label: "Bieden",
+        amount: null,
+      });
+    }
+  });
+
+  it("adds that bids are taken only where the label has not said it", () => {
+    expect(describePrice(ad({ priceType: "FIXED", priceCents: 100, biddingEnabled: true })).bidding).toBe(
+      true,
+    );
+    // The chip already says "Bieden"; saying it twice is what the row looked like
+    // before this.
+    expect(describePrice(ad({ priceType: "FAST_BID", biddingEnabled: true })).bidding).toBe(false);
+  });
+
+  it("says nothing at all for a type Marktplaats has added since", () => {
+    // A wire constant printed at a seller is worse than an empty line, and a 0
+    // under a type we cannot name is not a fact about the ad.
+    expect(describePrice(ad({ priceType: "AUCTION_HOUSE" }))).toMatchObject({
+      label: null,
+      amount: null,
+    });
+    // Except that a price it does carry is still a price.
+    expect(describePrice(ad({ priceType: "AUCTION_HOUSE", priceCents: 100 })).amount).toMatch(
+      /€\s?1,00/,
+    );
   });
 });

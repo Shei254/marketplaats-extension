@@ -56,7 +56,17 @@ async function handle(request: RelayRequest): Promise<RelayResult> {
 /**
  * The popup only needs id/title/price per row, and the id it relists with is the
  * ad's itemId — the same id deleteAd/captureAd take.
+ *
+ * `minimumBidPriceCents` is on the draft and deliberately does not cross (T67): it
+ * is the minimum bid *placed*, not the seller's floor, so a row given it would
+ * only ever draw it wrong.
  */
 function toListingSummary(ad: ListingDraft): ListingSummary {
-    return { id: String(ad.itemId), title: ad.title, priceCents: ad.priceCents };
+    return {
+        id: String(ad.itemId),
+        title: ad.title,
+        priceCents: ad.priceCents,
+        priceType: ad.priceType,
+        biddingEnabled: ad.biddingEnabled,
+    };
 }

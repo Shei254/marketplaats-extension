@@ -3,11 +3,22 @@
  * The POC has no server-side domain; these describe the client-side relist only.
  */
 
-/** A row shown in the popup's "my ads" list. */
+/**
+ * A row shown in the popup's "my ads" list.
+ *
+ * **Deliberately not `minimumBidPriceCents`** (T67). The list payload carries one,
+ * and it is the minimum bid *placed* on the ad rather than the floor its seller
+ * set — bid activity, like the `highestBid` sitting beside it. A row that read it
+ * would be drawing a bidder's number as the seller's own, so the row does not read
+ * it and this type does not offer it. See
+ * `docs/internal-api-findings.md` § `listMyAds`.
+ */
 export interface ListingSummary {
   id: string;
   title: string;
   priceCents: number;
+  priceType: string;
+  biddingEnabled: boolean;
 }
 
 /** A single photo, captured so it can be re-uploaded onto the new ad. */
@@ -34,7 +45,15 @@ export interface ListingDraft {
   reserved: boolean;
   fotoknallerImages?: string[];
   priceCents: number;
+  priceType: string;
   biddingEnabled: boolean;
+  /**
+   * The minimum bid that has been **placed** on this ad — bid activity, and the
+   * pair of `highestBid` above. It is *not* the floor the seller set, and nothing
+   * reads it; it is described here because this type describes Marktplaats's own
+   * payload, and deleting a field from a description of somebody else's JSON does
+   * not stop it arriving.
+   */
   minimumBidPriceCents: number;
   upCallPhoneCode: string;
   hasAnyUpsellFeatureCampaignDiscount: boolean;

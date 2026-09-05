@@ -1,10 +1,10 @@
-import { Button, Note, Skeleton } from "@mprelist/ui";
+import { Badge, Button, Note, Skeleton } from "@mprelist/ui";
 import { useCallback, useEffect, useState, type JSX } from "react";
 
 import type { WireRelistOutcome } from "../background/messages";
 
 import type { ListingSummary } from "../domain/types";
-import { formatEuro, type AdsView } from "./ads";
+import { describePrice, type AdsView, type PriceLine } from "./ads";
 import { IDLE, PACING_NOTE, refusalNote, refusedTone, rowStateFor, type RowState } from "./relisting";
 import type { WorkerPort } from "./screen";
 
@@ -192,7 +192,7 @@ export function AdRow({
           <span className="popup-ad-title" title={ad.title}>
             {ad.title}
           </span>
-          <span className="popup-ad-price">{formatEuro(ad.priceCents)}</span>
+          <PriceMeta price={describePrice(ad)} />
         </div>
         <Button
           shape="rect"
@@ -205,6 +205,34 @@ export function AdRow({
       </div>
       <RowNote state={state} pacing={pacingSeconds != null} />
     </li>
+  );
+}
+
+/**
+ * The line under the title: what kind of price the ad has, its number where it has
+ * one, and whether bids are taken on top.
+ *
+ * **One line and never a stack.** The row is 360px wide with a button in it, so a
+ * second line here is a third line in the row, and a list whose rows are three
+ * lines tall stops being scannable at about six ads. That budget is also why the
+ * aside is a word and not a sentence: "bieden mogelijk" spelled out is what tips
+ * the longest chip over the edge and puts an ellipsis in the middle of it. The
+ * chip and the number hold their width; the aside is the part that clips, because
+ * of the three it is the one whose absence changes least.
+ *
+ * Nothing is drawn at all when there is nothing to say — an unrecognised
+ * `priceType` with no price — rather than an empty line that still costs a
+ * baseline. That row is a title and a button, which is what it was before any of
+ * this.
+ */
+function PriceMeta({ price }: { price: PriceLine }): JSX.Element | null {
+  if (!price.label && !price.amount && !price.bidding) return null;
+  return (
+    <span className="popup-ad-meta">
+      {price.label && <Badge className="popup-ad-type">{price.label}</Badge>}
+      {price.amount && <span className="popup-ad-price">{price.amount}</span>}
+      {price.bidding && <span className="popup-ad-bidding">· bieden</span>}
+    </span>
   );
 }
 
@@ -309,7 +337,10 @@ function LoadingRows(): JSX.Element {
           <div className="popup-ad-row">
             <div className="popup-ad-info" style={{ flex: 1 }}>
               <Skeleton width={`${width}%`} height={11} />
-              <Skeleton width={60} height={10} className="popup-ad-price" />
+              <span className="popup-ad-meta">
+                <Skeleton width={58} height={14} shape="pill" />
+                <Skeleton width={44} height={10} />
+              </span>
             </div>
             <Skeleton width={74} height={28} shape="pill" />
           </div>

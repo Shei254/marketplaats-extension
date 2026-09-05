@@ -223,7 +223,15 @@ export const adListCss = `
   justify-content: space-between;
   gap: 10px;
 }
-.popup-ad-info { min-width: 0; }
+/* Two rows, and the explicit \`minmax(0, 1fr)\` is what lets both of them shrink:
+   a grid column is \`auto\` by default, which is wide enough for the whole title
+   and would take the ellipsis off it. */
+.popup-ad-info {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 3px;
+}
 .popup-ad-title {
   display: block;
   font: var(--mp-text-body) var(--mp-font-family);
@@ -232,12 +240,35 @@ export const adListCss = `
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The price line — a chip for the kind of price, the number, then the aside.
+   \`flex\` and not the three block spans it started as: they stacked, which in a
+   360px popup turned a two-line row into a four-line one. Only the aside may be
+   clipped, so the chip and the number are never the parts that go. */
+.popup-ad-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--mp-space-xs);
+  min-width: 0;
+}
+.popup-ad-type { flex: none; }
+/* The number carries the ink now, where it used to be \`muted\` like everything
+   else on this line. That was right while it was alone under the title and is not
+   right beside a chip: two greys of the same weight read as one smudge, and the
+   number is the half somebody is actually looking for. */
 .popup-ad-price {
-  display: block;
-  margin-top: 1px;
+  flex: none;
   font: var(--mp-text-caption) var(--mp-font-family);
-  color: var(--mp-muted);
+  font-weight: 500;
+  color: var(--mp-fg);
   font-variant-numeric: tabular-nums;
+}
+.popup-ad-bidding {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--mp-text-micro) var(--mp-font-family);
+  color: var(--mp-muted);
 }
 .popup-ads-empty {
   padding: 30px var(--mp-space-md);

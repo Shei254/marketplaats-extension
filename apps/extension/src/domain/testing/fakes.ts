@@ -161,7 +161,13 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
       // `priceCent` is a string and the list payload's `priceCents` is a number.
       // Production never crosses them — `content-script.ts` builds the summary
       // from `ListingDraft` — so the conversion lives here, in the fake.
+      //
+      // `minimumBidPriceCent` deliberately does not come across (T67): the real
+      // summary has no such field, and a fake that offered one would be the only
+      // place in the suite where a bid floor exists to be read.
       priceCents: Number(ad.draft.price.priceCent),
+      priceType: ad.draft.price.priceType,
+      biddingEnabled: ad.draft.price.biddingEnabled,
     }));
   }
 

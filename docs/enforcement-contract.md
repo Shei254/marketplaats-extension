@@ -23,6 +23,12 @@ feature*; it does not (and cannot) prevent a user relisting by other means (ADR-
 | Signed in, quota exhausted | Full: ads, search | buttons **locked + upgrade** | denied |
 | Signed in, payment **failing** (dunning) | Full: ads, search | buttons **locked + "update your card"** | denied |
 
+**Bulk repost is gated on the tier's own flag, not on quota** (ADR-0025). A signed-in user whose Entitlement
+carries no `bulk` sees the checkboxes drawn **disabled** beside a line pointing at Plans — a locked control
+next to their own ads, which is the same conversion argument the row below makes — and keeps a working
+per-row Repost button. Quota then caps the selection on top of that: nobody may select more ads than they
+have relists left.
+
 The ad list and search are **not** subscription-gated: they run client-side against the user's own
 Marktplaats session and cost us nothing, and a locked button beside the user's own ads is the strongest
 conversion surface available. The login gate is a product decision, not a security control — see ADR-0007.
@@ -444,16 +450,33 @@ that ADR's own "revisit if" anticipated. Same audience and same guard as the adm
 
 ### `POST /api/relist/authorize`
 - **Auth:** `Authorization: Bearer <Keycloak access token>` → identifies the User (ADR-0005/0010).
-- **Body:** `{ "adId": "..." }`
+- **Body:** `{ "adId": "...", "batch": true }` — `batch` optional, default `false`.
   > `marktplaatsAccountId` was **removed** (2026-08-13): the extension cannot produce one, and the backend
   > cannot verify one. Quota and pacing are per-User. See ADR-0007.
+  >
+  > `batch` was **added 2026-09-05** (ADR-0025): the caller states that this ad is one of several it is
+  > working through. It is stated rather than inferred because nothing here could infer it — a batch reaches
+  > this endpoint as N ordinary requests, one at a time, indistinguishable from a fast finger.
 - **Checks, in order (first failure wins):**
   | Check | Fail response |
   |---|---|
   | Valid Keycloak token | `401 UNAUTHENTICATED` |
   | Subscription status is Allowed | `402 SUBSCRIPTION_INACTIVE` |
+  | `batch` asked for, and Entitlement carries `bulk` | `403 BULK_NOT_ENTITLED` |
   | Entitlement quota remaining this period | `429 QUOTA_EXCEEDED` (+ `resetAt`) |
   | SafetyPolicy rate/pacing OK | `429 RATE_LIMITED` (+ `retryAfter`) |
+
+  **`BULK_NOT_ENTITLED` sits above quota deliberately.** A request naming a capability the plan does not
+  include should not be answered about a quota it also does not have: both point at the plan screen, and only
+  one of them describes what was asked for. It is a `403` because the caller is authenticated and not
+  permitted — the same status the resource server already answers an ADMIN-less caller with, and told apart
+  from it by the rule the denial shape states: **the presence of `reason` means the gate turned you away.**
+  That `403` carries no body and this one does.
+
+  **How many at once is not this endpoint's to say.** `features.bulk` carries `{"upTo": N}`, and nothing here
+  can count a selection — a batch arrives one ad at a time. So the API enforces *whether* and the popup
+  enforces *how many* (ADR-0025), which is ADR-0007's soft enforcement as it already stands rather than a new
+  concession.
 
   `retryAfter` is **whole seconds** — a number, not a date — named after HTTP's own `Retry-After` because it
   is what a client renders as a countdown, and rounded **up**, so that a client waiting exactly as long as it
@@ -536,8 +559,8 @@ that ADR's own "revisit if" anticipated. Same audience and same guard as the adm
 > support tickets arrive. This is the primary reason it exists, beyond quota accounting.
 
 ### `GET /api/client-config`
-Endpoint paths, CSRF extraction rules, and the client's pacing window, overriding the extension's hardcoded
-defaults (ADR-0013). **Strictly data** — never anything the extension executes, per MV3's remotely-hosted-code
+Endpoint paths, CSRF extraction rules, and the client's two pacing windows, overriding the extension's
+hardcoded defaults (ADR-0013). **Strictly data** — never anything the extension executes, per MV3's remotely-hosted-code
 ban. Authenticated like every other route here: everything it configures happens on behalf of somebody signed
 in, so a caller who cannot hold a token has nothing to do with the answer.
 
@@ -559,7 +582,9 @@ can write:
   "endpoints": { "deleteAd": "/seller/api/delete-ad-v2" },
   "csrf": { "mode": "fetch", "header": "x-mp-xsrf",
             "url": "https://www.marktplaats.nl/", "extractor": { "selector": "…", "attribute": "…" } },
-  "pacing": { "minMs": 45000, "maxMs": 90000 }
+  "pacing": { "minMs": 45000, "maxMs": 90000 },
+  "bulkPacing": { "minMs": 30000, "maxMs": 60000 },
+  "rails": { "burstLimit": 10, "burstWindowMs": 3600000 }
 }
 ```
 
@@ -580,6 +605,17 @@ can write:
 - **`pacing`** is the client-side gap between two relists (ADR-0008, T46). It is client-side because it has to
   be: the rails below can *refuse* a relist that came too soon, they cannot make one arrive at a moment a
   person plausibly clicked.
+- **`bulkPacing`** is the same thing *inside a batch* (ADR-0025) — a second window rather than a replacement,
+  because the two gaps are watched differently: somebody sits through the first and walks away from the
+  second. Its floor may not go under **30 000**, and that is a property of the mechanism rather than a taste:
+  the batch is advanced by `chrome.alarms`, which MV3 clamps at ~30s, so a window under it is not a jittered
+  gap but a metronome — and unpacked development builds are *not* clamped, so nothing local would show it.
+- **`rails` is the one block here that is not an override of a client default**, and it is admitted as such.
+  The extension ships `10` and `1h` of its own and uses them for one thing only: telling the user how long a
+  selection will take before they commit to it. So a stale value costs a wrong estimate and nothing else — it
+  gates nothing, and the real rail is refused by the API in the ordinary way. Served rather than left alone
+  because an operator who moves `MPRELIST_MINIMUM_INTERVAL` on a bad night has no other way to stop the popup
+  quoting a duration that is no longer true.
 
 **Absent, not `null`.** A field nobody overrode is omitted; to a client "there is no override" and "the
 override is null" have to mean the same thing anyway.
@@ -630,6 +666,7 @@ report still wins, above).
 |---|---|
 | `200` OK | active → proceeds with delete-first relist (ADR-0003) |
 | `402 SUBSCRIPTION_INACTIVE` | shown but locked → **"update your card"** + Portal link (dunning only) |
+| `403 BULK_NOT_ENTITLED` | the selection controls are drawn **disabled** with an upgrade prompt; the per-row Repost button is untouched |
 | `429 QUOTA_EXCEEDED` | shown → **upgrade** prompt + `resetAt` |
 | `429 RATE_LIMITED` | shown → cooldown timer (`retryAfter`) |
 | `401` / unreachable / timeout | shown → "unavailable, retry" (fail-closed) |

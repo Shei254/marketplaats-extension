@@ -667,6 +667,77 @@ Refs: [ADR-0011](adr/0011-repository-layout.md).
 
 ---
 
+## After Go-Live — the first feature
+
+Neither of these is required before a stranger can pay, so neither belongs in Go-Live above. They arrived
+together in the 2026-09-05 grilling and are written down together for that reason; only the second is a
+feature.
+
+#### [T67](https://github.com/Shei254/marketplaats-extension/issues/146) · The ad row stops reading `minimumBidPriceCents` as a bid floor · **S** · no deps · **shipped**
+A correction to T30a's row rendering, caught before it was ever committed.
+
+`ListingSummary.minimumBidPriceCents` is the minimum bid **placed** on an ad, not the floor its seller set,
+so `describePrice` drawing `Bieden · vanaf € X` was presenting a bidder's number as the seller's own. A
+bidding row now shows the **`Bieden` chip and no number at all**.
+- **The field comes off `ListingSummary`** — nothing else reads it. It **stays on `ListingDraft`** with a
+  comment saying what it is: that type describes Marktplaats's payload, and deleting a field from a
+  description of somebody else's JSON does not stop it arriving.
+- **`captureAd` and `createAd` are untouched**, deliberately. `CapturedAd.price.minimumBidPriceCent` is a
+  different endpoint's field, scraped from the seller's own edit page, and the golden test stays frozen.
+  Whether it carries the same meaning is now an open question in
+  [`internal-api-findings.md`](internal-api-findings.md) — and if it does, every reposted bid ad is being
+  given a floor nobody chose.
+- **The `Vraagprijs` / `Gratis` / `Zie beschrijving` chips stay.** They fix the older bug where a free ad, an
+  ad priced in its description and an ad taking bids all rendered `€ 0,00`. Only the bid branch was wrong.
+- Wanted before T58 ([#89](https://github.com/Shei254/marketplaats-extension/issues/89)) — the Web Store
+  screenshots are of this list.
+- Refs: [`internal-api-findings.md` § `listMyAds`](internal-api-findings.md).
+
+#### [T68](https://github.com/Shei254/marketplaats-extension/issues/147) · Bulk repost · **L** · T26, T30b, T46, T17, T27, T53
+Select several of your own ads and repost them in one act, as a queue the worker owns.
+[ADR-0025](adr/0025-bulk-repost-is-entitled-queued-and-paced-wider.md) carries the argument; what follows is
+the work.
+
+**API**
+- `features.bulk` seeded as `{"upTo": 10}` on `pro` and `{"upTo": 25}` on `power`, absent on `free`.
+  `andNoTierPromisesAFeatureThatDoesNotExist` now has one flag to permit and **must go on refusing
+  `scheduling`** — the test's reason has to survive the edit.
+- `POST /api/relist/authorize` accepts optional `batch: true` and answers **`403 BULK_NOT_ENTITLED`** when the
+  Entitlement carries no `bulk` — checked after subscription status, before quota.
+- `GET /api/client-config` gains `bulkPacing` and `rails`. The second is the one block that is not an
+  override of a client default and is admitted as such in the contract: it feeds a duration estimate and
+  gates nothing.
+- **`upTo` is enforced nowhere here and cannot be** — a batch arrives one ad at a time. The API says
+  *whether*; the popup says *how many*.
+- **Two pieces of prose stop being true and have to move with the seed**:
+  `V2__seed_tier_catalog.sql`'s comment that bulk and scheduling "have no implementation and no ticket", and
+  `apps/api/README.md`'s paragraph built on it. Both are correct today and would be lies the moment the flag
+  is seeded, which is exactly the kind of drift that outlives the person who caused it.
+
+**Extension**
+- `chrome.alarms` in the manifest, and a justification line for T58.
+- A persisted queue in `chrome.storage.local`, owned by the worker, advanced by an alarm. Survives the popup
+  closing and the worker being evicted; **dropped on browser restart**, with the popup saying so. Snapshot
+  recovery is untouched — an ad already deleted is still restored on startup.
+- A second pacing window, **30–60s**, floored at 30s because `chrome.alarms` clamps there. Single reposts keep
+  10–30s. The first ad of a batch starts immediately.
+- Stopping rules: `RATE_LIMITED` sleeps `retryAfter` and resumes; quota, dunning and an unreachable backend
+  stop the run; a `failed-recoverable` stops it **at once** — nothing starts a second delete while one of the
+  user's ads is down; a `failed-before-delete` skips that ad, and two consecutive stop the run.
+- Checkboxes on every row and an action bar once one is ticked, capped at `min(quotaRemaining, upTo)`. On free
+  the boxes are drawn **disabled** with one line pointing at Plans. Toolbar badge for a run in progress, done,
+  or stopped — no permission needed.
+- The list reloads **once at the end**, not per success: a reposted ad has a new id, and reshuffling mid-run
+  would pull rows out from under the queue.
+
+**Two things chosen with their cost visible**, recorded so they are not read as oversights: a Power batch of
+25 is a ~2 hour unattended run that a Chrome restart ends, and `upTo` is unenforceable server-side.
+
+**Closes** `bulk` as a flag the domain model names and nothing implements — a state
+`V2__seed_tier_catalog.sql` has been carrying a comment about since it was written.
+
+---
+
 ## Deferred
 
 | Ticket | Why it waits |

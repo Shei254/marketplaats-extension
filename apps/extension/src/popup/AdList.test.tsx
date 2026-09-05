@@ -18,8 +18,8 @@ import type { WorkerPort } from "./screen";
  * one is running" is asserted as a property of the DOM rather than of the state.
  */
 const ADS: ListingSummary[] = [
-  { id: "m1", title: "Vintage Eames lounge chair", priceCents: 125_000 },
-  { id: "m2", title: "Trek Marlin 7 mountainbike (M)", priceCents: 48_000 },
+  { id: "m1", title: "Vintage Eames lounge chair", priceCents: 125_000, priceType: "FIXED", biddingEnabled: false },
+  { id: "m2", title: "Trek Marlin 7 mountainbike (M)", priceCents: 48_000, priceType: "FIXED", biddingEnabled: false },
 ];
 
 const WIRE_ERROR = { code: "NO_MARKTPLAATS_TAB", message: "No marktplaats.nl tab is open" } as const;

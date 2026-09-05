@@ -33,11 +33,17 @@ describe("RelistOrchestrator", () => {
 
     // `Number(…)`: a summary's `priceCents` is a number, while the capture
     // payload the fixture is built from carries its cents as a string.
+    //
+    // `toEqual` and not `toMatchObject`, so this also asserts what a row does
+    // *not* carry: `minimumBidPriceCents` is bid activity rather than the
+    // seller's floor (T67), and putting it back would fail here first.
     expect(ads).toEqual([
       {
         id: "ad-1",
         title: sampleAd().draft.title,
         priceCents: Number(sampleAd().draft.price.priceCent),
+        priceType: sampleAd().draft.price.priceType,
+        biddingEnabled: sampleAd().draft.price.biddingEnabled,
       },
     ]);
   });

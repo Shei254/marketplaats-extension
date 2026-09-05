@@ -89,6 +89,31 @@ cached token is dropped whenever the stored endpoint config changes.
 
 ---
 
+## `listMyAds`: what a row's price fields mean
+
+**Observed, 2026-09-05, and it had been read backwards.** On a `listMyAds` row,
+**`minimumBidPriceCents` is the minimum bid that has been *placed*** on that ad — bid activity — and **not**
+the floor the seller set when they created it. The row carries `highestBid` beside it, which is the same kind
+of fact and is what made the pair legible once one of them was known.
+
+The popup had been rendering it as a floor: a `FAST_BID` or `MIN_BID` row drew `Bieden · vanaf € X` from
+`minimumBidPriceCents || priceCents`. On an ad with bids that is a number the seller never chose, presented as
+though they had; on an ad with none it silently fell through to `priceCents`. T67 removes it — a bidding row
+now shows the `Bieden` chip and no number at all — and this note is why, so the field is not read as a floor a
+second time.
+
+Two things that follow, and one that does not:
+
+- **A bid ad's `priceCents` is not reliably its asking price.** The live rows that prompted this carry `0`,
+  while the golden capture fixture's `FAST_BID` ad carries `priceCent: "12500"`. Which is which has not been
+  established, and it is the reason the row shows no number rather than the other one.
+- **The three price *types* are still sound.** `FIXED` → Vraagprijs, `FREE` → Gratis, `SEE_DESCRIPTION` →
+  Zie beschrijving is what fixed the older bug where all three drew `€ 0,00`. Only the bid branch was wrong.
+- **This says nothing about `captureAd`.** `CapturedAd.price.minimumBidPriceCent` comes off the ad's own edit
+  page and is posted back by `createAd` as `price.minimumBidPrice` — a different endpoint and, on the face of
+  it, the form's own field rather than bid activity. T67 deliberately does not touch it; whether it carries
+  the same meaning is open, below.
+
 ## `captureAd`: scraping the seller-view page
 
 `GET /seller/view/:id` returns HTML. The ad is read out of it by trying, in order (**coded**):
@@ -266,6 +291,11 @@ Open questions, each with a ticket where there is one:
   T38 ([#47](https://github.com/Shei254/marketplaats-extension/issues/47)).
 - **How do you tell an ad on a page is the user's own?** Needed before anything is injected into the site.
   T39 ([#48](https://github.com/Shei254/marketplaats-extension/issues/48)).
+- **Does `CapturedAd.price.minimumBidPriceCent` mean the same thing as the list row's?** The list row's is
+  bid activity (above). The capture payload's is scraped from the seller's own edit page and posted straight
+  back as `price.minimumBidPrice`, so it is *probably* the floor the seller set — but nobody has looked. If
+  it turns out to be activity too, every reposted bid ad is being given a floor its owner never chose. Settle
+  it against a real `MIN_BID` ad with bids on it before touching `createAd`. No ticket.
 - **Is the create-ad signature category-scoped?** We scrape one bicycle form for every ad. No ticket.
 - **What does a rejected `createAd` actually answer?** No status, body or shape has been recorded — which is
   why the failure table above says "compare and re-record" rather than naming one. No ticket.

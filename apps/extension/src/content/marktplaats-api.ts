@@ -349,29 +349,49 @@ export async function createAd(draft: CapturedAd, photos: Photo[]): Promise<void
   // empty array as readily as a missing field, and `[]` is truthy — which sent
   // an empty `shippingDetails.price` and made the drop-off fallback below
   // unreachable for the exact case it exists for.
+  let minWeight = -1
+  let maxWeight = -1
   if (shippingInformation?.length) {
     const uniqueShippingInfo = [...new Map(shippingInformation.map(info => [info.carrierId, info])).values()]
     uniqueShippingInfo.forEach(info => {
       form.append("shippingMethod", info.carrierId.toLowerCase());
     })
 
-    form.append("shippingDetails.price", shippingInformation?.[0]?.cost || "");
+    let minPrice = shippingInformation[0]?.cost || 0
+    const len = shippingInformation.length
+
+    for (let i = 1; i < len; i++) {
+        if (Number(shippingInformation[i]?.cost || 0)  < Number(minPrice)) {
+          minPrice = shippingInformation[i]?.cost || 0
+        }
+    }
+
+    minWeight = shippingInformation?.[0]?.weightInfo.min as number
+    maxWeight = shippingInformation?.[0]?.weightInfo.max as number
+    form.append("shippingDetails.price", String(minPrice));
     form.append("shippingDetails.provider", "other");
   } else {
     draft.shippingInformation.augmentedLabels.forEach(label => {
       if (label.carrierId == null) {
-        form.append("shippingMethod", "diy");
+        form.append("shippingMethod", "diy");0
         form.append("othersPrice", label.labels?.[0]?.price || "")
       }
     })
+  }
+
+  if (maxWeight != -1) {
+    if (maxWeight == 2_000) form.append("packageSize", "XS");
+    else if (maxWeight == 3_000) form.append("packageSize", "S");
+    else if (maxWeight == 10_000) form.append("packageSize", "M");
+    else if (maxWeight == 23_000) form.append("packageSize", "L");
+  } else {
+    form.append("packageSize", "M");
   }
 
   const dropOffCode = draft.contactInformation?.postcode;
   if (dropOffCode) {
     form.append("dropOffLocationCode", dropOffCode);
   }
-
-  form.append("packageSize", "M");
 
   if (draft.price) {
     const priceType = draft.price.priceType;
@@ -383,10 +403,18 @@ export async function createAd(draft: CapturedAd, photos: Photo[]): Promise<void
     form.append("price.typeValue", priceType);
 
     if (priceType != "FREE" && priceType != "SEE_DESCRIPTION") {
-      if (priceType === "MIN_BID") {
-        form.append("price.minimumBidPrice", String(Number(draft.price.minimumBidPriceCent) / 100));
+      if (draft.price.minimumBidPriceCent) {
+        form.append(
+            "price.minimumBidPrice",
+            (Number(draft.price.minimumBidPriceCent) / 100).toLocaleString("nl-NL", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            }
+        ))
       }
-      form.append("price.value", String(Number(draft.price.priceCent) / 100));
+      if (draft.price.priceCent) {
+        form.append("price.value", String(Number(draft.price.priceCent) / 100));
+      }
     }
 
     form.append("previousPriceType", "");

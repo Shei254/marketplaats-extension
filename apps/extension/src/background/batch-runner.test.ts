@@ -397,6 +397,97 @@ describe("a browser that has restarted", () => {
   });
 });
 
+/**
+ * The badge is what a *closed* popup shows (ADR-0025). Everything here is about
+ * the moment that stops being true.
+ */
+describe("the toolbar badge", () => {
+  it("counts down while a run is going", async () => {
+    const fixture = runner([reposted], new SaidPace(45_000));
+    await started(fixture, ["ad-1", "ad-2", "ad-3"]);
+
+    expect(fixture.badge.shown.at(-1)).toEqual({ state: "running", left: 2 });
+  });
+
+  /**
+   * The bug this is here for: a finished run's tick sat on the toolbar until the
+   * user pressed Dismiss, so opening the popup — reading the whole sentence, with
+   * the count and the reason — left a mark up beside it saying the same thing less
+   * well, and there was no way to put it down but to throw the summary away.
+   */
+  it("and comes down the moment the popup reads a run that has stopped", async () => {
+    const fixture = runner();
+    await started(fixture, ["ad-1"]);
+    await untilItStops(fixture);
+    expect(fixture.badge.cleared).toBe(0);
+
+    await fixture.batch.state();
+
+    expect(fixture.badge.cleared).toBe(1);
+  });
+
+  // A popup polls once a second, and the badge is a call to Chrome. The second
+  // read has nothing to say.
+  it("and is not taken down twice for the same run", async () => {
+    const fixture = runner();
+    await started(fixture, ["ad-1"]);
+    await untilItStops(fixture);
+
+    await fixture.batch.state();
+    await fixture.batch.state();
+
+    expect(fixture.badge.cleared).toBe(1);
+  });
+
+  /**
+   * A worker is evicted between two ads, so the one that answers the popup often
+   * did not draw the badge it is being asked to take down. It has to clear anyway:
+   * knowing nothing is not the same as knowing there is nothing there.
+   */
+  it("and a worker that never drew it still takes it down", async () => {
+    const fixture = runner();
+    await started(fixture, ["ad-1"]);
+    await untilItStops(fixture);
+    const evicted = new BatchRunner({
+      store: fixture.store,
+      session: new SaidSession(),
+      relisting: fixture.relisting,
+      pace: fixture.pace,
+      alarms: fixture.alarms,
+      badge: fixture.badge,
+      clock: () => NOW,
+    });
+
+    await evicted.state();
+
+    expect(fixture.badge.cleared).toBe(1);
+  });
+
+  // The run itself is untouched: it is held until it is dismissed, which is what
+  // keeps its outcome readable after the popup has been closed and reopened.
+  it("but the run it was about stays where it was", async () => {
+    const fixture = runner();
+    await started(fixture, ["ad-1"]);
+    await untilItStops(fixture);
+
+    const held = await fixture.batch.state();
+
+    expect(held?.stop?.reason).toBe("finished");
+    expect(fixture.store.held).not.toBeNull();
+  });
+
+  // And a run still going keeps it, because a popup that is closed on one has
+  // nothing else telling it the run is still happening.
+  it("and a run still going keeps its badge when the popup looks", async () => {
+    const fixture = runner([reposted], new SaidPace(45_000));
+    await started(fixture, ["ad-1", "ad-2"]);
+
+    await fixture.batch.state();
+
+    expect(fixture.badge.cleared).toBe(0);
+  });
+});
+
 describe("the first wake of a browser session", () => {
   /**
    * The bug this is here for: `onStartup` is an event, and a listener's callback

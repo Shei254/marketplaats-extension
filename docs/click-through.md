@@ -430,3 +430,74 @@ a real realm. **And what it deliberately does not check yet:** the *published* e
 (#89)'s, and which cannot be walked until the Web Store has assigned an id — see
 [`infra/README.md` § Before the first `up`](../infra/README.md#before-the-first-up) for why that ordering
 comes before the realm's first start rather than after it.
+
+
+---
+
+## After Go-Live · I can repost several at once (T68, T67)
+
+**Proves:** a batch is the worker's and not the popup's, it is paced wider than a single repost, and every way
+it can stop leaves the user's ads accounted for.
+[ADR-0025](adr/0025-bulk-repost-is-entitled-queued-and-paced-wider.md).
+
+> ⚠️ Every step here deletes and re-creates real ads. **A test account with several throwaway ads**, and
+> enough of them that a selection is a selection — five is the fewest that makes step 6 meaningful.
+
+**The bid row first (T67), because it is one look and needs no run.** Put a bidding ad on the test account.
+*Expect:* the row shows the **`Bieden` chip and no amount at all** — no `vanaf`, no `€ 0,00`, no number
+carried over from a bidder. A `FIXED` ad beside it still shows `Vraagprijs € X`, a free one `Gratis` with no
+number.
+
+1. Signed in on **Free**, look at the list.
+   *Expect:* a checkbox on every row, **disabled**, with one line pointing at Plans — and a **working
+   per-row Repost button**. The locked control is the conversion surface (ADR-0007); the working one is the
+   proof that bulk sells convenience rather than capability.
+2. On **Pro** with 4 relists left, tick ads until they stop ticking.
+   *Expect:* the fifth box will not tick — the cap is `min(quotaRemaining, upTo)` and quota is the smaller
+   number here. The action bar reads **`Repost 4 selected · about 3 minutes`**.
+3. Press it, and watch the first row.
+   *Expect:* ad one starts **immediately**, not after a countdown. Then a gap of **30–60 seconds** before ad
+   two — time two consecutive gaps and confirm they are not the same number. A constant 30s means the alarm
+   clamp has eaten the window (ADR-0025) and the randomisation is nominal.
+4. While it is between ads, **close the popup**, wait past a gap, and reopen it.
+   *Expect:* the run continued. The badge counted down while the popup was shut, and reopening shows the run
+   in progress rather than starting over. **This is the step the whole design is for** — a popup-owned loop
+   passes every earlier step and fails this one.
+5. Leave it running and open `chrome://extensions` → *service worker* → and let it go inactive between two
+   ads.
+   *Expect:* the worker is torn down and the next ad still posts. The alarm is what woke it; an in-memory
+   queue would stop here and look exactly like a finished run.
+6. Start a batch of five, and after the second ad **quit Chrome entirely**. Reopen it.
+   *Expect:* any ad that was deleted and not re-created is **restored** (ADR-0003 recovery still runs), and
+   the three unstarted ads are **dropped** with the popup saying so and offering to repost them. Alarms
+   persist across restarts, so a batch that resumed here would be delete-first firing at ads nobody is
+   thinking about.
+7. Force the burst rail: set `burst-limit: 2` in `apps/api/src/main/resources/application.yml`, restart the
+   API, and run a batch of four.
+   *Expect:* ads one and two post, ad three is refused `RATE_LIMITED`, and **the batch sleeps and resumes**
+   rather than stopping — the popup says how long and the badge keeps counting. Put the value back.
+8. Force a `failed-recoverable`: with a batch of four running, break `createAd` (a nonsense `createAd` path
+   through `__setEndpoints`) after the first ad has posted.
+   *Expect:* the ad is deleted, the re-create fails, and **the batch stops there** — the remaining two are
+   not started. The row says the ad is saved in the extension and offers **Retry**. Nothing may start a
+   second delete while one of the user's ads is down, and this is the step that says so.
+9. Force a `failed-before-delete`: close every marktplaats.nl tab mid-batch.
+   *Expect:* the current ad is **skipped, untouched**, the next is attempted, and after the **second**
+   consecutive failure the run stops. One odd ad should not cost the selection; a logged-out session should
+   not produce twenty identical failures over ten minutes.
+10. Exhaust the quota mid-batch (a small free-tier quota and a selection of three, with a unit spent
+    elsewhere).
+    *Expect:* the run **stops** — quota, dunning and an unreachable backend are not waits, they resolve in
+    days or need a person — and the unstarted ads are named.
+11. Remove `bulk` from Pro's `features` in `/admin`, then start a batch from an already-open popup.
+    *Expect:* `403 BULK_NOT_ENTITLED`, refused before any capture and with **nothing deleted**. The popup
+    would normally never send it — this is the backstop for a stale screen, and the only way to see it is to
+    change the tier under a popup that is already open.
+12. On **Power**, select 25.
+    *Expect:* the action bar names roughly **two hours** and says the run will pause. The number comes from
+    the served `rails` block, so an operator who moves the API's burst limit changes this sentence with a
+    restart rather than a release.
+
+**What this does not check:** that `upTo` holds against a caller who ignores it. It cannot — `authorize` sees
+one ad at a time and has nothing to count a batch with, which ADR-0025 records as a consequence rather than a
+gap to close.

@@ -35,6 +35,7 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0022](0022-the-plan-screen-names-the-payment-methods.md) | The plan screen names the payment methods, read from Stripe | Accepted, refines 0006 |
 | [0023](0023-ci-builds-the-images-and-the-host-pulls.md) | CI builds the images, a registry holds them, the host pulls; TLS in a fifth container | Accepted, amends 0020 |
 | [0024](0024-the-extension-addresses-are-built-in.md) | The extension's own addresses are built in, never served | Accepted, refines 0013 |
+| [0025](0025-bulk-repost-is-entitled-queued-and-paced-wider.md) | Bulk repost is a paid entitlement, run by the worker, paced wider | Accepted, realises 0007/0014's `bulk` flag |
 
 **Amended by the 2026-08-13 session:** 0006 (Stripe narrowed to money + lifecycle), 0007 (gating depth,
 `/api/me` display state, `marktplaatsAccountId` dropped), 0009 (monorepo, React popup, Options page removed).
@@ -80,6 +81,15 @@ document — not because of how it was built, but because the document is fetche
 sign-in precedes the other — so they are build-time, and the domain has to be final before the Web Store
 sees a build. 0017's "`www.` serves `/`, `admin.` serves `/admin`" is refined rather than amended: it was
 always a statement about a proxy, and 0023 is where that proxy exists.
+
+**Amended by the 2026-09-05 session:** [0025](0025-bulk-repost-is-entitled-queued-and-paced-wider.md)
+turns `bulk` from a flag [0007](0007-quota-enforcement.md) named and [0014](0014-tier-catalog-and-entitlements.md)
+has carried as data into a feature that exists. It leaves [0008](0008-safety-and-consent.md) untouched on
+purpose, and says why the tempting loosening is foreclosed: the pacing rails are harm reduction for the
+*user's* Marktplaats account, so selling a paying tier relief from them would be selling a higher chance of a
+ban. A bigger plan buys more relists per period, never a faster hour. The same session recorded T67 — the
+popup was reading `minimumBidPriceCents` as the seller's bid floor when it is bid activity — which is a
+correction rather than a decision and lives in [../internal-api-findings.md](../internal-api-findings.md).
 
 See also [../domain-model.md](../domain-model.md), [../glossary.md](../glossary.md) and
 [../enforcement-contract.md](../enforcement-contract.md).

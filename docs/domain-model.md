@@ -32,8 +32,11 @@ MP sessions live only in the user's browser. Nothing here holds them server-side
   roll; **dunning** does not (ADR-0018). `SUBSCRIPTION_INACTIVE` therefore means a failing card and nothing
   else.
 - **Entitlement** — the limits/features resolved from the Subscription's **Tier**: relists per period,
-  max MarktplaatsAccounts, feature flags (bulk, scheduling). The thing quotas check. Read from Postgres,
-  never from Stripe on the hot path.
+  max MarktplaatsAccounts, feature flags. The thing quotas check. Read from Postgres,
+  never from Stripe on the hot path. ADR-0025 makes **`bulk` a flag that carries a value** —
+  `{"upTo": 10}` on Pro, `{"upTo": 25}` on Power, absent on the free tier — which is what makes
+  `authorize`'s `batch` field refusable. **Decided, not yet built:** T68 seeds it, and until then every
+  tier's `features` is `{}`. `scheduling` remains named here and built nowhere.
 - **UsageReservation** — one quota unit, held from `authorize` until `complete` settles or refunds it, for
   a User and an ad reference. Backend-owned; usage in a period is the reservations in it that were not
   refunded, so a relist still in flight already counts (ADR-0007).
@@ -47,6 +50,10 @@ MP sessions live only in the user's browser. Nothing here holds them server-side
   and enforced/audited by the backend (ADR-0008).
 - **AdSnapshot** — *client-side only* (`chrome.storage.local`): the full pre-delete capture
   (fields + photo blobs) enabling delete-first restore (ADR-0003). **Not** a backend entity.
+- **Batch** — *client-side only* (`chrome.storage.local`), **decided and not yet built** (T68): the ordered
+  queue of listing ids a bulk repost is working through, owned by the service worker and advanced by a `chrome.alarms` wake (ADR-0025). **Not** a
+  backend entity, and nothing the backend can infer: each ad in it authorizes on its own, so what reaches the
+  API is N ordinary relists that happen to say `batch`.
 
 ## Relationships
 
@@ -62,12 +69,14 @@ User 1───* UsageReservation  (the unit; counted within [periodStart, perio
 User      ──requests──▶ RelistAuthorization ──checked against──▶ Entitlement + SafetyPolicy
 
 User 1───* MarktplaatsAccount   ── modelled, not yet realised (no stable MP identifier)
-(AdSnapshot lives in the browser, keyed to the ad — never server-side)
+(AdSnapshot and Batch live in the browser — never server-side)
 ```
 
 ## Relist flow (full app, gated)
 
-1. Extension requests a **RelistAuthorization** from the backend for an ad. Requires a signed-in User.
+1. Extension requests a **RelistAuthorization** from the backend for an ad. Requires a signed-in User, and
+   says `batch` when the ad is one of several the user selected — which is refused outright when the
+   Entitlement carries no `bulk` (ADR-0025).
 2. Backend checks Subscription status, **Entitlement** (quota left in this period) and **SafetyPolicy**
    (rate/pacing), **reserves one usage unit**, and returns a short-lived single-use signed OK or a typed deny.
 3. On OK, extension captures the **AdSnapshot** (durable, client-side), then **delete-first**:

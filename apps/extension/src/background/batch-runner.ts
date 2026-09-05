@@ -6,6 +6,7 @@ import {
   stopBatch,
   type BatchRun,
 } from "../domain/batch-run";
+import type { BatchSession } from "../domain/batch-session";
 import type { BatchStore } from "../domain/batch-store";
 import type { RelistOutcome } from "../domain/relist-orchestrator";
 import type { RelistPacing } from "../domain/relist-pace";
@@ -38,7 +39,7 @@ export interface BatchAlarms {
   /** Wake me at this moment. Replaces any wake already asked for. */
   at(when: number): Promise<void>;
   cancel(): Promise<void>;
-  /** Whether a wake is still pending — see {@link BatchRunner.ensureScheduled}. */
+  /** Whether a wake is still pending — see {@link BatchRunner.onWake}. */
   pending(): Promise<boolean>;
 }
 
@@ -61,6 +62,8 @@ export interface BatchRelisting {
 
 export interface BatchRunnerDeps {
   store: BatchStore;
+  /** Whether this wake is the first of a browser session — see {@link BatchRunner.onWake}. */
+  session: BatchSession;
   relisting: BatchRelisting;
   /** The **bulk** pacer — the wider window, over the same stored deadline. */
   pace: RelistPacing;
@@ -193,37 +196,65 @@ export class BatchRunner {
    * is not initiating anything.
    */
   async onBrowserStartup(): Promise<void> {
+    await this.serialised(() => this.dropForRestart());
+  }
+
+  /**
+   * The worker has woken, for whatever reason woke it — and this is the only
+   * moment either of the two things below can be noticed.
+   *
+   * **The restart is asked about first, and the order is the whole point.**
+   * `chrome.runtime.onStartup` announces a restart, but its callback runs after
+   * the module scope that registered it, and module scope is what calls this. A
+   * wake that rescheduled first would, on the first wake of a new session, find a
+   * `nextAt` hours in the past — alarms persist across sessions — and go straight
+   * at the next ad: one delete-first repost of an ad nobody has thought about
+   * since yesterday, fired before the listener that was going to drop the run ever
+   * ran. So the session is asked, and the drop happens on this side of it rather
+   * than in a callback racing it (see {@link BatchSession}).
+   *
+   * **Otherwise a live run gets its alarm back if it has lost one.** A run that
+   * has lost its alarm is a run that has silently ended, and the ways to lose one
+   * are real rather than theoretical — the worker can be killed between writing
+   * the run and creating the alarm, and an extension update clears them. There is
+   * no state to reconcile and nothing to undo: the queue is a document, and the
+   * only thing missing is somebody to come back to it.
+   */
+  async onWake(): Promise<void> {
     await this.serialised(async () => {
-      await this.deps.alarms.cancel();
-      const held = await this.deps.store.read();
-      if (!isRunning(held)) return;
-      const dropped = stopBatch(held, "browser-restart");
-      await this.deps.store.write(dropped);
-      await this.badgeFor(dropped);
+      if (await this.deps.session.claimFirstWake()) {
+        await this.dropForRestart();
+        return;
+      }
+      await this.reschedule();
     });
   }
 
   /**
-   * On every worker wake: if a run is live and nothing is due to wake it, wake it.
-   *
-   * **A run that has lost its alarm is a run that has silently ended**, and the
-   * ways to lose one are real rather than theoretical — the worker can be killed
-   * between writing the run and creating the alarm, and an extension update
-   * clears them. There is no state to reconcile and nothing to undo: the queue is
-   * a document, and the only thing missing is somebody to come back to it.
+   * Stop a live run and keep the ads nobody started, which is what both a restart
+   * and the wake that discovers one do. Unserialised: every caller is already on
+   * the chain, and one that awaited it from inside would be waiting for itself.
    */
-  async ensureScheduled(): Promise<void> {
-    await this.serialised(async () => {
-      const held = await this.deps.store.read();
-      if (!isRunning(held)) return;
-      if (await this.deps.alarms.pending()) return;
-      const due = held.nextAt ?? this.clock();
-      if (due <= this.clock()) {
-        await this.attemptNext();
-        return;
-      }
-      await this.deps.alarms.at(due);
-    });
+  private async dropForRestart(): Promise<void> {
+    await this.deps.alarms.cancel();
+    const held = await this.deps.store.read();
+    if (!isRunning(held)) return;
+    const dropped = stopBatch(held, "browser-restart");
+    await this.deps.store.write(dropped);
+    await this.badgeFor(dropped);
+  }
+
+  /** Give a live run its wake-up back, or take the ad it is already late for. */
+  private async reschedule(): Promise<void> {
+    const held = await this.deps.store.read();
+    if (!isRunning(held)) return;
+    if (await this.deps.alarms.pending()) return;
+    const due = held.nextAt ?? this.clock();
+    if (due <= this.clock()) {
+      await this.attemptNext();
+      return;
+    }
+    await this.deps.alarms.at(due);
   }
 
   /** One ad, then whatever the rules say happens next. */

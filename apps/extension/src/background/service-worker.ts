@@ -1,5 +1,6 @@
 import { ChromeAuthFlow } from "../adapters/chrome-auth-flow";
 import { ChromeBatchAlarm, isBatchAlarm } from "../adapters/chrome-batch-alarm";
+import { ChromeBatchSession } from "../adapters/chrome-batch-session";
 import { ChromeBatchStore } from "../adapters/chrome-batch-store";
 import { ChromeToolbarBadge } from "../adapters/chrome-toolbar-badge";
 import { ChromeSessionStore } from "../adapters/chrome-session-store";
@@ -151,6 +152,9 @@ const orchestrator = new RelistOrchestrator(
  */
 const batch = new BatchRunner({
   store: new ChromeBatchStore(),
+  // How a wake tells a browser that has just started from an ordinary one, which
+  // is what keeps the drop below out of a race with this module's own last line.
+  session: new ChromeBatchSession(),
   relisting: orchestrator,
   pace: bulkPace,
   alarms: new ChromeBatchAlarm(),
@@ -171,6 +175,12 @@ chrome.runtime.onStartup.addListener(() => {
   // (ADR-0003), and they are opposite because one initiates a delete and the other
   // finishes putting an ad back. Dropping first is what makes sure the queue is
   // stopped before anything else in this worker starts doing relists.
+  //
+  // By the time this runs the drop has usually already happened, in the `onWake`
+  // below — a listener's callback cannot run before the module scope that
+  // registered it, and that is exactly why the run cannot be left to this event.
+  // What is still this listener's own is the resume, and the drop it repeats is a
+  // no-op on a run that is already stopped.
   void batch.onBrowserStartup().then(resumeInterruptedRelists);
 });
 chrome.runtime.onInstalled.addListener(() => {
@@ -178,13 +188,22 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 /**
- * And on every ordinary wake, the run gets its alarm back if it has lost one — an
- * extension update clears alarms, and a worker can be killed between writing a run
- * and asking to be woken for it. Nothing to await: a batch is not on the path to
- * anything a message asks for.
+ * And on every wake, including this one: drop a run the browser has restarted
+ * under, or give a live one its alarm back if it has lost one — an extension
+ * update clears alarms, and a worker can be killed between writing a run and
+ * asking to be woken for it.
+ *
+ * **The drop belongs here and not only in the listener above**, because this line
+ * is the one that runs first. Module scope precedes every callback registered in
+ * it, so a wake that only rescheduled would attempt the ad a restarted run is
+ * overdue for — one delete-first repost of an ad nobody has thought about since
+ * yesterday — before `onStartup` had a chance to drop anything. The runner asks
+ * the session which kind of wake this is instead (`domain/batch-session.ts`).
+ *
+ * Nothing to await: a batch is not on the path to anything a message asks for.
  */
-void batch.ensureScheduled().catch((error: unknown) => {
-  console.warn("[batch] could not be rescheduled", describe(error));
+void batch.onWake().catch((error: unknown) => {
+  console.warn("[batch] wake skipped", describe(error));
 });
 
 async function resumeInterruptedRelists(): Promise<void> {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { isRunning, type BatchRun } from "../domain/batch-run";
+import type { BatchSession } from "../domain/batch-session";
 import type { BatchStore } from "../domain/batch-store";
 import type { RelistOutcome } from "../domain/relist-orchestrator";
 import type { RelistPacing } from "../domain/relist-pace";
@@ -59,6 +60,20 @@ class RecordedAlarms implements BatchAlarms {
   }
 }
 
+/**
+ * A browser session, claimed once. `fresh` is what a restart looks like from
+ * inside the worker: nobody has woken in this session yet.
+ */
+class SaidSession implements BatchSession {
+  constructor(public fresh = false) {}
+
+  async claimFirstWake(): Promise<boolean> {
+    if (!this.fresh) return false;
+    this.fresh = false;
+    return true;
+  }
+}
+
 class RecordedBadge implements BatchBadge {
   readonly shown: Array<{ state: string; left: number }> = [];
   cleared = 0;
@@ -111,13 +126,17 @@ function runner(answers: RelistOutcome[] = [], pace = new SaidPace()) {
   const alarms = new RecordedAlarms();
   const badge = new RecordedBadge();
   const relisting = new ScriptedRelisting(answers);
+  // Not fresh by default: every test but the restart ones is a worker waking in a
+  // session that has been going for a while, which is what all but one wake is.
+  const session = new SaidSession();
   return {
     store,
     alarms,
     badge,
     relisting,
     pace,
-    batch: new BatchRunner({ store, relisting, pace, alarms, badge, clock: () => NOW }),
+    session,
+    batch: new BatchRunner({ store, session, relisting, pace, alarms, badge, clock: () => NOW }),
   };
 }
 
@@ -378,6 +397,60 @@ describe("a browser that has restarted", () => {
   });
 });
 
+describe("the first wake of a browser session", () => {
+  /**
+   * The bug this is here for: `onStartup` is an event, and a listener's callback
+   * cannot run before the module scope that registered it. The worker's last line
+   * asks a live run to get its alarm back, finds a `nextAt` from yesterday — alarms
+   * persist across sessions — and takes the ad before anything has dropped the run.
+   * One delete-first repost of an ad nobody has thought about since yesterday,
+   * which is the single outcome ADR-0025's restart rule exists to prevent.
+   */
+  it("drops the run before it can repost anything, alarm or no alarm", async () => {
+    const fixture = runner();
+    await started(fixture, ["ad-1", "ad-2", "ad-3"]);
+    const attemptedBefore = fixture.relisting.attempted.length;
+    // What a worker waking hours later finds: a wake-up that was never delivered
+    // and a moment that has long gone by.
+    fixture.alarms.next = null;
+    fixture.session.fresh = true;
+
+    await fixture.batch.onWake();
+
+    expect(fixture.relisting.attempted).toHaveLength(attemptedBefore);
+    expect(fixture.store.held?.stop).toEqual({ reason: "browser-restart", unstarted: ["ad-2", "ad-3"] });
+  });
+
+  // And the drop is the wake's own, so the listener arriving afterwards has
+  // nothing left to do — which is what makes the ordering of the two irrelevant
+  // rather than merely lucky.
+  it("so the startup event that follows finds it already stopped", async () => {
+    const fixture = runner();
+    await started(fixture, ["ad-1", "ad-2"]);
+    fixture.session.fresh = true;
+    await fixture.batch.onWake();
+    const dropped = fixture.store.held;
+
+    await fixture.batch.onBrowserStartup();
+
+    expect(fixture.store.held).toEqual(dropped);
+  });
+
+  // Only the *first* wake. A worker is evicted every thirty idle seconds, so all
+  // but one wake in a session is an ordinary one — and a wake that read every one
+  // of them as a restart would drop the run it woke up to advance.
+  it("and only the first: a wake later in the same session leaves the run going", async () => {
+    const fixture = runner([reposted], new SaidPace(45_000));
+    fixture.session.fresh = true;
+    await fixture.batch.onWake();
+    await started(fixture, ["ad-1", "ad-2", "ad-3"]);
+
+    await fixture.batch.onWake();
+
+    expect(isRunning(fixture.store.held)).toBe(true);
+  });
+});
+
 describe("a run that has lost its wake-up", () => {
   // An extension update clears alarms, and the worker can be killed between
   // writing a run and asking to be woken for it. There is nothing to reconcile —
@@ -387,7 +460,7 @@ describe("a run that has lost its wake-up", () => {
     await started(fixture, ["ad-1", "ad-2", "ad-3"]);
     fixture.alarms.next = null;
 
-    await fixture.batch.ensureScheduled();
+    await fixture.batch.onWake();
 
     expect(fixture.alarms.asked.at(-1)).toBe(NOW + 45_000);
   });
@@ -400,7 +473,7 @@ describe("a run that has lost its wake-up", () => {
     await started(fixture, ["ad-1", "ad-2", "ad-3"]);
     fixture.alarms.next = null;
 
-    await fixture.batch.ensureScheduled();
+    await fixture.batch.onWake();
 
     expect(fixture.relisting.attempted).toHaveLength(2);
   });
@@ -410,7 +483,7 @@ describe("a run that has lost its wake-up", () => {
     await started(fixture, ["ad-1", "ad-2"]);
     const askedBefore = fixture.alarms.asked.length;
 
-    await fixture.batch.ensureScheduled();
+    await fixture.batch.onWake();
 
     expect(fixture.alarms.asked).toHaveLength(askedBefore);
   });
@@ -420,7 +493,7 @@ describe("a run that has lost its wake-up", () => {
     await started(fixture, ["ad-1"]);
     await untilItStops(fixture);
 
-    await fixture.batch.ensureScheduled();
+    await fixture.batch.onWake();
 
     expect(fixture.alarms.next).toBeNull();
   });

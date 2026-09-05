@@ -1,15 +1,20 @@
 import type { DisplayState } from "@mprelist/contracts";
 import { describe, expect, it } from "vitest";
 
+import { ASSUMED_RAILS } from "../domain/batch-estimate";
 import { startBatch, stopBatch, advanceBatch } from "../domain/batch-run";
+import { BULK_PACE } from "../domain/relist-pace";
 import {
   bulkFor,
   describeCap,
   describeHidden,
   describeProgress,
   describeSelectAll,
-  describeSelection,
+  describeSelectAllTick,
   describeStop,
+  describeTick,
+  offerSelection,
+  offerUnstarted,
   pickUpTo,
   rowStatesFor,
 } from "./batching";
@@ -78,22 +83,58 @@ describe("what a plan lets somebody select", () => {
 });
 
 describe("what the action bar says", () => {
+  const SHAPE = { gap: BULK_PACE, rails: ASSUMED_RAILS };
+  const ads = (count: number) => Array.from({ length: count }, (unused, at) => `ad-${at}`);
+  /** The offer, or a failure that names what it actually was — never a silent skip. */
+  const offered = (count: number, bulk = { cap: 25, upTo: 25 }) => {
+    const offer = offerSelection(ads(count), bulk, SHAPE);
+    if (offer?.kind !== "repost") throw new Error(`no offer for ${count} ads: ${JSON.stringify(offer)}`);
+    return offer;
+  };
+
   it("names how many and how long", () => {
-    expect(describeSelection(4).label).toBe("Repost 4 selected · about 2 minutes");
+    expect(offered(4).label).toBe("Repost 4 selected · about 2 minutes");
   });
 
   // Said before the button is pressed, which is the condition ADR-0025 attached to
   // letting a Power batch be twenty-five: a two-hour unattended run is a
   // reasonable thing to choose and an unreasonable thing to discover.
   it("and a full Power batch says two hours before anybody commits to it", () => {
-    expect(describeSelection(25).label).toContain("about 2 hours");
+    expect(offered(25).label).toContain("about 2 hours");
+  });
+
+  /**
+   * **The cap moves under a standing selection**, which the boxes cannot catch: a
+   * single repost pressed while five rows are ticked spends a unit, and
+   * `quotaRemaining` comes back smaller than what is on screen. The rows stay
+   * ticked — unticking them for somebody would be worse — so the button counts
+   * what it will really start, and the estimate follows it.
+   */
+  it("and counts what it will actually start when the quota has fallen under it", () => {
+    const offer = offered(5, { cap: 2, upTo: 10 });
+
+    expect(offer.label).toBe("Repost 2 of 5 selected · under a minute");
+    expect(offer.listingIds).toEqual(["ad-0", "ad-1"]);
+  });
+
+  // Nothing left to spend on the rows that are ticked: the reason rather than a
+  // button that would do nothing.
+  it("and offers the reason instead of a button when it can start none of them", () => {
+    expect(offerSelection(ads(3), { cap: 0, upTo: 10 }, SHAPE)).toEqual({
+      kind: "blocked",
+      why: "That is all the relists you have left this period.",
+    });
+  });
+
+  it("but nothing at all when nothing is ticked", () => {
+    expect(offerSelection([], { cap: 10, upTo: 10 }, SHAPE)).toBeNull();
   });
 
   // A separate sentence rather than a longer one: "about 2 hours" alone reads as
   // two hours of work, and what actually happens is a wait in the middle.
   it("and says it will pause when the selection is past the burst rail", () => {
-    expect(describeSelection(4).note).toBeNull();
-    expect(describeSelection(25).note).toContain("pause");
+    expect(offered(4).note).toBeNull();
+    expect(offered(25).note).toContain("pause");
   });
 });
 
@@ -292,5 +333,104 @@ describe("the part of a selection a search is hiding", () => {
 
   it("but nothing at all when the list is showing all of them", () => {
     expect(describeHidden(0)).toBeNull();
+  });
+});
+
+/**
+ * What a stopped run offers to do about the ads it never reached.
+ *
+ * **This is the one way into a run that does not go through the checkboxes**, so
+ * it is the one place the cap can be forgotten — and forgetting it is not a
+ * cosmetic slip: it starts a queue against a quota that cannot pay for it, and the
+ * first ad is deleted before the refusals begin.
+ */
+describe("the offer a stopped run makes", () => {
+  const stoppedWith = (queued: string[], done: number) => {
+    let run = startBatch(queued, NOW);
+    for (let i = 0; i < done; i += 1) run = advanceBatch(run, { status: "relisted", quota: null }, NOW).run;
+    return stopBatch(run, "stopped");
+  };
+
+  it("is all the ads it never reached, when the plan can start them all", () => {
+    const offer = offerUnstarted(stoppedWith(["a", "b", "c"], 1), { cap: 10, upTo: 10 });
+
+    expect(offer).toEqual({ kind: "repost", listingIds: ["b", "c"], label: "Repost the remaining 2", note: null });
+  });
+
+  // The bug this exists for: twenty-two leftovers against two remaining relists is
+  // twenty refusals and one deleted ad, offered by a button that said it would
+  // repost twenty-two.
+  it("and only as many as the cap allows, saying so in the button itself", () => {
+    const offer = offerUnstarted(stoppedWith(["a", "b", "c", "d"], 0), { cap: 2, upTo: 10 });
+
+    expect(offer).toEqual({
+      kind: "repost",
+      listingIds: ["a", "b"],
+      label: "Repost 2 of the remaining 4",
+      note: "That is all the relists you have left this period.",
+    });
+  });
+
+  // A dead button with no sentence is the shape of a bug, so what is left when
+  // nothing can be started is the reason rather than nothing at all.
+  it("and when the period has nothing left, the reason instead of a button", () => {
+    expect(offerUnstarted(stoppedWith(["a", "b"], 0), { cap: 0, upTo: 10 })).toEqual({
+      kind: "blocked",
+      why: "That is all the relists you have left this period.",
+    });
+  });
+
+  it("but nothing at all for a run that finished, or a plan without bulk", () => {
+    expect(offerUnstarted(stoppedWith(["a"], 1), { cap: 10, upTo: 10 })).toBeNull();
+    expect(offerUnstarted(stoppedWith(["a", "b"], 0), null)).toBeNull();
+    expect(offerUnstarted(null, { cap: 10, upTo: 10 })).toBeNull();
+  });
+});
+
+/**
+ * The sentence a box carries for whoever hovers it.
+ *
+ * The header says the cap out loud before anybody meets it; these are for the
+ * person who met it anyway and is holding the pointer over the one control that
+ * will not respond. Each reason is a different thing to do next, which is the whole
+ * reason they are different sentences.
+ */
+describe("why a box will or will not tick", () => {
+  it("points at the plans when the plan does not include bulk at all", () => {
+    expect(describeTick(null, false, false, false)).toContain("paid plans");
+    expect(describeSelectAllTick(null, false, false, 0)).toContain("paid plans");
+  });
+
+  it("and says a run is going, which is a wait rather than a limit", () => {
+    expect(describeTick({ cap: 10, upTo: 10 }, true, false, false)).toContain("A run is going");
+    expect(describeSelectAllTick({ cap: 10, upTo: 10 }, true, false, 10)).toContain("A run is going");
+  });
+
+  // The two halves of the cap are two different next moves — one is fixed by a
+  // bigger plan and the other by waiting for the period to roll — so the box that
+  // has stopped ticking says which.
+  it("and names the number that is biting when the cap is spent", () => {
+    expect(describeTick({ cap: 10, upTo: 10 }, false, false, true)).toBe("Your plan reposts 10 at a time.");
+    expect(describeTick({ cap: 2, upTo: 10 }, false, false, true)).toContain("relists you have left");
+    expect(describeSelectAllTick({ cap: 0, upTo: 10 }, false, false, 0)).toContain("relists you have left");
+  });
+
+  it("and otherwise says what pressing it would do", () => {
+    expect(describeTick({ cap: 10, upTo: 10 }, false, false, false)).toContain("Repost this ad");
+    expect(describeTick({ cap: 10, upTo: 10 }, false, true, false)).toContain("leave it out");
+    expect(describeSelectAllTick({ cap: 10, upTo: 10 }, false, false, 7)).toBe(
+      "Tick the first 7 ads and repost them in one run.",
+    );
+    expect(describeSelectAllTick({ cap: 10, upTo: 10 }, false, true, 7)).toBe("Untick every row.");
+  });
+
+  // A ticked box is never the one that has run out: the cap is spent on *other*
+  // rows, and unticking has to stay available or the cap is a trap.
+  it("and a ticked box offers to untick even when the cap is full", () => {
+    expect(describeTick({ cap: 3, upTo: 10 }, false, true, true)).toContain("leave it out");
+  });
+
+  it("and counts the one ad on a list of one properly", () => {
+    expect(describeSelectAllTick({ cap: 10, upTo: 10 }, false, false, 1)).toContain("the one ad here");
   });
 });

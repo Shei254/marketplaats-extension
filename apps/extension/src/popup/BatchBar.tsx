@@ -3,7 +3,14 @@ import type { JSX } from "react";
 
 import type { BatchShape } from "../domain/batch-estimate";
 import type { BatchRun } from "../domain/batch-run";
-import { describeCap, describeProgress, describeSelection, describeStop, type BulkSelection } from "./batching";
+import {
+  describeCap,
+  describeProgress,
+  describeStop,
+  offerSelection,
+  offerUnstarted,
+  type BulkSelection,
+} from "./batching";
 
 /**
  * The bar under the ad list: what a selection would cost before it is started,
@@ -25,7 +32,7 @@ import { describeCap, describeProgress, describeSelection, describeStop, type Bu
  */
 export function BatchBar({
   run,
-  selected,
+  chosen,
   bulk,
   shape,
   onStart,
@@ -35,8 +42,12 @@ export function BatchBar({
 }: {
   /** The run the worker holds, or nothing — including one that has already stopped. */
   run: BatchRun | null;
-  /** How many rows are ticked right now. */
-  selected: number;
+  /**
+   * The ads ticked right now, in the order a run would take them — the ids and not
+   * a count, because the button's number and the run's contents have to be the
+   * same fact (see {@link offerSelection}).
+   */
+  chosen: readonly string[];
   bulk: BulkSelection;
   /**
    * The gap and the rails the estimate is made of, as the API last served them —
@@ -73,18 +84,18 @@ export function BatchBar({
     return (
       <div className="popup-foot popup-batch" data-state="stopped">
         <StoppedRun run={run} onDismiss={onDismiss} />
-        {selected > 0 ? (
-          <StartRow selected={selected} bulk={bulk} shape={shape} onStart={onStart} />
+        {chosen.length > 0 ? (
+          <StartRow chosen={chosen} bulk={bulk} shape={shape} onStart={onStart} />
         ) : (
-          <RepostUnstartedRow run={run} onRepost={onRepostUnstarted} />
+          <RepostUnstartedRow run={run} bulk={bulk} onRepost={onRepostUnstarted} />
         )}
       </div>
     );
   }
-  if (selected === 0) return null;
+  if (chosen.length === 0) return null;
   return (
     <div className="popup-foot popup-batch" data-state="selecting">
-      <StartRow selected={selected} bulk={bulk} shape={shape} onStart={onStart} />
+      <StartRow chosen={chosen} bulk={bulk} shape={shape} onStart={onStart} />
     </div>
   );
 }
@@ -96,28 +107,37 @@ export function BatchBar({
  * ADR-0025 attached to letting a Power batch be twenty-five ads: a two-hour
  * unattended run is a reasonable thing to choose and an unreasonable thing to
  * discover.
+ *
+ * The button says what will actually be started rather than what is ticked, which
+ * are the same number until the quota falls under a standing selection — a single
+ * repost pressed on a row while five are ticked is all it takes.
  */
 function StartRow({
-  selected,
+  chosen,
   bulk,
   shape,
   onStart,
 }: {
-  selected: number;
+  chosen: readonly string[];
   bulk: BulkSelection;
   shape: BatchShape;
   onStart: () => void;
-}): JSX.Element {
-  const { label, note } = describeSelection(selected, shape.rails, shape.gap);
+}): JSX.Element | null {
+  const offer = offerSelection(chosen, bulk, shape);
+  if (offer === null) return null;
+  // Ticked rows and nothing left to spend on them. The sentence stands where the
+  // button would have been: a control that does nothing is the shape of a bug, and
+  // this is the same argument the selection header is built on.
+  if (offer.kind === "blocked") return <p className="popup-batch-note">{offer.why}</p>;
   return (
     <>
       <div className="popup-batch-row">
         <Button shape="rect" tone="primary" onClick={onStart} title="Repost the ads you have ticked, one after another.">
-          {label}
+          {offer.label}
         </Button>
       </div>
-      {selected >= bulk.cap ? <p className="popup-batch-note">{describeCap(bulk)}</p> : null}
-      {note ? <p className="popup-batch-note">{note}</p> : null}
+      {chosen.length >= bulk.cap ? <p className="popup-batch-note">{describeCap(bulk)}</p> : null}
+      {offer.note ? <p className="popup-batch-note">{offer.note}</p> : null}
     </>
   );
 }
@@ -172,15 +192,39 @@ function StoppedRun({ run, onDismiss }: { run: BatchRun; onDismiss: () => void }
   );
 }
 
-/** The offer itself, which a finished run has nothing to make. */
-function RepostUnstartedRow({ run, onRepost }: { run: BatchRun; onRepost: () => void }): JSX.Element | null {
-  const unstarted = run.stop?.unstarted ?? [];
-  if (unstarted.length === 0) return null;
+/**
+ * The offer itself, which a finished run has nothing to make — **and which the cap
+ * applies to, exactly as the boxes do.**
+ *
+ * This is the one way into a run that does not go through the checkboxes, so it is
+ * the one place the cap has to be spelled a second time: a run stopped by a spent
+ * quota otherwise offers to start every ad it never reached, against nothing left
+ * to spend. What the button says is what will actually happen, down to the number.
+ */
+function RepostUnstartedRow({
+  run,
+  bulk,
+  onRepost,
+}: {
+  run: BatchRun;
+  bulk: BulkSelection;
+  onRepost: () => void;
+}): JSX.Element | null {
+  const offer = offerUnstarted(run, bulk);
+  if (offer === null) return null;
+  // Ads left over that the plan cannot start any of yet. The sentence stands where
+  // the button would have been rather than beside a dead one: a control that does
+  // nothing is the shape of a bug, and this is the same argument the selection
+  // header is built on.
+  if (offer.kind === "blocked") return <p className="popup-batch-note">{offer.why}</p>;
   return (
-    <div className="popup-batch-row">
-      <Button shape="rect" tone="primary" onClick={onRepost}>
-        {`Repost the remaining ${unstarted.length}`}
-      </Button>
-    </div>
+    <>
+      <div className="popup-batch-row">
+        <Button shape="rect" tone="primary" onClick={onRepost}>
+          {offer.label}
+        </Button>
+      </div>
+      {offer.note ? <p className="popup-batch-note">{offer.note}</p> : null}
+    </>
   );
 }

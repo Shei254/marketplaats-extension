@@ -1,7 +1,7 @@
 import { Button } from "@mprelist/ui";
 import { useEffect, useRef, type JSX } from "react";
 
-import { describeHidden, describeSelectAll, type BulkSelection } from "./batching";
+import { describeHidden, describeSelectAll, describeSelectAllTick, type BulkSelection } from "./batching";
 
 /**
  * The line over the ad list: tick everything the plan allows, and read back how
@@ -66,7 +66,10 @@ export function SelectionHeader({
   return (
     <div className="popup-select-all">
       <div className="popup-select-all-row">
-      <label className="popup-select-all-label">
+      {/* On the label and not on the box: Chrome draws no tooltip for a disabled
+          control, and every reason this row is disabled is a reason somebody is
+          hovering it. */}
+      <label className="popup-select-all-label" title={describeSelectAllTick(bulk, frozen, all, reach)}>
         <TriStateBox
           checked={all}
           // Some but not all: the platform's own third state, which says "part of

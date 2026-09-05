@@ -7,7 +7,7 @@ import type { ListingSummary } from "../domain/types";
 import { describePrice, type AdsView, type PriceLine } from "./ads";
 import { IDLE, PACING_NOTE, refusalNote, refusedTone, rowStateFor, type RowState } from "./relisting";
 import { SelectionHeader } from "./SelectionHeader";
-import type { BulkSelection } from "./batching";
+import { describeTick, type BulkSelection } from "./batching";
 import type { WorkerPort } from "./screen";
 
 /**
@@ -276,14 +276,24 @@ export function AdRow({
     <li className="popup-ad" data-state={state.kind} data-ticked={ticked}>
       <div className="popup-ad-row">
         {selection ? (
-          <input
-            type="checkbox"
-            className="popup-ad-tick"
-            checked={ticked}
-            disabled={selection.bulk === null || selection.frozen || full}
-            aria-label={`Select “${ad.title}” to repost`}
-            onChange={() => selection.onToggle(ad.id)}
-          />
+          // The tooltip hangs on the wrapper rather than on the box, because
+          // Chrome draws no tooltip for a disabled control — and a disabled box is
+          // exactly the one with something to explain. The span costs a flex item
+          // and nothing else; the box keeps its own class, its size and its
+          // enlarged hit area.
+          <span
+            className="popup-ad-tick-slot"
+            title={describeTick(selection.bulk, selection.frozen, ticked, full)}
+          >
+            <input
+              type="checkbox"
+              className="popup-ad-tick"
+              checked={ticked}
+              disabled={selection.bulk === null || selection.frozen || full}
+              aria-label={`Select “${ad.title}” to repost`}
+              onChange={() => selection.onToggle(ad.id)}
+            />
+          </span>
         ) : null}
         <div className="popup-ad-info">
           <span className="popup-ad-title" title={ad.title}>

@@ -308,6 +308,10 @@ export const adListCss = `
    missed into. */
 .popup-ad-tick,
 .popup-select-all-tick { padding: 6px; margin: -6px; box-sizing: content-box; }
+/* The row's box sits in a wrapper so its tooltip has somewhere to hang: Chrome
+   draws none for a disabled control, and a disabled box is the one with something
+   to explain. It is layout and nothing else — the box keeps its own size. */
+.popup-ad-tick-slot { flex: none; display: inline-flex; align-items: center; }
 
 /* A ticked row is tinted, and that is not decoration: the checkbox is 15px of
    glyph at the far left of a 360px row, and a selection of six read off six of

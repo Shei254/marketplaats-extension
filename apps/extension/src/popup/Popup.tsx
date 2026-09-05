@@ -7,7 +7,7 @@ import { ASSUMED_RAILS, type BatchShape } from "../domain/batch-estimate";
 import type { BatchRun } from "../domain/batch-run";
 import { BULK_PACE } from "../domain/relist-pace";
 import { BatchBar } from "./BatchBar";
-import { bulkFor, pickUpTo, rowStatesFor, type BulkSelection } from "./batching";
+import { bulkFor, offerSelection, offerUnstarted, pickUpTo, rowStatesFor, type BulkSelection } from "./batching";
 import { ADS_LOADING, describeAdsFailure, type AdsView } from "./ads";
 import { adListCss, planCardCss, popupCss } from "./popup-styles";
 import { AdList } from "./AdList";
@@ -301,9 +301,22 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
     [worker, showRun],
   );
 
+  /**
+   * Start the ticked rows — **as many of them as the plan can still pay for.**
+   *
+   * The boxes cap a selection as it is being made, and that is not the same as
+   * capping it as it is started: the quota falls live from `/complete` (T32, #41),
+   * so a single repost pressed on a row while five are ticked leaves a selection
+   * larger than the cap and every box still ticked. The offer is what the button
+   * drew and what this starts, which is the only arrangement where the number on
+   * the button is a promise.
+   */
   const startSelected = useCallback(() => {
-    void startBatch(chosen);
-  }, [chosen, startBatch]);
+    if (bulk === null) return;
+    const offer = offerSelection(chosen, bulk, batchShape);
+    if (offer?.kind !== "repost") return;
+    void startBatch(offer.listingIds);
+  }, [chosen, bulk, batchShape, startBatch]);
 
   const stopBatch = useCallback(() => {
     void worker.stopBatch().then(showRun);
@@ -313,10 +326,19 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
     void worker.dismissBatch().then(() => showRun(null));
   }, [worker, showRun]);
 
-  /** Start again over the ads a stopped run never reached — a person, not a queue. */
+  /**
+   * Start again over the ads a stopped run never reached — a person, not a queue.
+   *
+   * **Capped like every other start**, and here rather than only in the bar that
+   * drew the button: this path never touches the checkboxes, so it is the one
+   * route by which a selection larger than `min(quotaRemaining, upTo)` could reach
+   * the worker. The offer decides how many, and this starts exactly those.
+   */
   const repostUnstarted = useCallback(() => {
-    void startBatch(run?.stop?.unstarted ?? []);
-  }, [run, startBatch]);
+    const offer = offerUnstarted(run, bulk);
+    if (offer?.kind !== "repost") return;
+    void startBatch(offer.listingIds);
+  }, [run, bulk, startBatch]);
 
   /**
    * What a finished attempt does to the screen.
@@ -489,7 +511,7 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
           batchShape,
           bulk,
           hidden,
-          chosen: chosen.length,
+          chosen,
         })}
       </div>
     </>
@@ -531,8 +553,8 @@ interface Handlers {
   bulk: BulkSelection | null;
   /** How many ticked ads the list is not showing, because a search has narrowed it. */
   hidden: number;
-  /** How many are ticked altogether — what the bar offers and what a run would get. */
-  chosen: number;
+  /** What is ticked altogether, in run order — what the bar offers and what a run gets. */
+  chosen: readonly string[];
 }
 
 function body(screen: Screen, handlers: Handlers): JSX.Element {
@@ -591,7 +613,7 @@ function body(screen: Screen, handlers: Handlers): JSX.Element {
           ) : (
             <BatchBar
               run={run}
-              selected={chosen}
+              chosen={chosen}
               bulk={bulk}
               shape={batchShape}
               onStart={onStartBatch}

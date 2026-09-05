@@ -976,6 +976,18 @@ describe("reposting several at once", () => {
 
   const boxes = (): HTMLInputElement[] => [...container.querySelectorAll<HTMLInputElement>(".popup-ad-tick")];
 
+  /**
+   * The sentence each row's box carries, read off the wrapper it hangs on rather
+   * than off the input — which is the whole point of the wrapper: Chrome draws no
+   * tooltip for a disabled control, and the disabled ones are the boxes with
+   * something to explain.
+   */
+  const tickTitles = (): string[] =>
+    [...container.querySelectorAll(".popup-ad-tick-slot")].map((slot) => slot.getAttribute("title") ?? "");
+
+  const selectAllTitle = (): string =>
+    container.querySelector(".popup-select-all-label")?.getAttribute("title") ?? "";
+
   /** The header's own box, which is a different control from the ones on the rows. */
   const selectAllBox = (): HTMLInputElement | null =>
     container.querySelector<HTMLInputElement>(".popup-select-all-tick");
@@ -1016,6 +1028,42 @@ describe("reposting several at once", () => {
     expect(boxes()).toHaveLength(ADS.length);
     expect(boxes().every((box) => box.disabled)).toBe(true);
     expect(text()).toContain("part of the paid plans");
+  });
+
+  // The pinned line answers the list; the tooltip answers the control. A pointer
+  // resting on a box that will not tick is the one moment the question is being
+  // asked about *that* box, and Chrome draws no tooltip for a disabled input — so
+  // the sentence hangs on the wrapper, and this asserts it is reachable there.
+  it("and each of those boxes carries the reason it will not tick", async () => {
+    const { worker } = batching(PLAN);
+
+    await show(worker);
+
+    expect(tickTitles()).toHaveLength(ADS.length);
+    expect(tickTitles().every((why) => why.includes("paid plans"))).toBe(true);
+    expect(selectAllTitle()).toContain("paid plans");
+  });
+
+  it("and says how many Select all would tick on a plan that has it", async () => {
+    const { worker } = batching(PRO_PLAN, MANY);
+
+    await show(worker);
+
+    expect(selectAllTitle()).toBe("Tick the first 10 ads and repost them in one run.");
+  });
+
+  // The cap said where the pointer is, not only in the header: a box that has gone
+  // dead because ten are already ticked is the one control the user is asking
+  // about, and "your plan reposts ten at a time" is the answer.
+  it("and the boxes the cap has stopped say which number ran out", async () => {
+    const { worker } = batching(PRO_PLAN, MANY);
+    await show(worker);
+
+    await selectAll();
+
+    const stopped = boxes().flatMap((box, at) => (box.disabled ? [tickTitles()[at] ?? ""] : []));
+    expect(stopped).not.toHaveLength(0);
+    expect(stopped.every((why) => why === "Your plan reposts 10 at a time.")).toBe(true);
   });
 
   // And the per-row button is untouched, which is the sentence the whole
@@ -1151,6 +1199,92 @@ describe("reposting several at once", () => {
     await click("Stop");
 
     expect(text()).toContain("Repost the remaining 2");
+  });
+
+  /**
+   * **The cap moves, and the boxes cannot catch it.**
+   *
+   * They enforce it at the moment of ticking, which is not the moment of starting.
+   * `quotaRemaining` comes back from `/complete` and this screen believes it at
+   * once (T32, #41), so one press of a row's own Repost while rows are ticked
+   * leaves a selection larger than the plan can pay for — every box still ticked,
+   * and a button that used to be true.
+   */
+  it("counts what it will really start when the quota falls under a standing selection", async () => {
+    const fixture = batching({ ...PRO_PLAN, quotaRemaining: 2 }, MANY);
+    await show(fixture.worker);
+    await tick(0);
+    await tick(1);
+    expect(text()).toContain("Repost 2 selected");
+
+    // A single repost, which the fake answers with one relist left.
+    await click("Repost");
+
+    expect(text()).toContain("Repost 1 of 2 selected");
+  });
+
+  it("and starts exactly the ads that button named", async () => {
+    const fixture = batching({ ...PRO_PLAN, quotaRemaining: 2 }, MANY);
+    await show(fixture.worker);
+    await tick(0);
+    await tick(1);
+    await click("Repost");
+
+    await click("Repost 1 of 2 selected · under a minute");
+
+    expect(fixture.worker.startBatch).toHaveBeenCalledWith([MANY[0]!.id]);
+  });
+
+  // And with nothing left at all, the reason stands where the button was rather
+  // than a button that would start nothing.
+  it("and says why instead of offering a button it cannot honour", async () => {
+    const fixture = batching({ ...PRO_PLAN, quotaRemaining: 1 }, MANY);
+    fixture.worker.relist = vi.fn(async () => ({
+      status: "relisted",
+      quota: { quotaRemaining: 0, resetAt: "2026-09-14T08:31:22.101Z" },
+    }) as const);
+    await show(fixture.worker);
+    await tick(0);
+
+    await click("Repost");
+
+    expect(text()).not.toContain("Repost 1 selected");
+    expect(text()).toContain("That is all the relists you have left this period.");
+  });
+
+  /**
+   * **The cap has to hold on the way back in, too.**
+   *
+   * Every other route into a run goes through the checkboxes, which stop ticking
+   * at `min(quotaRemaining, upTo)`. This one does not go near them: a run that
+   * spent the quota it started with leaves its ads behind, and an offer to repost
+   * all of them is a queue the period cannot pay for — twenty authorizes refused
+   * one after another, with the first ad deleted before the refusals begin.
+   */
+  it("caps the ads a stopped run offers, and starts only the ones it named", async () => {
+    const fixture = batching({ ...PRO_PLAN, quotaRemaining: 2 }, MANY);
+    const left = MANY.slice(0, 5).map((ad) => ad.id);
+    // A run stopped with more left over than the period can now pay for.
+    fixture.worker.batchState = vi.fn(async () => stopBatch(startBatch(left, 1_700_000_000_000), "stopped"));
+    await show(fixture.worker);
+
+    await click("Repost 2 of the remaining 5");
+
+    expect(fixture.worker.startBatch).toHaveBeenCalledWith(left.slice(0, 2));
+  });
+
+  // And when it can pay for none of them, the reason stands where the button was:
+  // a control that does nothing is the shape of a bug, which is the argument the
+  // selection header is built on.
+  it("and when nothing is left to spend, says so instead of offering a dead button", async () => {
+    const fixture = batching({ ...PRO_PLAN, quotaRemaining: 0 }, MANY);
+    const left = MANY.slice(0, 5).map((ad) => ad.id);
+    fixture.worker.batchState = vi.fn(async () => stopBatch(startBatch(left, 1_700_000_000_000), "stopped"));
+
+    await show(fixture.worker);
+
+    expect(text()).not.toContain("Repost the remaining");
+    expect(text()).toContain("That is all the relists you have left this period.");
   });
 
   // A reposted ad comes back with a new id, so reloading mid-run would reshuffle

@@ -1,8 +1,7 @@
 import type { DisplayState } from "@mprelist/contracts";
 
-import { ASSUMED_RAILS, describeDuration, estimateBatchMs, sleepsMidRun } from "../domain/batch-estimate";
+import { describeDuration, estimateBatchMs, sleepsMidRun, type BatchShape } from "../domain/batch-estimate";
 import { progressOf, type BatchRun, type BatchStopReason } from "../domain/batch-run";
-import { BULK_PACE, type PacingWindow } from "../domain/relist-pace";
 import type { RowState } from "./relisting";
 
 /**
@@ -97,6 +96,69 @@ export function describeCap(bulk: BulkSelection): string {
 }
 
 /**
+ * Why no box on this list can be ticked at all, or nothing when they can.
+ *
+ * The two reasons are answered before any of the per-row ones because they are
+ * true of every box on the screen: a plan without bulk and a run already going are
+ * facts about the list, and a sentence about *this* ad would be answering a
+ * narrower question than the user is asking.
+ */
+function lockedBecause(bulk: BulkSelection | null, frozen: boolean): string | null {
+  if (bulk === null) return "Reposting several at once is part of the paid plans.";
+  if (frozen) return "A run is going — it is working through the ads that were ticked when it started.";
+  return null;
+}
+
+/**
+ * The tooltip on one row's box: what ticking it does, or why it will not tick
+ * (T68, #147).
+ *
+ * **A control that has gone dead has to be able to say why, where the pointer
+ * already is.** The header says the cap out loud before anybody meets it; this is
+ * for the person who met it anyway and is now hovering the one box that will not
+ * respond. The answers are deliberately different from each other — a bigger plan
+ * fixes one, the period rolling fixes another, and the third fixes itself when the
+ * run ends — because "you can't" alone leaves the user with nothing to do.
+ */
+export function describeTick(
+  bulk: BulkSelection | null,
+  frozen: boolean,
+  ticked: boolean,
+  /** The cap is spent on *other* rows — a ticked box can always be unticked. */
+  full: boolean,
+): string {
+  const locked = lockedBecause(bulk, frozen);
+  if (locked !== null) return locked;
+  if (ticked) return "Ticked — this ad is in the next run. Click to leave it out.";
+  if (full && bulk !== null) return describeCap(bulk);
+  return "Repost this ad in one run with the others.";
+}
+
+/**
+ * The tooltip on the Select all box, which has one thing more to explain than a
+ * row's does: how many rows pressing it would actually leave ticked.
+ *
+ * That number is the cap and the screen at once — ten on a plan that reposts ten,
+ * two on a list showing two — and it is the honest answer to the question a
+ * checkbox over a list of forty ads raises and cannot answer by itself.
+ */
+export function describeSelectAllTick(
+  bulk: BulkSelection | null,
+  frozen: boolean,
+  /** Everything within reach is already ticked, so pressing it clears instead. */
+  all: boolean,
+  /** What Select all could leave ticked — the rows on screen, or the cap. */
+  reach: number,
+): string {
+  const locked = lockedBecause(bulk, frozen);
+  if (locked !== null) return locked;
+  if (bulk !== null && bulk.cap === 0) return describeCap(bulk);
+  if (reach === 0) return "There are no ads here to select.";
+  if (all) return "Untick every row.";
+  return reach === 1 ? "Tick the one ad here and repost it." : `Tick the first ${reach} ads and repost them in one run.`;
+}
+
+/**
  * The line over the list: what ticking everything would do, and what stops it.
  *
  * **The cap is said before it bites rather than after.** Without this line the
@@ -155,7 +217,8 @@ export function describeHidden(hidden: number): string | null {
 }
 
 /**
- * The action bar's sentence: how many, and how long it will take.
+ * What starting the ticked rows would actually do: which ads, under what label,
+ * and how long it will take.
  *
  * **The duration is said before somebody commits**, which is the condition
  * ADR-0025 attached to letting a Power batch be twenty-five: a two-hour unattended
@@ -163,19 +226,84 @@ export function describeHidden(hidden: number): string | null {
  * pause is named separately from the length for the same reason — "about 2 hours"
  * alone reads as two hours of work, and what actually happens is a wait in the
  * middle while the burst rail slides.
+ *
+ * **And the cap is applied here, not only by the boxes that were ticked.** The
+ * boxes enforce it at the moment of ticking, but the cap moves underneath them: a
+ * single repost pressed on a row while five are ticked spends a unit, and
+ * `/complete` answers with a `quotaRemaining` this screen believes immediately
+ * (T32, #41). The selection does not shrink to meet it — unticking somebody's rows
+ * for them would be worse — so the offer does, and says so. Anything else is a
+ * button whose number and whose act have quietly stopped matching.
  */
-export function describeSelection(
-  count: number,
-  rails = ASSUMED_RAILS,
-  gap: PacingWindow = BULK_PACE,
-): { label: string; note: string | null } {
+export function offerSelection(chosen: readonly string[], bulk: BulkSelection, shape: BatchShape): BatchOffer | null {
+  if (chosen.length === 0) return null;
+  const listingIds = pickUpTo(chosen, bulk.cap);
+  if (listingIds.length === 0) return { kind: "blocked", why: describeCap(bulk) };
+  const long = describeDuration(estimateBatchMs(listingIds.length, shape.gap, shape.rails));
   return {
-    label: `Repost ${count} selected · ${describeDuration(estimateBatchMs(count, gap, rails))}`,
-    note: sleepsMidRun(count, rails)
+    kind: "repost",
+    listingIds,
+    // "2 of 5" and not "2": the rows that will not run this time are still ticked
+    // and still on screen, and a button that counted only the ones it was taking
+    // would be silently dropping three ads the user can see they chose.
+    label:
+      listingIds.length < chosen.length
+        ? `Repost ${listingIds.length} of ${chosen.length} selected · ${long}`
+        : `Repost ${chosen.length} selected · ${long}`,
+    note: sleepsMidRun(listingIds.length, shape.rails)
       ? "It will pause partway — Marktplaats only tolerates so many reposts in an hour."
       : null,
   };
 }
+
+/**
+ * What a stopped run offers to do about the ads it never reached: start again over
+ * the front of them, or say why it cannot.
+ *
+ * **The cap is applied here because this is a start and not a selection**, and it
+ * is the only start that does not come through the boxes. Those stop ticking at
+ * `min(quotaRemaining, upTo)`; this offer never touches them, so without the same
+ * number it would happily start twenty-two ads against two remaining relists —
+ * twenty authorizes the gate refuses one after another, each costing an attempt
+ * and a wait, and the first of them deleting an ad before the refusals begin. A
+ * cap enforced in one of the two places it can be reached is not a cap.
+ *
+ * The ads offered are the front of the queue rather than a fresh choice: they are
+ * already in the order the user picked them, and re-choosing on their behalf is
+ * the one thing this screen has never done.
+ */
+export function offerUnstarted(run: BatchRun | null, bulk: BulkSelection | null): BatchOffer | null {
+  const unstarted = run?.stop?.unstarted ?? [];
+  // A finished run has nothing left over, and a plan without bulk has no bar at
+  // all — the line pointing at Plans stands in its place, and a run's leftovers
+  // are not reachable from there.
+  if (unstarted.length === 0 || bulk === null) return null;
+  const listingIds = pickUpTo(unstarted, bulk.cap);
+  if (listingIds.length === 0) return { kind: "blocked", why: describeCap(bulk) };
+  return listingIds.length < unstarted.length
+    ? {
+        kind: "repost",
+        listingIds,
+        label: `Repost ${listingIds.length} of the remaining ${unstarted.length}`,
+        note: describeCap(bulk),
+      }
+    : { kind: "repost", listingIds, label: `Repost the remaining ${unstarted.length}`, note: null };
+}
+
+/**
+ * What a start would be, or the reason there is none — the same two states for
+ * both ways into a run, because they are the same question asked of a different
+ * list of ads.
+ *
+ * Two states rather than a button with an empty list beside it: what can be
+ * started and whether anything can are the same fact, and carrying them as two
+ * fields is two fields that can disagree about it.
+ */
+export type BatchOffer =
+  /** These ads, now, under this label — the button the bar draws. */
+  | { kind: "repost"; listingIds: string[]; label: string; note: string | null }
+  /** Ads were left over and the plan can start none of them yet, and this is why. */
+  | { kind: "blocked"; why: string };
 
 /** "3 of 5 reposted" while a run is going, and after it has stopped. */
 export function describeProgress(run: BatchRun): string {

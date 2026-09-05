@@ -31,13 +31,18 @@ import java.util.Map;
  * account identifier: until something can tell two of them apart, a tier promising three would be selling
  * something unobservable.
  * @param features the flags the tier carries, as the object {@code tier.features} holds rather than as a set
- * of names — a flag that later needs a value ("bulk, up to 20 at a time") then keeps its place. Empty on every
- * tier today, since the flags docs/domain-model.md names have no implementation behind them. Copied and
- * unmodifiable, so an entitlement cannot change under a reader already holding it. No {@code grants(flag)}
- * helper here on purpose: nothing reads a flag yet, and what a non-boolean value means to a reader is that
- * first reader's to decide rather than this record's to guess.
+ * of names — a flag that later needs a value ("bulk, up to 20 at a time") then keeps its place, which since
+ * {@code V8__seed_bulk_entitlement.sql} is not a hypothetical: {@code bulk} carries {@code {"upTo": N}}.
+ * Copied and unmodifiable, so an entitlement cannot change under a reader already holding it.
  */
 public record Entitlement(int relistsPerPeriod, int maxMarktplaatsAccounts, Map<String, Object> features) {
+
+	/**
+	 * Reposting several ads in one act (#147, ADR-0025) — the first flag anything has ever read, and the name
+	 * is here rather than as a literal at the two ends because the seed writes it and the gate refuses on it.
+	 * A third speller would be a tier that promises something nothing checks.
+	 */
+	public static final String BULK = "bulk";
 
 	/**
 	 * The check constraints of {@code V1__baseline_schema.sql}, stated a second time where an entitlement is
@@ -65,6 +70,30 @@ public record Entitlement(int relistsPerPeriod, int maxMarktplaatsAccounts, Map<
 		// operator can write into the column, and a catalog that threw on reading one would deny that tier's
 		// subscribers their quota over a flag nothing reads. It arrives as the null it is stored as.
 		features = Collections.unmodifiableMap(new LinkedHashMap<>(features));
+	}
+
+	/**
+	 * Whether this tier includes a named capability at all — <strong>whether, and never how much</strong>.
+	 *
+	 * <p>This record used to say it would not carry a helper like this, on the grounds that nothing read a
+	 * flag yet and what a non-boolean value means was the first reader's to decide rather than this record's
+	 * to guess. #147 is that first reader and this is that decision, written where the column is described
+	 * rather than inside the gate, because the second reader ({@code scheduling}, when it is built) has to
+	 * find the same rule rather than invent one beside it.
+	 *
+	 * <p><strong>The rule is: present, and not a value that says no.</strong> A JSON {@code null} is what an
+	 * operator writes when they have named a flag and said nothing about it, and {@code false} is what they
+	 * write to turn one off — neither is a grant. Everything else is, whatever shape it has, because the
+	 * value belongs to whoever reads it: {@code bulk} carries {@code {"upTo": N}} and that number is the
+	 * <em>popup's</em> cap on a selection (ADR-0025). This API sees one ad at a time and has nothing to count
+	 * a batch with, so a method here that tried to answer "how many" would be answering a question the
+	 * endpoint cannot ask.
+	 *
+	 * @param flag the capability's name, e.g. {@link #BULK}
+	 */
+	public boolean grants(String flag) {
+		Object value = this.features.get(flag);
+		return value != null && !Boolean.FALSE.equals(value);
 	}
 
 }

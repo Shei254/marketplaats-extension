@@ -76,6 +76,22 @@ export type Denial =
 /** `POST /api/relist/authorize`. Quota and pacing are per user; there is no account id to send. */
 export interface AuthorizeRequest {
   adId: string;
+  /**
+   * That this ad is one of several the caller is working through (#147, ADR-0025).
+   *
+   * **Optional, and omitting it means `false`** — which is what keeps every build shipped before the flag
+   * existed working against an API that now reads it. A newer build talking to an older API has the field
+   * ignored, which the popup's own gate covers.
+   *
+   * **Stated rather than inferred, because nothing on the other end could infer it.** A batch arrives as N
+   * ordinary requests, one at a time, indistinguishable from a fast finger — an `authorize` naming N ads and
+   * handing back N grants is foreclosed by the two numbers this contract already fixes, since a grant lives
+   * ~45 seconds and the pacing rail refuses a second reservation inside five.
+   *
+   * What it buys is one refusal: `403 BULK_NOT_ENTITLED` when the plan carries no `features.bulk`. **How many
+   * at once is not this field's business** — the API says *whether* and the popup says *how many*.
+   */
+  batch?: boolean;
 }
 
 /**

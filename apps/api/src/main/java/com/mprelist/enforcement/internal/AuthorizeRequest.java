@@ -1,7 +1,10 @@
 package com.mprelist.enforcement.internal;
 
+import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.annotation.Nulls;
+
 /**
- * The body of {@code POST /api/relist/authorize}: {@code { "adId": "..." }}, and nothing else.
+ * The body of {@code POST /api/relist/authorize}: {@code { "adId": "...", "batch": true }}, and nothing else.
  *
  * <p><strong>No {@code marktplaatsAccountId}</strong>, which ADR-0007's 2026-08-13 refinement removed along
  * with the {@code NOT_YOUR_ACCOUNT} denial it fed. Nothing in the extension can produce a Marktplaats account
@@ -13,8 +16,21 @@ package com.mprelist.enforcement.internal;
  * @param adId the ad this authorization would be for, at {@link AdId} rather than as a bare string — which is
  * also where "an ad has to be named" is enforced, since that rule holds wherever one is built and not only on
  * the path in through here
+ * @param batch whether this ad is one of several the caller is working through (#147, ADR-0025).
+ * <strong>Stated rather than inferred, because nothing here could infer it</strong>: a batch reaches this
+ * endpoint as N ordinary requests, one at a time, indistinguishable from a fast finger. What it buys is the
+ * one refusal the popup cannot make for itself — a plan without {@code bulk} is turned away before it spends
+ * anything.
+ * <p>
+ * A {@code boolean} rather than a {@code Boolean}, because <em>absent</em> and <em>false</em> are the same
+ * request and a null would be a third state neither end of this contract has a word for. The
+ * {@link JsonSetter} is what makes that true rather than merely intended: Jackson 3 refuses to map an absent
+ * property onto a primitive by default ({@code FAIL_ON_NULL_FOR_PRIMITIVES}), so without it every body from
+ * every build shipped before this ticket — which is all of them, for as long as a store review takes — would
+ * come back a {@code 400}. Narrowed to this one field rather than turned off for the application, since a
+ * missing number elsewhere really is a request that could not be read
  */
-record AuthorizeRequest(AdId adId) {
+record AuthorizeRequest(AdId adId, @JsonSetter(nulls = Nulls.AS_EMPTY) boolean batch) {
 
 	/**
 	 * A body naming no {@code adId} at all is a request that could not be read rather than a caller to turn

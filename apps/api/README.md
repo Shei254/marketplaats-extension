@@ -240,16 +240,34 @@ them.
 is admin-managed from then on (below), so what the table holds is the table's to say. `TierCatalogSeedTest`
 reads them back — it inserts nothing, because the subject is the rows the migration left behind.
 
-Quota is the whole ladder. The other two columns a tier could differ on are deliberately identical across
-all three, and the file says why beside each: `max_marktplaats_accounts` is 1 everywhere because it is
-sellable only once [#47](https://github.com/Shei254/marketplaats-extension/issues/47) finds a stable
-Marktplaats account identifier, and `features` keeps its `{}` default because the flags
-[`docs/domain-model.md`](../../docs/domain-model.md) names — bulk, scheduling — have no implementation and
-no ticket, and [#26](https://github.com/Shei254/marketplaats-extension/issues/26)'s `/api/me` would hand a
-seeded `"bulk": true` to the UI to render as though it did. The numbers themselves are configuration —
-[`docs/specs/quota-enforcement.md`](../../docs/specs/quota-enforcement.md) puts them outside its scope — and
-none of them is a rate: pacing and burst are the SafetyPolicy's, and they are one setting for everybody rather
-than a rung of this ladder.
+Quota was the whole ladder until [#147](https://github.com/Shei254/marketplaats-extension/issues/147), and
+one rung of a second one has been added since. `V8__seed_bulk_entitlement.sql` writes
+`features.bulk` — `{"upTo": 10}` on Pro, `{"upTo": 25}` on Power, nothing on Free — which is bulk repost
+([ADR-0025](../../docs/adr/0025-bulk-repost-is-entitled-queued-and-paced-wider.md)) and the first flag
+anything has ever read. **The rule that kept `features` empty is the rule that let this in**, not one it
+broke: a tier may not advertise a capability nothing implements, because
+[#26](https://github.com/Shei254/marketplaats-extension/issues/26)'s `/api/me` hands whatever is in that
+column to the UI to render as available. `scheduling` is the other flag
+[`docs/domain-model.md`](../../docs/domain-model.md) names, it is still unbuilt and still unticketed, and
+`andNoTierPromisesAFeatureThatDoesNotExist` still refuses it — the test now names the flags that exist rather
+than asserting there are none.
+
+`upTo` is **the popup's** cap and cannot be this API's: `authorize` sees one ad at a time and has nothing to
+count a batch with, so the backend enforces *whether* you may bulk (`403 BULK_NOT_ENTITLED`) and the client
+enforces *how many at once*. That split is ADR-0007's soft enforcement as it already stood, and ADR-0025
+records it as a consequence rather than a gap.
+
+A separate migration rather than an edit to V2, for the reason V2 gives for not being three more lines in V1:
+Flyway validates the checksum of every file it has already run, and a comment is bytes like any other.
+V2's own paragraph about `features` — that bulk and scheduling "have no implementation and no ticket" — is
+therefore half false and unedited, and V8's header is where it is corrected.
+
+`max_marktplaats_accounts` is still 1 on every tier, and the file says why beside it: it is sellable only once
+[#47](https://github.com/Shei254/marketplaats-extension/issues/47) finds a stable Marktplaats account
+identifier, so a tier promising three would be selling something unobservable. The quota numbers themselves
+are configuration — [`docs/specs/quota-enforcement.md`](../../docs/specs/quota-enforcement.md) puts them
+outside its scope — and none of them is a rate: pacing and burst are the SafetyPolicy's, and they are one
+setting for everybody rather than a rung of this ladder.
 
 **No tier carries a `stripe_price_id` yet**, so nothing in the catalog is purchasable:
 [#28](https://github.com/Shei254/marketplaats-extension/issues/28) creates the Products and Prices by hand
@@ -274,7 +292,9 @@ Mutation-verified — each applied, observed, reverted:
 | Free is seeded with quota 0, or with 4 | `andTheFreeRungIsTheThreeTheCopyPromises` |
 | the Power row is left out | `theCatalogHoldsFreeProAndPower`, `quotaRisesFromFreeToPower` |
 | Pro is seeded with a `stripe_price_id` | `andNoTierCarriesAStripePriceUntilOneExists` |
-| Pro is seeded `{"bulk": true}`, Power three MP accounts | `andNoTierPromisesAFeatureThatDoesNotExist`, `noTierSellsMoreThanOneMarktplaatsAccountYet` |
+| Pro is seeded `{"scheduling": true}`, Power three MP accounts | `andNoTierPromisesAFeatureThatDoesNotExist`, `noTierSellsMoreThanOneMarktplaatsAccountYet` |
+| V8's `upTo` moves on either tier, or Free is seeded a `bulk` | `andTheTiersThatCarryBulkSayHowManyAtATime`, `butTheTierEveryNewAccountLandsOnDoesNot` |
+| V8 drops its `features -> 'bulk' is null` predicate | `andSoDoesABulkEntitlementAnOperatorHasEdited` |
 
 ## What a tier grants
 
@@ -321,9 +341,14 @@ a flag can later carry one ("bulk, up to 20 at a time"), so resolution parses it
 and no reader is handed a string to parse for itself. Copied and unmodifiable, so an entitlement cannot change
 under a reader already holding it — and copied with a `LinkedHashMap` rather than `Map.copyOf`, which rejects
 a null value: `{"bulk": null}` is a thing an operator can write, and a catalog that threw on reading one would
-deny that tier's subscribers their quota over a flag nothing has been written to read yet. There is no
-`grants(flag)` helper, because what a non-boolean value means is the first reader's to decide rather than the
-record's to guess.
+deny that tier's subscribers their quota over a flag nothing has been written to read yet.
+
+`Entitlement.grants(flag)` arrived with the first reader, which is what this record said it was waiting for:
+**whether, and never how much**. A flag is granted when it is present and carries a value that is not `null`
+and not `false` — a JSON `null` is an operator who named a capability and said nothing about it, `false` is
+one who turned it off, and everything else is a grant whatever its shape. What the value *means* stays the
+reader's: `bulk` carries `{"upTo": N}` and that number is the popup's cap, because this API sees one ad at a
+time and could not count a batch if it wanted to.
 
 `Entitlement`'s own guards restate `V1`'s check constraints — quota at or above zero, at least one Marktplaats
 account. Every entitlement resolved here comes off a row the database already held to them, so the reason to
@@ -604,7 +629,7 @@ and the Spring behaviour it depends on is held by a test rather than by a conven
 
 `POST /api/relist/authorize` is the first route this application ships, and the one thing between a user and a
 relist ([ADR-0007](../../docs/adr/0007-quota-enforcement.md),
-[the contract](../../docs/enforcement-contract.md)). The body is `{ "adId": "..." }` — no
+[the contract](../../docs/enforcement-contract.md)). The body is `{ "adId": "...", "batch": true }` — no
 `marktplaatsAccountId`, which ADR-0007's 2026-08-13 refinement removed along with the `NOT_YOUR_ACCOUNT`
 denial it fed, because nothing in the extension can produce one and this backend could not verify it if it
 did. Quota is per user.
@@ -612,16 +637,33 @@ did. Quota is per user.
 ```
 200  { "authToken": "<JWT>", "expiresAt": "…", "jti": "…" }   and one unit of quota is gone
 402  { "reason": "SUBSCRIPTION_INACTIVE" }                    a payer whose subscription stopped
+403  { "reason": "BULK_NOT_ENTITLED" }                        a batch from a plan that does not include one
 429  { "reason": "QUOTA_EXCEEDED", "resetAt": "…" }           the period's relists are spent
 429  { "reason": "RATE_LIMITED", "retryAfter": 27 }           relisting faster than the rails allow
 401  { "reason": "UNAUTHENTICATED" }                          answered by the filter chain, never reached (#19)
 ```
+
+**`batch` is optional and stated rather than inferred** ([#147](https://github.com/Shei254/marketplaats-extension/issues/147),
+[ADR-0025](../../docs/adr/0025-bulk-repost-is-entitled-queued-and-paced-wider.md)): a batch reaches this
+endpoint as N ordinary requests, one at a time, indistinguishable from a fast finger, so the caller says so or
+nothing here can know. A body that omits it means `false`, which is what keeps every build shipped before this
+one working — the field is a primitive with `@JsonSetter(nulls = AS_EMPTY)` on it, because Jackson 3 otherwise
+answers an absent primitive with a `400`.
 
 **The checks run in the contract's order and the first failure wins**, which is a product decision rather than
 an implementation detail: a lapsed payer who is *also* out of quota is told their subscription lapsed, because
 that is the one of the two they can act on. The other way round they would be shown an upgrade prompt for a
 plan they are no longer paying for. `aLapsedPayerIsToldTheirSubscriptionStoppedRatherThanThatTheyAreOutOfQuota`
 arranges exactly that user, which is why it gives them a tier granting nothing.
+
+`BULK_NOT_ENTITLED` sits in that order **after the subscription status and before the quota**, on the same
+argument read once more: both it and `QUOTA_EXCEEDED` send the user to the plan screen, and only one of them
+describes what was asked for. Answering "you have used your relists" to somebody who asked for a capability
+they do not have describes a second thing they also do not have.
+`andACallerWithNeitherIsToldAboutTheCapabilityRatherThanTheQuota` is that caller, and
+`butALapsedPayerIsStillToldTheirSubscriptionStoppedFirst` is the other side of it. **`upTo` is enforced
+nowhere here and cannot be** — `andHowManyAtOnceIsNotThisEndpointsToRefuse` takes three when the plan says
+one and is authorized every time, which is the consequence ADR-0025 records rather than a gap to close.
 
 **Three modules meet here, and each answers only what it owns.** `subscription` says which tier the caller is
 on and when their window ends, `catalog` says what that tier grants, and the reservations are `enforcement`'s
@@ -1875,11 +1917,11 @@ unversioned endpoints, and the day one of them moves, every installed build fail
 shipped as a release is a Web Store review — days. A fix shipped as this document is a restart.
 
 **It holds no configuration**, which is the decision the rest follows from. The nine paths, the CSRF rules and
-the pacing window are the *extension's*, built into every release; what this serves is a **patch** over them,
-and on a day nothing has moved that patch is empty:
+the two pacing windows are the *extension's*, built into every release; what this serves is a **patch** over
+them, and on a day nothing has moved that patch is empty:
 
 ```
-GET /api/client-config      →  {"schemaVersion":1}
+GET /api/client-config      →  {"schemaVersion":1,"rails":{"burstLimit":10,"burstWindowMs":3600000}}
 ```
 
 That is a `200`, and it means *your defaults are correct*. There is no `404` for a document nobody deployed
@@ -1887,6 +1929,16 @@ and no `503` for one that could not be built — the document is a setting this 
 the only way to fail here is to have failed to start. The alternative, holding our own copy of nine private
 paths, buys a document you can read and costs the failure this route exists to prevent: a second copy that
 goes stale on its own schedule and is then served, confidently, to every installed build at once.
+
+**One block in that answer is not a patch, and is admitted as one.** `rails` (#147,
+[ADR-0025](../../docs/adr/0025-bulk-repost-is-entitled-queued-and-paced-wider.md)) states what *this API*
+refuses on — `mprelist.safety.burst-limit` and `.burst-window`, read from the same properties `SafetyPolicy`
+refuses with — so it is always present and it is **stamped rather than written**, like `schemaVersion` and for
+that reason read the other way round. It gates nothing: the extension turns it into "about two hours" beside a
+selection of twenty-five ads, and the real refusal is still `RATE_LIMITED` from the gate. Serving it is what
+makes an operator who drops the burst limit at 3am stop the popup quoting a duration this API no longer
+honours — which would not happen if they had to remember to re-paste a document as well, so naming `rails` in
+one is an error like naming `schemaVersion`.
 
 **Everything an operator can write is one environment variable**, `MPRELIST_CLIENT_CONFIG`, as one line of
 JSON. Not a block of YAML keys, because the endpoint names are the extension's and are camelCase
@@ -1908,6 +1960,18 @@ the other end could only be the one built into the extension and that is not a n
 is a window set in the document *and* here, since two settings for one value can disagree and this is the only
 moment anybody can be told. A window longer than five minutes is refused as well: the extension waits it out
 inside its MV3 service worker, which Chrome kills at about that, so a longer one is a relist that never starts.
+
+**The batch window is a second window and stays in the document** (#147). `bulkPacing` is the gap *inside* a
+run — 30s–60s by default — and it is separate from the one above because the two gaps are watched differently:
+somebody sits through the gap between two reposts they pressed and walks away from the gaps inside a run they
+started. It gets no environment pair of its own, deliberately: the pair above exists for the window somebody
+reaches for during an incident, and a second one would double what an operator has to hold in their head for a
+number that moves when a design is revisited. **Its floor may not go under 30 000**, and that is a property of
+the mechanism rather than a taste — a batch is advanced by `chrome.alarms`, which MV3 clamps at about 30
+seconds, so a window under it is not a jittered gap but a metronome, which is the one rhythm ADR-0008 rules
+out. The clamp is *invisible in development*, because unpacked extensions are not clamped, so startup is the
+only moment an operator can be told. Its ceiling is the same five minutes and for a different reason: an alarm
+does the waiting, not the worker, so what bounds it is ADR-0025's two-hour run rather than Chrome's.
 
 **A document this application cannot read stops it from starting**, which is the opposite of how it treats a
 Stripe key it has not been given, and the difference is who finds out. An unset Stripe key is a developer

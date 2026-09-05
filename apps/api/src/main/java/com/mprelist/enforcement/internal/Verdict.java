@@ -56,9 +56,11 @@ sealed interface Verdict {
 	record Refused(ReasonCode reason, OffsetDateTime resetAt, Long retryAfter) implements Verdict {
 
 		/**
-		 * A code that adds nothing — {@link ReasonCode#SUBSCRIPTION_INACTIVE}, and
-		 * {@link ReasonCode#BULK_NOT_ENTITLED} once something refuses with it (#147): what to do about either is
-		 * a screen, and a screen needs no field to find.
+		 * A code that adds nothing — {@link ReasonCode#SUBSCRIPTION_INACTIVE} and, since #147,
+		 * {@link ReasonCode#BULK_NOT_ENTITLED}: what to do about either is a screen, and a screen needs no
+		 * field to find. The second was declared here before anything sent it and is now sent by the gate,
+		 * which is the sealing working — a new code brought a field of its own rather than a shape of its own,
+		 * and this one brought neither.
 		 */
 		static Refused because(ReasonCode reason) {
 			return new Refused(reason, null, null);

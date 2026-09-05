@@ -276,12 +276,14 @@ export function AdRow({
     <li className="popup-ad" data-state={state.kind} data-ticked={ticked}>
       <div className="popup-ad-row">
         {selection ? (
-          // The tooltip hangs on the wrapper rather than on the box, because
-          // Chrome draws no tooltip for a disabled control — and a disabled box is
-          // exactly the one with something to explain. The span costs a flex item
-          // and nothing else; the box keeps its own class, its size and its
-          // enlarged hit area.
-          <span
+          // A label rather than a span, and it is doing two jobs. The tooltip
+          // hangs here because Chrome draws none for a disabled control — and a
+          // disabled box is exactly the one with something to explain. And a label
+          // is what makes the strip around the box clickable, which is where the
+          // hit area comes from now that the box's own padding is gone: Chrome
+          // never laid that padding out, so all it did was pull the box out of the
+          // gutter.
+          <label
             className="popup-ad-tick-slot"
             title={describeTick(selection.bulk, selection.frozen, ticked, full)}
           >
@@ -293,7 +295,7 @@ export function AdRow({
               aria-label={`Select “${ad.title}” to repost`}
               onChange={() => selection.onToggle(ad.id)}
             />
-          </span>
+          </label>
         ) : null}
         <div className="popup-ad-info">
           <span className="popup-ad-title" title={ad.title}>

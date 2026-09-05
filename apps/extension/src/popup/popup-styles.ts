@@ -25,6 +25,20 @@
  * was three words — "2 of 3 relists left" — for the number this product is about,
  * and a fraction is read before it is counted. The words stay beside it, because a
  * bar cannot say when the quota comes back and that is the actionable half.
+ *
+ * <h2>What the 2026-09 pass changed</h2>
+ *
+ * **Every band of the shell is on one vertical step.** The header, the quota, a
+ * prompt, the search box, a row, the selection header and the pinned foot were on
+ * 11, 9/11, 12, 10, 11, 7 and 10 pixels — seven bands, six numbers, none of them on
+ * the 6/9/14 step this design is built from. They are all `space-sm` now. The
+ * surface is a stack of full-width bands and nothing else, so the only thing that
+ * gives it a rhythm is that they agree; six near-misses read exactly as what they
+ * were, which is nobody having decided.
+ *
+ * It is also shorter by about a row and a half, which is the same fix from the
+ * other side: what makes a 360×600 popup feel cluttered is how much of it is spent
+ * before the first ad.
  */
 export const popupCss = `
 body {
@@ -40,7 +54,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: var(--mp-space-sm);
-  padding: 11px var(--mp-space-md);
+  padding: var(--mp-space-sm) var(--mp-space-md);
   border-bottom: 1px solid var(--mp-line);
 }
 .popup-brand {
@@ -79,7 +93,7 @@ body {
 .popup-plan {
   display: grid;
   gap: 5px;
-  padding: 9px var(--mp-space-md) 11px;
+  padding: var(--mp-space-sm) var(--mp-space-md);
   border-bottom: 1px solid var(--mp-line);
 }
 .popup-plan-top {
@@ -119,7 +133,7 @@ body {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: 12px var(--mp-space-md);
+  padding: var(--mp-space-sm) var(--mp-space-md);
   border-bottom: 1px solid var(--mp-line);
 }
 /* The glyph in a tinted disc, so the prompt reads as one object rather than as a
@@ -203,7 +217,7 @@ export const adListCss = `
   display: flex;
   align-items: center;
   gap: var(--mp-space-xs);
-  padding: 10px var(--mp-space-md);
+  padding: var(--mp-space-sm) var(--mp-space-md);
   border-bottom: 1px solid var(--mp-line);
 }
 .popup-search .mp-input { padding: 6px 10px; font: var(--mp-text-secondary) var(--mp-font-family); }
@@ -211,7 +225,7 @@ export const adListCss = `
 
 .popup-ads { list-style: none; margin: 0; padding: 0; max-height: 420px; overflow-y: auto; }
 .popup-ad {
-  padding: 11px var(--mp-space-md);
+  padding: var(--mp-space-sm) var(--mp-space-md);
   border-bottom: 1px solid var(--mp-line);
   transition: background-color var(--mp-fast) var(--mp-ease);
 }
@@ -225,8 +239,17 @@ export const adListCss = `
 }
 /* Two rows, and the explicit \`minmax(0, 1fr)\` is what lets both of them shrink:
    a grid column is \`auto\` by default, which is wide enough for the whole title
-   and would take the ellipsis off it. */
+   and would take the ellipsis off it.
+
+   \`flex: 1\` is what keeps the title against the checkbox. The row is
+   \`space-between\`, which was right while it held two things — title left, button
+   right — and stopped being right the moment T68 put a box in front: a middle item
+   that sizes to its content gets the leftover space *split around it*, so every
+   short title drifted towards the centre of the row and every long one did not. The
+   ellipsis still needs \`min-width: 0\` beside it, since a flex item will not shrink
+   below its content on its own. */
 .popup-ad-info {
+  flex: 1;
   min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -303,15 +326,26 @@ export const adListCss = `
 .popup-ad-tick:disabled,
 .popup-select-all-tick:disabled { cursor: not-allowed; opacity: 0.45; }
 /* A 15px box is a 15px target, which is half of what a pointer wants and a
-   quarter of what a trackpad gives it. The box keeps its drawn size — it has to
-   sit level with a title and a chip — and gains the rest as padding it can be
-   missed into. */
-.popup-ad-tick,
-.popup-select-all-tick { padding: 6px; margin: -6px; box-sizing: content-box; }
-/* The row's box sits in a wrapper so its tooltip has somewhere to hang: Chrome
-   draws none for a disabled control, and a disabled box is the one with something
-   to explain. It is layout and nothing else — the box keeps its own size. */
-.popup-ad-tick-slot { flex: none; display: inline-flex; align-items: center; }
+   quarter of what a trackpad gives it — so the target is the strip the box sits
+   in, and the box is only what is drawn in it.
+
+   **It used to be padding on the box itself, and that never worked.** Chrome does
+   not lay out padding on a checkbox: the six pixels were dropped and the \`-6px\`
+   that was meant to cancel them was not, so every box on this surface hung six
+   pixels into the gutter every other band starts at — measurably, 8px against 14.
+   That is the misalignment the row rule above is the other half of.
+
+   The strip is a \`<label>\`, so a click anywhere in it ticks the box, and it
+   stretches to the row's full height: 15×65 rather than 15×15, which is more than
+   the padding was ever going to buy. */
+.popup-ad-tick-slot {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  align-self: stretch;
+  cursor: pointer;
+}
+.popup-ad-tick-slot:has(.popup-ad-tick:disabled) { cursor: not-allowed; }
 
 /* A ticked row is tinted, and that is not decoration: the checkbox is 15px of
    glyph at the far left of a 360px row, and a selection of six read off six of
@@ -333,12 +367,17 @@ export const adListCss = `
 
    It shares the search box's gutter and rhythm because it is the same kind of
    thing — a control *about* the list rather than a row in it — and sits between
-   the two so the reading order is: find them, select them, repost them. */
+   the two so the reading order is: find them, select them, repost them.
+
+   **Its tint is its edge, so it draws no line of its own.** With one it put three
+   rules inside sixty pixels — under the search box, under this, under the first
+   row — on a surface whose whole structure is already horizontal bands. The tint
+   separates it from the rows below at least as well as a 1px line, and one of the
+   two was redundant. */
 .popup-select-all {
   display: grid;
   gap: 3px;
-  padding: 7px var(--mp-space-md);
-  border-bottom: 1px solid var(--mp-line);
+  padding: var(--mp-space-sm) var(--mp-space-md);
   background: var(--mp-subtle);
 }
 .popup-select-all-row {
@@ -410,7 +449,7 @@ export const adListCss = `
   position: sticky;
   bottom: 0;
   z-index: 2;
-  padding: 10px var(--mp-space-md);
+  padding: var(--mp-space-sm) var(--mp-space-md);
   border-top: 1px solid var(--mp-line);
   background: var(--mp-bg);
 }

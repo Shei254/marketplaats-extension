@@ -72,6 +72,9 @@ export interface BatchRunnerDeps {
   clock?: () => number;
 }
 
+/** What {@link BatchRunner.drawn} holds once the toolbar has been emptied on purpose. */
+const CLEARED = "clear";
+
 export class BatchRunner {
   private readonly clock: () => number;
 
@@ -91,9 +94,27 @@ export class BatchRunner {
     this.clock = deps.clock ?? (() => Date.now());
   }
 
-  /** The run as it stands, for the popup — including one that has stopped. */
+  /**
+   * The run as it stands, for the popup — including one that has stopped.
+   *
+   * **Reading a stopped run takes its badge down.** The badge is what a *closed*
+   * popup shows (ADR-0025): it exists so a run that ended while somebody was
+   * elsewhere can say so on a surface they did not have to open. Opening the popup
+   * is the moment that job is finished — the bar under the list is saying the same
+   * thing in a whole sentence, with the count and the reason — and a mark that
+   * stayed on the toolbar after that is a notification the user has already read
+   * and cannot put down, since the run itself is deliberately held until they
+   * dismiss it.
+   *
+   * A run that is still going keeps its badge, and must: closing the popup on one
+   * is exactly when the badge becomes the only thing saying it is still happening.
+   */
   async state(): Promise<BatchRun | null> {
-    return this.serialised(() => this.deps.store.read());
+    return this.serialised(async () => {
+      const held = await this.deps.store.read();
+      if (held !== null && !isRunning(held)) await this.clearBadge();
+      return held;
+    });
   }
 
   /**
@@ -176,7 +197,7 @@ export class BatchRunner {
       const held = await this.deps.store.read();
       if (isRunning(held)) return;
       await this.deps.store.clear();
-      await this.deps.badge.clear();
+      await this.clearBadge();
     });
   }
 
@@ -301,10 +322,37 @@ export class BatchRunner {
   private async badgeFor(run: BatchRun): Promise<void> {
     const { attempted, total } = progressOf(run);
     if (run.stop === null) {
-      await this.deps.badge.show("running", total - attempted);
+      await this.showBadge("running", total - attempted);
       return;
     }
-    await this.deps.badge.show(run.stop.reason === "finished" ? "finished" : "stopped", run.stop.unstarted.length);
+    await this.showBadge(run.stop.reason === "finished" ? "finished" : "stopped", run.stop.unstarted.length);
+  }
+
+  /**
+   * What this worker last drew on the toolbar, or `null` for **not known** — which
+   * is where every fresh worker starts, and is a different thing from "cleared".
+   *
+   * **A cache of one write and never a source of truth.** The badge lives in
+   * Chrome and outlives every worker; this exists so the popup polling `state()`
+   * once a second does not spend a call to Chrome each time to say the same thing.
+   * The distinction between unknown and cleared is the whole of what makes that
+   * safe: a worker evicted while a finished run's mark sat on the toolbar comes
+   * back knowing nothing, and has to be able to take down a badge it did not put
+   * up — which is precisely this case, since a run outlives its worker by design.
+   */
+  private drawn: string | null = null;
+
+  private async showBadge(state: "running" | "finished" | "stopped", left: number): Promise<void> {
+    const wanted = `${state}:${left}`;
+    if (this.drawn === wanted) return;
+    this.drawn = wanted;
+    await this.deps.badge.show(state, left);
+  }
+
+  private async clearBadge(): Promise<void> {
+    if (this.drawn === CLEARED) return;
+    this.drawn = CLEARED;
+    await this.deps.badge.clear();
   }
 
   private serialised<T>(work: () => Promise<T>): Promise<T> {

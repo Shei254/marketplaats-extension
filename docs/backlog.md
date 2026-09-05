@@ -681,9 +681,9 @@ Refs: [ADR-0011](adr/0011-repository-layout.md).
 
 ## After Go-Live — the first feature
 
-Neither of these is required before a stranger can pay, so neither belongs in Go-Live above. They arrived
+None of these is required before a stranger can pay, so none belongs in Go-Live above. The first two arrived
 together in the 2026-09-05 grilling and are written down together for that reason; only the second is a
-feature.
+feature. T69 came out of the 2026-09-06 session and is the operator's half of what T68 sold.
 
 #### [T67](https://github.com/Shei254/marketplaats-extension/issues/146) · The ad row stops reading `minimumBidPriceCents` as a bid floor · **S** · no deps · **shipped**
 A correction to T30a's row rendering, caught before it was ever committed.
@@ -747,6 +747,52 @@ the work.
 
 **Closes** `bulk` as a flag the domain model names and nothing implements — a state
 `V2__seed_tier_catalog.sql` has been carrying a comment about since it was written.
+
+#### [T69](https://github.com/Shei254/marketplaats-extension/issues/153) · The bulk cap is a number an operator types · **M** · T53, T54, T68
+Setting a tier's bulk cap means hand-writing `{"bulk": {"upTo": 10}}` into a textarea, one field away from the
+quota an operator sets with a number. [ADR-0026](adr/0026-a-feature-flag-is-a-field-spelled-once.md) carries
+the argument; what follows is the work. **No API, wire or schema change** — `features` stays open `jsonb` and
+a permissive `Map`, and there is no migration.
+
+**`packages/contracts/src/features.ts`** — new, beside `money.ts`, and the reason the ticket spans three
+packages rather than one.
+- `BULK`, `BulkGrant`, `bulkIn`, `withBulk`, `isExpressible`. The reader preserves today's rule exactly:
+  **not** granted iff the key is absent, `null` or `false`; anything else is a grant; `upTo` is read only from
+  `{ upTo: <integer ≥ 1> }`.
+- `withBulk(features, null)` writes **`{"bulk": false}`**, never a deleted key — which is what makes
+  `V8__seed_bulk_entitlement.sql`'s claim about the admin edit true rather than a sentence a restored dump
+  falsifies. Both readers have always answered *not granted* for `false`.
+
+**`apps/web`** — a Features fieldset replacing the JSON field, in **both** the tier form and the create form,
+which retires the hardcoded `features: {}` so a plan is created with its cap in one act.
+- `Bulk repost [ N ] at a time`. Empty is "this tier has no bulk"; whole numbers ≥ 1 only; **no maximum**,
+  because Power's 25 is already past the burst rail by a decision ADR-0025 made deliberately.
+- **0 is refused**, and this is the trap the field exists around: `upToIn` reads `upTo > 0`, so `{"upTo": 0}`
+  is not "no bulk" — it is *granted, capped by the quota alone*, the exact inverse of the obvious reading.
+- `Advanced · edit as JSON` keeps every shape reachable, as **a mode and not a mirror**: expanding seeds the
+  textarea and disables the number, collapsing parses back, exactly one control owns the value at a time.
+- **One invariant covers the rest** — the number field owns the value only when it can represent the whole
+  truth. So the form opens expanded when the stored object is not expressible, and refuses to collapse while
+  it is not, saying why in place. Without it a tier storing `{"bulk": true}` opens showing an empty box and
+  the next save revokes bulk for everyone on it, silently.
+- **A comment stops being true and moves with the field.** `AdminCatalog.tsx`'s "a set of checkboxes would be
+  inventing a schema this product has not decided on, and the day it does is the day this becomes a real
+  control" was written when every tier carried `{}`. T68 was that day.
+
+**`apps/extension`** — `bulkFor` becomes `bulkIn(plan.features)` plus the quota clamp and `upToIn` is deleted,
+so the rule has one reader rather than two. `batching.test.ts` is left **unchanged**, which is the proof that
+adoption moved no behaviour.
+
+**Tests** — `features.test.ts` over the reader, writer and predicate, including one case that reads
+`Entitlement.java` and holds `grants()`' rule to `bulkIn`'s, the arrangement `enforcement.test.ts` already uses
+for the denial enums. That agreement is the one invariant nothing enforces today, and its symptom is a popup
+offering a control the API answers `403` for. Then five `AdminApp.test.tsx` cases: expanding disables the
+number, unexpressible content opens expanded, collapse is refused with its reason shown, clearing sends
+`{"bulk": false}`, and the create form sends a cap.
+
+**Left alone, with its cost visible:** the Advanced textarea can still write `{"bulk": 0}` and `{"bulk":
+"yes"}`, which both the popup and the API read as *granted, uncapped*. That is deliberate on both sides and
+`bulkIn` preserves it; nothing here closes it, and it is written down so it is not later read as an oversight.
 
 ---
 

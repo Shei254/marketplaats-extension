@@ -343,6 +343,31 @@ export const adminCss = `
 }
 .admin-form-actions { display: flex; gap: var(--mp-space-sm); flex-wrap: wrap; }
 
+/* The flags (T69). A number, the hatch under it, and - when it is open - the JSON
+   the number cannot say. Grouped rather than laid into \`.admin-form-grid\`, because
+   the hatch belongs to the field above it and not to the form: two columns would
+   put a disclosure beside a price. */
+.admin-features {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--mp-space-sm);
+  max-width: 780px;
+}
+/* As narrow as the number it holds. A cap of 10 in a field the width of the panel
+   is a field that has stopped saying what it wants — the same reason the grid caps
+   itself. */
+.admin-features-cap { max-width: 260px; }
+/* The two children that are not the number are full width: a textarea somebody
+   edits JSON in, and the sentence saying why it will not close. */
+.admin-features > .mp-field:not(.admin-features-cap),
+.admin-features > .mp-note {
+  align-self: stretch;
+}
+/* Flush with the label above it, so the disclosure reads as part of the field
+   rather than as another of the form's buttons. */
+.admin-features-hatch { padding-left: 0; padding-right: 0; }
+
 /* The rules a form cannot enforce and an operator has to know: Stripe's
    immutability, what a quota does to somebody mid-period. A list rather than a
    stack of paragraphs, because they are read the way small print is — scanned for

@@ -506,11 +506,162 @@ describe("editing a tier", () => {
 
     await arrive(s);
     await click("Edit");
+    await click(OPEN_HATCH);
     await type("#tier-features", "not json");
     await click("Save");
 
     expect(text()).toContain("JSON object");
     expect(s.calls.some((call) => call.method === "PUT")).toBe(false);
+  });
+});
+
+/**
+ * The cap an operator types (T69, #153; ADR-0026).
+ *
+ * **One invariant under all of it: the number field owns the value only when it can
+ * represent the whole truth.** The auto-expand, the disabled box and the refused
+ * collapse are three readings of that rather than three behaviours — which is why
+ * they are asserted together, and why the case that matters most is a tier storing
+ * something the number cannot say. Without the invariant, `{"bulk": true}` opens
+ * showing an empty box and the next save revokes bulk for that tier's subscribers
+ * with nothing on screen having said so.
+ */
+const OPEN_HATCH = "▾ Advanced · edit as JSON";
+const CLOSE_HATCH = "▴ Advanced · done editing as JSON";
+
+/** A tier selling a cap, which is the shape `V8__seed_bulk_entitlement.sql` writes. */
+const CAPPED: AdminTier = { ...PRO, features: { bulk: { upTo: 10 } } };
+
+/** A grant the popup and the API both honour and the number field cannot say. */
+const UNSAYABLE: AdminTier = { ...FREE, features: { bulk: true } };
+
+const bulkField = (): HTMLInputElement | null =>
+  container.querySelector<HTMLInputElement>("#tier-bulk");
+
+/** The `features` of the one `PUT` this screen sent. */
+const sentFlags = (s: ReturnType<typeof stack>): unknown =>
+  (JSON.parse(s.calls.find((call) => call.method === "PUT")?.body ?? "{}") as Record<string, unknown>)[
+    "features"
+  ];
+
+const saved = (s: ReturnType<typeof stack>): Promise<void> =>
+  until(() => s.calls.some((call) => call.method === "PUT"), "the save to reach the API");
+
+describe("the bulk cap", () => {
+  it("is a number the form holds, not JSON an operator writes", async () => {
+    const s = stack({ tiers: () => json({ tiers: [FREE, CAPPED] }) });
+
+    await arrive(s);
+    await clickInRowFor("pro", "Edit");
+
+    expect(bulkField()?.value).toBe("10");
+    // The hatch is shut on a tier the field can say, which is the ordinary case.
+    expect(container.querySelector("#tier-features")).toBeNull();
+  });
+
+  it("and goes out in the shape both readers read", async () => {
+    const s = stack({ tiers: () => json({ tiers: [FREE, CAPPED] }) });
+
+    await arrive(s);
+    await clickInRowFor("pro", "Edit");
+    await type("#tier-bulk", "4");
+    await click("Save");
+    await saved(s);
+
+    expect(sentFlags(s)).toEqual({ bulk: { upTo: 4 } });
+  });
+
+  // Not a deleted key: `V8__seed_bulk_entitlement.sql` writes only where the key is
+  // absent and claims of itself that the admin edit is the durable way to take bulk
+  // off a tier. A delete falsifies that on any restored dump, in a file Flyway's
+  // checksum forbids correcting.
+  it("emptied, it writes `false` and leaves the key where the seed can see it", async () => {
+    const s = stack({ tiers: () => json({ tiers: [FREE, CAPPED] }) });
+
+    await arrive(s);
+    await clickInRowFor("pro", "Edit");
+    await type("#tier-bulk", "");
+    await click("Save");
+    await saved(s);
+
+    expect(sentFlags(s)).toEqual({ bulk: false });
+  });
+
+  // The one value that looks like the off switch and is its inverse: `bulkIn` reads
+  // a cap only from a whole number above zero, so `{"upTo": 0}` is *granted, capped
+  // by the quota alone*.
+  it("refuses 0, and says which way round it would have been read", async () => {
+    const s = stack({ tiers: () => json({ tiers: [FREE, CAPPED] }) });
+
+    await arrive(s);
+    await clickInRowFor("pro", "Edit");
+    await type("#tier-bulk", "0");
+    await click("Save");
+
+    expect(text()).toContain("0 is not");
+    expect(s.calls.some((call) => call.method === "PUT")).toBe(false);
+  });
+
+  it("hands the value to the hatch when it opens, and takes the number out of play", async () => {
+    // A mode, not a mirror: exactly one control owns the value at a time, so the
+    // box is disabled rather than left showing a number nothing would save.
+    const s = stack();
+
+    await arrive(s);
+    await click("Edit");
+    await click(OPEN_HATCH);
+
+    expect(bulkField()?.disabled).toBe(true);
+    expect(container.querySelector<HTMLTextAreaElement>("#tier-features")?.value).toBe(
+      JSON.stringify({ bulk: false }, null, 2),
+    );
+  });
+
+  it("opens on the hatch for flags the number cannot say", async () => {
+    const s = stack({ tiers: () => json({ tiers: [UNSAYABLE, PRO] }) });
+
+    await arrive(s);
+    await click("Edit");
+
+    expect(container.querySelector<HTMLTextAreaElement>("#tier-features")?.value).toContain("true");
+    expect(bulkField()?.disabled).toBe(true);
+  });
+
+  it("and will not close while they still say more than a cap", async () => {
+    const s = stack({ tiers: () => json({ tiers: [UNSAYABLE, PRO] }) });
+
+    await arrive(s);
+    await click("Edit");
+    await click(CLOSE_HATCH);
+
+    // A disclosure that declines to close has to read as an explanation rather than
+    // as a broken control, so the refusal names what the field can hold.
+    expect(text()).toContain("stays open");
+    expect(container.querySelector("#tier-features")).not.toBeNull();
+
+    await type("#tier-features", '{"bulk": {"upTo": 5}}');
+    await click(CLOSE_HATCH);
+
+    expect(container.querySelector("#tier-features")).toBeNull();
+    expect(bulkField()?.value).toBe("5");
+  });
+
+  it("is set where a plan is created, so a cap is not a second act", async () => {
+    const s = stack();
+
+    await arrive(s);
+    await click("New plan");
+    await type("#plan-name", "Starter");
+    await type("#plan-amount-month", "5.00");
+    await type("#plan-quota", "10");
+    await type("#plan-bulk", "3");
+    await click("Create in Stripe");
+    await until(
+      () => s.calls.some((call) => call.url.endsWith("/api/admin/plans")),
+      "the plan to reach the API",
+    );
+
+    expect(sentPlan(s)["features"]).toEqual({ bulk: { upTo: 3 } });
   });
 });
 

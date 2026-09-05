@@ -7,7 +7,7 @@ import { ASSUMED_RAILS, type BatchShape } from "../domain/batch-estimate";
 import type { BatchRun } from "../domain/batch-run";
 import { BULK_PACE } from "../domain/relist-pace";
 import { BatchBar } from "./BatchBar";
-import { bulkFor, rowStatesFor } from "./batching";
+import { bulkFor, pickUpTo, rowStatesFor, type BulkSelection } from "./batching";
 import { ADS_LOADING, describeAdsFailure, type AdsView } from "./ads";
 import { adListCss, planCardCss, popupCss } from "./popup-styles";
 import { AdList } from "./AdList";
@@ -216,6 +216,18 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
     void load();
   }, [running, load]);
 
+  /**
+   * What this plan lets somebody select, or nothing when it does not include bulk
+   * at all — which is the free tier, and is what draws the boxes disabled beside a
+   * line pointing at Plans (ADR-0007's conversion surface, one screen further in).
+   *
+   * Read here rather than where it is drawn because the cap is a number *this*
+   * component acts on: Select all applies it, and the list below holds the order
+   * but not the entitlement.
+   */
+  const bulk = screen.screen === "signed-in" ? bulkFor(screen.plan) : null;
+  const cap = bulk?.cap ?? 0;
+
   const toggleSelected = useCallback((listingId: string) => {
     setSelected((current) => {
       const next = new Set(current);
@@ -223,6 +235,55 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
       return next;
     });
   }, []);
+
+  /**
+   * The ticked ads, in the order they will actually be attempted (T68, #147).
+   *
+   * **A selection survives a search, and this is where that costs something.** The
+   * alternative — pruning the set to whatever the list is showing — was tried and
+   * is worse: picking ten ads out of forty is a job for the search box, and a query
+   * that silently unticked the three already chosen would make the only workable
+   * way to do it impossible. So a tick persists, and the two things that would
+   * otherwise lie about it are fixed instead of the selection: the count includes
+   * what is off-screen, and the header says how many that is.
+   *
+   * The order is the screen's for the ads on it, then the rest in the order they
+   * were ticked (`Set` keeps insertion order). Somebody who ticks the bottom row
+   * first has still read the list top to bottom, and a queue that ran backwards
+   * would look like a bug from the first ad.
+   */
+  const listed = ads.status === "ready" ? ads.ads : [];
+  const chosen = [
+    ...listed.filter((ad) => selected.has(ad.id)).map((ad) => ad.id),
+    ...[...selected].filter((listingId) => !listed.some((ad) => ad.id === listingId)),
+  ];
+  /** How many of them this list is not showing — the number the header names. */
+  const hidden = chosen.length - listed.filter((ad) => selected.has(ad.id)).length;
+
+  /**
+   * Tick as much of the list as the plan still allows, top down (T68, #147).
+   *
+   * **Additive, not a replacement.** The cap is applied here because this is the
+   * only place that holds the plan — the list knows the order the ads are in and
+   * nothing about the entitlement — and it is applied to what is *left* of it, so
+   * pressing Select all after ticking two rows by hand adds eight rather than
+   * throwing those two away. Top down rather than any cleverer rule: the ten a Pro
+   * user gets are the ten they were already looking at.
+   */
+  const selectAll = useCallback(
+    (listingIds: string[]) =>
+      setSelected((current) => {
+        const room = cap - current.size;
+        const adding = pickUpTo(
+          listingIds.filter((listingId) => !current.has(listingId)),
+          room,
+        );
+        return adding.length === 0 ? current : new Set([...current, ...adding]);
+      }),
+    [cap],
+  );
+
+  const clearSelected = useCallback(() => setSelected(new Set()), []);
 
   /**
    * Start a run over the ads named, in the order the list is showing them.
@@ -241,9 +302,8 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
   );
 
   const startSelected = useCallback(() => {
-    const inOrder = ads.status === "ready" ? ads.ads.filter((ad) => selected.has(ad.id)) : [];
-    void startBatch(inOrder.map((ad) => ad.id));
-  }, [ads, selected, startBatch]);
+    void startBatch(chosen);
+  }, [chosen, startBatch]);
 
   const stopBatch = useCallback(() => {
     void worker.stopBatch().then(showRun);
@@ -420,11 +480,16 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
           run,
           selected,
           onToggleSelected: toggleSelected,
+          onSelectAll: selectAll,
+          onClearSelection: clearSelected,
           onStartBatch: startSelected,
           onStopBatch: stopBatch,
           onDismissBatch: dismissBatch,
           onRepostUnstarted: repostUnstarted,
           batchShape,
+          bulk,
+          hidden,
+          chosen: chosen.length,
         })}
       </div>
     </>
@@ -454,11 +519,20 @@ interface Handlers {
   run: BatchRun | null;
   selected: ReadonlySet<string>;
   onToggleSelected: (listingId: string) => void;
+  /** Tick as much of the list as the cap allows, top down — the header's verb. */
+  onSelectAll: (listingIds: string[]) => void;
+  onClearSelection: () => void;
   onStartBatch: () => void;
   onStopBatch: () => void;
   onDismissBatch: () => void;
   onRepostUnstarted: () => void;
   batchShape: BatchShape;
+  /** What the plan lets somebody select, or nothing when it does not include bulk. */
+  bulk: BulkSelection | null;
+  /** How many ticked ads the list is not showing, because a search has narrowed it. */
+  hidden: number;
+  /** How many are ticked altogether — what the bar offers and what a run would get. */
+  chosen: number;
 }
 
 function body(screen: Screen, handlers: Handlers): JSX.Element {
@@ -466,7 +540,7 @@ function body(screen: Screen, handlers: Handlers): JSX.Element {
   const { plans, handoff, seePlans, backToAds, upgrade, manageBilling } = handlers;
   const { typed, showing, onType, onClearSearch } = handlers;
   const { run, selected, onToggleSelected, onStartBatch, onStopBatch, onDismissBatch } = handlers;
-  const { onRepostUnstarted, batchShape } = handlers;
+  const { onSelectAll, onClearSelection, onRepostUnstarted, batchShape, bulk, hidden, chosen } = handlers;
   switch (screen.screen) {
     case "loading":
       return <LoadingScreen />;
@@ -479,10 +553,6 @@ function body(screen: Screen, handlers: Handlers): JSX.Element {
       // acceptable, and a button that cannot work is worse than none (T43, #52).
       return <OutdatedScreen />;
     case "signed-in": {
-      // What this plan sells, or nothing — which is the free tier and is what
-      // draws the boxes disabled beside a line pointing at Plans (ADR-0007's
-      // conversion surface, one screen further in).
-      const bulk = bulkFor(screen.plan);
       const running = run !== null && run.stop === null;
       return (
         <SignedInScreen
@@ -503,16 +573,16 @@ function body(screen: Screen, handlers: Handlers): JSX.Element {
             selection={{
               selected,
               onToggle: onToggleSelected,
-              locked: bulk === null,
+              onSelectAll,
+              onClear: onClearSelection,
               frozen: running,
-              // A plan without bulk still gets boxes, and they are disabled — so
-              // the cap it is given is the one that would apply if it had one.
-              cap: bulk?.cap ?? 0,
+              bulk,
+              hidden,
             }}
             runStates={rowStatesFor(run)}
           />
           {bulk === null ? (
-            <p className="popup-batch-locked">
+            <p className="popup-foot popup-batch-locked">
               Reposting several at once is part of the paid plans.{" "}
               <button type="button" className="popup-link" onClick={seePlans}>
                 See plans
@@ -521,7 +591,7 @@ function body(screen: Screen, handlers: Handlers): JSX.Element {
           ) : (
             <BatchBar
               run={run}
-              selected={selected.size}
+              selected={chosen}
               bulk={bulk}
               shape={batchShape}
               onStart={onStartBatch}

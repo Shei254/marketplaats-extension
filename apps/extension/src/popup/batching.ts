@@ -62,6 +62,99 @@ function upToIn(flag: unknown): number | null {
 }
 
 /**
+ * As many of these ads as the cap allows, top down.
+ *
+ * **Top down and not "the ones nearest the cap"**, because the list is the order
+ * somebody read it in: Select all on a plan that reposts ten of forty ads has to
+ * mean the ten at the top, which are the ten they were already looking at. Any
+ * other rule would be this screen choosing ads on the user's behalf.
+ */
+export function pickUpTo(listingIds: readonly string[], cap: number): string[] {
+  return listingIds.slice(0, Math.max(0, cap));
+}
+
+/**
+ * Which of the two numbers in the cap is the one doing the stopping.
+ *
+ * Asked in one place and answered in one place, because the two sentences built on
+ * it — the long one under the button and the short one in the header — have to
+ * agree about which number is biting or they are two screens describing different
+ * accounts.
+ */
+function whatCaps(bulk: BulkSelection): "plan" | "quota" {
+  return bulk.upTo !== null && bulk.cap >= bulk.upTo ? "plan" : "quota";
+}
+
+/**
+ * Why the boxes stopped ticking, as a sentence — and it is a different sentence
+ * depending on which of the two numbers ran out, because only one of them is
+ * something a bigger plan fixes.
+ */
+export function describeCap(bulk: BulkSelection): string {
+  return whatCaps(bulk) === "plan"
+    ? `Your plan reposts ${bulk.upTo} at a time.`
+    : "That is all the relists you have left this period.";
+}
+
+/**
+ * The line over the list: what ticking everything would do, and what stops it.
+ *
+ * **The cap is said before it bites rather than after.** Without this line the
+ * only way to learn that a plan reposts ten at a time is to tick an eleventh box
+ * and find it inert — a control that goes dead with no sentence anywhere near it
+ * is the shape of a bug, and it is the one thing a user cannot tell apart from
+ * one. The same hole swallowed a spent quota whole: every box disabled, nothing
+ * ticked, and therefore no action bar and no explanation on the screen at all.
+ *
+ * `hint` is the right-hand half and gives way to Clear the moment something is
+ * ticked — at that point the count carries the cap ("3 of 10 selected") and
+ * repeating it would be the same number twice in one row of a 360px window.
+ */
+export function describeSelectAll(
+  count: number,
+  bulk: BulkSelection | null,
+  rowsShown: number,
+): { label: string; hint: string | null } {
+  // No bulk on the plan at all: the row is drawn and inert, like the boxes under
+  // it, and the sentence that explains it is the one pointing at Plans, pinned
+  // under the list. Saying anything here would be a second answer to a question
+  // already answered a few pixels lower.
+  if (bulk === null) return { label: "Select all", hint: null };
+  if (bulk.cap === 0) return { label: "Select all", hint: "No relists left" };
+  if (count === 0) return { label: "Select all", hint: shortCap(bulk) };
+  // **The cap is only named while it can actually be met.** Two ads on a plan that
+  // reposts ten are two ads: "2 of 10 selected" over a list that has ticked
+  // everything it holds — beside a Select all box that is, correctly, full —
+  // is three controls telling the user three different stories about the same
+  // screen, and the one that invents eight more ads is the one that is wrong.
+  if (rowsShown <= bulk.cap && count <= rowsShown) return { label: `${count} selected`, hint: null };
+  return { label: `${count} of ${bulk.cap} selected`, hint: null };
+}
+
+/** The cap in the four or five characters a row this wide has left for it. */
+function shortCap(bulk: BulkSelection): string {
+  return whatCaps(bulk) === "plan" ? `${bulk.upTo} at a time` : `${bulk.cap} left`;
+}
+
+/**
+ * The ticked ads a search is not showing, said out loud.
+ *
+ * **A selection survives the box being typed in**, which is what makes it possible
+ * to build one across two queries — the plausible way to pick ten ads out of forty.
+ * The price is that some of what is about to be reposted is off-screen, and
+ * reposting deletes first (ADR-0003): a batch containing ads the user cannot see at
+ * the moment they press the button is the one surprise here that cannot be undone.
+ * So the number is never left to be inferred from a count that does not match the
+ * boxes.
+ */
+export function describeHidden(hidden: number): string | null {
+  if (hidden <= 0) return null;
+  return hidden === 1
+    ? "1 ticked ad isn’t in these results — it will still be reposted."
+    : `${hidden} ticked ads aren’t in these results — they will still be reposted.`;
+}
+
+/**
  * The action bar's sentence: how many, and how long it will take.
  *
  * **The duration is said before somebody commits**, which is the condition

@@ -3,7 +3,7 @@ import type { JSX } from "react";
 
 import type { BatchShape } from "../domain/batch-estimate";
 import type { BatchRun } from "../domain/batch-run";
-import { describeProgress, describeSelection, describeStop, type BulkSelection } from "./batching";
+import { describeCap, describeProgress, describeSelection, describeStop, type BulkSelection } from "./batching";
 
 /**
  * The bar under the ad list: what a selection would cost before it is started,
@@ -12,12 +12,16 @@ import { describeProgress, describeSelection, describeStop, type BulkSelection }
  * **It is one strip in three states rather than three components**, because to the
  * user it is one thing — the place a batch is decided, watched and read about —
  * and a screen that moved the run somewhere else would leave them looking for it
- * after the popup had been closed and reopened.
+ * after the popup had been closed and reopened. So the strip itself is drawn here,
+ * once, and each state fills it: three components that each drew their own would be
+ * three chances for the thing the user thinks of as one bar to be laid out three
+ * ways.
  *
  * The free tier never reaches this component at all: with no `bulk` on the plan the
  * boxes are drawn disabled beside a line pointing at Plans, and nothing can be
  * ticked to bring a bar up. That line lives on the list, next to the control it is
- * about.
+ * about, and is pinned by the same `popup-foot` this is — it stands in the same
+ * place and answers the same question.
  */
 export function BatchBar({
   run,
@@ -47,10 +51,42 @@ export function BatchBar({
   /** Start a fresh run over the ads a stopped one never got to. */
   onRepostUnstarted: () => void;
 }): JSX.Element | null {
-  if (run !== null && run.stop === null) return <RunningBar run={run} onStop={onStop} />;
-  if (run !== null) return <StoppedBar run={run} onDismiss={onDismiss} onRepost={onRepostUnstarted} />;
+  if (run !== null && run.stop === null) {
+    return (
+      <div className="popup-foot popup-batch" data-state="running">
+        <RunningRun run={run} onStop={onStop} />
+      </div>
+    );
+  }
+  if (run !== null) {
+    // **A run that has ended must not swallow the next one.** A stopped run is
+    // held until it is dismissed — that is what keeps its outcome readable after
+    // the popup has been closed and reopened — and for as long as it was the only
+    // thing this bar could draw, ticking boxes produced no button anywhere on the
+    // screen. The boxes ticked; nothing happened; the feature looked broken, and
+    // from the user's chair it was.
+    //
+    // So the summary stays and the offer moves: the moment anything is ticked,
+    // the primary action is that selection rather than what the last run left
+    // behind. Never both — two Repost buttons in one strip is a strip asking the
+    // user to tell two batches apart before they have started either.
+    return (
+      <div className="popup-foot popup-batch" data-state="stopped">
+        <StoppedRun run={run} onDismiss={onDismiss} />
+        {selected > 0 ? (
+          <StartRow selected={selected} bulk={bulk} shape={shape} onStart={onStart} />
+        ) : (
+          <RepostUnstartedRow run={run} onRepost={onRepostUnstarted} />
+        )}
+      </div>
+    );
+  }
   if (selected === 0) return null;
-  return <SelectionBar selected={selected} bulk={bulk} shape={shape} onStart={onStart} />;
+  return (
+    <div className="popup-foot popup-batch" data-state="selecting">
+      <StartRow selected={selected} bulk={bulk} shape={shape} onStart={onStart} />
+    </div>
+  );
 }
 
 /**
@@ -61,7 +97,7 @@ export function BatchBar({
  * unattended run is a reasonable thing to choose and an unreasonable thing to
  * discover.
  */
-function SelectionBar({
+function StartRow({
   selected,
   bulk,
   shape,
@@ -74,28 +110,16 @@ function SelectionBar({
 }): JSX.Element {
   const { label, note } = describeSelection(selected, shape.rails, shape.gap);
   return (
-    <div className="popup-batch" data-state="selecting">
+    <>
       <div className="popup-batch-row">
         <Button shape="rect" tone="primary" onClick={onStart} title="Repost the ads you have ticked, one after another.">
           {label}
         </Button>
       </div>
-      {selected >= bulk.cap ? <p className="popup-batch-note">{capNote(bulk)}</p> : null}
+      {selected >= bulk.cap ? <p className="popup-batch-note">{describeCap(bulk)}</p> : null}
       {note ? <p className="popup-batch-note">{note}</p> : null}
-    </div>
+    </>
   );
-}
-
-/**
- * Why the boxes stopped ticking, which is a different sentence depending on which
- * of the two numbers ran out — and only one of them is something a bigger plan
- * fixes.
- */
-function capNote(bulk: BulkSelection): string {
-  if (bulk.upTo !== null && bulk.cap >= bulk.upTo) {
-    return `Your plan reposts ${bulk.upTo} at a time.`;
-  }
-  return `That is all the relists you have left this period.`;
 }
 
 /**
@@ -106,9 +130,9 @@ function capNote(bulk: BulkSelection): string {
  * their having to work it out from the rows. The toolbar badge is what says so
  * while nothing is open.
  */
-function RunningBar({ run, onStop }: { run: BatchRun; onStop: () => void }): JSX.Element {
+function RunningRun({ run, onStop }: { run: BatchRun; onStop: () => void }): JSX.Element {
   return (
-    <div className="popup-batch" data-state="running">
+    <>
       <div className="popup-batch-row">
         <span className="popup-batch-progress">{describeProgress(run)}</span>
         <Button shape="rect" tone="ghost" onClick={onStop} title="Finish the ad that is running and start no more.">
@@ -119,7 +143,7 @@ function RunningBar({ run, onStop }: { run: BatchRun; onStop: () => void }): JSX
         This keeps going with the popup closed. Reposts are spaced out so they look like clicks rather than a
         script.
       </p>
-    </div>
+    </>
   );
 }
 
@@ -133,19 +157,10 @@ function RunningBar({ run, onStop }: { run: BatchRun; onStop: () => void }): JSX
  * here they are the same situation — some ads did not run, and only the user knows
  * whether they still want them to.
  */
-function StoppedBar({
-  run,
-  onDismiss,
-  onRepost,
-}: {
-  run: BatchRun;
-  onDismiss: () => void;
-  onRepost: () => void;
-}): JSX.Element {
+function StoppedRun({ run, onDismiss }: { run: BatchRun; onDismiss: () => void }): JSX.Element {
   const why = describeStop(run.stop?.reason ?? "finished");
-  const unstarted = run.stop?.unstarted ?? [];
   return (
-    <div className="popup-batch" data-state="stopped">
+    <>
       <div className="popup-batch-row">
         <span className="popup-batch-progress">{describeProgress(run)}</span>
         <Button shape="rect" tone="ghost" onClick={onDismiss}>
@@ -153,13 +168,19 @@ function StoppedBar({
         </Button>
       </div>
       {why ? <Note tone={run.stop?.reason === "finished" ? "ok" : "warn"}>{why}</Note> : null}
-      {unstarted.length > 0 ? (
-        <div className="popup-batch-row">
-          <Button shape="rect" tone="primary" onClick={onRepost}>
-            {`Repost the remaining ${unstarted.length}`}
-          </Button>
-        </div>
-      ) : null}
+    </>
+  );
+}
+
+/** The offer itself, which a finished run has nothing to make. */
+function RepostUnstartedRow({ run, onRepost }: { run: BatchRun; onRepost: () => void }): JSX.Element | null {
+  const unstarted = run.stop?.unstarted ?? [];
+  if (unstarted.length === 0) return null;
+  return (
+    <div className="popup-batch-row">
+      <Button shape="rect" tone="primary" onClick={onRepost}>
+        {`Repost the remaining ${unstarted.length}`}
+      </Button>
     </div>
   );
 }

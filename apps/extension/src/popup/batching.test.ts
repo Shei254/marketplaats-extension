@@ -2,7 +2,17 @@ import type { DisplayState } from "@mprelist/contracts";
 import { describe, expect, it } from "vitest";
 
 import { startBatch, stopBatch, advanceBatch } from "../domain/batch-run";
-import { bulkFor, describeProgress, describeSelection, describeStop, rowStatesFor } from "./batching";
+import {
+  bulkFor,
+  describeCap,
+  describeHidden,
+  describeProgress,
+  describeSelectAll,
+  describeSelection,
+  describeStop,
+  pickUpTo,
+  rowStatesFor,
+} from "./batching";
 
 /**
  * What the popup makes of a plan's `bulk` flag, and the words it says about a run
@@ -163,5 +173,124 @@ describe("what the rows show during a run", () => {
 
   it("and nothing at all when there is no run", () => {
     expect(rowStatesFor(null)).toEqual({});
+  });
+});
+
+/**
+ * Ticking everything, and the sentence over the list that says how much of it
+ * "everything" is.
+ *
+ * **This is where a cap stops being invisible.** The boxes on their own can only
+ * express a limit by refusing to move, and a control that goes dead with no words
+ * near it is the shape of a bug — which is exactly what a spent quota looked like
+ * before this row existed: every box disabled, nothing ticked, and therefore no
+ * action bar and no explanation anywhere on the screen.
+ */
+describe("ticking as much as the plan allows", () => {
+  it("takes them from the top, which is the order they were read in", () => {
+    expect(pickUpTo(["a", "b", "c", "d"], 2)).toEqual(["a", "b"]);
+  });
+
+  // A short list is not a small cap: a Pro user with two ads gets both, and the
+  // header's box has to be *full* at two or it would be saying their click did
+  // not work.
+  it("and all of them when there are fewer than the cap", () => {
+    expect(pickUpTo(["a", "b"], 10)).toEqual(["a", "b"]);
+  });
+
+  it("and none at all when there is nothing left to spend", () => {
+    expect(pickUpTo(["a", "b"], 0)).toEqual([]);
+  });
+
+  // Which of the two numbers ran out decides the sentence, and only one of them is
+  // something a bigger plan fixes.
+  it("says the plan's number when that is what stopped it", () => {
+    expect(describeCap({ cap: 10, upTo: 10 })).toBe("Your plan reposts 10 at a time.");
+  });
+
+  it("and the period's when that is the smaller one", () => {
+    expect(describeCap({ cap: 3, upTo: 10 })).toContain("all the relists you have left");
+  });
+});
+
+describe("what the line over the list says", () => {
+  it("offers to select all, and says how many that would be", () => {
+    expect(describeSelectAll(0, { cap: 10, upTo: 10 }, 40)).toEqual({
+      label: "Select all",
+      hint: "10 at a time",
+    });
+  });
+
+  // The quota half of the cap, in the four or five characters this row has left
+  // for it — the long form belongs under the button, where there is room.
+  it("or how many the period has left, when that is the smaller number", () => {
+    expect(describeSelectAll(0, { cap: 3, upTo: 10 }, 40)).toEqual({ label: "Select all", hint: "3 left" });
+  });
+
+  // The count carries the cap once anything is ticked, and the hint gives way to
+  // Clear: "3 of 10 selected" beside "10 at a time" is the same number twice in a
+  // 360px row.
+  it("and counts the selection against the cap once there is one", () => {
+    expect(describeSelectAll(3, { cap: 10, upTo: 10 }, 40)).toEqual({
+      label: "3 of 10 selected",
+      hint: null,
+    });
+  });
+
+  // A cap that cannot be met is not a cap the user needs told. Two ads on a plan
+  // that reposts ten are two ads, and "2 of 10 selected" beside a Select all box
+  // that is — correctly — full is the screen inventing eight ads nobody has.
+  it("but not against a cap the list is too short to reach", () => {
+    expect(describeSelectAll(2, { cap: 10, upTo: 10 }, 2)).toEqual({ label: "2 selected", hint: null });
+  });
+
+  // Unless a search is hiding part of the selection, in which case the count is
+  // bigger than the list and the cap is exactly what explains it.
+  it("and names it again once the count is bigger than the list", () => {
+    expect(describeSelectAll(5, { cap: 10, upTo: 10 }, 2)).toEqual({
+      label: "5 of 10 selected",
+      hint: null,
+    });
+  });
+
+  // The silent failure this row was added for: a spent quota disabled every box on
+  // the screen and put no sentence anywhere near them.
+  it("says so outright when the period has nothing left", () => {
+    expect(describeSelectAll(0, { cap: 0, upTo: 10 }, 40)).toEqual({
+      label: "Select all",
+      hint: "No relists left",
+    });
+  });
+
+  // The free tier. The row is drawn inert with the boxes it is about (ADR-0007),
+  // and the sentence that explains it is the one pointing at Plans, pinned under
+  // the list — saying anything here would be a second answer to a question already
+  // answered a few pixels lower.
+  it("but nothing at all on a plan that does not include bulk", () => {
+    expect(describeSelectAll(0, null, 40)).toEqual({ label: "Select all", hint: null });
+  });
+});
+
+/**
+ * The ticked ads a search has taken off the screen.
+ *
+ * A selection survives the box being typed in, which is what makes it possible to
+ * build one across two queries — and the price is that some of what is about to be
+ * reposted is not visible. Reposting deletes first (ADR-0003), so that is the one
+ * surprise on this screen nobody can undo, and it is never left to be inferred from
+ * a count that does not match the boxes.
+ */
+describe("the part of a selection a search is hiding", () => {
+  it("is said, with the plural it needs", () => {
+    expect(describeHidden(2)).toContain("2 ticked ads aren’t in these results");
+    expect(describeHidden(1)).toContain("1 ticked ad isn’t in these results");
+  });
+
+  it("and says they are still going to be reposted", () => {
+    expect(describeHidden(3)).toContain("still be reposted");
+  });
+
+  it("but nothing at all when the list is showing all of them", () => {
+    expect(describeHidden(0)).toBeNull();
   });
 });

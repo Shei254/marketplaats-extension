@@ -291,7 +291,8 @@ export const adListCss = `
    A disabled box is drawn at the opacity every other locked control here uses
    rather than hidden. That is the whole conversion argument: a free user should be
    able to see the thing they do not have, next to their own ads. */
-.popup-ad-tick {
+.popup-ad-tick,
+.popup-select-all-tick {
   flex: none;
   width: 15px;
   height: 15px;
@@ -299,17 +300,119 @@ export const adListCss = `
   accent-color: var(--mp-accent);
   cursor: pointer;
 }
-.popup-ad-tick:disabled { cursor: not-allowed; opacity: 0.45; }
+.popup-ad-tick:disabled,
+.popup-select-all-tick:disabled { cursor: not-allowed; opacity: 0.45; }
+/* A 15px box is a 15px target, which is half of what a pointer wants and a
+   quarter of what a trackpad gives it. The box keeps its drawn size — it has to
+   sit level with a title and a chip — and gains the rest as padding it can be
+   missed into. */
+.popup-ad-tick,
+.popup-select-all-tick { padding: 6px; margin: -6px; box-sizing: content-box; }
+
+/* A ticked row is tinted, and that is not decoration: the checkbox is 15px of
+   glyph at the far left of a 360px row, and a selection of six read off six of
+   those alone is a count nobody trusts. The whole row moving is what makes "these
+   ones" legible at a glance — and it is the only feedback a click on a box
+   produces at all until the bar under the list appears. */
+.popup-ad[data-ticked="true"] {
+  /* The same fill the pointer paints on hover, which on its own is why the rule
+     beside it is not optional: a ticked row and a hovered row would otherwise be
+     the identical grey, and a selection of six read off six 15px glyphs is a count
+     nobody trusts. An inset rule rather than a border, so the row does not move
+     2px sideways the moment it is ticked. */
+  background: var(--mp-hover);
+  box-shadow: inset 2px 0 0 var(--mp-accent);
+}
+
+/* The header over the list: tick everything the plan allows, and read back how
+   much of the cap is spent.
+
+   It shares the search box's gutter and rhythm because it is the same kind of
+   thing — a control *about* the list rather than a row in it — and sits between
+   the two so the reading order is: find them, select them, repost them. */
+.popup-select-all {
+  display: grid;
+  gap: 3px;
+  padding: 7px var(--mp-space-md);
+  border-bottom: 1px solid var(--mp-line);
+  background: var(--mp-subtle);
+}
+.popup-select-all-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mp-space-xs);
+}
+/* Only drawn when a search has taken part of the selection off the screen, which
+   is the one state where the count and the ticked boxes disagree. */
+.popup-select-all-note {
+  margin: 0;
+  font: var(--mp-text-micro) var(--mp-font-family);
+  color: var(--mp-muted);
+}
+.popup-select-all-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  cursor: pointer;
+}
+.popup-select-all-label:has(.popup-select-all-tick:disabled) { cursor: not-allowed; }
+.popup-select-all-text {
+  font: var(--mp-text-caption) var(--mp-font-family);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.popup-select-all-hint {
+  flex: none;
+  font: var(--mp-text-micro) var(--mp-font-family);
+  color: var(--mp-muted);
+  font-variant-numeric: tabular-nums;
+}
+/* The header's Clear is a caption beside a control, not a control in its own
+   right — the same scale the header bar gives its ghost buttons. */
+.popup-select-all .mp-btn--ghost {
+  flex: none;
+  padding: 3px 7px;
+  border-radius: var(--mp-radius-note);
+  font: var(--mp-text-micro) var(--mp-font-family);
+  font-weight: 600;
+}
 
 /* The bar under the list: what a selection costs, what a run is doing, what a
    stopped one left behind. One strip in three states, because to the user it is
    one place. */
+/* **Pinned, because otherwise it is not there.** Chrome caps a popup at 600px and
+   this surface spends all of it — header, quota, search box and a 420px list —
+   before the bar is laid out at all, so a bar in ordinary flow lands below the
+   fold. And the fold cannot be scrolled past in the obvious way: the pointer is
+   over the ad list, which is its own scroller and eats the wheel. The primary
+   action of the whole feature was reachable only by a user who thought to move the
+   mouse off the list first, which in practice means it was not reachable.
+
+   Sticky rather than fixed so it still participates in layout: on the short screens
+   — three ads, an empty list — it sits where it always did, at the end of the
+   content, with nothing to stick to.
+
+   One class for both feet, because there is only ever one of them on the screen and
+   they are the same object: whichever of "start this batch" and "this is a paid
+   feature" the plan makes true. Its own opaque ground and a line above it, and no
+   shadow — an elevation here would have to be a literal colour, and this sheet
+   holds layout only (ADR-0021). */
+.popup-foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  padding: 10px var(--mp-space-md);
+  border-top: 1px solid var(--mp-line);
+  background: var(--mp-bg);
+}
 .popup-batch {
   display: grid;
   gap: 6px;
-  padding: 10px var(--mp-space-md);
-  border-top: 1px solid var(--mp-line);
-  background: var(--mp-subtle);
 }
 .popup-batch-row {
   display: flex;
@@ -328,11 +431,14 @@ export const adListCss = `
   font: var(--mp-text-micro) var(--mp-font-family);
   color: var(--mp-muted);
 }
-/* The line a free user gets instead of the bar, beside boxes they cannot tick. */
+/* The line a free user gets instead of the bar, beside boxes they cannot tick —
+   pinned by \`popup-foot\` for the reason the bar is, which matters more here than
+   there. This sentence is the entire conversion surface ADR-0007 asks for: below
+   the fold it leaves a free user looking at a column of dead checkboxes with no
+   explanation on the screen, which reads as a broken extension rather than as a
+   plan they could buy. */
 .popup-batch-locked {
   margin: 0;
-  padding: 10px var(--mp-space-md);
-  border-top: 1px solid var(--mp-line);
   font: var(--mp-text-micro) var(--mp-font-family);
   color: var(--mp-muted);
 }

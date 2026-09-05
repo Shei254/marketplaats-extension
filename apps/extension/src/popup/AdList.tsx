@@ -6,6 +6,8 @@ import type { WireRelistOutcome } from "../background/messages";
 import type { ListingSummary } from "../domain/types";
 import { describePrice, type AdsView, type PriceLine } from "./ads";
 import { IDLE, PACING_NOTE, refusalNote, refusedTone, rowStateFor, type RowState } from "./relisting";
+import { SelectionHeader } from "./SelectionHeader";
+import type { BulkSelection } from "./batching";
 import type { WorkerPort } from "./screen";
 
 /**
@@ -149,25 +151,38 @@ export function AdList({
   }
 
   return (
-    <ul className="popup-ads">
-      {view.ads.map((ad) => (
-        <AdRow
-          ad={ad}
-          key={ad.id}
-          state={states[ad.id] ?? runStates?.[ad.id] ?? IDLE}
-          // A run locks every row for the reason one relist does, one step
-          // further out: the queue is the serialisation now, and a row somebody
-          // pressed mid-run would be a second delete beside the one in flight.
-          locked={
-            (running !== null && running !== ad.id) || secondsLeft !== null || selection?.frozen === true
-          }
-          secondsLeft={secondsLeft}
-          pacingSeconds={running === ad.id ? pacingSeconds : null}
-          onStart={start}
-          selection={selection ?? null}
+    <>
+      {selection ? (
+        <SelectionHeader
+          count={selection.selected.size}
+          rowsShown={view.ads.length}
+          hidden={selection.hidden}
+          bulk={selection.bulk}
+          frozen={selection.frozen}
+          onSelectAll={() => selection.onSelectAll(view.ads.map((ad) => ad.id))}
+          onClear={selection.onClear}
         />
-      ))}
-    </ul>
+      ) : null}
+      <ul className="popup-ads">
+        {view.ads.map((ad) => (
+          <AdRow
+            ad={ad}
+            key={ad.id}
+            state={states[ad.id] ?? runStates?.[ad.id] ?? IDLE}
+            // A run locks every row for the reason one relist does, one step
+            // further out: the queue is the serialisation now, and a row somebody
+            // pressed mid-run would be a second delete beside the one in flight.
+            locked={
+              (running !== null && running !== ad.id) || secondsLeft !== null || selection?.frozen === true
+            }
+            secondsLeft={secondsLeft}
+            pacingSeconds={running === ad.id ? pacingSeconds : null}
+            onStart={start}
+            selection={selection ?? null}
+          />
+        ))}
+      </ul>
+    </>
   );
 }
 
@@ -184,10 +199,36 @@ export function AdList({
 export interface BatchSelection {
   selected: ReadonlySet<string>;
   onToggle: (listingId: string) => void;
-  locked: boolean;
+  /**
+   * Tick as many of the ads on screen as the cap still allows, top down — the
+   * header's verb, and the reason a plan that reposts twenty-five at a time is one
+   * act rather than twenty-five clicks.
+   *
+   * **The list decides which ads, and the caller decides how many.** This
+   * component knows the order they are being shown in and nothing about the
+   * entitlement; the screen above holds the plan. So the ids travel up and the cap
+   * is applied there.
+   */
+  onSelectAll: (listingIds: string[]) => void;
+  onClear: () => void;
+  /**
+   * What the plan allows, or `null` when it does not include bulk at all.
+   *
+   * **One field and not three.** `locked`, `cap` and the plan's own numbers are all
+   * answers to this one question, and carrying them separately is three values that
+   * can disagree about a single fact — a `cap` of 0 beside a `locked` of false is a
+   * list of live boxes none of which can be ticked, and nothing in the types would
+   * have stopped it.
+   */
+  bulk: BulkSelection | null;
+  /** A run is already going, so the selection has been made and is being worked through. */
   frozen: boolean;
-  /** How many may be ticked at once — `min(quotaRemaining, upTo)`. */
-  cap: number;
+  /**
+   * How many ticked ads this list is not showing, because a search has narrowed it
+   * under a selection made against more. Named in the header rather than left to be
+   * inferred from a count that does not match the boxes.
+   */
+  hidden: number;
 }
 
 /**
@@ -230,16 +271,16 @@ export function AdRow({
   const ticked = selection?.selected.has(ad.id) ?? false;
   // Full is a cap that has been reached by *other* rows: a ticked box can always
   // be unticked, or the cap would be a trap rather than a limit.
-  const full = selection !== null && selection !== undefined && !ticked && selection.selected.size >= selection.cap;
+  const full = selection != null && !ticked && selection.selected.size >= (selection.bulk?.cap ?? 0);
   return (
-    <li className="popup-ad" data-state={state.kind}>
+    <li className="popup-ad" data-state={state.kind} data-ticked={ticked}>
       <div className="popup-ad-row">
         {selection ? (
           <input
             type="checkbox"
             className="popup-ad-tick"
             checked={ticked}
-            disabled={selection.locked || selection.frozen || full}
+            disabled={selection.bulk === null || selection.frozen || full}
             aria-label={`Select “${ad.title}” to repost`}
             onChange={() => selection.onToggle(ad.id)}
           />

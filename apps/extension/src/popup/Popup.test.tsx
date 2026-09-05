@@ -942,9 +942,21 @@ describe("reposting several at once", () => {
     features: { bulk: { upTo: 10 } },
   };
 
+  /**
+   * A dozen ads, so a Pro cap of ten is a cap the list can actually reach. The two
+   * in `ADS` cannot — which is a state worth testing too, and a different one.
+   */
+  const MANY: ListingSummary[] = Array.from({ length: 12 }, (unused, at) => ({
+    id: `many${at}`,
+    title: `Ad number ${at}`,
+    priceCents: 1000 * (at + 1),
+    priceType: "FIXED",
+    biddingEnabled: false,
+  }));
+
   /** The worker with a run it actually remembers, so the popup can watch one. */
-  function batching(plan: DisplayState = PRO_PLAN) {
-    const fixture = fakeWorker([{ status: "ready", plan }]);
+  function batching(plan: DisplayState = PRO_PLAN, ads: ListingSummary[] = ADS) {
+    const fixture = fakeWorker([{ status: "ready", plan }], ads);
     let run: BatchRun | null = null;
     fixture.worker.startBatch = vi.fn(async (listingIds: string[]) => {
       fixture.asked.push("start-batch");
@@ -963,6 +975,20 @@ describe("reposting several at once", () => {
   }
 
   const boxes = (): HTMLInputElement[] => [...container.querySelectorAll<HTMLInputElement>(".popup-ad-tick")];
+
+  /** The header's own box, which is a different control from the ones on the rows. */
+  const selectAllBox = (): HTMLInputElement | null =>
+    container.querySelector<HTMLInputElement>(".popup-select-all-tick");
+
+  const selectAll = (): Promise<void> =>
+    act(async () => {
+      const box = selectAllBox();
+      if (!box) throw new Error(`no Select all box — screen reads: ${text()}`);
+      box.click();
+    });
+
+  /** Which rows are ticked, by the position they hold in the list on screen. */
+  const ticked = (): number[] => boxes().flatMap((box, at) => (box.checked ? [at] : []));
 
   const tick = (nth: number): Promise<void> =>
     act(async () => {
@@ -1151,5 +1177,278 @@ describe("reposting several at once", () => {
     await click("Dismiss");
 
     expect(text()).not.toContain("reposted.");
+  });
+
+  /**
+   * **The bug that made this whole feature look broken.**
+   *
+   * A stopped run is held until it is dismissed — that is what lets somebody close
+   * the popup, come back and still read what their batch did. But for as long as
+   * that summary was the only thing the bar could draw, a second selection had
+   * nowhere to appear: boxes ticked, the count went up, and no button showed up
+   * anywhere on the screen. Nothing said why, because from the code's point of
+   * view nothing had gone wrong.
+   */
+  it("offers a fresh selection while a stopped run is still on the screen", async () => {
+    const fixture = batching();
+    await show(fixture.worker);
+    await tick(0);
+    await click("Repost 1 selected · under a minute");
+    await click("Stop");
+
+    await tick(1);
+
+    expect(text()).toContain("Repost 1 selected");
+  });
+
+  // And it is one offer rather than two: the ads a stopped run never reached and
+  // the ads just ticked are different batches, and a strip with a button for each
+  // would be asking the user to tell them apart before starting either.
+  it("and drops the offer to repost the unstarted ones while it stands", async () => {
+    const fixture = batching();
+    await show(fixture.worker);
+    await tick(0);
+    await tick(1);
+    await click("Repost 2 selected · under a minute");
+    await click("Stop");
+    expect(text()).toContain("Repost the remaining 2");
+
+    await tick(0);
+
+    expect(text()).not.toContain("Repost the remaining");
+    expect(text()).toContain("Repost 1 selected");
+  });
+
+  // The summary itself does not go anywhere: it is the only record of what the last
+  // run did, and a selection is not news that makes it untrue.
+  it("without losing what the stopped run had got through", async () => {
+    const fixture = batching();
+    await show(fixture.worker);
+    await tick(0);
+    await click("Repost 1 selected · under a minute");
+    await click("Stop");
+
+    await tick(1);
+
+    expect(text()).toContain("0 of 1 reposted.");
+    expect(text()).toContain("Stopped.");
+  });
+
+  /**
+   * Selecting several at once, which is the act the entitlement actually sells.
+   *
+   * A plan that reposts twenty-five ads in one go is not worth much if starting it
+   * costs twenty-five clicks — that is the feature performed by hand, which is what
+   * the extension exists to stop.
+   */
+  it("ticks the whole list from the header", async () => {
+    const { worker } = batching();
+    await show(worker);
+
+    await selectAll();
+
+    expect(ticked()).toEqual([0, 1]);
+    expect(text()).toContain("Repost 2 selected");
+  });
+
+  // The cap is applied where the plan is read, and from the top: the ten a Pro user
+  // gets are the ten they were already looking at.
+  it("but never more than the plan reposts at a time", async () => {
+    const { worker } = batching({ ...PRO_PLAN, features: { bulk: { upTo: 1 } } });
+    await show(worker);
+
+    await selectAll();
+
+    expect(ticked()).toEqual([0]);
+    expect(text()).toContain("reposts 1 at a time");
+  });
+
+  // The other half of the same cap, and the one a bigger plan does not fix.
+  it("nor more than the period has left", async () => {
+    const { worker } = batching({ ...PRO_PLAN, quotaRemaining: 1 });
+    await show(worker);
+
+    await selectAll();
+
+    expect(ticked()).toEqual([0]);
+  });
+
+  it("says how much of the cap the selection has spent", async () => {
+    const { worker } = batching(PRO_PLAN, MANY);
+    await show(worker);
+
+    await tick(0);
+
+    expect(text()).toContain("1 of 10 selected");
+  });
+
+  // But only while the cap is a number the list can actually reach. Two ads on a
+  // plan that reposts ten are two ads, and "2 of 10 selected" beside a Select all
+  // box that is — correctly — full invents eight ads the account does not have.
+  it("but counts plainly when the list is shorter than the cap", async () => {
+    const { worker } = batching();
+    await show(worker);
+
+    await selectAll();
+
+    expect(text()).toContain("2 selected");
+    expect(text()).not.toContain("2 of 10 selected");
+  });
+
+  // Select all after a few rows have been ticked by hand adds to them rather than
+  // throwing them away — which is what "select all" means anywhere else, and the
+  // difference between a control that helps and one that undoes your work.
+  it("and adds to a selection rather than replacing it", async () => {
+    const { worker } = batching({ ...PRO_PLAN, features: { bulk: { upTo: 3 } } }, MANY);
+    await show(worker);
+    await tick(11);
+
+    await selectAll();
+
+    expect(ticked()).toEqual([0, 1, 11]);
+  });
+
+  // Said before the cap bites rather than after. Without this line the only way to
+  // learn a plan reposts ten at a time is to tick an eleventh box and find it
+  // inert, which is a control going dead with no sentence anywhere near it.
+  it("and how many it allows before anything is ticked", async () => {
+    const { worker } = batching();
+
+    await show(worker);
+
+    expect(text()).toContain("10 at a time");
+  });
+
+  it("unticks everything from the header", async () => {
+    const { worker } = batching();
+    await show(worker);
+    await selectAll();
+
+    await click("Clear");
+
+    expect(ticked()).toEqual([]);
+    expect(text()).not.toContain("Repost 2 selected");
+  });
+
+  // The same box, both ways: a full selection is unticked by the control that
+  // ticked it, which is what every list of checkboxes on every platform does.
+  it("and from the box that ticked it, once it is full", async () => {
+    const { worker } = batching();
+    await show(worker);
+    await selectAll();
+    expect(selectAllBox()?.checked).toBe(true);
+
+    await selectAll();
+
+    expect(ticked()).toEqual([]);
+  });
+
+  /**
+   * The silent failure this header was added for.
+   *
+   * A spent quota caps the selection at zero, which disabled every box on the
+   * screen — and because nothing could be ticked, the bar that explains a cap never
+   * appeared either. The user met a list of dead controls with no sentence anywhere
+   * on it, which is indistinguishable from something broken.
+   */
+  it("says why nothing can be ticked when the period has nothing left", async () => {
+    const { worker } = batching({ ...PRO_PLAN, quotaRemaining: 0 });
+
+    await show(worker);
+
+    expect(text()).toContain("No relists left");
+    expect(selectAllBox()?.disabled).toBe(true);
+    expect(boxes().every((box) => box.disabled)).toBe(true);
+  });
+
+  // Drawn on the free tier too, inert with the boxes it is about: the conversion
+  // argument that keeps those boxes on screen (ADR-0007) is the same one that keeps
+  // this row, and a header that vanished would make a locked list look like a list
+  // with nothing to select.
+  it("and is drawn disabled on a plan that does not include bulk", async () => {
+    const { worker } = batching(PLAN);
+
+    await show(worker);
+
+    expect(selectAllBox()).not.toBeNull();
+    expect(selectAllBox()?.disabled).toBe(true);
+  });
+
+  // The header is not offered over a list with no rows in it: there is nothing to
+  // select all of, and a control for an empty list is a control that cannot work.
+  it("but not over a list with nothing in it", async () => {
+    const fixture = fakeWorker([{ status: "ready", plan: PRO_PLAN }], []);
+
+    await show(fixture.worker);
+
+    expect(selectAllBox()).toBeNull();
+  });
+
+  /**
+   * **A selection survives the search box, and the screen says what that costs.**
+   *
+   * Picking ten ads out of forty is a job for the search box, so a query that
+   * silently unticked what had already been chosen would make the only workable way
+   * to do it impossible. The tick stays. What must not stay is the ambiguity: the
+   * count is bigger than the ticked boxes on screen, and reposting deletes first
+   * (ADR-0003), so the ads that are about to be reposted out of sight are named
+   * rather than left to be inferred.
+   */
+  it("keeps ticked ads a search has hidden, and says how many", async () => {
+    vi.useFakeTimers();
+    try {
+      const fixture = batching();
+      await show(fixture.worker);
+      await selectAll();
+
+      await type("Eames");
+      await settle();
+
+      expect(boxes()).toHaveLength(1);
+      expect(text()).toContain("2 of 10 selected");
+      expect(text()).toContain("1 ticked ad isn’t in these results");
+      expect(text()).toContain("Repost 2 selected");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // And they are still in the batch, in the list's order for the ones on screen and
+  // the order they were ticked for the rest.
+  it("and reposts them too", async () => {
+    vi.useFakeTimers();
+    try {
+      const fixture = batching();
+      await show(fixture.worker);
+      await selectAll();
+      await type("Eames");
+      await settle();
+
+      await click("Repost 2 selected · under a minute");
+
+      expect(fixture.worker.startBatch).toHaveBeenCalledWith([ADS[0]!.id, ADS[1]!.id]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // The one thing a hidden tick must never do is go unnoticed once it is gone.
+  it("and stops saying so once the list is showing all of them again", async () => {
+    vi.useFakeTimers();
+    try {
+      const fixture = batching();
+      await show(fixture.worker);
+      await selectAll();
+      await type("Eames");
+      await settle();
+
+      await click("Clear search");
+      await settle();
+
+      expect(text()).not.toContain("aren’t in these results");
+      expect(text()).not.toContain("isn’t in these results");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

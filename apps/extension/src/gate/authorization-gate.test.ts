@@ -100,6 +100,7 @@ describe("a denial", () => {
     const expected: Record<DenialReason, LockedState["state"]> = {
       UNAUTHENTICATED: "retry",
       SUBSCRIPTION_INACTIVE: "update-card",
+      BULK_NOT_ENTITLED: "not-in-plan",
       QUOTA_EXCEEDED: "upgrade",
       RATE_LIMITED: "cooldown",
     };
@@ -122,6 +123,7 @@ describe("fail-closed", () => {
     ["a 204", answered(204, null)],
     ["a 401", answered(401, { reason: "UNAUTHENTICATED" })],
     ["a 402", answered(402, { reason: "SUBSCRIPTION_INACTIVE" })],
+    ["a 403", answered(403, { reason: "BULK_NOT_ENTITLED" })],
     ["a 429", answered(429, { reason: "QUOTA_EXCEEDED", resetAt: "2026-09-14T08:31:22.101Z" })],
     ["a 500 with an HTML error page", answered(500, "<html>502 Bad Gateway</html>")],
     ["a denial code this build has never heard of", answered(451, { reason: "REGION_BLOCKED" })],

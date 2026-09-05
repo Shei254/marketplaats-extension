@@ -462,7 +462,7 @@ that ADR's own "revisit if" anticipated. Same audience and same guard as the adm
   |---|---|
   | Valid Keycloak token | `401 UNAUTHENTICATED` |
   | Subscription status is Allowed | `402 SUBSCRIPTION_INACTIVE` |
-  | `batch` asked for, and Entitlement carries `bulk` | `403 BULK_NOT_ENTITLED` |
+  | `batch` asked for, and Entitlement carries **no** `bulk` | `403 BULK_NOT_ENTITLED` |
   | Entitlement quota remaining this period | `429 QUOTA_EXCEEDED` (+ `resetAt`) |
   | SafetyPolicy rate/pacing OK | `429 RATE_LIMITED` (+ `retryAfter`) |
 

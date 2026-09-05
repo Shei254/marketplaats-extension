@@ -56,6 +56,10 @@ describe("what a refusal says", () => {
     // silently does nothing is not an acceptable intermediate state.
     expect(refusalNote({ state: "upgrade", resetAt: null })).toContain("used your relists");
     expect(refusalNote({ state: "update-card" })).toContain("payment");
+    // Not the quota sentence: the two end at the same screen and say different
+    // things about why you are looking at it.
+    expect(refusalNote({ state: "not-in-plan" })).toContain("part of your plan");
+    expect(refusalNote({ state: "not-in-plan" })).not.toContain("used your relists");
     expect(refusalNote({ state: "retry" })).toContain("Try again");
   });
 
@@ -68,5 +72,6 @@ describe("what a refusal says", () => {
     expect(refusedTone({ state: "cooldown", retryAfter: 24 })).toBe("cooldown");
     expect(refusedTone({ state: "upgrade", resetAt: null })).toBe("locked");
     expect(refusedTone({ state: "update-card" })).toBe("locked");
+    expect(refusedTone({ state: "not-in-plan" })).toBe("locked");
   });
 });

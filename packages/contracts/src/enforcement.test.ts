@@ -45,6 +45,11 @@ const contract = repoFile("docs/enforcement-contract.md");
  * arguments, so matching only `(` would have read four of them as none.
  *
  * The emptiness check is the guard for whatever the next such file does.
+ *
+ * **The slice ends at the first `;`, which includes one written in prose.** A
+ * javadoc sentence containing a semicolon truncates the list and the failure
+ * arrives as "the API cannot answer with a code it plainly declares" — loud, but a
+ * long way from its cause. Keep the constants' own comments free of them.
  */
 function javaEnumConstants(path: string): string[] {
   const source = repoFile(`apps/api/src/main/java/com/mprelist/${path}.java`);

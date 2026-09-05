@@ -87,6 +87,10 @@ export function refusalNote(locked: LockedState): string {
       return locked.retryAfter === null
         ? "Give Marktplaats a moment before reposting again."
         : `Give Marktplaats a moment — reposting again in ${locked.retryAfter}s.`;
+    case "not-in-plan":
+      // Names the capability rather than the plan: "upgrade to Pro" is a sentence
+      // about our pricing, and this one is about what the user just tried to do.
+      return "Reposting several at once isn’t part of your plan.";
     case "update-card":
       return "Your payment didn’t go through, so reposting is paused.";
     case "retry":

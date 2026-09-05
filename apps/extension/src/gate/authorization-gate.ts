@@ -45,6 +45,14 @@ export type GateDecision =
 export type LockedState =
   | { state: "update-card" }
   | { state: "upgrade"; resetAt: string | null }
+  /**
+   * The plan does not include what was asked for — `BULK_NOT_ENTITLED`, and so far
+   * only it. **Separate from `upgrade` on purpose**, even though both end at the
+   * plan screen: `upgrade` means "you have spent this period's relists", which is
+   * a true sentence about a different thing, and showing it here would answer a
+   * question nobody asked.
+   */
+  | { state: "not-in-plan" }
   | { state: "cooldown"; retryAfter: number | null }
   /** "Unavailable — try again." Nothing the user can fix, and nothing they did wrong. */
   | { state: "retry" };
@@ -92,6 +100,12 @@ function lockedBy(body: unknown): LockedState {
   switch (reason as DenialReason) {
     case "SUBSCRIPTION_INACTIVE":
       return { state: "update-card" };
+    case "BULK_NOT_ENTITLED":
+      // Reachable only on the batch path: a single relist never asks for `batch`,
+      // and this code is the answer to having asked. If it arrives on a per-row
+      // authorize, the client and the backend disagree about what was sent — and
+      // refusing is still the fail-closed reading of a denial.
+      return { state: "not-in-plan" };
     case "QUOTA_EXCEEDED":
       return { state: "upgrade", resetAt: nonEmptyString(fields["resetAt"]) };
     case "RATE_LIMITED":

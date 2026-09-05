@@ -3,6 +3,11 @@ import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 
 import type { WireRelistOutcome } from "../background/messages";
 import type { HandoffAnswer } from "../api/subscribing";
+import { ASSUMED_RAILS, type BatchShape } from "../domain/batch-estimate";
+import type { BatchRun } from "../domain/batch-run";
+import { BULK_PACE } from "../domain/relist-pace";
+import { BatchBar } from "./BatchBar";
+import { bulkFor, offerSelection, offerUnstarted, pickUpTo, rowStatesFor, type BulkSelection } from "./batching";
 import { ADS_LOADING, describeAdsFailure, type AdsView } from "./ads";
 import { adListCss, planCardCss, popupCss } from "./popup-styles";
 import { AdList } from "./AdList";
@@ -50,6 +55,19 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
   const [handoff, setHandoff] = useState<Handoff>(NOT_OPENING);
   /** The search box, and what it has settled on asking for (T31, #40). */
   const { typed, showing, type, clear } = useSearchBox();
+  /** The batch the worker is running, or the one it has finished (T68, #147). */
+  const [run, setRun] = useState<BatchRun | null>(null);
+  /** Which rows are ticked, before there is a run to work through them. */
+  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
+  /**
+   * The gap and the rails an estimate is made of, after whatever the API served.
+   *
+   * Held rather than asked per keystroke: it is a setting, so it changes when a
+   * deployment does and never while somebody is ticking boxes. What this build
+   * ships with is the starting value and the answer for every client that has
+   * never fetched a document, which is most of them on most days.
+   */
+  const [batchShape, setBatchShape] = useState<BatchShape>(() => ({ gap: BULK_PACE, rails: ASSUMED_RAILS }));
   /** What the list is showing right now, so a reload can repeat it. */
   const displayed = useRef<Showing>(ALL);
   /**
@@ -130,6 +148,197 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
 
   /** The ads alone — what a finished relist invalidates, since the ad has a new id. */
   const reloadAds = useCallback(() => showAds(displayed.current), [showAds]);
+
+  /**
+   * The run, and the quota it has spent along the way.
+   *
+   * **The number comes off the run rather than from a second `/api/me`**, exactly
+   * as one relist's does (T32, #41): the worker keeps what the last `/complete`
+   * answered with, because the popup is shut for most of a batch and would
+   * otherwise be showing the count it opened with while four relists were spent.
+   */
+  const showRun = useCallback((next: BatchRun | null) => {
+    setRun(next);
+    const quota = next?.quota;
+    if (!quota) return;
+    setScreen((current) =>
+      current.screen === "signed-in" ? { ...current, plan: { ...current.plan, ...quota } } : current,
+    );
+  }, []);
+
+  const running = run !== null && run.stop === null;
+
+  /**
+   * What the worker is holding, asked once when this screen appears — because a
+   * popup may well be opened *onto* a run that started before it, which is the
+   * ordinary case rather than the edge one.
+   */
+  useEffect(() => {
+    if (screen.screen !== "signed-in") return;
+    void worker.batchState().then(showRun);
+    void worker.batchShape().then(setBatchShape);
+  }, [screen.screen, worker, showRun]);
+
+  /**
+   * And asked again every second while one is going.
+   *
+   * **Polled rather than pushed**, which is a property of where the run lives: the
+   * worker cannot tell a popup that has been closed anything, so this surface has
+   * to be able to ask what it missed — and once it can, a push adds nothing but a
+   * second path to keep working. It stops the moment the run does, so an ordinary
+   * popup with no batch in it sends nothing at all.
+   */
+  useEffect(() => {
+    if (!running) return;
+    const tick = setInterval(() => {
+      void worker.batchState().then(showRun);
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [running, worker, showRun]);
+
+  /**
+   * **The list reloads once, at the end** — not per success.
+   *
+   * A reposted ad comes back with a new id, so reloading mid-run would reshuffle
+   * the rows under a queue that is holding the old ones. Waiting until the run has
+   * stopped is what keeps "the ad you selected" and "the ad being reposted" the
+   * same thing for the whole of it.
+   */
+  const wasRunning = useRef(false);
+  useEffect(() => {
+    if (running) {
+      wasRunning.current = true;
+      return;
+    }
+    if (!wasRunning.current) return;
+    wasRunning.current = false;
+    setSelected(new Set());
+    void load();
+  }, [running, load]);
+
+  /**
+   * What this plan lets somebody select, or nothing when it does not include bulk
+   * at all — which is the free tier, and is what draws the boxes disabled beside a
+   * line pointing at Plans (ADR-0007's conversion surface, one screen further in).
+   *
+   * Read here rather than where it is drawn because the cap is a number *this*
+   * component acts on: Select all applies it, and the list below holds the order
+   * but not the entitlement.
+   */
+  const bulk = screen.screen === "signed-in" ? bulkFor(screen.plan) : null;
+  const cap = bulk?.cap ?? 0;
+
+  const toggleSelected = useCallback((listingId: string) => {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (!next.delete(listingId)) next.add(listingId);
+      return next;
+    });
+  }, []);
+
+  /**
+   * The ticked ads, in the order they will actually be attempted (T68, #147).
+   *
+   * **A selection survives a search, and this is where that costs something.** The
+   * alternative — pruning the set to whatever the list is showing — was tried and
+   * is worse: picking ten ads out of forty is a job for the search box, and a query
+   * that silently unticked the three already chosen would make the only workable
+   * way to do it impossible. So a tick persists, and the two things that would
+   * otherwise lie about it are fixed instead of the selection: the count includes
+   * what is off-screen, and the header says how many that is.
+   *
+   * The order is the screen's for the ads on it, then the rest in the order they
+   * were ticked (`Set` keeps insertion order). Somebody who ticks the bottom row
+   * first has still read the list top to bottom, and a queue that ran backwards
+   * would look like a bug from the first ad.
+   */
+  const listed = ads.status === "ready" ? ads.ads : [];
+  const chosen = [
+    ...listed.filter((ad) => selected.has(ad.id)).map((ad) => ad.id),
+    ...[...selected].filter((listingId) => !listed.some((ad) => ad.id === listingId)),
+  ];
+  /** How many of them this list is not showing — the number the header names. */
+  const hidden = chosen.length - listed.filter((ad) => selected.has(ad.id)).length;
+
+  /**
+   * Tick as much of the list as the plan still allows, top down (T68, #147).
+   *
+   * **Additive, not a replacement.** The cap is applied here because this is the
+   * only place that holds the plan — the list knows the order the ads are in and
+   * nothing about the entitlement — and it is applied to what is *left* of it, so
+   * pressing Select all after ticking two rows by hand adds eight rather than
+   * throwing those two away. Top down rather than any cleverer rule: the ten a Pro
+   * user gets are the ten they were already looking at.
+   */
+  const selectAll = useCallback(
+    (listingIds: string[]) =>
+      setSelected((current) => {
+        const room = cap - current.size;
+        const adding = pickUpTo(
+          listingIds.filter((listingId) => !current.has(listingId)),
+          room,
+        );
+        return adding.length === 0 ? current : new Set([...current, ...adding]);
+      }),
+    [cap],
+  );
+
+  const clearSelected = useCallback(() => setSelected(new Set()), []);
+
+  /**
+   * Start a run over the ads named, in the order the list is showing them.
+   *
+   * The order is the screen's rather than the order they were ticked: somebody who
+   * ticks the bottom row first has still read the list top to bottom, and a queue
+   * that ran backwards would look like a bug from the first ad.
+   */
+  const startBatch = useCallback(
+    async (listingIds: string[]) => {
+      if (listingIds.length === 0) return;
+      showRun(await worker.startBatch(listingIds));
+      setSelected(new Set());
+    },
+    [worker, showRun],
+  );
+
+  /**
+   * Start the ticked rows — **as many of them as the plan can still pay for.**
+   *
+   * The boxes cap a selection as it is being made, and that is not the same as
+   * capping it as it is started: the quota falls live from `/complete` (T32, #41),
+   * so a single repost pressed on a row while five are ticked leaves a selection
+   * larger than the cap and every box still ticked. The offer is what the button
+   * drew and what this starts, which is the only arrangement where the number on
+   * the button is a promise.
+   */
+  const startSelected = useCallback(() => {
+    if (bulk === null) return;
+    const offer = offerSelection(chosen, bulk, batchShape);
+    if (offer?.kind !== "repost") return;
+    void startBatch(offer.listingIds);
+  }, [chosen, bulk, batchShape, startBatch]);
+
+  const stopBatch = useCallback(() => {
+    void worker.stopBatch().then(showRun);
+  }, [worker, showRun]);
+
+  const dismissBatch = useCallback(() => {
+    void worker.dismissBatch().then(() => showRun(null));
+  }, [worker, showRun]);
+
+  /**
+   * Start again over the ads a stopped run never reached — a person, not a queue.
+   *
+   * **Capped like every other start**, and here rather than only in the bar that
+   * drew the button: this path never touches the checkboxes, so it is the one
+   * route by which a selection larger than `min(quotaRemaining, upTo)` could reach
+   * the worker. The offer decides how many, and this starts exactly those.
+   */
+  const repostUnstarted = useCallback(() => {
+    const offer = offerUnstarted(run, bulk);
+    if (offer?.kind !== "repost") return;
+    void startBatch(offer.listingIds);
+  }, [run, bulk, startBatch]);
 
   /**
    * What a finished attempt does to the screen.
@@ -290,6 +499,19 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
           showing,
           onType: type,
           onClearSearch: clear,
+          run,
+          selected,
+          onToggleSelected: toggleSelected,
+          onSelectAll: selectAll,
+          onClearSelection: clearSelected,
+          onStartBatch: startSelected,
+          onStopBatch: stopBatch,
+          onDismissBatch: dismissBatch,
+          onRepostUnstarted: repostUnstarted,
+          batchShape,
+          bulk,
+          hidden,
+          chosen,
         })}
       </div>
     </>
@@ -315,12 +537,32 @@ interface Handlers {
   showing: Showing;
   onType: (raw: string) => void;
   onClearSearch: () => void;
+  /** The batch (T68, #147): what is running, what is ticked, and the four verbs. */
+  run: BatchRun | null;
+  selected: ReadonlySet<string>;
+  onToggleSelected: (listingId: string) => void;
+  /** Tick as much of the list as the cap allows, top down — the header's verb. */
+  onSelectAll: (listingIds: string[]) => void;
+  onClearSelection: () => void;
+  onStartBatch: () => void;
+  onStopBatch: () => void;
+  onDismissBatch: () => void;
+  onRepostUnstarted: () => void;
+  batchShape: BatchShape;
+  /** What the plan lets somebody select, or nothing when it does not include bulk. */
+  bulk: BulkSelection | null;
+  /** How many ticked ads the list is not showing, because a search has narrowed it. */
+  hidden: number;
+  /** What is ticked altogether, in run order — what the bar offers and what a run gets. */
+  chosen: readonly string[];
 }
 
 function body(screen: Screen, handlers: Handlers): JSX.Element {
   const { load, signIn, signOut, busy, ads, worker, onOutcome } = handlers;
   const { plans, handoff, seePlans, backToAds, upgrade, manageBilling } = handlers;
   const { typed, showing, onType, onClearSearch } = handlers;
+  const { run, selected, onToggleSelected, onStartBatch, onStopBatch, onDismissBatch } = handlers;
+  const { onSelectAll, onClearSelection, onRepostUnstarted, batchShape, bulk, hidden, chosen } = handlers;
   switch (screen.screen) {
     case "loading":
       return <LoadingScreen />;
@@ -332,7 +574,8 @@ function body(screen: Screen, handlers: Handlers): JSX.Element {
       // No retry button, deliberately: nothing this popup can do makes an old build
       // acceptable, and a button that cannot work is worse than none (T43, #52).
       return <OutdatedScreen />;
-    case "signed-in":
+    case "signed-in": {
+      const running = run !== null && run.stop === null;
       return (
         <SignedInScreen
           plan={screen.plan}
@@ -349,9 +592,39 @@ function body(screen: Screen, handlers: Handlers): JSX.Element {
             worker={worker}
             onOutcome={onOutcome}
             empty={showing.kind === "search" ? noMatches(showing.query) : undefined}
+            selection={{
+              selected,
+              onToggle: onToggleSelected,
+              onSelectAll,
+              onClear: onClearSelection,
+              frozen: running,
+              bulk,
+              hidden,
+            }}
+            runStates={rowStatesFor(run)}
           />
+          {bulk === null ? (
+            <p className="popup-foot popup-batch-locked">
+              Reposting several at once is part of the paid plans.{" "}
+              <button type="button" className="popup-link" onClick={seePlans}>
+                See plans
+              </button>
+            </p>
+          ) : (
+            <BatchBar
+              run={run}
+              chosen={chosen}
+              bulk={bulk}
+              shape={batchShape}
+              onStart={onStartBatch}
+              onStop={onStopBatch}
+              onDismiss={onDismissBatch}
+              onRepostUnstarted={onRepostUnstarted}
+            />
+          )}
         </SignedInScreen>
       );
+    }
     case "plans":
       return (
         <PlansScreen

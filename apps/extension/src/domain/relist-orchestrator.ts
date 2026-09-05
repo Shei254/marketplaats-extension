@@ -55,6 +55,17 @@ export class RelistOrchestrator {
     private readonly store: SnapshotStore,
     private readonly permission: RelistPermission,
     private readonly pace: RelistPacing,
+    /**
+     * The wider gap a run is paced by (T68, #147) — the same pacer over the same
+     * stored deadline, drawing from a window of its own (`BULK_PACE`).
+     *
+     * **Defaults to the watched one**, which is what every suite here passes: the
+     * two differ in the window they draw from and in nothing this class does, so a
+     * test that had to wrap a second identical fake to say the same thing would be
+     * paying for a seam it is not testing. The worker passes both, and it is the
+     * only caller that has two windows to tell apart.
+     */
+    private readonly bulkPace: RelistPacing = pace,
   ) {}
 
   async captureAd (listingId: string) {
@@ -91,7 +102,16 @@ export class RelistOrchestrator {
     return this.client.searchAd(query);
   }
 
-  async relist(listingId: string): Promise<RelistOutcome> {
+  /**
+   * @param batch that this ad is one of several a run is working through (T68,
+   * #147). Two things change and the delete-first flow is not either of them: the
+   * authorization says so, which is what lets the API refuse a plan without
+   * `bulk`; and the gap is drawn from the wider window, because a run's gaps are
+   * walked away from rather than watched.
+   */
+  async relist(listingId: string, batch = false): Promise<RelistOutcome> {
+    const pace = batch ? this.bulkPace : this.pace;
+
     // 0. Wait for the gap, before the authorization rather than after it (T46,
     //    #54). The backend's rails count from the reservation `authorize` takes,
     //    so a gap that ran after it would be measured against a clock that had
@@ -101,20 +121,27 @@ export class RelistOrchestrator {
     //    Nothing has happened yet at this point: no grant, no capture, no delete.
     //    So a worker that is torn down mid-wait — which Chrome may do once the
     //    popup that asked has closed — costs the user their click and nothing else.
-    await this.pace.pause();
+    //
+    //    **In a batch this has almost always already elapsed**, because the alarm
+    //    that woke the worker was set from this same deadline. It is still waited
+    //    on rather than skipped: the deadline is the one place either path reads
+    //    the gap from, so an alarm that fired early — a clamp, a clock, a run
+    //    started while a single repost was still pacing — is absorbed here instead
+    //    of becoming a relist that arrives sooner than the pacer said it could.
+    await pace.pause();
 
     // 1. Permission. Before the capture, because the capture is the attempt the
     //    backend's pacing rails count and it fetches every photo of the ad; and
     //    before everything else, because the next steps delete somebody's listing
     //    and fail-closed means that never happens on a stale grant.
-    const decision = await this.permission.authorize(listingId);
+    const decision = await this.permission.authorize(listingId, batch);
     if (decision.decision === "refuse") {
       // Nothing reached Marktplaats, so nothing is paced: a refusal is not an
       // action to space out, and spacing it would make the cooldown the user is
       // already being shown longer than the backend said.
       return { status: "refused", locked: decision.locked };
     }
-    await this.pace.startedRelisting();
+    await pace.startedRelisting();
     const grantJti = decision.grant.jti;
 
     // 2. Capture the full ad. A failure here removed nothing — the unit goes back.

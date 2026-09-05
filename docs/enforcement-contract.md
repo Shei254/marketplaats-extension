@@ -569,12 +569,16 @@ this document says only where an operator has had to depart from them, which on 
 moved anything is nowhere:
 
 ```json
-{ "schemaVersion": 1 }
+{ "schemaVersion": 1, "rails": { "burstLimit": 10, "burstWindowMs": 3600000 } }
 ```
 
 That is a `200` and it means *your defaults are correct* — never a `404`, and never a `503` for a document
-nobody deployed. It is also how a hotfix is taken back off. The whole document, with every field an operator
-can write:
+nobody deployed. It is also how a hotfix is taken back off.
+
+**`rails` rides along in even that answer, because it is not a patch over anything** — it states what the API
+itself refuses on, and an operator who had to write it down would be the reason it went stale. Every field
+that *is* a patch is absent here. The whole document, with every field an operator can write plus the two
+this API stamps:
 
 ```json
 {
@@ -610,12 +614,17 @@ can write:
   second. Its floor may not go under **30 000**, and that is a property of the mechanism rather than a taste:
   the batch is advanced by `chrome.alarms`, which MV3 clamps at ~30s, so a window under it is not a jittered
   gap but a metronome — and unpacked development builds are *not* clamped, so nothing local would show it.
+  Unlike `pacing` it has **no environment pair**: that one exists for the window somebody reaches for during
+  an incident, and this is a number that moves when the design is revisited.
 - **`rails` is the one block here that is not an override of a client default**, and it is admitted as such.
   The extension ships `10` and `1h` of its own and uses them for one thing only: telling the user how long a
   selection will take before they commit to it. So a stale value costs a wrong estimate and nothing else — it
   gates nothing, and the real rail is refused by the API in the ordinary way. Served rather than left alone
-  because an operator who moves `MPRELIST_MINIMUM_INTERVAL` on a bad night has no other way to stop the popup
-  quoting a duration that is no longer true.
+  because an operator who moves a rail on a bad night has no other way to stop the popup quoting a duration
+  that is no longer true — and **stamped rather than written**, from `mprelist.safety.burst-limit` and
+  `.burst-window`, for exactly that reason: a block an operator had to keep in step by hand is a block that
+  would not be. Naming it in the document is a deployment that refuses to start, like naming `schemaVersion`.
+  It is therefore the one field that is present when nothing is overridden.
 
 **Absent, not `null`.** A field nobody overrode is omitted; to a client "there is no override" and "the
 override is null" have to mean the same thing anyway.

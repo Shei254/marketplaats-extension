@@ -35,8 +35,10 @@ MP sessions live only in the user's browser. Nothing here holds them server-side
   max MarktplaatsAccounts, feature flags. The thing quotas check. Read from Postgres,
   never from Stripe on the hot path. ADR-0025 makes **`bulk` a flag that carries a value** —
   `{"upTo": 10}` on Pro, `{"upTo": 25}` on Power, absent on the free tier — which is what makes
-  `authorize`'s `batch` field refusable. **Decided, not yet built:** T68 seeds it, and until then every
-  tier's `features` is `{}`. `scheduling` remains named here and built nowhere.
+  `authorize`'s `batch` field refusable. **Built** by T68 (`V8__seed_bulk_entitlement.sql`), which makes it
+  the first flag anything reads — `Entitlement.grants(flag)` answers *whether*, and the value is the popup's
+  to read, since the API sees one ad at a time and cannot count a batch. `scheduling` remains named here and
+  built nowhere.
 - **UsageReservation** — one quota unit, held from `authorize` until `complete` settles or refunds it, for
   a User and an ad reference. Backend-owned; usage in a period is the reservations in it that were not
   refunded, so a relist still in flight already counts (ADR-0007).
@@ -50,10 +52,12 @@ MP sessions live only in the user's browser. Nothing here holds them server-side
   and enforced/audited by the backend (ADR-0008).
 - **AdSnapshot** — *client-side only* (`chrome.storage.local`): the full pre-delete capture
   (fields + photo blobs) enabling delete-first restore (ADR-0003). **Not** a backend entity.
-- **Batch** — *client-side only* (`chrome.storage.local`), **decided and not yet built** (T68): the ordered
-  queue of listing ids a bulk repost is working through, owned by the service worker and advanced by a `chrome.alarms` wake (ADR-0025). **Not** a
-  backend entity, and nothing the backend can infer: each ad in it authorizes on its own, so what reaches the
-  API is N ordinary relists that happen to say `batch`.
+- **Batch** — *client-side only* (`chrome.storage.local`), built by T68: the ordered queue of listing ids a
+  bulk repost is working through, owned by the service worker and advanced by a `chrome.alarms` wake
+  (ADR-0025). **Not** a backend entity, and nothing the backend can infer: each ad in it authorizes on its
+  own, so what reaches the API is N ordinary relists that happen to say `batch`. It is **dropped on a browser
+  restart** rather than resumed — a deliberate stop, since alarms persist and delete-first must not fire at
+  ads nobody is thinking about.
 
 ## Relationships
 

@@ -51,6 +51,14 @@ export const DEV_HOOK_NAMES = [
   "__plans",
   "__checkout",
   "__portal",
+  // The queue (T68, #147). `__startBatch` is the only way to start a run for more
+  // ads than the tier's `upTo`, since the popup caps a selection and the API
+  // enforces *whether* rather than *how many* — which is the one thing the
+  // click-through says it cannot check, so being able to try it by hand is the
+  // closest anybody gets.
+  "__startBatch",
+  "__batchState",
+  "__stopBatch",
 ] as const;
 
 export type DevHookName = (typeof DEV_HOOK_NAMES)[number];

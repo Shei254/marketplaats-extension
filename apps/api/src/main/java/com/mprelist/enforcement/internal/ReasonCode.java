@@ -14,12 +14,11 @@ import org.springframework.http.HttpStatus;
  * the filter chain before any route is reached, which is what makes it true of routes no ticket has written
  * yet (#19).
  *
- * <p><strong>{@link #BULK_NOT_ENTITLED} is declared and not yet answered with.</strong> The contract denies
- * with it (ADR-0025) and {@code packages/contracts} restates it, so it is here to keep the three lists one
- * list — {@code enforcement.test.ts} reads this file as text and holds them to each other. Nothing constructs
- * it until {@code /authorize} accepts a {@code batch} flag to refuse (#147). A code the backend can send and a
- * client has never heard of is a denial rendered as "something went wrong, try again" at somebody who could
- * have fixed it in a click, which is the failure that ordering prevents.
+ * <p>{@link #BULK_NOT_ENTITLED} was declared here, in the contract and in {@code packages/contracts} before
+ * anything could send it, so that no installed build would meet a code it had never heard of and render it as
+ * "something went wrong, try again" at somebody who could have fixed it in a click. Since #147
+ * {@code /authorize} accepts the {@code batch} flag that is refused with it, and the ordering has paid for
+ * itself: the clients that shipped before this deploy already know what it means.
  */
 enum ReasonCode {
 

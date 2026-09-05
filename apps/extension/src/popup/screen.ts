@@ -3,6 +3,8 @@ import type { DisplayState } from "@mprelist/contracts";
 import type { DisplayStateAnswer } from "../api/display-state";
 import type { HandoffAnswer, PlansAnswer } from "../api/subscribing";
 import type { WireRelistOutcome } from "../background/messages";
+import type { BatchShape } from "../domain/batch-estimate";
+import type { BatchRun } from "../domain/batch-run";
 import type { ListingSummary } from "../domain/types";
 
 /**
@@ -100,6 +102,31 @@ export interface WorkerPort {
    */
   relist(listingId: string): Promise<WireRelistOutcome>;
   retry(listingId: string): Promise<WireRelistOutcome>;
+  /**
+   * Repost several ads as one act (T68, #147; ADR-0025) — four asks, because the
+   * run is the worker's and this surface only starts it, watches it and stops it.
+   *
+   * **The ads are already capped** at `min(quotaRemaining, upTo)` by the caller,
+   * which is the only place both numbers exist: the plan came from `/api/me` and
+   * the API enforces *whether* rather than *how many*.
+   *
+   * `batchState` is asked rather than pushed, and that is a property of the design
+   * rather than a shortcut. The popup is closed for most of a run — a message sent
+   * to a page that no longer exists goes nowhere — so the surface that can be
+   * opened halfway through a run has to be able to ask what it missed, and once it
+   * can do that there is nothing a push would add.
+   */
+  startBatch(listingIds: string[]): Promise<BatchRun | null>;
+  batchState(): Promise<BatchRun | null>;
+  stopBatch(): Promise<BatchRun | null>;
+  /** Forget a run that has ended, which is what takes the toolbar badge down. */
+  dismissBatch(): Promise<void>;
+  /**
+   * The gap and the rails a duration estimate is made of, after whatever the API
+   * served (ADR-0025) — asked of the worker because the served document lives in
+   * storage, which this surface does not touch.
+   */
+  batchShape(): Promise<BatchShape>;
   /**
    * How long the worker will pace before the relist it is about to be asked for
    * actually starts, in milliseconds (T46, #54).

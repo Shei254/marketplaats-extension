@@ -34,8 +34,26 @@ export const SUPPORTED_SCHEMA_VERSION = 1;
  * taste: an MV3 service worker is killed a few minutes after it goes idle, and
  * the wait happens *in the worker*. A window beyond that is a relist that never
  * starts, and the user is looking at a countdown while it does not.
+ *
+ * The batch window is held to the same ceiling for a **different** reason — an
+ * alarm does that waiting, not the worker — and it is the design rather than the
+ * runtime that bounds it: ADR-0025 sized a full Power run in hours, and a wider
+ * gap sizes it in days.
  */
 const LONGEST_SENSIBLE_GAP_MS = 5 * 60_000;
+
+/**
+ * The floor under the batch window, and the one number here that is a property of
+ * the mechanism. `chrome.alarms` is what advances a run, and MV3 clamps it at
+ * about thirty seconds — so a served window under it does not produce a jittered
+ * gap, it produces a thirty-second metronome, which is the one rhythm
+ * `relist-pace.ts` exists to prevent.
+ *
+ * Checked here as well as on the API (`ConfiguredClientConfig`), because both ends
+ * check everything they read and because **an unpacked build is not clamped**:
+ * the failure is invisible in development and only ever happens to users.
+ */
+const SHORTEST_ALARM_MS = 30_000;
 
 /** The served document, once it has been checked. Everything is optional but the version. */
 export interface ServedConfig {
@@ -51,6 +69,24 @@ export interface ServedConfig {
   csrf: CsrfConfig | null;
   /** The client-side gap between two relists (T46, #54) — the seam that ticket left. */
   pacing: { minMs: number; maxMs: number } | null;
+  /**
+   * The wider gap *inside a batch* (T68, #147; ADR-0025) — a second window rather
+   * than a replacement, because the two are watched differently: somebody sits
+   * through the gap between two reposts they pressed and walks away from the gaps
+   * inside a run they started.
+   */
+  bulkPacing: { minMs: number; maxMs: number } | null;
+  /**
+   * What the **API** refuses on, which is the one block here that is not an
+   * override of anything this build ships (ADR-0025).
+   *
+   * It gates nothing. The extension has its own copy of these numbers and uses
+   * them for one thing: telling somebody how long a selection will take before
+   * they commit to it. So a value that is missing, stale or absurd costs a wrong
+   * sentence and never a relist — which is the only reason it is safe to take a
+   * rail from the wire at all.
+   */
+  rails: { burstLimit: number; burstWindowMs: number } | null;
 }
 
 /**
@@ -76,7 +112,16 @@ export function asServedConfig(body: unknown): ServedConfig | null {
   const pacing = "pacing" in fields && fields["pacing"] != null ? asPacing(fields["pacing"]) : null;
   if (pacing === null && fields["pacing"] != null) return null;
 
-  return { schemaVersion: SUPPORTED_SCHEMA_VERSION, endpoints, csrf, pacing };
+  const bulkPacing =
+    "bulkPacing" in fields && fields["bulkPacing"] != null
+      ? asPacing(fields["bulkPacing"], SHORTEST_ALARM_MS)
+      : null;
+  if (bulkPacing === null && fields["bulkPacing"] != null) return null;
+
+  const rails = "rails" in fields && fields["rails"] != null ? asRails(fields["rails"]) : null;
+  if (rails === null && fields["rails"] != null) return null;
+
+  return { schemaVersion: SUPPORTED_SCHEMA_VERSION, endpoints, csrf, pacing, bulkPacing, rails };
 }
 
 /**
@@ -138,14 +183,32 @@ function asCsrf(value: unknown): CsrfConfig | null {
  * client to a number that lives in the API's configuration would be two settings
  * that have to be deployed in step.
  */
-function asPacing(value: unknown): { minMs: number; maxMs: number } | null {
+function asPacing(value: unknown, floorMs = 0): { minMs: number; maxMs: number } | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const { minMs, maxMs } = value as Record<string, unknown>;
   if (!Number.isFinite(minMs) || !Number.isFinite(maxMs)) return null;
   const min = minMs as number;
   const max = maxMs as number;
-  if (min < 0 || max < min || max > LONGEST_SENSIBLE_GAP_MS) return null;
+  if (min < floorMs || max < min || max > LONGEST_SENSIBLE_GAP_MS) return null;
   return { minMs: min, maxMs: max };
+}
+
+/**
+ * The API's rails, in whole positive numbers.
+ *
+ * Refused as a *document* when they are nonsense rather than quietly ignored,
+ * like everything else here: a config that is partly applied is the state nobody
+ * can reason about. A cap of zero is nonsense in particular — it would say the
+ * API authorizes nothing, ever, which is not a rail anybody could have set
+ * (`ConfiguredClientConfig` refuses it at the other end too) and which the
+ * estimate would turn into a run that never finishes.
+ */
+function asRails(value: unknown): { burstLimit: number; burstWindowMs: number } | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const { burstLimit, burstWindowMs } = value as Record<string, unknown>;
+  if (!Number.isInteger(burstLimit) || (burstLimit as number) < 1) return null;
+  if (!Number.isFinite(burstWindowMs) || (burstWindowMs as number) < 0) return null;
+  return { burstLimit: burstLimit as number, burstWindowMs: burstWindowMs as number };
 }
 
 function isCsrfMode(value: unknown): value is CsrfMode {

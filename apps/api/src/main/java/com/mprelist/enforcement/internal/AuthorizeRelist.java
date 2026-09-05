@@ -27,7 +27,7 @@ class AuthorizeRelist {
 
 	/**
 	 * The verdict, served as the status its reason names — {@code 200} with the authorization, {@code 402} for a
-	 * lapsed subscription, {@code 429} for a spent quota.
+	 * lapsed subscription, {@code 403} for a batch the plan does not include, {@code 429} for a spent quota.
 	 *
 	 * <p>The {@code switch} is exhaustive over a sealed type on purpose: a verdict this route had not been told
 	 * how to answer would fail to compile rather than fall through to a status somebody chose in a hurry.
@@ -39,7 +39,7 @@ class AuthorizeRelist {
 	 */
 	@PostMapping(path = "/api/relist/authorize", consumes = MediaType.APPLICATION_JSON_VALUE)
 	ResponseEntity<Verdict> authorize(UserRef caller, @RequestBody AuthorizeRequest request) {
-		return switch (this.gate.authorize(caller, request.adId())) {
+		return switch (this.gate.authorize(caller, request.adId(), request.batch())) {
 			case Verdict.RelistAuthorization granted -> ResponseEntity.ok(granted);
 			case Verdict.Refused refused -> ResponseEntity.status(refused.reason().status()).body(refused);
 		};

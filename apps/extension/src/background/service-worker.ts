@@ -1,4 +1,8 @@
 import { ChromeAuthFlow } from "../adapters/chrome-auth-flow";
+import { ChromeBatchAlarm, isBatchAlarm } from "../adapters/chrome-batch-alarm";
+import { ChromeBatchSession } from "../adapters/chrome-batch-session";
+import { ChromeBatchStore } from "../adapters/chrome-batch-store";
+import { ChromeToolbarBadge } from "../adapters/chrome-toolbar-badge";
 import { ChromeSessionStore } from "../adapters/chrome-session-store";
 import { ChromePaceStore } from "../adapters/chrome-pace-store";
 import { ChromeSnapshotStore } from "../adapters/chrome-snapshot-store";
@@ -10,7 +14,9 @@ import { Subscribing } from "../api/subscribing";
 import { Authenticator } from "../auth/authenticator";
 import { toWireError } from "../content/messages";
 import { RelistOrchestrator } from "../domain/relist-orchestrator";
-import { HUMAN_PACE, RelistPacer, type PacingWindow } from "../domain/relist-pace";
+import { ASSUMED_RAILS, type BatchShape } from "../domain/batch-estimate";
+import { BULK_PACE, HUMAN_PACE, RelistPacer, type PacingWindow } from "../domain/relist-pace";
+import { BatchRunner } from "./batch-runner";
 import type { DevHook, DevHookName } from "./dev-hooks";
 import { openStripePage } from "./stripe-tab";
 import { loadEndpointConfig, saveEndpointOverrides } from "../shared/endpoint-config";
@@ -92,8 +98,41 @@ void clientConfig.refreshIfStale().catch((error) => {
  */
 const pace = new RelistPacer(new ChromePaceStore(), servedPace);
 
+/**
+ * The gap inside a run (T68, #147) — the same store and the same deadline as
+ * `pace` above, drawn from a window of its own.
+ *
+ * **One memory and two windows**, deliberately: a single repost that follows a
+ * batch ad has to see the deadline that ad wrote, and a batch ad that follows a
+ * single repost has to wait out that one. Two stores would let the two paths pace
+ * each other out of existence, which is the failure ADR-0008 is about and would be
+ * invisible in every test that ran one path at a time.
+ */
+const bulkPace = new RelistPacer(new ChromePaceStore(), servedBulkPace);
+
 async function servedPace(): Promise<PacingWindow> {
   return (await readServedConfig())?.config.pacing ?? HUMAN_PACE;
+}
+
+async function servedBulkPace(): Promise<PacingWindow> {
+  return (await readServedConfig())?.config.bulkPacing ?? BULK_PACE;
+}
+
+/**
+ * The two numbers the popup turns into "about two hours" beside a selection.
+ *
+ * Read here rather than in the popup because the served document is in
+ * `chrome.storage.local`, which that surface deliberately does not touch — and
+ * both halves come out of the same read, so an estimate is never a served gap
+ * against built-in rails.
+ *
+ * Falling back to what this build ships with is the ordinary case and not a
+ * failure: `rails` gates nothing, so a client that has never fetched a document
+ * quotes its own numbers and is wrong only about a sentence.
+ */
+async function servedBatchShape(): Promise<BatchShape> {
+  const served = (await readServedConfig())?.config;
+  return { gap: served?.bulkPacing ?? BULK_PACE, rails: served?.rails ?? ASSUMED_RAILS };
 }
 
 const orchestrator = new RelistOrchestrator(
@@ -104,10 +143,68 @@ const orchestrator = new RelistOrchestrator(
   // may say "proceed".
   new RelistAuthorizations({ tokens: authenticator }),
   pace,
+  bulkPace,
 );
 
-chrome.runtime.onStartup.addListener(() => void resumeInterruptedRelists());
-chrome.runtime.onInstalled.addListener(() => void resumeInterruptedRelists());
+/**
+ * The batch queue, owned here because it has to outlive both the popup that
+ * started it and this worker (T68, #147; ADR-0025).
+ */
+const batch = new BatchRunner({
+  store: new ChromeBatchStore(),
+  // How a wake tells a browser that has just started from an ordinary one, which
+  // is what keeps the drop below out of a race with this module's own last line.
+  session: new ChromeBatchSession(),
+  relisting: orchestrator,
+  pace: bulkPace,
+  alarms: new ChromeBatchAlarm(),
+  badge: new ChromeToolbarBadge(),
+});
+
+/**
+ * The one wake-up a run has between two ads. Named, so a future alarm belonging to
+ * something else is not answered as this one.
+ */
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (isBatchAlarm(alarm)) void batch.onAlarm();
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  // The order is a statement rather than a coincidence: a batch is **dropped** on
+  // a browser restart (ADR-0025) and an interrupted relist is **resumed** on one
+  // (ADR-0003), and they are opposite because one initiates a delete and the other
+  // finishes putting an ad back. Dropping first is what makes sure the queue is
+  // stopped before anything else in this worker starts doing relists.
+  //
+  // By the time this runs the drop has usually already happened, in the `onWake`
+  // below — a listener's callback cannot run before the module scope that
+  // registered it, and that is exactly why the run cannot be left to this event.
+  // What is still this listener's own is the resume, and the drop it repeats is a
+  // no-op on a run that is already stopped.
+  void batch.onBrowserStartup().then(resumeInterruptedRelists);
+});
+chrome.runtime.onInstalled.addListener(() => {
+  void batch.onBrowserStartup().then(resumeInterruptedRelists);
+});
+
+/**
+ * And on every wake, including this one: drop a run the browser has restarted
+ * under, or give a live one its alarm back if it has lost one — an extension
+ * update clears alarms, and a worker can be killed between writing a run and
+ * asking to be woken for it.
+ *
+ * **The drop belongs here and not only in the listener above**, because this line
+ * is the one that runs first. Module scope precedes every callback registered in
+ * it, so a wake that only rescheduled would attempt the ad a restarted run is
+ * overdue for — one delete-first repost of an ad nobody has thought about since
+ * yesterday — before `onStartup` had a chance to drop anything. The runner asks
+ * the session which kind of wake this is instead (`domain/batch-session.ts`).
+ *
+ * Nothing to await: a batch is not on the path to anything a message asks for.
+ */
+void batch.onWake().catch((error: unknown) => {
+  console.warn("[batch] wake skipped", describe(error));
+});
 
 async function resumeInterruptedRelists(): Promise<void> {
   try {
@@ -155,6 +252,16 @@ function answer(
       return orchestrator.retry(request.listingId).then(toWireOutcome);
     case "pace":
       return pace.msBeforeNextRelist();
+    case "start-batch":
+      return batch.start(request.listingIds);
+    case "batch-state":
+      return batch.state();
+    case "stop-batch":
+      return batch.stop();
+    case "dismiss-batch":
+      return batch.dismiss().then(() => null);
+    case "batch-shape":
+      return servedBatchShape();
     case "sign-in":
       return authenticator.signIn();
     case "sign-out":
@@ -221,6 +328,14 @@ if (__DEV__) {
     __retry: (listingId: string) => orchestrator.retry(listingId),
     __resume: () => orchestrator.resumeAll(),
     __searchAds: (query: string) => orchestrator.searchAds(query),
+    /**
+     * A run started from the console, which is how slice 6 of the click-through
+     * is walked without a popup in the way — and the only way to start one for
+     * more ads than a tier's `upTo`, since the popup will not.
+     */
+    __startBatch: (listingIds: string[]) => batch.start(listingIds),
+    __batchState: () => batch.state(),
+    __stopBatch: () => batch.stop(),
     __getEndpoints: loadEndpointConfig,
     __setEndpoints: saveEndpointOverrides,
     /**

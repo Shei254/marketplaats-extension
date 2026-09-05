@@ -325,6 +325,196 @@ class RelistAuthorizationTest {
 		assertThat(authorize(user, "ad-1").statusCode()).isEqualTo(200);
 	}
 
+	// --- a batch (#147) ---------------------------------------------------------------------------------
+	//
+	// `batch` is the one thing in this body that is about what was asked for rather than about who is asking,
+	// and it is a claim rather than an observation: a batch reaches this endpoint as N ordinary requests, one
+	// at a time, indistinguishable from a fast finger (ADR-0025). So every test below sends the flag as the
+	// extension sends it, in the JSON, rather than through a fixture that could quietly stop sending it.
+
+	/**
+	 * A plan that includes bulk authorizes a batch exactly as it authorizes anything else — one ad, one grant,
+	 * one unit. That is the whole shape of ADR-0025's first rejection: there is no call that names N ads and
+	 * hands back N grants, because a grant lives ~45 seconds and the pacing rail refuses a second reservation
+	 * inside five, so nine of ten issued together would be dead or denied before their turn.
+	 */
+	@Test
+	void aBatchFromAPlanThatIncludesItIsAuthorizedLikeAnyOtherRelist() {
+		Subscriber user = aSubscriberEntitledTo(3);
+		itsPlanGrants(user, """
+				{"bulk": {"upTo": 10}}""");
+
+		HttpResponse<String> authorized = authorizeBatch(user, "ad-1");
+
+		assertThat(authorized.statusCode()).isEqualTo(200);
+		assertThat(Json.of(authorized).get("authToken").asString()).isNotBlank();
+		assertThat(this.rows.reservationsOf(user)).hasSize(1);
+	}
+
+	/**
+	 * And a plan that does not is refused before it spends anything. The popup would ordinarily never send
+	 * this — it draws the selection controls from the same flag — so what this is the backstop for is a screen
+	 * that was opened before an admin edit and a client that ignores its own gate, which under ADR-0007 is the
+	 * same caller.
+	 *
+	 * <p>Nothing is reserved and nothing is deleted, because this happens before either: the refusal costs the
+	 * caller no unit, exactly as a lapsed subscription does.
+	 */
+	@Test
+	void butAPlanWithoutTheFlagIsRefusedBeforeItSpendsAnything() {
+		Subscriber user = aSubscriberEntitledTo(3);
+
+		HttpResponse<String> refused = authorizeBatch(user, "ad-1");
+
+		assertThat(refused.statusCode()).isEqualTo(403);
+		assertThat(Json.of(refused).get("reason").asString()).isEqualTo("BULK_NOT_ENTITLED");
+		assertThat(this.rows.reservationsOf(user)).isEmpty();
+	}
+
+	/**
+	 * And it carries nothing beside the code, unlike the two {@code 429}s. There is no field that would make
+	 * this actionable — no date it resolves on and no seconds to wait — because what to do about it is a
+	 * screen, and a screen needs no number to find.
+	 *
+	 * <p>The body is what tells this {@code 403} apart from the resource server's own, which an ADMIN-less
+	 * caller gets on {@code /api/admin/**}: the contract's rule is that the presence of {@code reason} means
+	 * the gate turned you away, and that one carries no body at all.
+	 */
+	@Test
+	void andSaysOnlyThatRatherThanNamingADateOrACooldown() {
+		Subscriber user = aSubscriberEntitledTo(3);
+
+		JsonNode refused = Json.of(authorizeBatch(user, "ad-1"));
+
+		assertThat(refused.has("resetAt")).isFalse();
+		assertThat(refused.has("retryAfter")).isFalse();
+		assertThat(refused.size()).isEqualTo(1);
+	}
+
+	/**
+	 * But the same caller may still repost one ad at a time, which is the sentence the whole entitlement rests
+	 * on: bulk sells <em>convenience</em> and not capability (ADR-0025). A free user whose checkboxes are drawn
+	 * disabled has a working Repost button on every row beside them, and that is what makes the locked control
+	 * a conversion surface rather than a wall.
+	 */
+	@Test
+	void andTheSameCallerMayStillRepostOneAdAtATime() {
+		Subscriber user = aSubscriberEntitledTo(3);
+
+		assertThat(authorizeBatch(user, "ad-1").statusCode()).isEqualTo(403);
+		assertThat(authorize(user, "ad-1").statusCode()).isEqualTo(200);
+	}
+
+	/**
+	 * Above the quota, and this is the test of that half of the order: the caller has neither the flag nor a
+	 * unit, and is told about the one they asked for. Both refusals end at the same plan screen and only one of
+	 * them describes what was attempted — "you have used your relists" answers a question this caller did not
+	 * ask, about a second thing they also do not have.
+	 */
+	@Test
+	void andACallerWithNeitherIsToldAboutTheCapabilityRatherThanTheQuota() {
+		Subscriber user = aSubscriberEntitledTo(0);
+
+		HttpResponse<String> refused = authorizeBatch(user, "ad-1");
+
+		assertThat(refused.statusCode()).isEqualTo(403);
+		assertThat(Json.of(refused).get("reason").asString()).isEqualTo("BULK_NOT_ENTITLED");
+	}
+
+	/**
+	 * And below the subscription status, which is the other half. A lapsed payer asking for a batch is told
+	 * their payment stopped: that is the one of the two they can act on tonight, and their plan may well have
+	 * included bulk right up until the card failed.
+	 */
+	@Test
+	void butALapsedPayerIsStillToldTheirSubscriptionStoppedFirst() {
+		Subscriber user = aSubscriberEntitledTo(3);
+		itsStatusIs(user, "past_due");
+
+		HttpResponse<String> refused = authorizeBatch(user, "ad-1");
+
+		assertThat(refused.statusCode()).isEqualTo(402);
+		assertThat(Json.of(refused).get("reason").asString()).isEqualTo("SUBSCRIPTION_INACTIVE");
+	}
+
+	/**
+	 * A flag an operator named and left empty is not a grant. {@code jsonb} keeps a JSON {@code null} and the
+	 * catalog hands it back as one (TierEntitlementTest), so the decision about what it means has to be made
+	 * somewhere — and this is the first reader, which is the reader ADR-0012 says decides. Somebody who wrote
+	 * {@code "bulk": null} has named a capability and said nothing about it; the popup would find no
+	 * {@code upTo} to cap a selection at, so permitting it here would sell a feature the client cannot size.
+	 */
+	@Test
+	void aFlagAnOperatorLeftWithNoValueIsNotAGrant() {
+		Subscriber user = aSubscriberEntitledTo(3);
+		itsPlanGrants(user, """
+				{"bulk": null}""");
+
+		assertThat(authorizeBatch(user, "ad-1").statusCode()).isEqualTo(403);
+	}
+
+	/** And nor is one they turned off, which is the only thing {@code false} could mean in that column. */
+	@Test
+	void andNorIsOneAnOperatorTurnedOff() {
+		Subscriber user = aSubscriberEntitledTo(3);
+		itsPlanGrants(user, """
+				{"bulk": false}""");
+
+		assertThat(authorizeBatch(user, "ad-1").statusCode()).isEqualTo(403);
+	}
+
+	/**
+	 * But whatever else the flag carries is a grant, because the value is not this endpoint's to read. The
+	 * seed writes {@code {"upTo": N}} and a later feature may write something else again; what is checked here
+	 * is that the plan includes the capability, and a gate that understood the shape would be a gate to edit
+	 * every time the shape moved.
+	 */
+	@Test
+	void butWhateverElseItCarriesIs() {
+		Subscriber user = aSubscriberEntitledTo(3);
+		itsPlanGrants(user, """
+				{"bulk": true}""");
+
+		assertThat(authorizeBatch(user, "ad-1").statusCode()).isEqualTo(200);
+	}
+
+	/**
+	 * <strong>And {@code upTo} is enforced nowhere here, which ADR-0025 records as a consequence rather than a
+	 * gap.</strong> This caller's plan says one at a time and they take three, and every one is authorized:
+	 * the endpoint sees one ad per call and has nothing whatever to count a batch with. The API says
+	 * <em>whether</em> and the popup says <em>how many</em>, which is ADR-0007's soft enforcement exactly as it
+	 * already stood — the units are still spent and the rails are still met, so what a determined caller gains
+	 * is the convenience the flag sells them.
+	 *
+	 * <p>Asserted rather than left implicit, because "the server does not check this" is the kind of fact that
+	 * is rediscovered as a bug by whoever next reads the seed.
+	 */
+	@Test
+	void andHowManyAtOnceIsNotThisEndpointsToRefuse() {
+		Subscriber user = aSubscriberEntitledTo(3);
+		itsPlanGrants(user, """
+				{"bulk": {"upTo": 1}}""");
+
+		assertThat(authorizeBatch(user, "ad-1").statusCode()).isEqualTo(200);
+		assertThat(authorizeBatch(user, "ad-2").statusCode()).isEqualTo(200);
+		assertThat(authorizeBatch(user, "ad-3").statusCode()).isEqualTo(200);
+	}
+
+	/**
+	 * A body saying {@code batch: false} is the same request as one that says nothing, which is what keeps an
+	 * older extension build working: it sends no such field and means no such thing, and the flag is a
+	 * {@code boolean} rather than a {@code Boolean} precisely so that the two cannot become different states.
+	 */
+	@Test
+	void andABodyDecliningTheFlagIsTheSameRequestAsOneThatNeverNamedIt() {
+		Subscriber user = aSubscriberEntitledTo(3);
+
+		HttpResponse<String> authorized = authorize(user.token(), """
+				{"adId": "ad-1", "batch": false}""");
+
+		assertThat(authorized.statusCode()).isEqualTo(200);
+	}
+
 	/**
 	 * A caller this API has never seen is authorized on the account the call itself provisions. The route asks
 	 * for a {@link com.mprelist.identity.UserRef}, so first login happens on the way in (#20) — which matters
@@ -539,6 +729,11 @@ class RelistAuthorizationTest {
 		return this.calls.authorizing(token, body);
 	}
 
+	/** The same call, saying that this ad is one of several the caller is working through (#147). */
+	private HttpResponse<String> authorizeBatch(Subscriber user, String adId) {
+		return authorize(user.token(), "{\"adId\": \"" + adId + "\", \"batch\": true}");
+	}
+
 	/** The same call on a thread of its own, for the two tests that need one in flight while they arrange. */
 	private Future<HttpResponse<String>> fire(Subscriber user, String adId) {
 		return this.callers.submit(() -> authorize(user, adId));
@@ -553,6 +748,11 @@ class RelistAuthorizationTest {
 
 	private Subscriber aSubscriberEntitledTo(int relistsPerPeriod) {
 		return this.rows.entitledTo(relistsPerPeriod);
+	}
+
+	/** The feature flags the tier behind this subscriber carries — {@code {}} until a suite says otherwise. */
+	private void itsPlanGrants(Subscriber user, String features) {
+		this.rows.tierGrantsFeatures(user, features);
 	}
 
 	private void itsStatusIs(Subscriber user, String status) {

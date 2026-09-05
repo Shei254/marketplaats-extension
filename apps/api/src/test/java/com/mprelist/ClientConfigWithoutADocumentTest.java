@@ -26,9 +26,13 @@ import tools.jackson.databind.JsonNode;
  * The application with nothing overridden, which is every deployment on every day Marktplaats has not moved
  * anything (T27, #36).
  *
- * <p><strong>The empty document is an answer, not an absence.</strong> {@code {"schemaVersion":1}} means "the
- * defaults you shipped with are correct" — so there is no {@code 404} and no {@code 503} here, and a client
- * that got one would have to decide whether to keep waiting for a document that is never coming.
+ * <p><strong>The empty document is an answer, not an absence.</strong> It means "the defaults you shipped
+ * with are correct" — so there is no {@code 404} and no {@code 503} here, and a client that got one would have
+ * to decide whether to keep waiting for a document that is never coming.
+ *
+ * <p>Since #147 that answer carries one block an operator did not write: {@code rails}, which states what this
+ * API refuses on rather than patching anything the client shipped with (ADR-0025). Everything that <em>is</em>
+ * a patch is still absent, which is what the first test below says in both directions.
  *
  * <p>Beside it, the case that must <strong>not</strong> answer at all: a document this API cannot read stops
  * it from starting. Those two are the whole of the setting's behaviour and they are opposite, which is why
@@ -65,6 +69,26 @@ class ClientConfigWithoutADocumentTest {
 		assertThat(document.has("endpoints")).isFalse();
 		assertThat(document.has("csrf")).isFalse();
 		assertThat(document.has("pacing")).isFalse();
+		assertThat(document.has("bulkPacing")).isFalse();
+	}
+
+	/**
+	 * But the rails are there, because they are not an override of anything (#147, ADR-0025). Every other
+	 * field says "do something other than what you were built to do"; this one says what this API will
+	 * authorize in an hour, which the popup turns into "about two hours" beside a selection of twenty-five.
+	 *
+	 * <p>Stamped rather than written for {@code schemaVersion}'s reason read the other way round: an operator
+	 * who had to re-paste a JSON document after dropping the burst limit at 3am would eventually not, and
+	 * every popup would go on quoting a duration this API had stopped honouring — which is the one failure
+	 * serving the block was supposed to prevent.
+	 */
+	@Test
+	void butTheRailsAreServedByADeploymentThatOverrodeNothing() {
+		JsonNode rails = Json.of(get()).get("rails");
+
+		assertThat(rails).isNotNull();
+		assertThat(rails.get("burstLimit").asInt()).isPositive();
+		assertThat(rails.get("burstWindowMs").asLong()).isPositive();
 	}
 
 	/**
@@ -109,6 +133,54 @@ class ClientConfigWithoutADocumentTest {
 		assertThatThrownBy(() -> startWith("{\"csrf\":{\"mode\":\"eval\",\"header\":\"x\"}}"))
 				.hasStackTraceContaining("mprelist.client-config.document")
 				.hasStackTraceContaining("meta, cookie, fetch, none");
+	}
+
+	/**
+	 * And a document naming the rails, which is the same rule as {@code schemaVersion} above: both describe
+	 * what this code serves rather than what an operator wants served, so both are stamped and neither is
+	 * writable. An operator who could set this one could tell every popup a duration this API does not honour.
+	 */
+	@Test
+	void andSoDoesADocumentTryingToWriteTheRails() {
+		assertThatThrownBy(() -> startWith("{\"rails\":{\"burstLimit\":99,\"burstWindowMs\":1000}}"))
+				.hasStackTraceContaining("mprelist.client-config.document")
+				.hasStackTraceContaining("rails");
+	}
+
+	/**
+	 * A batch window under the alarm clamp, which is the one refusal here that is a property of the mechanism
+	 * rather than a matter of taste. {@code chrome.alarms} advances a batch and MV3 clamps it at about 30
+	 * seconds, so a window below that is not a jittered gap — it is a 30-second metronome, which is exactly
+	 * the rhythm ADR-0008 exists to avoid. <strong>And the clamp is invisible in development</strong>, because
+	 * unpacked extensions are not clamped: an operator who set five seconds would watch it work locally and
+	 * ship a metronome to everybody else, so startup is the only moment anybody can be told.
+	 */
+	@Test
+	void andSoDoesABatchWindowUnderTheAlarmClampThatAdvancesIt() {
+		assertThatThrownBy(() -> startWith("{\"bulkPacing\":{\"minMs\":5000,\"maxMs\":60000}}"))
+				.hasStackTraceContaining("mprelist.client-config.document")
+				.hasStackTraceContaining("chrome.alarms");
+	}
+
+	/** And one that runs backwards, which is a window no gap can be drawn from — batch or otherwise. */
+	@Test
+	void andSoDoesABatchWindowThatRunsBackwards() {
+		assertThatThrownBy(() -> startWith("{\"bulkPacing\":{\"minMs\":90000,\"maxMs\":45000}}"))
+				.hasStackTraceContaining("bulkPacing")
+				.hasStackTraceContaining("run forwards");
+	}
+
+	/**
+	 * And one so wide that the run ADR-0025 sized in hours becomes one sized in days. The ceiling is the same
+	 * five minutes the watched window has and the reason is a different one: that window has to be waited out
+	 * inside a service worker Chrome kills, and this one is waited out by an alarm — so what bounds it is the
+	 * design rather than the runtime.
+	 */
+	@Test
+	void andSoDoesOneThatWouldTurnABatchIntoADaysWork() {
+		assertThatThrownBy(() -> startWith("{\"bulkPacing\":{\"minMs\":30000,\"maxMs\":3600000}}"))
+				.hasStackTraceContaining("bulkPacing")
+				.hasStackTraceContaining("ADR-0025");
 	}
 
 	/**

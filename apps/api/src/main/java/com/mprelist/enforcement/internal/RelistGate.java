@@ -9,6 +9,8 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.mprelist.catalog.Entitlement;
+import com.mprelist.catalog.TierCatalog;
 import com.mprelist.enforcement.Quotas;
 import com.mprelist.enforcement.RemainingQuota;
 import com.mprelist.identity.UserRef;
@@ -25,6 +27,11 @@ import com.mprelist.subscription.Subscriptions;
  * nothing in either of those modules knows what a quota check is. The last two meet in {@link Quotas}, which
  * {@code /complete} asks the same question of.
  *
+ * <p>Since #147 the catalog is also asked here directly, and about a different half of what a tier grants: the
+ * quota is a number to subtract from, {@code features.bulk} is a capability to have or not have. {@link Quotas}
+ * is no place for that question — it answers about a period — so this is where the two halves of one
+ * entitlement are read by the two checks that care about them.
+ *
  * <p>The last check answers to none of them. {@link SafetyPolicy} asks about time rather than about
  * entitlement — how fast this account has been relisting, whatever it is paying (#25) — and reads only this
  * module's own table to answer.
@@ -32,9 +39,10 @@ import com.mprelist.subscription.Subscriptions;
 @Service
 class RelistGate {
 
-	RelistGate(Subscriptions subscriptions, Quotas quotas, SafetyPolicy safety, UsageReservations reservations,
-			RelistAuthorizations authorizations) {
+	RelistGate(Subscriptions subscriptions, TierCatalog tiers, Quotas quotas, SafetyPolicy safety,
+			UsageReservations reservations, RelistAuthorizations authorizations) {
 		this.subscriptions = subscriptions;
+		this.tiers = tiers;
 		this.quotas = quotas;
 		this.safety = safety;
 		this.reservations = reservations;
@@ -58,13 +66,29 @@ class RelistGate {
 	 * spent and both spend it. The lock is per user, so it costs nobody else anything, and
 	 * {@code currentFor} refuses to run outside a transaction rather than leaving that quietly true.
 	 *
+	 * @param batch whether the caller says this ad is one of several they are working through (#147). It is
+	 * the only thing on this path that is about <em>what was asked for</em> rather than about the caller, and
+	 * it is a claim rather than an observation — see {@link AuthorizeRequest#batch()}
 	 * @return a signed authorization, or the refusal the extension renders
 	 */
 	@Transactional
-	Verdict authorize(UserRef caller, AdId adId) {
+	Verdict authorize(UserRef caller, AdId adId, boolean batch) {
 		Subscription plan = this.subscriptions.currentFor(caller);
 		if (!plan.status().allowsRelisting()) {
 			return Verdict.Refused.because(ReasonCode.SUBSCRIPTION_INACTIVE);
+		}
+		// After the subscription status and before the quota, which is the contract's order and not an
+		// implementation detail either (ADR-0025): a caller who named a capability their plan does not include
+		// should not be answered about a quota it also does not include. Both refusals end at the plan screen
+		// and only one of them describes what was asked for.
+		//
+		// The entitlement is resolved here and only when it is needed, so an ordinary single repost does
+		// exactly the reads it did before this ticket. `Quotas` resolves it again a line below for the
+		// subtraction it owns — a second primary-key lookup inside a transaction that is already holding this
+		// caller's row, which is a cheaper thing than an interface widened so that two questions could share
+		// one read and then have to be asked in the order that sharing implied.
+		if (batch && !this.tiers.entitlementOf(plan.tier()).grants(Entitlement.BULK)) {
+			return Verdict.Refused.because(ReasonCode.BULK_NOT_ENTITLED);
 		}
 		// Refused on the same arithmetic /complete answers with, and taken from the same place: the number the
 		// popup renders as "1 left" and the number this refuses on are one subtraction over one pair of reads,
@@ -94,6 +118,8 @@ class RelistGate {
 	}
 
 	private final Subscriptions subscriptions;
+
+	private final TierCatalog tiers;
 
 	private final Quotas quotas;
 

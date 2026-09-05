@@ -280,6 +280,71 @@ export const adListCss = `
 
 /* The row that is running. One at a time (T30b, #79), so this is never two. */
 .popup-ad[data-state="busy"] { background: var(--mp-hover); }
+
+/* Selecting several to repost at once (T68, #147; ADR-0025).
+
+   The box is first in the row and \`flex: none\`, so the title keeps the shrinking
+   it already does and the ellipsis stays where it was — the row was already at its
+   width budget with a title and a button in it, and this is the third thing in a
+   360px window.
+
+   A disabled box is drawn at the opacity every other locked control here uses
+   rather than hidden. That is the whole conversion argument: a free user should be
+   able to see the thing they do not have, next to their own ads. */
+.popup-ad-tick {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--mp-accent);
+  cursor: pointer;
+}
+.popup-ad-tick:disabled { cursor: not-allowed; opacity: 0.45; }
+
+/* The bar under the list: what a selection costs, what a run is doing, what a
+   stopped one left behind. One strip in three states, because to the user it is
+   one place. */
+.popup-batch {
+  display: grid;
+  gap: 6px;
+  padding: 10px var(--mp-space-md);
+  border-top: 1px solid var(--mp-line);
+  background: var(--mp-subtle);
+}
+.popup-batch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mp-space-xs);
+}
+.popup-batch-row .mp-btn { flex: 1 1 auto; }
+.popup-batch-row .mp-btn--ghost { flex: none; }
+.popup-batch-progress {
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  font-weight: 500;
+}
+.popup-batch-note {
+  margin: 0;
+  font: var(--mp-text-micro) var(--mp-font-family);
+  color: var(--mp-muted);
+}
+/* The line a free user gets instead of the bar, beside boxes they cannot tick. */
+.popup-batch-locked {
+  margin: 0;
+  padding: 10px var(--mp-space-md);
+  border-top: 1px solid var(--mp-line);
+  font: var(--mp-text-micro) var(--mp-font-family);
+  color: var(--mp-muted);
+}
+.popup-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--mp-accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
 `.trim();
 
 /**

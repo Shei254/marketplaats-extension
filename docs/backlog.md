@@ -640,6 +640,18 @@ interaction signals of real clicks.
 Name, icons, screenshots, description naming Marktplaats **in the copy and not the title**, privacy policy
 URL, permission justifications for `host_permissions` on marktplaats.nl. Review takes days to weeks.
 
+**The justifications, as they stand.** One line each, written here as each permission arrives rather than
+assembled the night the listing is filled in — a permission whose reason has to be reconstructed months later
+is the one that gets a vague sentence and a rejection.
+
+| Permission | Why it is needed |
+|---|---|
+| `host_permissions` on marktplaats.nl | The extension reposts the user's own ads in their own Marktplaats session; every request it makes goes to that site and no other. |
+| `storage` | Holds the sign-in session, the ad snapshot that makes a repost recoverable, and the repost queue. |
+| `unlimitedStorage` | A snapshot carries the ad's photos, so one interrupted repost can exceed the default quota. |
+| `identity` | Sign-in is Authorization Code + PKCE against our own identity provider, opened by `launchWebAuthFlow`. |
+| `alarms` | Resumes a repost queue after the browser suspends the extension (T68). Reposts are spaced 30–60 seconds apart, which is longer than a service worker stays alive. |
+
 #### [T60](https://github.com/Shei254/marketplaats-extension/issues/91) · Finalise the brand name · **S** · before T56 and T58
 Web Store name availability, domain availability, a trademark search. One edit to `brand.json` and a rebuild
 (T48) — everything else is prose, the listing, and the realm's origins.

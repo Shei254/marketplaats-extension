@@ -7,6 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DisplayStateAnswer } from "../api/display-state";
 import type { HandoffAnswer, PlansAnswer } from "../api/subscribing";
 import type { WireRelistOutcome } from "../background/messages";
+import { ASSUMED_RAILS } from "../domain/batch-estimate";
+import { startBatch, stopBatch, type BatchRun } from "../domain/batch-run";
+import { BULK_PACE } from "../domain/relist-pace";
 import type { ListingSummary } from "../domain/types";
 import { NoMarktplaatsTabError } from "../adapters/relay-marktplaats-client";
 import { SignInCancelledError, SignInFailedError } from "../auth/errors";
@@ -132,6 +135,19 @@ function fakeWorker(
     signOut: vi.fn(async () => {
       asked.push("sign-out");
     }),
+    /**
+     * The batch calls (T68, #147). Answering `null` throughout is "this account
+     * has no run", which is what every test in this file is about: the queue has
+     * a suite of its own and the screens here are the ones that existed before it.
+     */
+    startBatch: vi.fn(async () => {
+      asked.push("start-batch");
+      return null;
+    }),
+    batchState: vi.fn(async () => null),
+    batchShape: vi.fn(async () => ({ gap: BULK_PACE, rails: ASSUMED_RAILS })),
+    stopBatch: vi.fn(async () => null),
+    dismissBatch: vi.fn(async () => undefined),
   };
   return {
     worker,
@@ -903,5 +919,237 @@ describe("handing off to Stripe", () => {
     expect(text()).toContain("billing page couldn’t be opened");
     // And the plan is still theirs: a failed hand-off changes nothing about it.
     expect(text()).toContain("Pro");
+  });
+});
+
+/**
+ * Reposting several at once (T68, #147; ADR-0025), through the real components:
+ * the boxes on the rows, the bar under them, and what the screen does when the
+ * worker says a run has ended.
+ *
+ * **The run itself is not tested here** — it belongs to the worker and has two
+ * suites of its own. What can only go wrong on this side is the part that is about
+ * a person: which ads get sent, in what order, what a free user sees instead, and
+ * whether the list is reloaded once at the end rather than under a queue that is
+ * still holding the old ids.
+ */
+describe("reposting several at once", () => {
+  const PRO_PLAN: DisplayState = {
+    ...PLAN,
+    tier: { code: "pro", name: "Pro" },
+    quotaRemaining: 20,
+    relistQuotaPerPeriod: 50,
+    features: { bulk: { upTo: 10 } },
+  };
+
+  /** The worker with a run it actually remembers, so the popup can watch one. */
+  function batching(plan: DisplayState = PRO_PLAN) {
+    const fixture = fakeWorker([{ status: "ready", plan }]);
+    let run: BatchRun | null = null;
+    fixture.worker.startBatch = vi.fn(async (listingIds: string[]) => {
+      fixture.asked.push("start-batch");
+      run = startBatch(listingIds, 1_700_000_000_000);
+      return run;
+    });
+    fixture.worker.batchState = vi.fn(async () => run);
+    fixture.worker.stopBatch = vi.fn(async () => {
+      run = run === null ? null : stopBatch(run, "stopped");
+      return run;
+    });
+    fixture.worker.dismissBatch = vi.fn(async () => {
+      run = null;
+    });
+    return { ...fixture, started: () => run };
+  }
+
+  const boxes = (): HTMLInputElement[] => [...container.querySelectorAll<HTMLInputElement>(".popup-ad-tick")];
+
+  const tick = (nth: number): Promise<void> =>
+    act(async () => {
+      boxes()[nth]?.click();
+    });
+
+  it("puts a box on every row for a plan that includes it", async () => {
+    const { worker } = batching();
+
+    await show(worker);
+
+    expect(boxes()).toHaveLength(ADS.length);
+    expect(boxes().every((box) => box.disabled)).toBe(false);
+  });
+
+  // The conversion surface, one screen further in (ADR-0007): a free user sees the
+  // control they do not have, beside their own ads and beside a Repost button that
+  // still works. Drawn disabled rather than hidden is the whole difference between
+  // a feature somebody knows to want and one they never learn exists.
+  it("but draws them disabled on a plan that does not, beside a line pointing at Plans", async () => {
+    const { worker } = batching(PLAN);
+
+    await show(worker);
+
+    expect(boxes()).toHaveLength(ADS.length);
+    expect(boxes().every((box) => box.disabled)).toBe(true);
+    expect(text()).toContain("part of the paid plans");
+  });
+
+  // And the per-row button is untouched, which is the sentence the whole
+  // entitlement rests on: bulk sells convenience, not capability.
+  it("and leaves the per-row Repost working on that plan", async () => {
+    const { worker } = batching(PLAN);
+
+    await show(worker);
+
+    expect([...container.querySelectorAll("button")].some((button) => readable(button.textContent) === "Repost")).toBe(
+      true,
+    );
+  });
+
+  // The one thing this sentence is served for: an operator who drops the burst
+  // limit on a bad night changes it with a restart of the API rather than a store
+  // release, and the popup has no other way to stop quoting a duration that is no
+  // longer true. A build that read only its own numbers would pass every other
+  // test here.
+  it("quotes the rails the API served rather than the ones this build ships", async () => {
+    const fixture = batching();
+    fixture.worker.batchShape = vi.fn(async () => ({
+      gap: BULK_PACE,
+      rails: { burstLimit: 1, burstWindowMs: 60 * 60_000 },
+    }));
+    await show(fixture.worker);
+
+    await tick(0);
+    await tick(1);
+
+    expect(text()).toContain("about 1 hour");
+    expect(text()).toContain("pause");
+  });
+
+  it("says how many are ticked and how long they will take", async () => {
+    const { worker } = batching();
+    await show(worker);
+
+    await tick(0);
+    await tick(1);
+
+    expect(text()).toContain("Repost 2 selected");
+    // Two ads is one gap of the wider window — under a minute, and said before
+    // anybody commits to it.
+    expect(text()).toContain("under a minute");
+  });
+
+  // The order is the screen's rather than the order they were ticked: somebody who
+  // ticks the bottom row first has still read the list top to bottom, and a queue
+  // that ran backwards would look like a bug from the first ad.
+  it("sends the ads in the order the list is showing them", async () => {
+    const fixture = batching();
+    await show(fixture.worker);
+    await tick(1);
+    await tick(0);
+
+    await click("Repost 2 selected · under a minute");
+
+    expect(fixture.worker.startBatch).toHaveBeenCalledWith([ADS[0]!.id, ADS[1]!.id]);
+  });
+
+  // The cap is `min(quotaRemaining, upTo)` and this is the quota half of it: a
+  // selection bigger than the period has left is ads the gate would refuse one
+  // after another, each costing an attempt and a wait.
+  it("stops ticking at what the period has left", async () => {
+    const { worker } = batching({ ...PRO_PLAN, quotaRemaining: 1 });
+    await show(worker);
+
+    await tick(0);
+
+    expect(boxes()[1]?.disabled).toBe(true);
+    expect(text()).toContain("all the relists you have left");
+  });
+
+  it("and says it is the plan's number when that is the smaller one", async () => {
+    const { worker } = batching({ ...PRO_PLAN, quotaRemaining: 20, features: { bulk: { upTo: 1 } } });
+    await show(worker);
+
+    await tick(0);
+
+    expect(boxes()[1]?.disabled).toBe(true);
+    expect(text()).toContain("reposts 1 at a time");
+  });
+
+  it("shows the run once it has started, and offers to stop it", async () => {
+    const fixture = batching();
+    await show(fixture.worker);
+    await tick(0);
+
+    await click("Repost 1 selected · under a minute");
+
+    expect(text()).toContain("Reposting 1 of 1…");
+    expect(text()).toContain("keeps going with the popup closed");
+  });
+
+  // Every row is locked while a run is going, for the reason one relist locks the
+  // others: the queue is the serialisation now, and a row pressed mid-run would be
+  // a second delete beside the one in flight.
+  it("and locks every box while it is going", async () => {
+    const fixture = batching();
+    await show(fixture.worker);
+    await tick(0);
+
+    await click("Repost 1 selected · under a minute");
+
+    expect(boxes().every((box) => box.disabled)).toBe(true);
+  });
+
+  it("stops when asked, and says what it got through", async () => {
+    const fixture = batching();
+    await show(fixture.worker);
+    await tick(0);
+    await tick(1);
+    await click("Repost 2 selected · under a minute");
+
+    await click("Stop");
+
+    expect(text()).toContain("0 of 2 reposted.");
+    expect(text()).toContain("Stopped.");
+  });
+
+  // The ads that never ran are offered rather than resumed, which is ADR-0025's
+  // browser-restart rule made visible: a queue that picked itself up would be
+  // delete-first firing at ads nobody is thinking about, and a button is a person
+  // deciding.
+  it("and offers to repost the ads it never started", async () => {
+    const fixture = batching();
+    await show(fixture.worker);
+    await tick(0);
+    await tick(1);
+    await click("Repost 2 selected · under a minute");
+
+    await click("Stop");
+
+    expect(text()).toContain("Repost the remaining 2");
+  });
+
+  // A reposted ad comes back with a new id, so reloading mid-run would reshuffle
+  // the rows under a queue holding the old ones. Once, at the end.
+  it("reloads the list once, when the run has ended", async () => {
+    const fixture = batching();
+    await show(fixture.worker);
+    const loadsBefore = fixture.asked.filter((ask) => ask === "list-ads").length;
+    await tick(0);
+    await click("Repost 1 selected · under a minute");
+
+    await click("Stop");
+
+    expect(fixture.asked.filter((ask) => ask === "list-ads")).toHaveLength(loadsBefore + 1);
+  });
+
+  it("and clears the run when it is dismissed", async () => {
+    const fixture = batching();
+    await show(fixture.worker);
+    await tick(0);
+    await click("Repost 1 selected · under a minute");
+    await click("Stop");
+
+    await click("Dismiss");
+
+    expect(text()).not.toContain("reposted.");
   });
 });

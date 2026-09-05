@@ -2,6 +2,9 @@ import type { DisplayStateAnswer } from "../api/display-state";
 import type { HandoffAnswer, PlansAnswer } from "../api/subscribing";
 import type { ListingSummary } from "../domain/types";
 import type { BackgroundRequest, BackgroundResponse, WireRelistOutcome } from "../background/messages";
+import { ASSUMED_RAILS, type BatchShape } from "../domain/batch-estimate";
+import type { BatchRun } from "../domain/batch-run";
+import { BULK_PACE } from "../domain/relist-pace";
 import { fromWireError } from "../content/messages";
 import type { WorkerPort } from "./screen";
 
@@ -42,6 +45,58 @@ export function workerPort(): WorkerPort {
     },
     async retry(listingId: string): Promise<WireRelistOutcome> {
       return ask({ kind: "retry", listingId });
+    },
+    /**
+     * The four batch asks, all flattened to "no run" when the worker cannot
+     * answer — like the display state and unlike a relist.
+     *
+     * The reason is the same one and it reads oddly the first time: a worker that
+     * did not answer has told us nothing about the run, and the popup's only
+     * honest rendering of that is the one it already has for not knowing. Raising
+     * here would put an exception on a poll that runs every second while a batch
+     * is going, and the screen it would produce is one nobody could act on — the
+     * run is the worker's, so there is nothing for a user to retry from here.
+     */
+    async startBatch(listingIds: string[]): Promise<BatchRun | null> {
+      try {
+        return await ask({ kind: "start-batch", listingIds });
+      } catch {
+        return null;
+      }
+    },
+    async batchState(): Promise<BatchRun | null> {
+      try {
+        return await ask({ kind: "batch-state" });
+      } catch {
+        return null;
+      }
+    },
+    async stopBatch(): Promise<BatchRun | null> {
+      try {
+        return await ask({ kind: "stop-batch" });
+      } catch {
+        return null;
+      }
+    },
+    /**
+     * Flattened to what this build ships with, which is the same answer a worker
+     * that has never fetched a document would give: the rails gate nothing, so
+     * not knowing them costs a sentence and nothing else.
+     */
+    async batchShape(): Promise<BatchShape> {
+      try {
+        return await ask({ kind: "batch-shape" });
+      } catch {
+        return { gap: BULK_PACE, rails: ASSUMED_RAILS };
+      }
+    },
+    async dismissBatch(): Promise<void> {
+      try {
+        await ask({ kind: "dismiss-batch" });
+      } catch {
+        // Nothing to say and nothing to do: the run is already over, and the badge
+        // it leaves behind is cleared by the next worker that answers.
+      }
     },
     /**
      * Flattened to "no wait" when the worker cannot say, like the display state

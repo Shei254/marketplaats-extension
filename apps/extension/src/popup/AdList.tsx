@@ -29,10 +29,24 @@ export function AdList({
   view,
   worker,
   onOutcome,
+  selection,
+  runStates,
   empty = "You have no active ads.",
 }: {
   view: AdsView;
   worker: WorkerPort;
+  /**
+   * Ticking rows for a batch (T68, #147), or `null` on a surface that is not
+   * offering one. The selection itself lives above this component, with the plan
+   * that caps it — this draws the boxes and reports the clicks.
+   */
+  selection?: BatchSelection | null;
+  /**
+   * What a running batch has made of each row, keyed by ad. Laid **under** this
+   * list's own state rather than over it, so a row somebody pressed Retry on shows
+   * what their press did rather than what the run said a minute ago.
+   */
+  runStates?: Record<string, RowState>;
   /**
    * Every finished attempt, handed up whole. The plan strip belongs to the screen
    * above and moves on the quota this carries; the ad list is reloaded there too,
@@ -140,15 +154,40 @@ export function AdList({
         <AdRow
           ad={ad}
           key={ad.id}
-          state={states[ad.id] ?? IDLE}
-          locked={(running !== null && running !== ad.id) || secondsLeft !== null}
+          state={states[ad.id] ?? runStates?.[ad.id] ?? IDLE}
+          // A run locks every row for the reason one relist does, one step
+          // further out: the queue is the serialisation now, and a row somebody
+          // pressed mid-run would be a second delete beside the one in flight.
+          locked={
+            (running !== null && running !== ad.id) || secondsLeft !== null || selection?.frozen === true
+          }
           secondsLeft={secondsLeft}
           pacingSeconds={running === ad.id ? pacingSeconds : null}
           onStart={start}
+          selection={selection ?? null}
         />
       ))}
     </ul>
   );
+}
+
+/**
+ * Ticking rows for a batch, as one row needs it (T68, #147).
+ *
+ * `locked` and `frozen` are two different reasons a box cannot be ticked and the
+ * user is told a different thing about each: **locked** is a plan that does not
+ * include bulk, and the box is drawn disabled beside a line pointing at Plans —
+ * ADR-0007's conversion surface one screen further in, and the reason the control
+ * is drawn at all rather than hidden. **Frozen** is a run already going, where the
+ * selection has already been made and is being worked through.
+ */
+export interface BatchSelection {
+  selected: ReadonlySet<string>;
+  onToggle: (listingId: string) => void;
+  locked: boolean;
+  frozen: boolean;
+  /** How many may be ticked at once — `min(quotaRemaining, upTo)`. */
+  cap: number;
 }
 
 /**
@@ -165,9 +204,12 @@ export function AdRow({
   secondsLeft,
   pacingSeconds,
   onStart,
+  selection,
 }: {
   ad: ListingSummary;
   state: RowState;
+  /** The batch selection this row is part of, or `null` when none is offered. */
+  selection?: BatchSelection | null;
   /** Another row is relisting, or the account is in a cooldown, so this one may not start. */
   locked: boolean;
   /** Seconds until the account's cooldown ends, when one is running. */
@@ -185,9 +227,23 @@ export function AdRow({
   // The row's own wait wins over the account's: this row is the one running, and
   // what it is waiting for is the number it should be counting down.
   const counting = pacingSeconds ?? secondsLeft ?? null;
+  const ticked = selection?.selected.has(ad.id) ?? false;
+  // Full is a cap that has been reached by *other* rows: a ticked box can always
+  // be unticked, or the cap would be a trap rather than a limit.
+  const full = selection !== null && selection !== undefined && !ticked && selection.selected.size >= selection.cap;
   return (
     <li className="popup-ad" data-state={state.kind}>
       <div className="popup-ad-row">
+        {selection ? (
+          <input
+            type="checkbox"
+            className="popup-ad-tick"
+            checked={ticked}
+            disabled={selection.locked || selection.frozen || full}
+            aria-label={`Select “${ad.title}” to repost`}
+            onChange={() => selection.onToggle(ad.id)}
+          />
+        ) : null}
         <div className="popup-ad-info">
           <span className="popup-ad-title" title={ad.title}>
             {ad.title}

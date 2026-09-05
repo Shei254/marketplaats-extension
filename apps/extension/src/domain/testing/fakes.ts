@@ -24,6 +24,9 @@ import type {
  */
 export class FakeRelistPermission implements RelistPermission {
   readonly authorized: string[] = [];
+
+  /** Which of those said they were part of a batch (T68, #147). */
+  readonly asBatch: string[] = [];
   readonly reports: Array<{ jti: string; outcome: RelistOutcomeCode }> = [];
 
   constructor(
@@ -34,8 +37,9 @@ export class FakeRelistPermission implements RelistPermission {
     private readonly events: FakeEvent[] = [],
   ) {}
 
-  async authorize(adId: string): Promise<GateDecision> {
+  async authorize(adId: string, batch = false): Promise<GateDecision> {
     this.authorized.push(adId);
+    if (batch) this.asBatch.push(adId);
     this.events.push({ type: "authorize", listingId: adId });
     return this.answer(adId, this.authorized.length);
   }

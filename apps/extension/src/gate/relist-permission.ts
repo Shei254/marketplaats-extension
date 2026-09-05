@@ -18,7 +18,14 @@ import type { GateDecision } from "./authorization-gate";
  * reconciled by the backend after a grace window (#24).
  */
 export interface RelistPermission {
-  authorize(adId: string): Promise<GateDecision>;
+  /**
+   * @param batch that this ad is one of several the caller is working through
+   * (T68, #147). Optional and false by default, which is what a single repost is
+   * — and what an older API ignores. It buys one refusal the client cannot make
+   * for itself: `BULK_NOT_ENTITLED` from a plan that does not include bulk, which
+   * arrives here as `{ state: "not-in-plan" }`.
+   */
+  authorize(adId: string, batch?: boolean): Promise<GateDecision>;
   /**
    * Answers with **what the period has left now**, which is the same subtraction
    * `/api/me` renders and the gate refuses on — so a popup that has just relisted

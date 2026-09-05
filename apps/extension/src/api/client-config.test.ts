@@ -39,6 +39,8 @@ const CHECKED: ServedConfig = {
   endpoints: { deleteAd: "/seller/api/delete-ad-v2" },
   csrf: null,
   pacing: null,
+  bulkPacing: null,
+  rails: null,
 };
 
 interface Call {
@@ -106,7 +108,14 @@ describe("asking for the document", () => {
 
     await expect(readServedConfig()).resolves.toEqual({
       fetchedAt: NOW,
-      config: { schemaVersion: SUPPORTED_SCHEMA_VERSION, endpoints: {}, csrf: null, pacing: null },
+      config: {
+        schemaVersion: SUPPORTED_SCHEMA_VERSION,
+        endpoints: {},
+        csrf: null,
+        pacing: null,
+        bulkPacing: null,
+        rails: null,
+      },
     });
   });
 });

@@ -30,6 +30,27 @@ export const DENIAL_REASONS = [
    * renders it as "update your card" and never as "resubscribe".
    */
   "SUBSCRIPTION_INACTIVE",
+  /**
+   * A capability the caller's plan does not include was named in the request —
+   * today that is `batch` on `POST /api/relist/authorize`, and the flag it asks
+   * about is `features.bulk` (ADR-0025).
+   *
+   * **Above `QUOTA_EXCEEDED` and not below it**, which is the whole reason it is a
+   * code of its own. Both point at the plan screen, and only one of them describes
+   * what was asked for: a caller who named a capability they do not have should
+   * not be answered about a quota they also do not have. It is a `403` because
+   * they are authenticated and not permitted — told apart from the resource
+   * server's own `403` by the rule the denial shape states, that the presence of
+   * `reason` means the gate turned you away.
+   *
+   * **Declared here ahead of anything that sends it**, which is not this package's
+   * habit (see the header) and is deliberate: `docs/enforcement-contract.md` is
+   * the source of truth and already denies with it, `enforcement.test.ts` holds
+   * this list to that document, and a client meeting a code it has never heard of
+   * renders "something went wrong, try again" at a user who could have fixed it in
+   * a click. The endpoint that will send it is #147.
+   */
+  "BULK_NOT_ENTITLED",
   /** This period's relists are spent. Carries `resetAt`, which is when they come back. */
   "QUOTA_EXCEEDED",
   /** Too fast for the pacing rails (ADR-0008). Carries `retryAfter`, in whole seconds. */
@@ -46,6 +67,8 @@ export type DenialReason = (typeof DENIAL_REASONS)[number];
 export type Denial =
   | { reason: "UNAUTHENTICATED" }
   | { reason: "SUBSCRIPTION_INACTIVE" }
+  /** Adds nothing: what to do about it is the plan screen, which needs no field to find. */
+  | { reason: "BULK_NOT_ENTITLED" }
   | { reason: "QUOTA_EXCEEDED"; resetAt: string }
   /** Whole seconds, rounded up, named after HTTP's own `Retry-After` and carried in the body rather than the header of that name. */
   | { reason: "RATE_LIMITED"; retryAfter: number };

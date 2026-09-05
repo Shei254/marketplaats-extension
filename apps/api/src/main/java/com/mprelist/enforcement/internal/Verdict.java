@@ -55,7 +55,11 @@ sealed interface Verdict {
 	@JsonInclude(JsonInclude.Include.NON_NULL)
 	record Refused(ReasonCode reason, OffsetDateTime resetAt, Long retryAfter) implements Verdict {
 
-		/** A code that adds nothing, which is {@link ReasonCode#SUBSCRIPTION_INACTIVE} and so far only it. */
+		/**
+		 * A code that adds nothing — {@link ReasonCode#SUBSCRIPTION_INACTIVE}, and
+		 * {@link ReasonCode#BULK_NOT_ENTITLED} once something refuses with it (#147): what to do about either is
+		 * a screen, and a screen needs no field to find.
+		 */
 		static Refused because(ReasonCode reason) {
 			return new Refused(reason, null, null);
 		}

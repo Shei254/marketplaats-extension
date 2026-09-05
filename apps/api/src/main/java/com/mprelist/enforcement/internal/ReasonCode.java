@@ -10,9 +10,16 @@ import org.springframework.http.HttpStatus;
  * <p>The mapping lives on the code rather than at the point of refusal, so that "quota exhausted is a 429" is
  * stated once. Nothing else in this application decides a denial's status.
  *
- * <p>Three of the contract's four are here. {@code UNAUTHENTICATED} is {@code identity}'s — it is answered by
+ * <p>Four of the contract's five are here. {@code UNAUTHENTICATED} is {@code identity}'s — it is answered by
  * the filter chain before any route is reached, which is what makes it true of routes no ticket has written
  * yet (#19).
+ *
+ * <p><strong>{@link #BULK_NOT_ENTITLED} is declared and not yet answered with.</strong> The contract denies
+ * with it (ADR-0025) and {@code packages/contracts} restates it, so it is here to keep the three lists one
+ * list — {@code enforcement.test.ts} reads this file as text and holds them to each other. Nothing constructs
+ * it until {@code /authorize} accepts a {@code batch} flag to refuse (#147). A code the backend can send and a
+ * client has never heard of is a denial rendered as "something went wrong, try again" at somebody who could
+ * have fixed it in a click, which is the failure that ordering prevents.
  */
 enum ReasonCode {
 
@@ -26,6 +33,27 @@ enum ReasonCode {
 	 * "your payment lapsed" without reading the body twice.
 	 */
 	SUBSCRIPTION_INACTIVE(HttpStatus.PAYMENT_REQUIRED),
+
+	/**
+	 * A caller asked for a capability their plan does not include — today, a {@code batch} on
+	 * {@code /authorize} from an Entitlement carrying no {@code bulk} flag (ADR-0025, #147).
+	 *
+	 * <p><strong>Checked above {@link #QUOTA_EXCEEDED} and below the subscription status</strong>, which is the
+	 * whole reason it is a code rather than a reuse of one. Both send the user to the same plan screen and only
+	 * one of them describes what was asked for: answering "you are out of relists" to somebody who asked for a
+	 * feature they do not have describes a second thing they also do not have, and neither sentence is the one
+	 * they need.
+	 *
+	 * <p>{@code 403} rather than a {@code 429}: the caller is authenticated and simply not permitted, and no
+	 * amount of waiting changes it. It is told apart from the {@code 403} the resource server already answers an
+	 * ADMIN-less caller with by the rule the contract's denial shape states — <em>the presence of
+	 * {@code reason} means the gate turned you away</em>. That one carries no body, and this one does.
+	 *
+	 * <p><strong>How many at once is not this code's business.</strong> {@code features.bulk} carries
+	 * {@code {"upTo": N}} and nothing here can count a selection, because a batch arrives one ad at a time. The
+	 * API says <em>whether</em>, and the popup says <em>how many</em>.
+	 */
+	BULK_NOT_ENTITLED(HttpStatus.FORBIDDEN),
 
 	/**
 	 * The relists this period are spent. Carries {@code resetAt} — the end of the window — because "you have

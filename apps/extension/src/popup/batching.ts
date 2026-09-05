@@ -1,4 +1,4 @@
-import type { DisplayState } from "@mprelist/contracts";
+import { bulkIn, type DisplayState } from "@mprelist/contracts";
 
 import { describeDuration, estimateBatchMs, sleepsMidRun, type BatchShape } from "../domain/batch-estimate";
 import { progressOf, type BatchRun, type BatchStopReason } from "../domain/batch-run";
@@ -41,23 +41,24 @@ export interface BulkSelection {
  * conversion surface applied one screen further in, and it is the difference
  * between a feature a free user knows to want and one they never learn exists.
  *
- * **A flag carrying no readable number is still a grant**, capped by the quota
- * alone. The API said yes — that is the half it owns — and `{"upTo": N}` is the
- * shape the seed writes rather than a shape the contract promises; a popup that
- * refused the feature over a value it did not recognise would be second-guessing a
- * permission it did not issue.
+ * **What the flag says is `bulkIn`'s to read rather than this file's** (T69, #153;
+ * ADR-0026). The same object is read by the API in Java and written by an operator
+ * in `/admin`, and the two rules that used to live here — absent, `null` and
+ * `false` are not a grant, and a number is read only from `{"upTo": N}` — are said
+ * once in `@mprelist/contracts` for all three. A flag carrying no readable number
+ * is still a grant, capped by the quota alone: the API said yes, which is the half
+ * it owns, and refusing the feature over a value this screen did not recognise
+ * would be second-guessing a permission it did not issue.
+ *
+ * **What stays here is the quota**, which is the half nothing else can know: the
+ * cap is `min(quotaRemaining, upTo)`, and the second number is one `/api/me`
+ * reports rather than one the plan sells.
  */
 export function bulkFor(plan: DisplayState): BulkSelection | null {
-  const flag = plan.features["bulk"];
-  if (flag == null || flag === false) return null;
-  const upTo = upToIn(flag);
+  const grant = bulkIn(plan.features);
+  if (!grant.granted) return null;
+  const { upTo } = grant;
   return { cap: upTo === null ? plan.quotaRemaining : Math.min(plan.quotaRemaining, upTo), upTo };
-}
-
-function upToIn(flag: unknown): number | null {
-  if (typeof flag !== "object" || flag === null) return null;
-  const upTo = (flag as Record<string, unknown>)["upTo"];
-  return typeof upTo === "number" && Number.isInteger(upTo) && upTo > 0 ? upTo : null;
 }
 
 /**

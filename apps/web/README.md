@@ -153,9 +153,18 @@ and **Prices** adds one — or replaces one it already has, which is the only wa
 Prices cannot be edited. The form says which of the two is about to happen and, when it is a replacement, that
 everybody already subscribed keeps the price they signed up at.
 
-**The feature flags are a JSON textarea**, which was honest rather than lazy when it was written: `features`
-is an open object, every tier carried `{}`, and no flag had an implementation behind it, so checkboxes would
-have been inventing a schema this product had not decided on. **T68 decided one.** `bulk` is seeded with a
-value and read by two clients, so the textarea is now the wrong control for the one flag that exists —
-[ADR-0026](../../docs/adr/0026-a-feature-flag-is-a-field-spelled-once.md) makes the cap a number and T69
-builds it. Until then this is what the form shows.
+**The feature flags are a number and a hatch** (T69, [ADR-0026](../../docs/adr/0026-a-feature-flag-is-a-field-spelled-once.md)).
+A JSON textarea was honest rather than lazy when it was written: `features` is an open object, every tier
+carried `{}`, and no flag had an implementation behind it, so checkboxes would have been inventing a schema
+this product had not decided on. **T68 decided one.** So the bulk cap is now set with the same gesture as the
+quota beside it — `Bulk repost, at a time`, empty for a tier that does not include it, and **0 refused**,
+because `{"upTo": 0}` is not "no bulk" but *bulk capped by the quota alone*. Turning it off writes
+`{"bulk": false}` and never a deleted key, which is what keeps `V8__seed_bulk_entitlement.sql`'s claim about
+the admin edit true on a machine that restores a dump.
+
+**`Advanced · edit as JSON` keeps every other shape reachable**, as a mode and not a mirror: exactly one
+control owns the value at a time, so opening the hatch disables the number and closing it parses back. One
+invariant covers the rest — the number owns the value only when it can represent the whole truth — which is
+why the form opens on the hatch for a tier storing something the field cannot say, and says why it will not
+close while that is still true. The flag itself is spelled once, in `packages/contracts/src/features.ts`, and
+read from there by the popup too.

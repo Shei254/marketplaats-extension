@@ -16,7 +16,6 @@ import {
   Input,
   Note,
   Select,
-  Textarea,
   type NoteTone,
 } from "@mprelist/ui";
 import { useCallback, useEffect, useState, type JSX, type ReactNode } from "react";
@@ -32,6 +31,7 @@ import type {
 import { ADMIN_ROLE } from "./admin-config";
 import { DEFAULT_PAGE, type AdminPageId } from "./admin-nav";
 import { AdminShell } from "./AdminShell";
+import { FeaturesFieldset, useFeatures } from "./FeaturesField";
 import { tierCodeFrom } from "./tier-code";
 
 /**
@@ -651,11 +651,13 @@ function FormPanel({
 /**
  * The edit form, total over the four editable fields.
  *
- * **The flags are a JSON textarea**, which is honest rather than lazy: `features`
- * is an open object, every tier carries `{}` today, and no flag has an
- * implementation behind it (ADR-0014). A set of checkboxes would be inventing a
- * schema this product has not decided on, and the day it does is the day this
- * becomes a real control.
+ * **The flags are a number and a hatch** (`FeaturesField`, T69). They were a JSON
+ * textarea while `features` was an open object with nothing behind it, and this
+ * comment said as much — that the day the product decided on a schema was the day
+ * it became a real control. ADR-0025 decided `bulk`, T68 seeded it and shipped two
+ * readers of it, so the cap is set with the same gesture as the quota it sits
+ * beside. The hatch keeps every other shape the column can hold reachable, which
+ * is what stops a control over one key from being a form that drops the rest.
  *
  * **"On sale" is refused by the API for a tier with no Price**, and the hint says
  * so before the save rather than after: the way out is Stripe's, and a form that
@@ -674,7 +676,7 @@ function TierForm({
 }): JSX.Element {
   const [name, setName] = useState(tier.tier.name);
   const [quota, setQuota] = useState(String(tier.relistQuotaPerPeriod));
-  const [features, setFeatures] = useState(JSON.stringify(tier.features, null, 2));
+  const features = useFeatures(tier.features);
   const [published, setPublished] = useState(tier.published);
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -684,15 +686,9 @@ function TierForm({
       setProblem("Relists per period has to be a whole number, and not a negative one.");
       return;
     }
-    let parsedFeatures: Record<string, unknown>;
-    try {
-      const value: unknown = JSON.parse(features || "{}");
-      if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        throw new Error("not an object");
-      }
-      parsedFeatures = value as Record<string, unknown>;
-    } catch {
-      setProblem("Feature flags have to be a JSON object, like {} or {\"bulk\": true}.");
+    const flags = features.read();
+    if ("problem" in flags) {
+      setProblem(flags.problem);
       return;
     }
     if (!name.trim()) {
@@ -700,7 +696,12 @@ function TierForm({
       return;
     }
     setProblem(null);
-    onSave({ name: name.trim(), relistQuotaPerPeriod: parsedQuota, features: parsedFeatures, published });
+    onSave({
+      name: name.trim(),
+      relistQuotaPerPeriod: parsedQuota,
+      features: flags.features,
+      published,
+    });
   };
 
   return (
@@ -731,13 +732,7 @@ function TierForm({
           />
         </Field>
       </div>
-      <Field label="Feature flags, as JSON">
-        <Textarea
-          id="tier-features"
-          value={features}
-          onChange={(event) => setFeatures(event.target.value)}
-        />
-      </Field>
+      <FeaturesFieldset field={features} id="tier" />
       <Checkbox
         id="tier-published"
         label="On sale — people can buy this from the extension"
@@ -819,6 +814,10 @@ function NewPlanForm({
   // what is being collected is a price list, and the submit below reads it as one.
   const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [quota, setQuota] = useState("0");
+  // A plan is created with its cap rather than created and then edited: the flags
+  // used to be a hardcoded `{}` here, so setting one was a second act an operator
+  // had to remember (T69).
+  const features = useFeatures(NO_FLAGS);
   const [problem, setProblem] = useState<string | null>(null);
 
   if (!pricedIn) {
@@ -873,13 +872,18 @@ function NewPlanForm({
       setProblem("Relists per period has to be a whole number, and not a negative one.");
       return;
     }
+    const flags = features.read();
+    if ("problem" in flags) {
+      setProblem(flags.problem);
+      return;
+    }
     setProblem(null);
     onCreate({
       tierCode,
       name: name.trim(),
       prices,
       relistQuotaPerPeriod: relists,
-      features: {},
+      features: flags.features,
       published: false,
     });
   };
@@ -939,6 +943,7 @@ function NewPlanForm({
           />
         </Field>
       </div>
+      <FeaturesFieldset field={features} id="plan" />
       <ul className="admin-notes">
         {/* Shown, not chosen (T63, #129). Every tier is priced in what this Stripe
             account settles in — a plan screen is a comparison, and two currencies
@@ -1113,6 +1118,15 @@ const RHYTHMS: readonly Rhythm[] = [
   { interval: "month", fieldLabel: "Monthly price", named: "monthly" },
   { interval: "year", fieldLabel: "Yearly price", named: "yearly" },
 ];
+
+/**
+ * What a plan's flags start as, and the one place this screen writes `{}` at all.
+ *
+ * A constant rather than a literal in the call, so that the create form's fieldset
+ * is not handed a new object on every render — the state it seeds from is read
+ * once, and a fresh one each time is the kind of thing that becomes true later.
+ */
+const NO_FLAGS: Record<string, unknown> = {};
 
 /**
  * The rhythm this screen knows by that interval, or a stand-in named after the

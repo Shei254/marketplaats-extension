@@ -373,7 +373,7 @@ export async function createAd(draft: CapturedAd, photos: Photo[]): Promise<void
   } else {
     draft.shippingInformation.augmentedLabels.forEach(label => {
       if (label.carrierId == null) {
-        form.append("shippingMethod", "diy");0
+        form.append("shippingMethod", "diy");
         form.append("othersPrice", label.labels?.[0]?.price || "")
       }
     })
@@ -403,7 +403,11 @@ export async function createAd(draft: CapturedAd, photos: Photo[]): Promise<void
     form.append("price.typeValue", priceType);
 
     if (priceType != "FREE" && priceType != "SEE_DESCRIPTION") {
-      if (draft.price.minimumBidPriceCent) {
+      // `Number(…) > 0` and not truthiness: the capture carries its cents as a
+      // **string**, and `"0"` is truthy. Guarding on the raw value sent
+      // `price.minimumBidPrice=0,00` for every ad without a floor — a floor the
+      // seller never set, posted onto the ad we are re-creating for them.
+      if (Number(draft.price.minimumBidPriceCent) > 0) {
         form.append(
             "price.minimumBidPrice",
             (Number(draft.price.minimumBidPriceCent) / 100).toLocaleString("nl-NL", {

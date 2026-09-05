@@ -341,6 +341,13 @@ describe("createAd", () => {
    * The frozen body for the maximal ad: photos, bidding on, shipping selected,
    * buyer protection on. Field ORDER is load-bearing — see ADR-0015 and the
    * `MOVED:` comments in marktplaats-api.ts.
+   *
+   * **Re-frozen** when `packageSize` stopped being a constant. It is now derived
+   * from the carrier's own weight band and is emitted **before**
+   * `dropOffLocationCode` rather than after; `M` here is the 10kg DHL option in
+   * the fixture rather than the hardcoded default it used to be. That is a claim
+   * about the live form's field order, and the only thing that can settle it is
+   * the live form (`docs/live-testing.md`).
    */
   const FULL_PAIRS: [string, string][] = [
     ["images.ids", "img-1"],
@@ -358,8 +365,8 @@ describe("createAd", () => {
     ["shippingMethod", "dhl"],
     ["shippingDetails.price", "695"],
     ["shippingDetails.provider", "other"],
-    ["dropOffLocationCode", "1011AB"],
     ["packageSize", "M"],
+    ["dropOffLocationCode", "1011AB"],
     ["Dropdown-prijstype", "FAST_BID"],
     ["price.typeValue", "FAST_BID"],
     ["price.value", "125"],
@@ -403,7 +410,7 @@ describe("createAd", () => {
         "&url=&url-input=&singleSelectAttribute%5Btype%5D=Herenfiets" +
         "&deliveryMethod=SHIPPING_AND_PICKUP&buyerProtectionAllowed=on" +
         "&shippingMethod=dhl&shippingDetails.price=695" +
-        "&shippingDetails.provider=other&dropOffLocationCode=1011AB&packageSize=M" +
+        "&shippingDetails.provider=other&packageSize=M&dropOffLocationCode=1011AB" +
         "&Dropdown-prijstype=FAST_BID&price.typeValue=FAST_BID&price.value=125" +
         "&previousPriceType=" +
         "&price.biddingEnabled=on&contactInformation.sellerName=Jan+Jansen" +
@@ -496,7 +503,7 @@ describe("createAd", () => {
           selectedShippingOptions: [
             option,
             { ...option, id: "opt-2", cost: "995" },
-            { ...option, id: "opt-3", carrierId: "DPD", cost: "795" },
+            { ...option, id: "opt-3", carrierId: "DPD", cost: "595" },
           ],
         },
       }),
@@ -508,8 +515,67 @@ describe("createAd", () => {
       ["shippingMethod", "dhl"],
       ["shippingMethod", "dpd"],
     ]);
-    // Price comes from the first option only, regardless of how many there are.
-    expect(body.pairs).toContainEqual(["shippingDetails.price", "695"]);
+    // The **cheapest** of the selected options, not the first one in the array:
+    // DPD's 595 wins over DHL's 695, which is why it is third and lowest here.
+    expect(body.pairs).toContainEqual(["shippingDetails.price", "595"]);
+  });
+
+  /**
+   * `packageSize` used to be the literal `M` on every ad. It is now read off the
+   * selected carrier's own weight band, so the mapping is worth pinning: it is
+   * four exact numbers, and a band Marktplaats adds a fifth to falls through.
+   */
+  describe("packageSize", () => {
+    const withBand = (max: number) => {
+      const option = goldenAd().shippingInformation.selectedShippingOptions![0]!;
+      return goldenAd({
+        shippingInformation: {
+          augmentedLabels: [],
+          selectedShippingOptions: [{ ...option, weightInfo: { max, min: 0 } }],
+        },
+      });
+    };
+
+    for (const [max, size] of [
+      [2_000, "XS"],
+      [3_000, "S"],
+      [10_000, "M"],
+      [23_000, "L"],
+    ] as const) {
+      it(`names a ${max / 1000}kg band ${size}`, async () => {
+        http = stubFetch(routes());
+
+        await api.createAd(withBand(max), []);
+
+        expect(urlencoded(http.only("/plaats/ads")).pairs).toContainEqual(["packageSize", size]);
+      });
+    }
+
+    it("sends nothing at all for a weight band this build has no number for", async () => {
+      // Characterizing a hole, not endorsing it. The four above are matched
+      // exactly, so a 5kg band emits **no** `packageSize` — where a pickup-only
+      // ad, which has no band to read, still falls back to `M`. Sending nothing
+      // is the shape the form is least likely to want; see `docs/live-testing.md`
+      // before deciding which of the two is right.
+      http = stubFetch(routes());
+
+      await api.createAd(withBand(5_000), []);
+
+      expect(urlencoded(http.only("/plaats/ads")).pairs.map(([k]) => k)).not.toContain(
+        "packageSize",
+      );
+    });
+
+    it("falls back to M when there is no carrier to read a band off", async () => {
+      http = stubFetch(routes());
+
+      await api.createAd(
+        goldenAd({ shippingInformation: { augmentedLabels: [], selectedShippingOptions: [] } }),
+        [],
+      );
+
+      expect(urlencoded(http.only("/plaats/ads")).pairs).toContainEqual(["packageSize", "M"]);
+    });
   });
 
   it("emits nothing for an ad that carries no attributes", async () => {
@@ -617,10 +683,37 @@ describe("createAd", () => {
     expect(body.pairs.filter(([k]) => k.startsWith("price.") || k === "Dropdown-prijstype")).toEqual([
       ["Dropdown-prijstype", "FIXED"],
       ["price.typeValue", "MIN_BID"],
-      ["price.minimumBidPrice", "50"],
+      // nl-NL with two places, which is how the form's own field is filled in —
+      // `50,00`, never `50`. `price.value` beside it is still a bare number.
+      ["price.minimumBidPrice", "50,00"],
       ["price.value", "125"],
       ["price.biddingEnabled", "on"],
     ]);
+  });
+
+  it("sends no bid floor for an ad whose floor is the string \"0\"", async () => {
+    // The capture carries cents as **strings**, and `"0"` is truthy. Guarding the
+    // field on the raw value put `price.minimumBidPrice=0,00` on every ad without
+    // a floor — a number the seller never chose, posted onto the ad we are
+    // re-creating for them. The guard reads the number now.
+    http = stubFetch(routes());
+
+    await api.createAd(
+      goldenAd({
+        price: {
+          biddingEnabled: true,
+          priceCent: "12500",
+          priceType: "MIN_BID",
+          minimumBidPriceCent: "0",
+        },
+      }),
+      [],
+    );
+
+    const body = urlencoded(http.only("/plaats/ads"));
+    expect(body.pairs.map(([k]) => k)).not.toContain("price.minimumBidPrice");
+    // And the rest of the price block is untouched by the guard.
+    expect(body.pairs).toContainEqual(["price.value", "125"]);
   });
 
   it("never sends Dropdown-prijstype twice, whatever the price type", async () => {

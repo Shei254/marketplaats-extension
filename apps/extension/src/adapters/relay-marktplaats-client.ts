@@ -56,6 +56,10 @@ export class RelayMarktplaatsClient implements MarktplaatsClient {
     });
   }
 
+  async reserveAd(listingId: string): Promise<void> {
+    await this.send<null>({ kind: "reserveAd", listingId });
+  }
+
   searchAd(query: string): Promise<ListingSummary[]> {
     return this.send({
       kind: "searchAd",

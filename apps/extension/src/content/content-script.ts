@@ -46,6 +46,11 @@ async function handle(request: RelayRequest): Promise<RelayResult> {
             // never JSON. Not throwing is the success signal.
             await api.createAd(request.draft, request.photos.map(fromWirePhoto));
             return null;
+        case "reserveAd":
+            // Nothing to hand back — the flag is either on the ad or the call
+            // threw. Its one caller (T71, #157) swallows either way.
+            await api.reserveAd(request.listingId);
+            return null;
         default:
             // Exhaustiveness: adding a RelayRequest kind without handling it here
             // becomes a compile error rather than a silent undefined at runtime.
@@ -60,6 +65,13 @@ async function handle(request: RelayRequest): Promise<RelayResult> {
  * `minimumBidPriceCents` is on the draft and deliberately does not cross (T67): it
  * is the minimum bid *placed*, not the seller's floor, so a row given it would
  * only ever draw it wrong.
+ *
+ * `reserved` **does** cross, since T71 (#157). It had been on the row all along
+ * and was dropped here, which is why nothing on the screen said that an ad the
+ * seller had promised to a buyer was about to be deleted and posted again.
+ * `?? false` because it is the one field here read from a payload that may
+ * predate it — an absent flag is an unreserved ad, and `undefined` on a boolean
+ * would draw the badge nowhere and typecheck everywhere.
  */
 function toListingSummary(ad: ListingDraft): ListingSummary {
     return {
@@ -68,5 +80,6 @@ function toListingSummary(ad: ListingDraft): ListingSummary {
         priceCents: ad.priceCents,
         priceType: ad.priceType,
         biddingEnabled: ad.biddingEnabled,
+        reserved: ad.reserved ?? false,
     };
 }

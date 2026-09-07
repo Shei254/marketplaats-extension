@@ -9,8 +9,8 @@ import { AdList } from "./AdList";
 import type { WorkerPort } from "./screen";
 
 const ADS: ListingSummary[] = [
-  { id: "m1", title: "Vintage Eames lounge chair", priceCents: 125_000, priceType: "FIXED", biddingEnabled: false },
-  { id: "m2", title: "Trek Marlin 7 mountainbike (M)", priceCents: 48_000, priceType: "FIXED", biddingEnabled: false },
+  { id: "m1", title: "Vintage Eames lounge chair", priceCents: 125_000, priceType: "FIXED", biddingEnabled: false, reserved: false },
+  { id: "m2", title: "Trek Marlin 7 mountainbike (M)", priceCents: 48_000, priceType: "FIXED", biddingEnabled: false, reserved: false },
 ];
 
 /** The list, rendered without any of its behaviour — that is `AdList.test.tsx`. */
@@ -30,7 +30,7 @@ describe("the ads themselves", () => {
   it("keep the whole title in the document, however narrow the window is", () => {
     // Truncation is CSS's job. Cutting the string instead would put an ad nobody
     // can identify in a 360px popup and leave nothing to hover for the rest.
-    const long = { id: "m3", title: "A".repeat(120), priceCents: 100, priceType: "FIXED", biddingEnabled: false };
+    const long = { id: "m3", title: "A".repeat(120), priceCents: 100, priceType: "FIXED", biddingEnabled: false, reserved: false };
 
     expect(render({ status: "ready", ads: [long] })).toContain(`title="${"A".repeat(120)}"`);
   });
@@ -98,6 +98,52 @@ describe("when they could not be fetched", () => {
   });
 });
 
+/**
+ * **Gereserveerd** (T71, #157) — the ad is promised to a buyer.
+ *
+ * The badge is the first place a seller learns this row is different from the
+ * others, and the tooltip is where the mechanic answers the question it raises:
+ * a repost deletes the ad first (ADR-0002), so *does reposting un-promise it?*
+ * Until T71 the honest answer was yes, silently.
+ */
+describe("an ad that is reserved", () => {
+  const reserved = { ...ADS[0]!, reserved: true };
+
+  it("says so, and says what a repost does about it", () => {
+    const markup = render({ status: "ready", ads: [reserved] });
+
+    expect(markup).toContain("Gereserveerd");
+    expect(markup).toContain("Reserved for a buyer. Reposting keeps it reserved.");
+  });
+
+  it("says it first, so a column of rows can be scanned for the promised ones", () => {
+    // Ahead of the price chip, which is the trade this makes: the chips stop
+    // lining up across rows so that the badges do. A row tint and a left rail
+    // were both unavailable — `[data-ticked]` and `[data-state="busy"]` already
+    // own that background and that inset rail.
+    const markup = render({ status: "ready", ads: [reserved] });
+
+    expect(markup.indexOf("Gereserveerd")).toBeLessThan(markup.indexOf("Vraagprijs"));
+  });
+
+  it("is the only row that says it", () => {
+    const markup = render({ status: "ready", ads: [reserved, ADS[1]!] });
+
+    expect(markup.match(/Gereserveerd/g)).toHaveLength(1);
+  });
+
+  /**
+   * The meta line draws nothing at all for an ad whose price it cannot describe,
+   * and the badge must not be lost in that hole: *reserved* is a fact about the ad
+   * independent of what it costs.
+   */
+  it("says it even on a row that has nothing to say about the price", () => {
+    const unpriceable = { ...reserved, priceType: "SOMETHING_NEW", priceCents: 0 };
+
+    expect(render({ status: "ready", ads: [unpriceable] })).toContain("Gereserveerd");
+  });
+});
+
 describe("prices", () => {
   it("are Dutch, because the marketplace and the seller are", () => {
     expect(formatEuro(125_000)).toMatch(/^€\s?1\.250,00$/);
@@ -112,6 +158,7 @@ describe("what kind of price an ad has", () => {
     priceCents: 0,
     priceType: "FIXED",
     biddingEnabled: false,
+    reserved: false,
     ...over,
   });
 

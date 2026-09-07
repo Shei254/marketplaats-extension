@@ -19,6 +19,15 @@ export interface ListingSummary {
   priceCents: number;
   priceType: string;
   biddingEnabled: boolean;
+  /**
+   * Gereserveerd — the seller has promised this item to a buyer (T71, #157).
+   *
+   * The list payload has carried it all along and this type dropped it, which is
+   * how a repost came to put an ad the seller had promised back on the open
+   * market with nothing on the screen saying so. The row draws it, and
+   * `createFromSnapshot` puts it back — see `docs/adr/0028-a-repost-puts-back-what-it-can.md`.
+   */
+  reserved: boolean;
 }
 
 /** A single photo, captured so it can be re-uploaded onto the new ad. */

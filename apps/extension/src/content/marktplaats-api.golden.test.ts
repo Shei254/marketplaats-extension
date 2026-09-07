@@ -287,6 +287,73 @@ describe("deleteAd", () => {
   });
 });
 
+describe("reserveAd", () => {
+  /**
+   * The Gereserveerd flag, put back on a reposted ad (T71, #157). Frozen here for
+   * `deleteAd`'s reason and one more: this is the only mutating call whose failure
+   * nobody sees — `createFromSnapshot` swallows it (ADR-0028) — so a payload that
+   * silently stopped being accepted would surface as sellers reporting that
+   * promised items went back on sale, and nothing nearer than that.
+   */
+  it("emits a JSON PUT carrying the CSRF header and the item id alone", async () => {
+    http = stubFetch(routes({ method: "PUT", url: "/seller/api/reserve-ad", reply: { status: 200, text: "" } }));
+
+    await api.reserveAd("m2440161354");
+
+    const req = http.only("/seller/api/reserve-ad");
+    expectSessionRequest(req, "PUT", "/seller/api/reserve-ad");
+    expect(req.headers).toEqual({
+      "content-type": "application/json",
+      "x-mp-xsrf": CSRF_TOKEN,
+    });
+    // `deleteAd`'s body minus the `reason` — observed 2026-09-07 in DevTools.
+    expect(req.body).toEqual({ kind: "text", raw: '{"itemId":"m2440161354"}' });
+  });
+
+  /**
+   * A PUT is in `request()`'s mutating branch, so it inherits the one
+   * refresh-and-retry. Asserted rather than assumed: it is the difference between
+   * a flag that survives an expired token and one that quietly does not.
+   */
+  it("refreshes the token and retries once on a 403", async () => {
+    http = stubFetch(
+      routes(
+        {
+          method: "GET",
+          url: "/plaats/1/2",
+          reply: [{ html: csrfPageHtml(CSRF_TOKEN) }, { html: csrfPageHtml(REFRESHED_CSRF_TOKEN) }],
+        },
+        {
+          method: "PUT",
+          url: "/seller/api/reserve-ad",
+          reply: [{ status: 403, text: "stale token" }, { status: 200, text: "" }],
+        },
+      ),
+    );
+
+    await api.reserveAd("m2440161354");
+
+    const attempts = http.matching("/seller/api/reserve-ad");
+    expect(attempts).toHaveLength(2);
+    expect(attempts[0]!.headers["x-mp-xsrf"]).toBe(CSRF_TOKEN);
+    expect(attempts[1]!.headers["x-mp-xsrf"]).toBe(REFRESHED_CSRF_TOKEN);
+    // Same payload on the retry — only the token changes.
+    expect(attempts[1]!.body).toEqual(attempts[0]!.body);
+  });
+
+  /**
+   * **Not** `AdNotFoundError`, unlike `deleteAd`'s 404. There is no
+   * `notFoundIsMissing` reading here: an ad that is not there is an ad we cannot
+   * flag, and the caller logs whatever this throws.
+   */
+  it("leaves a 404 as an ordinary request error naming the endpoint", async () => {
+    http = stubFetch(routes({ method: "PUT", url: "/seller/api/reserve-ad", reply: { status: 404, text: "" } }));
+
+    await expect(api.reserveAd("m2440161354")).rejects.toThrow(/API Error \[reserveAd\]: HTTP 404/);
+    await expect(api.reserveAd("m2440161354")).rejects.not.toBeInstanceOf(errors.AdNotFoundError);
+  });
+});
+
 describe("uploadPhoto (via createAd)", () => {
   it("posts multipart form-data with the name field before the image blob", async () => {
     http = stubFetch(routes());

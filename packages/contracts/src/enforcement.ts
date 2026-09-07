@@ -607,7 +607,7 @@ export interface ClientConfigPacing {
  * document `{ "schemaVersion": 1 }` is the ordinary answer: the extension's
  * built-in defaults are the configuration, and this says only where an operator
  * has had to depart from them. Nothing is restated in two places, so nothing can
- * drift — and an API that never held the nine endpoint paths cannot serve a stale
+ * drift — and an API that never held the ten endpoint paths cannot serve a stale
  * one.
  *
  * **Strictly data**, which is the ADR's hard constraint and MV3's rule: paths,

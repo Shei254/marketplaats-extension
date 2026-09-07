@@ -290,6 +290,34 @@ export async function deleteAd(listingId: string): Promise<void> {
   });
 }
 
+/**
+ * Mark an ad as **Gereserveerd** (T71, #157) — observed 2026-09-07 in DevTools.
+ *
+ * `deleteAd`'s body shape minus the `reason`, and a PUT rather than a DELETE, so
+ * it takes `request()`'s mutating branch and gets the `x-mp-xsrf` header and the
+ * one 403/419 refresh-and-retry for free.
+ *
+ * **No `notFoundIsMissing`**, unlike `deleteAd`. That flag exists so the
+ * orchestrator can treat an already-gone ad as a delete that succeeded; there is
+ * no equivalent reading here, because an ad that is not there is an ad we cannot
+ * flag. A 404 stays an `ApiRequestError` and the caller logs it — which is the
+ * whole of the failure handling this call gets (ADR-0028).
+ *
+ * `listingId` is passed as well as written into the body so a configured path
+ * carrying `:id` resolves. The observed path has none.
+ */
+export async function reserveAd(listingId: string): Promise<void> {
+  const cfg = await config();
+  await request(cfg, "reserveAd", {
+    listingId,
+    init: {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ itemId: listingId }),
+    },
+  });
+}
+
 export async function getBuckets(categoryId: number): Promise<Bucket[]> {
   const cfg = await config();
   const res = await request(cfg, "getBuckets", { pathParams: { parentCategoryId: categoryId } });

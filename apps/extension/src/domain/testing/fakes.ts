@@ -94,6 +94,8 @@ export type FakeEvent =
   | { type: "clear"; listingId: string }
   | { type: "delete"; listingId: string }
   | { type: "create"; newId: string }
+  /** The Gereserveerd flag was put back, and on which ad (T71, #157). */
+  | { type: "reserve"; listingId: string }
   /** The gap was waited out, and how long it would have been (T46, #54). */
   | { type: "pace"; waited: number }
   /** A relist took its turn, which is what the next gap is measured from. */
@@ -142,6 +144,16 @@ export interface FakeClientOptions {
   deleteError?: Error;
   /** Number of times createAd throws before it succeeds. */
   createFailures?: number;
+  /** If set, reserveAd throws this instead of flagging the ad. */
+  reserveError?: Error;
+  /**
+   * Extra ads to appear in `listMyAds` **after** the next create, as though
+   * somebody had posted them by hand in another tab (T71, #157). One is the
+   * ambiguity the reserve diff must refuse to guess through.
+   */
+  strayAdsOnCreate?: number;
+  /** If set, listMyAds throws this. Drives the "the diff could not be taken" path. */
+  listError?: Error;
 }
 
 export class FakeMarktplaatsClient implements MarktplaatsClient {
@@ -158,6 +170,7 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
   }
 
   async listMyAds(): Promise<ListingSummary[]> {
+    if (this.opts.listError) throw this.opts.listError;
     return [...this.ads.entries()].map(([id, ad]) => ({
       id,
       title: ad.draft.title,
@@ -172,6 +185,10 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
       priceCents: Number(ad.draft.price.priceCent),
       priceType: ad.draft.price.priceType,
       biddingEnabled: ad.draft.price.biddingEnabled,
+      // The one field the orchestrator reads off a row rather than off a
+      // capture (T71, #157): the reserve diff is taken over these ids, and the
+      // badge is drawn from this flag.
+      reserved: ad.draft.reserved,
     }));
   }
 
@@ -206,8 +223,38 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
     // The real client gets no id back from Marktplaats; the fake still needs one
     // internally to keep holding the ad, but never hands it to the caller.
     const id = `new-${this.nextId++}`;
-    this.ads.set(id, { draft, photos });
+    // **The new ad is never reserved**, whatever the captured draft said. That is
+    // the fact T71 (#157) exists for: a repost is delete-and-recreate (ADR-0002)
+    // and the ad that comes back has lost its Gereserveerd flag. A fake that
+    // carried the flag over would make the orchestrator's reserve call untestable
+    // — every assertion about it would already be true before it ran.
+    this.ads.set(id, { draft: { ...draft, reserved: false }, photos });
     this.events.push({ type: "create", newId: id });
+    // Ads that appeared during the create's window and are not it — the hazard
+    // the reserve diff exists to refuse: another tab, or a second repost.
+    for (let n = 0; n < (this.opts.strayAdsOnCreate ?? 0); n++) {
+      this.ads.set(`stray-${this.nextId++}`, sampleAd("Somebody else's ad"));
+    }
+  }
+
+  /**
+   * Flag an ad as Gereserveerd. Sets and never clears, like the real one.
+   *
+   * Throws `AdNotFoundError` for an id it does not hold, because reserving an ad
+   * that is not there is exactly the mistake the caller's diff is guarding
+   * against and a fake that shrugged at it would prove the guard unnecessary.
+   */
+  async reserveAd(listingId: string): Promise<void> {
+    if (this.opts.reserveError) throw this.opts.reserveError;
+    const ad = this.ads.get(listingId);
+    if (!ad) throw new AdNotFoundError(listingId);
+    ad.draft.reserved = true;
+    this.events.push({ type: "reserve", listingId });
+  }
+
+  /** Test helper: is this ad currently flagged Gereserveerd? */
+  isReserved(listingId: string): boolean {
+    return this.ads.get(listingId)?.draft.reserved ?? false;
   }
 
   /** Test helper: does an ad with this id currently exist? */
@@ -233,7 +280,7 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
  * filled in so the fixture stays a real `CapturedAd` and future field changes
  * surface here rather than being hidden behind a cast.
  */
-export function sampleAd(title = "Vintage bike"): CapturedListing {
+export function sampleAd(title = "Vintage bike", reserved = false): CapturedListing {
   return {
     draft: {
       itemId: "ad-1",
@@ -270,7 +317,7 @@ export function sampleAd(title = "Vintage bike"): CapturedListing {
       isCarAd: false,
       isMultiLingual: false,
       phoneUpcallAllowed: false,
-      reserved: false,
+      reserved,
       showTAMSurvey: false,
       suspended: false,
     },

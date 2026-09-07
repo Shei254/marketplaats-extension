@@ -274,6 +274,15 @@ export const adListCss = `
   min-width: 0;
 }
 .popup-ad-type { flex: none; }
+/* Gereserveerd, and it goes **first** in this line (T71) — ahead of the price
+   chip, so twenty rows can be scanned down a single column for the ads that are
+   promised to somebody. That is the scannability a row tint or a left rail would
+   have given, and neither was available: \`[data-ticked]\` already owns
+   \`--mp-hover\` plus an inset accent rail and \`[data-state="busy"]\` owns the same
+   background, so a reserved row styled either way would be indistinguishable from
+   *selected* and from *currently reposting*. What it costs is the price chip's
+   alignment across rows, which is the trade. */
+.popup-ad-reserved { flex: none; }
 /* The number carries the ink now, where it used to be \`muted\` like everything
    else on this line. That was right while it was alone under the title and is not
    right beside a chip: two greys of the same weight read as one smudge, and the

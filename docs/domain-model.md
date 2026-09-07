@@ -96,7 +96,12 @@ User 1───* MarktplaatsAccount   ── modelled, not yet realised (no stab
 2. Backend checks Subscription status, **Entitlement** (quota left in this period) and **SafetyPolicy**
    (rate/pacing), **reserves one usage unit**, and returns a short-lived single-use signed OK or a typed deny.
 3. On OK, extension captures the **AdSnapshot** (durable, client-side), then **delete-first**:
-   delete the ad → create the identical ad via the internal-API engine, with retry/restore.
+   delete the ad → create the identical ad via the internal-API engine, with retry/restore. **"Identical" has
+   always been approximate**: the new ad loses the **Gereserveerd** flag, `buyItNowEnabled`, `escrowAllowed`,
+   `isMultiLingual` and its paid `adFeatures`. Since
+   [ADR-0028](adr/0028-a-repost-puts-back-what-it-can.md) the first is put back — the ad is found by diffing
+   `listMyAds` around the create, and a diff that is not exactly one ad flags nothing — and the last is
+   refused on purpose, because restoring a Dagtopper spends the seller's money without asking.
 4. Extension reports the outcome; backend settles the reservation and records a **RelistEvent** against it,
    or refunds the unit if the relist failed *before* the delete — the event is written either way — and
    returns the updated quota.

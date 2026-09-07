@@ -307,9 +307,18 @@ export class RelistOrchestrator {
   }
 
   private async createFromSnapshot(snapshot: AdSnapshot): Promise<RelistOutcome> {
+    // Taken before the create and only for an ad that was reserved, so an
+    // ordinary repost costs no extra request at all (T71, #157).
+    const before = snapshot.draft.reserved ? await this.adIdsNow() : null;
+
     try {
       await this.client.createAd(snapshot.draft, snapshot.photos);
       await this.store.clear(snapshot.listingId);
+      // After the snapshot is cleared, deliberately. The clear is what says the
+      // relist finished, and a worker torn down between the create and the clear
+      // is resumed into a *second* create of the same ad — so nothing that can
+      // block goes in that gap for the sake of a flag.
+      if (snapshot.draft.reserved) await this.keepReserved(snapshot.listingId, before);
       return { status: "relisted", quota: await this.report(snapshot.grantJti, "SUCCESS") };
     } catch (error) {
       // The original is already gone; keep the snapshot so the user can retry/restore.
@@ -320,6 +329,84 @@ export class RelistOrchestrator {
         error,
         quota: await this.report(snapshot.grantJti, "FAILED_AFTER_DELETE"),
       };
+    }
+  }
+
+  /**
+   * Put the **Gereserveerd** flag back on the ad the repost just created
+   * (T71, #157; ADR-0028).
+   *
+   * A repost is delete-and-recreate (ADR-0002) and the new ad is not identical:
+   * it comes back unreserved, so an item its seller had promised to a buyer goes
+   * quietly back on the open market as a side-effect of our own mechanic. The
+   * rule being encoded is *a reposted ad keeps the flag it had*, which is domain
+   * state and belongs here rather than in the HTTP layer.
+   *
+   * **Finding the new ad's id is the hard part**, because `createAd` returns
+   * none: Marktplaats answers the create with a redirect chain ending on
+   * `/seller/view/:id`, and reading that final URL is exact, free — and depends
+   * on the middle hop being a server redirect, which nobody has observed. So this
+   * diffs `listMyAds` around the create instead, and **exactly one addition is
+   * the new ad**. Zero means we could not find it (list lag, or T37's open
+   * pagination question); more than one means somebody posted an ad by hand in
+   * another tab inside the window, and reserving the wrong one marks an unrelated
+   * *live* listing as promised to a buyer. Either way this does nothing, because
+   * doing nothing is the smaller harm and there is nothing here to guess with.
+   *
+   * **It fails silently, and that is the decision.** Nothing reaches the popup
+   * and the outcome stays `relisted`: the repost *did* succeed, the ad is live,
+   * and the quota unit is rightly spent. Reporting `FAILED_AFTER_DELETE` because
+   * a flag did not stick would lie to the breakage canary. What is lost is the
+   * seller's knowledge that an item they promised is back on the market, which is
+   * a real cost and is mitigated only by the log line below — it names which of
+   * the four cases this was, because that is the whole diagnosis.
+   *
+   * @param before the ids `listMyAds` held before the create, or `null` when that
+   * call failed — in which case there is no diff to take and no id to guess.
+   */
+  private async keepReserved(listingId: string, before: ReadonlySet<string> | null): Promise<void> {
+    if (!before) {
+      console.warn(`[relist] ${listingId} was reserved; could not list ads before the repost`);
+      return;
+    }
+
+    const after = await this.adIdsNow();
+    if (!after) {
+      console.warn(`[relist] ${listingId} was reserved; could not list ads after the repost`);
+      return;
+    }
+
+    const added = [...after].filter((id) => !before.has(id));
+    if (added.length !== 1) {
+      // Named rather than counted away: 0 and 2 are different failures with
+      // different fixes, and the number is what tells them apart in a log.
+      console.warn(
+        `[relist] ${listingId} was reserved; the repost added ${added.length} ads, ` +
+          `so there is no one new ad to flag`,
+      );
+      return;
+    }
+
+    const newListingId = added[0]!;
+    try {
+      await this.client.reserveAd(newListingId);
+    } catch (error) {
+      console.warn(`[relist] ${listingId} was reserved; ${newListingId} could not be`, error);
+    }
+  }
+
+  /**
+   * The ids Marktplaats currently holds for this user, or `null` if it would not
+   * say. Swallows, because both of its callers are on the success path of a
+   * repost that has already happened: a listing call that failed must not turn a
+   * live ad into a failed relist on the screen.
+   */
+  private async adIdsNow(): Promise<Set<string> | null> {
+    try {
+      return new Set((await this.client.listMyAds()).map((ad) => ad.id));
+    } catch (error) {
+      console.warn("[relist] could not list ads for the reserve diff", error);
+      return null;
     }
   }
 }

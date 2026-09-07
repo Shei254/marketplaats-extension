@@ -301,7 +301,7 @@ export function AdRow({
           <span className="popup-ad-title" title={ad.title}>
             {ad.title}
           </span>
-          <PriceMeta price={describePrice(ad)} />
+          <PriceMeta price={describePrice(ad)} reserved={ad.reserved} />
         </div>
         <Button
           shape="rect"
@@ -318,8 +318,8 @@ export function AdRow({
 }
 
 /**
- * The line under the title: what kind of price the ad has, its number where it has
- * one, and whether bids are taken on top.
+ * The line under the title: whether the ad is promised to a buyer, what kind of
+ * price it has, its number where it has one, and whether bids are taken on top.
  *
  * **One line and never a stack.** The row is 360px wide with a button in it, so a
  * second line here is a third line in the row, and a list whose rows are three
@@ -334,16 +334,32 @@ export function AdRow({
  * baseline. That row is a title and a button, which is what it was before any of
  * this.
  */
-function PriceMeta({ price }: { price: PriceLine }): JSX.Element | null {
-  if (!price.label && !price.amount && !price.bidding) return null;
+function PriceMeta({ price, reserved }: { price: PriceLine; reserved: boolean }): JSX.Element | null {
+  if (!reserved && !price.label && !price.amount && !price.bidding) return null;
   return (
     <span className="popup-ad-meta">
+      {reserved && (
+        <Badge tone="accent" className="popup-ad-reserved" title={RESERVED_TOOLTIP}>
+          Gereserveerd
+        </Badge>
+      )}
       {price.label && <Badge className="popup-ad-type">{price.label}</Badge>}
       {price.amount && <span className="popup-ad-price">{price.amount}</span>}
       {price.bidding && <span className="popup-ad-bidding">· bieden</span>}
     </span>
   );
 }
+
+/**
+ * What the badge says on hover — and the half of it that matters is the second
+ * sentence (T71, #157).
+ *
+ * A repost deletes the ad first (ADR-0002), and until T71 the ad that came back
+ * was not reserved: an item its seller had promised went quietly back on the open
+ * market. The badge is the first place a seller learns this ad is different, so it
+ * is also the place to say the mechanic knows.
+ */
+const RESERVED_TOOLTIP = "Reserved for a buyer. Reposting keeps it reserved.";
 
 /**
  * The countdown on a cooldown, in whole seconds, ending itself when it runs out.

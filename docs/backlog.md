@@ -652,6 +652,13 @@ is the one that gets a vague sentence and a rejection.
 | `identity` | Sign-in is Authorization Code + PKCE against our own identity provider, opened by `launchWebAuthFlow`. |
 | `alarms` | Resumes a repost queue after the browser suspends the extension (T68). Reposts are spaced 30–60 seconds apart, which is longer than a service worker stays alive. |
 
+**One justification needs a decision before it is filed.** `alarms` is the batch runner's only user, and the
+batch is withdrawn from the popup ([ADR-0027](adr/0027-the-popup-stops-offering-bulk-repost.md), T70) — so
+this listing asks for a permission no user of this build can reach. It cannot be dropped instead:
+`service-worker.ts` registers `chrome.alarms.onAlarm` at the top level, and a missing permission throws
+before anything else starts. Either the sentence describes the queue rather than the feature, or T70 lands
+first and it is true as written.
+
 #### [T60](https://github.com/Shei254/marketplaats-extension/issues/91) · Finalise the brand name · **S** · before T56 and T58
 Web Store name availability, domain availability, a trademark search. One edit to `brand.json` and a rebuild
 (T48) — everything else is prose, the listing, and the realm's origins.
@@ -683,7 +690,10 @@ Refs: [ADR-0011](adr/0011-repository-layout.md).
 
 None of these is required before a stranger can pay, so none belongs in Go-Live above. The first two arrived
 together in the 2026-09-05 grilling and are written down together for that reason; only the second is a
-feature. T69 came out of the 2026-09-06 session and is the operator's half of what T68 sold.
+feature. T69 came out of the 2026-09-06 session and is the operator's half of what T68 sold. **T70 is the
+2026-09-07 session taking T68's screen back off** for the length of go-live
+([ADR-0027](adr/0027-the-popup-stops-offering-bulk-repost.md)) — which is why the section reads as a feature
+that shipped, gained an operator control, and currently cannot be reached.
 
 #### [T67](https://github.com/Shei254/marketplaats-extension/issues/146) · The ad row stops reading `minimumBidPriceCents` as a bid floor · **S** · no deps · **shipped**
 A correction to T30a's row rendering, caught before it was ever committed.
@@ -748,6 +758,13 @@ the work.
 **Closes** `bulk` as a flag the domain model names and nothing implements — a state
 `V2__seed_tier_catalog.sql` has been carrying a comment about since it was written.
 
+**Withdrawn from the popup on 2026-09-07, two days after it shipped**
+([ADR-0027](adr/0027-the-popup-stops-offering-bulk-repost.md)) — scope for go-live, and nothing found wrong
+with any of the above. Everything here stands except the four surfaces that offered it, and the outstanding
+click-through walk goes with them: **slice E is now T70's**, not this ticket's. What is left of T68 is
+therefore nothing, and it is not *done* either — the repo's own rule is that a slice ends at a walk, and
+T70 is where this one waits.
+
 #### [T69](https://github.com/Shei254/marketplaats-extension/issues/153) · The bulk cap is a number an operator types · **M** · T53, T54, T68
 Setting a tier's bulk cap means hand-writing `{"bulk": {"upTo": 10}}` into a textarea, one field away from the
 quota an operator sets with a number. [ADR-0026](adr/0026-a-feature-flag-is-a-field-spelled-once.md) carries
@@ -794,6 +811,27 @@ number, unexpressible content opens expanded, collapse is refused with its reaso
 "yes"}`, which both the popup and the API read as *granted, uncapped*. That is deliberate on both sides and
 `bulkIn` preserves it; nothing here closes it, and it is written down so it is not later read as an oversight.
 
+#### [T70](https://github.com/Shei254/marketplaats-extension/issues/155) · Bulk repost comes back to the popup, walked against real ads · **S** · T68, T69, **T58 live and steady**
+Bulk is built, tested and unreachable: [ADR-0027](adr/0027-the-popup-stops-offering-bulk-repost.md) took the
+selection off the popup for go-live scope and left the queue, the alarm, the entitlement, the API refusal and
+`/admin`'s cap exactly where T68 and T69 put them. **The trigger is go-live being stable** — T58 listed, real
+users through the single-repost path without incident — and not a date.
+
+**The flip is one word.** `BULK_OFFERED` in `apps/extension/src/popup/batching.ts` becomes `true` and
+`Popup`'s `offerBulk` parameter goes with it: it exists so the suite can turn on a screen the product does
+not draw, and there is nothing to turn on once it does. The forty tests in `Popup.test.tsx`'s
+`describe("reposting several at once")` lose their `beforeEach`, and the two that assert the withdrawal go.
+No component is edited, because none was.
+
+**The walk is the work.** [`click-through.md`](click-through.md) slice E, steps 1–12, against a real account
+with enough real ads that a selection is a selection. It is T68's outstanding walk, parked here rather than
+performed against a feature no user could see, and nothing else in this repo can prove delete-first over a
+queue — every suite that covers bulk stubs Marktplaats.
+
+**And the two things left standing.** The `alarms` justification in T58's table, which has been describing a
+feature nobody could reach; and `/admin`'s `Bulk repost [ N ] at a time`, which has been setting a cap with
+no visible effect — worth one look at the seeded values before the boxes are back.
+
 ---
 
 ## Deferred
@@ -823,3 +861,4 @@ T21).
 | Multi-Marktplaats-account support | T38 |
 | Firefox port | [ADR-0009](adr/0009-tech-stack.md) |
 | Relist history / outcome analytics screens | Not in iteration 1 |
+| Bulk repost in the popup | [ADR-0027](adr/0027-the-popup-stops-offering-bulk-repost.md) — built (T68, T69) and withdrawn from the screen for go-live scope; the mechanism, the entitlement and the API refusal all stand. Back with T70, once go-live is stable |

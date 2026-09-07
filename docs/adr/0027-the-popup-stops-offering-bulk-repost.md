@@ -4,7 +4,8 @@
 **Scope:** `apps/extension`'s popup, and nothing else. **Refines
 [ADR-0025](0025-bulk-repost-is-entitled-queued-and-paced-wider.md)**, which built the feature, and leaves
 [ADR-0026](0026-a-feature-flag-is-a-field-spelled-once.md)'s operator field standing. No API, no schema, no
-worker and no catalog change. T70 is the ticket that undoes it.
+worker and no catalog change. [T70](https://github.com/Shei254/marketplaats-extension/issues/155) is the
+ticket that undoes it.
 
 **Unlike most decisions here, this one is cheap to reverse** — it is one constant — and it is written down
 anyway, because the thing a reader will actually meet is a complete, tested subsystem with no way into it.
@@ -123,7 +124,8 @@ no way in — which is exactly the file this decision undertakes not to touch.
 
 ## Revisit if
 - **Go-live is stable** — T58 listed, and real users through the single-repost path without incident. That is
-  the trigger, and T70 is the ticket: flip `BULK_OFFERED`, then walk slice E against real ads, so the boxes
+  the trigger, and [T70](https://github.com/Shei254/marketplaats-extension/issues/155) is the ticket: flip
+  `BULK_OFFERED`, then walk slice E against real ads, so the boxes
   come back proven rather than come back and then get tested.
 - **Anything needs a second state of "not offered".** One constant is a switch; two would be the flag
   registry ADR-0026 rejected, and the argument there — that its shape is unknowable until the second member

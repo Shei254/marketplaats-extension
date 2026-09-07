@@ -29,6 +29,14 @@ next to their own ads, which is the same conversion argument the row below makes
 per-row Repost button. Quota then caps the selection on top of that: nobody may select more ads than they
 have relists left.
 
+> **Withdrawn from the client since 2026-09-07** ([ADR-0027](adr/0027-the-popup-stops-offering-bulk-repost.md),
+> [T70](https://github.com/Shei254/marketplaats-extension/issues/155)). The popup draws **no** selection at
+> all — no boxes, no header, no bar, and not the line pointing at Plans — so **nothing sends `batch: true`**
+> and the paragraph above describes a screen no build currently produces. The API half is unchanged and still
+> refuses; the two paragraphs describe the same contract with one end of it currently silent. `BULK_OFFERED`
+> in `apps/extension/src/popup/batching.ts` is the switch, and the reason is go-live scope rather than any
+> fault found in either end.
+
 The ad list and search are **not** subscription-gated: they run client-side against the user's own
 Marktplaats session and cost us nothing, and a locked button beside the user's own ads is the strongest
 conversion surface available. The login gate is a product decision, not a security control — see ADR-0007.
@@ -675,7 +683,7 @@ report still wins, above).
 |---|---|
 | `200` OK | active → proceeds with delete-first relist (ADR-0003) |
 | `402 SUBSCRIPTION_INACTIVE` | shown but locked → **"update your card"** + Portal link (dunning only) |
-| `403 BULK_NOT_ENTITLED` | the selection controls are drawn **disabled** with an upgrade prompt; the per-row Repost button is untouched |
+| `403 BULK_NOT_ENTITLED` | the selection controls are drawn **disabled** with an upgrade prompt; the per-row Repost button is untouched — **unreachable while bulk is withdrawn** (ADR-0027): no client sends `batch: true`, so no client is refused this |
 | `429 QUOTA_EXCEEDED` | shown → **upgrade** prompt + `resetAt` |
 | `429 RATE_LIMITED` | shown → cooldown timer (`retryAfter`) |
 | `401` / unreachable / timeout | shown → "unavailable, retry" (fail-closed) |

@@ -106,7 +106,8 @@ claim about the admin edit true on a machine that restores a dump.
 go-live — scope rather than risk — while leaving the entitlement, the queue, the API refusal and
 [0026](0026-a-feature-flag-is-a-field-spelled-once.md)'s operator field exactly as they are. It is the one
 ADR here that is cheap to reverse, and says so: what earns it a file is that the alternative leaves a whole
-tested subsystem with no way into it and nothing anywhere saying why. T70 is the ticket that undoes it.
+tested subsystem with no way into it and nothing anywhere saying why.
+[T70](https://github.com/Shei254/marketplaats-extension/issues/155) is the ticket that undoes it.
 
 See also [../domain-model.md](../domain-model.md), [../glossary.md](../glossary.md) and
 [../enforcement-contract.md](../enforcement-contract.md).

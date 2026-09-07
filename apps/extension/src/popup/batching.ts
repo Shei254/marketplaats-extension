@@ -33,6 +33,29 @@ export interface BulkSelection {
 }
 
 /**
+ * Whether the popup offers bulk at all (T70, #155; ADR-0027).
+ *
+ * **This is the screen declining to ask, and not a plan that grants nothing.**
+ * Those are different facts and the popup has always drawn them differently: a
+ * plan without bulk gets its boxes *disabled* beside a line pointing at Plans,
+ * which is ADR-0007's conversion surface and is deliberately not an absence. Off
+ * here draws none of it — no boxes, no header, no bar, and no sentence about a
+ * feature nobody can reach.
+ *
+ * Everything underneath keeps its meaning while this is false. The entitlement
+ * still grants, `authorize` still refuses `batch: true` without it, the queue
+ * still runs a batch the dev hooks start, and {@link bulkFor} below still answers
+ * what a plan allows — nothing asks it. Which is what makes coming back one word:
+ * `Popup` takes this as a default so the suite can flip it, and the forty tests
+ * that describe the screen go on passing while no user can see it.
+ *
+ * Withdrawn for go-live scope rather than for any fault, and T70 is the ticket
+ * that puts it back — after go-live is stable, and after slice E has been walked
+ * against real ads.
+ */
+export const BULK_OFFERED = false;
+
+/**
  * What this plan allows, read from the entitlement `/api/me` rendered.
  *
  * `null` means the plan does not include bulk at all — which is what draws the

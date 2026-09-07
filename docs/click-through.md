@@ -443,6 +443,19 @@ it can stop leaves the user's ads accounted for.
 > ⚠️ Every step here deletes and re-creates real ads. **A test account with several throwaway ads**, and
 > enough of them that a selection is a selection — five is the fewest that makes step 6 meaningful.
 
+> 🚫 **Not walkable as written since 2026-09-07.** The popup draws no checkboxes, no *Select all* row and no
+> action bar — bulk was withdrawn for go-live scope
+> ([ADR-0027](adr/0027-the-popup-stops-offering-bulk-repost.md)), and every step below that begins with a tick
+> has no control to tick. **The walk moved with the feature**: it is
+> [T70](https://github.com/Shei254/marketplaats-extension/issues/155)'s, to be performed once `BULK_OFFERED`
+> is back on, so the boxes return proven rather than return and then get tested.
+>
+> The mechanism underneath is untouched and still reachable: `__startBatch(["id", …])` in a **dev build**'s
+> service-worker console starts a run, `__batchState()` reads it and `__stopBatch()` ends it. That covers
+> steps 3–10 — the pacing, the sleeps, the stops and the restart — and cannot cover steps 1, 2, 11 and 12,
+> which are about the boxes and the sentences beside them. The bid row (T67) above is unaffected and needs
+> no run.
+
 **The bid row first (T67), because it is one look and needs no run.** Put a bidding ad on the test account.
 *Expect:* the row shows the **`Bieden` chip and no amount at all** — no `vanaf`, no `€ 0,00`, no number
 carried over from a bidder. A `FIXED` ad beside it still shows `Vraagprijs € X`, a free one `Gratis` with no

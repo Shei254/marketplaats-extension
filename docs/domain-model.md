@@ -43,7 +43,10 @@ MP sessions live only in the user's browser. Nothing here holds them server-side
   and the popup that reads one, and writes a flag turned **off as `false`** rather than removing it — absence
   is then what a tier the seed has never touched looks like. **Decided and built** by T69: the cap is a number
   field in `/admin`, `false` is what an operator's edit writes, and the JSON hatch beside it is what keeps the
-  column open in the form as well as in the schema.
+  column open in the form as well as in the schema. **The grant is intact and currently inert**
+  ([ADR-0027](adr/0027-the-popup-stops-offering-bulk-repost.md)): the popup no longer offers a selection, so
+  nothing asks for `batch` and nothing is refused for it — an operator's cap is a promise about a screen T70
+  brings back.
 - **UsageReservation** — one quota unit, held from `authorize` until `complete` settles or refunds it, for
   a User and an ad reference. Backend-owned; usage in a period is the reservations in it that were not
   refunded, so a relist still in flight already counts (ADR-0007).
@@ -62,7 +65,9 @@ MP sessions live only in the user's browser. Nothing here holds them server-side
   (ADR-0025). **Not** a backend entity, and nothing the backend can infer: each ad in it authorizes on its
   own, so what reaches the API is N ordinary relists that happen to say `batch`. It is **dropped on a browser
   restart** rather than resumed — a deliberate stop, since alarms persist and delete-first must not fire at
-  ads nobody is thinking about.
+  ads nobody is thinking about. **Nothing in the popup starts one since 2026-09-07**
+  ([ADR-0027](adr/0027-the-popup-stops-offering-bulk-repost.md), T70): the selection was withdrawn for
+  go-live scope and every part of this entity stands, reachable by `__startBatch` in a dev build.
 
 ## Relationships
 
@@ -85,7 +90,9 @@ User 1───* MarktplaatsAccount   ── modelled, not yet realised (no stab
 
 1. Extension requests a **RelistAuthorization** from the backend for an ad. Requires a signed-in User, and
    says `batch` when the ad is one of several the user selected — which is refused outright when the
-   Entitlement carries no `bulk` (ADR-0025).
+   Entitlement carries no `bulk` (ADR-0025). No shipped popup says it while bulk is withdrawn
+   ([ADR-0027](adr/0027-the-popup-stops-offering-bulk-repost.md)); the field, the refusal and the flag are
+   all unchanged.
 2. Backend checks Subscription status, **Entitlement** (quota left in this period) and **SafetyPolicy**
    (rate/pacing), **reserves one usage unit**, and returns a short-lived single-use signed OK or a typed deny.
 3. On OK, extension captures the **AdSnapshot** (durable, client-side), then **delete-first**:

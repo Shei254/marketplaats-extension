@@ -35,8 +35,9 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0022](0022-the-plan-screen-names-the-payment-methods.md) | The plan screen names the payment methods, read from Stripe | Accepted, refines 0006 |
 | [0023](0023-ci-builds-the-images-and-the-host-pulls.md) | CI builds the images, a registry holds them, the host pulls; TLS in a fifth container | Accepted, amends 0020 |
 | [0024](0024-the-extension-addresses-are-built-in.md) | The extension's own addresses are built in, never served | Accepted, refines 0013 |
-| [0025](0025-bulk-repost-is-entitled-queued-and-paced-wider.md) | Bulk repost is a paid entitlement, run by the worker, paced wider | Accepted, realises 0007/0014's `bulk` flag |
+| [0025](0025-bulk-repost-is-entitled-queued-and-paced-wider.md) | Bulk repost is a paid entitlement, run by the worker, paced wider | Accepted, realises 0007/0014's `bulk` flag, refined by 0027 |
 | [0026](0026-a-feature-flag-is-a-field-spelled-once.md) | A feature flag is a field an operator types, and the flag is spelled once | Accepted, refines 0014 |
+| [0027](0027-the-popup-stops-offering-bulk-repost.md) | The popup stops offering bulk repost, and the mechanism stays | Accepted, refines 0025 |
 
 **Amended by the 2026-08-13 session:** 0006 (Stripe narrowed to money + lifecycle), 0007 (gating depth,
 `/api/me` display state, `marktplaatsAccountId` dropped), 0009 (monorepo, React popup, Options page removed).
@@ -99,6 +100,13 @@ column stops being a JSON textarea in `/admin` and becomes a field, now that
 spelled once in `packages/contracts` and read from there by both the admin form and the popup, and "off" is
 written `false` rather than as a deleted key — which is what makes `V8__seed_bulk_entitlement.sql`'s own
 claim about the admin edit true on a machine that restores a dump.
+
+**Amended by the 2026-09-07 session:** [0027](0027-the-popup-stops-offering-bulk-repost.md) refines
+[0025](0025-bulk-repost-is-entitled-queued-and-paced-wider.md) by taking bulk repost off the popup for
+go-live — scope rather than risk — while leaving the entitlement, the queue, the API refusal and
+[0026](0026-a-feature-flag-is-a-field-spelled-once.md)'s operator field exactly as they are. It is the one
+ADR here that is cheap to reverse, and says so: what earns it a file is that the alternative leaves a whole
+tested subsystem with no way into it and nothing anywhere saying why. T70 is the ticket that undoes it.
 
 See also [../domain-model.md](../domain-model.md), [../glossary.md](../glossary.md) and
 [../enforcement-contract.md](../enforcement-contract.md).

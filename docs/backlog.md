@@ -832,13 +832,77 @@ queue — every suite that covers bulk stubs Marktplaats.
 feature nobody could reach; and `/admin`'s `Bulk repost [ N ] at a time`, which has been setting a cap with
 no visible effect — worth one look at the seeded values before the boxes are back.
 
+#### [T71](https://github.com/Shei254/marketplaats-extension/issues/157) · A repost puts back the Gereserveerd flag · **M** · T26, T30b, T45
+A repost is delete-and-recreate (ADR-0002), and the new ad is not identical: the `Gereserveerd` flag is gone,
+so an item the seller promised to a buyer goes quietly back on the open market as a side-effect of our own
+mechanic. `CapturedAd.reserved` has been in the capture all along, read by nothing. **A safety net rather
+than a feature**, which is what makes the second half of the ticket part of the work.
+
+**`PUT /seller/api/reserve-ad`, body `{"itemId": …}`** — observed 2026-09-07, the `deleteAd` shape minus the
+`reason`, and it picks up the CSRF header and the 403 retry from `request()` for free. A fresh ad is never
+reserved, so the flag is only ever *set* and whether the endpoint toggles is a question nobody has to answer.
+
+**The hard part is the new ad's id, and `createAd` returns none.** The create redirects through
+`/payments/orderOverview/…?orderId=…` — the order for the free placement, not the ad — and lands on
+`/seller/view/:id`. Reading that final URL off `res.url` is exact and free and **is the refinement, not this
+ticket**: it depends on the middle hop being a server redirect, which nobody has observed. What ships is a
+**`listMyAds` diff** around the create — one addition is the new ad, zero or more than one reserves nothing,
+because reserving the wrong ad marks an unrelated *live* listing as promised to a buyer.
+
+**The orchestrator drives it**, in `createFromSnapshot`, which `retry()` and `resumeSnapshot()` share — so a
+relist that crashed and resumed hours later re-reserves, since `reserved` rides in the ADR-0003 snapshot. The
+cost is visible and accepted: the refinement will take the diff back out of the orchestrator and its suites.
+
+**It fails silently, and that is a decision.** The outcome stays `relisted` and the report stays `SUCCESS`,
+because the repost did succeed and the unit is rightly spent. What is lost is the seller's knowledge that an
+item they promised is back on the market, and all that mitigates it is a log line naming which of the three
+cases it was. Written down so it is not later read as a bug.
+
+**On the screen**, `<Badge tone="accent">Gereserveerd</Badge>` first in the meta line. Not a row tint and not
+a left rail: `[data-ticked]` already owns `--mp-hover` plus an inset accent rail and `[data-state="busy"]`
+owns the same background, so either would be indistinguishable from *selected* and *reposting*.
+
+**And the other half — what a repost silently drops.** `reserved` is the first entry on a list nobody had
+written down. `buyItNowEnabled`, `escrowAllowed` and `isMultiLingual` are captured, posted by nothing, and
+destroyed by every repost; `adFeatures` is destroyed too and **correctly so**, since restoring a Dagtopper
+spends the seller's money without asking. The table goes in `internal-api-findings.md`, the three form-field
+candidates get their own ticket, and none of them is built here — they are edits to `createAd`'s form, whose
+order is load-bearing and observed-only, and putting a safe endpoint call behind three speculative edits to
+it risks the safe part for nothing. That boundary is [ADR-0028](adr/0028-a-repost-puts-back-what-it-can.md).
+
+**Vocabulary.** This file's own orchestrator already says "the reservation the backend took" about something
+else entirely, so the glossary gains **Gereserveerd (Reserved ad)** with `_Avoid_: reservation` — the quota
+concept keeps the noun, the ad concept takes the Dutch adjective. And `reserveAd` is the tenth endpoint,
+which makes the "nine" spelled out in prose wrong everywhere. The ticket said 13 places across 8 files; it
+was **16 across 11**, the extra five being `apps/api/README.md` (×2), `clientconfig/package-info.java`,
+`ClientConfig.java` and `packages/contracts/src/enforcement.ts` — none of which the count was taken from,
+which is the argument for the count never being written in prose in the first place.
+
+**Only a real account can finish it.** Every suite here stubs Marktplaats, and the end-to-end check is
+destructive (ADR-0002/0003).
+
+#### [T72](https://github.com/Shei254/marketplaats-extension/issues/158) · The three other fields a repost drops · **M** · T71, T45
+[ADR-0028](adr/0028-a-repost-puts-back-what-it-can.md) wrote down what a repost destroys and restored exactly
+one entry. `buyItNowEnabled` ("Direct kopen"), `escrowAllowed` (a second protection flag — the *other* one,
+`isBuyerProtectionActiveOnListing`, is posted) and `isMultiLingual` (only the `nl-NL` title and description go
+out, so a bilingual ad loses half of itself) are captured, posted by nothing, and gone on every repost.
+`adFeatures` is **not** on the list and never will be: restoring a Dagtopper spends the seller's money without
+asking.
+
+**The work is observation and not code.** Nobody knows the field names — each needs a real ad created by hand
+with the option on and the `POST /plaats/ads` body read out of DevTools, *including where in the order the
+field sits*, since that order is load-bearing. Then emit it, re-freeze the golden payload (ADR-0015), and
+record the finding. **A field whose name cannot be established is left alone and said so**: a guessed form
+field is how a create starts 4xx-ing after a delete, which costs a real listing — which is also why this is
+its own ticket rather than a rider on T71's safe endpoint call.
+
 ---
 
 ## Deferred
 
 | Ticket | Why it waits |
 |---|---|
-| [T27](https://github.com/Shei254/marketplaats-extension/issues/36) · `GET /api/client-config` | **Shipped**, ahead of the bill it was waiting for — because the lever has to predate the outage it is for, the same argument T43 makes about its header. It holds **no copy** of the nine endpoints: what it serves is a patch over the build's own defaults, so a healthy deployment answers `{"schemaVersion":1}` and nothing here can go stale. The ranking this ticket left open is decided — defaults, then the served document, then a tester's `__setEndpoints`, **the tester winning** — and the four CSRF modes are an enum at both ends, which is where "strictly data" is enforced rather than asserted ([ADR-0013](adr/0013-remote-client-configuration.md)) |
+| [T27](https://github.com/Shei254/marketplaats-extension/issues/36) · `GET /api/client-config` | **Shipped**, ahead of the bill it was waiting for — because the lever has to predate the outage it is for, the same argument T43 makes about its header. It holds **no copy** of the ten endpoints: what it serves is a patch over the build's own defaults, so a healthy deployment answers `{"schemaVersion":1}` and nothing here can go stale. The ranking this ticket left open is decided — defaults, then the served document, then a tester's `__setEndpoints`, **the tester winning** — and the four CSRF modes are an enum at both ends, which is where "strictly data" is enforced rather than asserted ([ADR-0013](adr/0013-remote-client-configuration.md)) |
 | [T31](https://github.com/Shei254/marketplaats-extension/issues/40) · Debounced server-side searchbar | **Shipped.** A convenience over the ad list and never part of the gate — search is ungated at every subscription state, like the list it filters. It closed the dead path it was named for: `searchAd` reached the orchestrator and was **logged**, so nothing could render it. Server-side because `listMyAds` paging is an open spike below — a box filtering the rows that happened to arrive would fail to find an ad the seller can see, and worst on the biggest account |
 | [T37](https://github.com/Shei254/marketplaats-extension/issues/46) · SPIKE: is `listMyAds` paginated? | Cheap and high-information; run it when the list gets long enough to matter |
 | [T38](https://github.com/Shei254/marketplaats-extension/issues/47) · SPIKE: stable Marktplaats account identifier | Blocks `maxMpAccounts` as a sellable entitlement and multi-account |

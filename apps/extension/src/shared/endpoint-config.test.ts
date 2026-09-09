@@ -235,7 +235,7 @@ describe("saveEndpointOverrides", () => {
   });
 
   // The bug this function replaced: __setEndpoints wrote the *resolved* config
-  // back, so overriding any one endpoint pinned all nine at the running build's
+  // back, so overriding any one endpoint pinned all ten at the running build's
   // defaults. Asserting on what reaches storage, not on what loads back out —
   // a resolved write and an override write are indistinguishable through
   // loadEndpointConfig until the defaults change, which is exactly when the old
@@ -304,7 +304,7 @@ describe("saveEndpointOverrides", () => {
 // only reads — so it is its own block rather than misfiled under the writer.
 //
 // A tester who used the Options page, or __setEndpoints before it stored
-// overrides, has a *resolved* config under the old key: nine endpoints pinned at
+// overrides, has a *resolved* config under the old key: ten endpoints pinned at
 // the defaults of whatever build wrote it. Read as overrides it would shadow
 // every later default — indistinguishable from the bug that was just fixed, and
 // permanent, since nothing would ever overwrite a key the tester does not know

@@ -43,10 +43,10 @@ decision above would assume.
 
 **It carries no configuration.** The decision says endpoints "are **overridden by** a config document", which
 reads as a document that holds them. It does not: what is served is a **patch**, every field optional, and
-`{"schemaVersion":1}` is what a healthy deployment answers — meaning *your defaults are correct*. The nine
+`{"schemaVersion":1}` is what a healthy deployment answers — meaning *your defaults are correct*. The ten
 paths, the CSRF rules and the pacing window live in the extension and nowhere else. The alternative, an API
 holding its own copy, buys one thing (a document you can read to see what clients will do) and costs the
-failure this whole ADR is written against: a second copy of nine private paths, which goes stale on its own
+failure this whole ADR is written against: a second copy of ten private paths, which goes stale on its own
 schedule and is then served, confidently, to every installed build at once.
 
 **"Strictly data" is now a list rather than a promise.** The hard constraint above says "paths, header names,
@@ -74,7 +74,7 @@ document by falling back to what it shipped with.
 
 ## Refined 2026-09-02 (ADR-0024) — what this document may never carry
 
-The amendment above says the served patch holds the nine paths, the CSRF rules and the pacing window, and
+The amendment above says the served patch holds the ten paths, the CSRF rules and the pacing window, and
 that our own addresses "live in the extension and nowhere else". That was a description of what was built.
 [ADR-0024](0024-the-extension-addresses-are-built-in.md) makes it a rule and gives the reason, because two
 source files still carry comments proposing the opposite:

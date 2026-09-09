@@ -8,7 +8,7 @@
  * the other seven, so putting it in one of them would misname that module rather than save a package.
  *
  * <p><strong>What it serves is a patch, and it is the whole reason this module holds no knowledge.</strong>
- * The nine internal-API paths, the CSRF rules and the pacing window are the extension's, built in and shipped
+ * The ten internal-API paths, the CSRF rules and the pacing window are the extension's, built in and shipped
  * with it. This module never names one. It carries what an operator has had to *override* — usually nothing —
  * so there is no second copy of anything to go stale, and an empty document is the ordinary answer rather
  * than a failure.

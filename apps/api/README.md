@@ -1916,7 +1916,7 @@ of [ADR-0013](../../docs/adr/0013-remote-client-configuration.md): the extension
 unversioned endpoints, and the day one of them moves, every installed build fails the same way at once. A fix
 shipped as a release is a Web Store review — days. A fix shipped as this document is a restart.
 
-**It holds no configuration**, which is the decision the rest follows from. The nine paths, the CSRF rules and
+**It holds no configuration**, which is the decision the rest follows from. The ten paths, the CSRF rules and
 the two pacing windows are the *extension's*, built into every release; what this serves is a **patch** over
 them, and on a day nothing has moved that patch is empty:
 
@@ -1926,7 +1926,7 @@ GET /api/client-config      →  {"schemaVersion":1,"rails":{"burstLimit":10,"bu
 
 That is a `200`, and it means *your defaults are correct*. There is no `404` for a document nobody deployed
 and no `503` for one that could not be built — the document is a setting this application read at startup, so
-the only way to fail here is to have failed to start. The alternative, holding our own copy of nine private
+the only way to fail here is to have failed to start. The alternative, holding our own copy of ten private
 paths, buys a document you can read and costs the failure this route exists to prevent: a second copy that
 goes stale on its own schedule and is then served, confidently, to every installed build at once.
 

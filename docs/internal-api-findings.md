@@ -47,8 +47,9 @@ user's own session cookie is what authenticates them. **Observed** paths, **froz
 | `uploadPhoto` | POST | `/plaats/api/image/upload` | JSON `{ id, imageUrl, largeImageUrl, extraLargeImageUrl, valid }` |
 | `getBuckets` | GET | `/plaats/api/v1/category-aggregate/:parentCategoryId/buckets` | JSON array of `{ id, … }` |
 | `getBucketCategories` | GET | `/plaats/api/v1/category-aggregate/:parentCategoryId/buckets/:bucketId/categories` | JSON array of `{ id, … }` |
+| `reserveAd` | PUT | `/seller/api/reserve-ad` | body ignored. `{"itemId": "m2440161354"}` — `deleteAd`'s shape minus the `reason` |
 
-**Two of the nine are HTML.** That is the fragile half: a JSON endpoint changes shape loudly and a scraped
+**Two of the ten are HTML.** That is the fragile half: a JSON endpoint changes shape loudly and a scraped
 page changes shape silently, because the page still renders perfectly well for a human.
 
 **`/plaats/1744/1745` is a category-specific form** — 1744 is *Fietsen en Brommers*, 1745 is *Herenfietsen*,
@@ -240,6 +241,63 @@ relist rather than showing the new ad directly.
 
 ---
 
+## `reserveAd`: the Gereserveerd flag, and finding the ad to put it on
+
+**Observed 2026-09-07 in DevTools.** `PUT /seller/api/reserve-ad` with
+`{"itemId": "m2440161354"}` — the `deleteAd` body minus the `reason`. It goes through `request()`'s mutating
+branch, so it carries `x-mp-xsrf` and inherits the one 403/419 refresh-and-retry. **Frozen** by the golden
+suite; the response body is ignored, and no 404 mapping is applied, so an ad that is not there is an ordinary
+`ApiRequestError` rather than `AdNotFoundError`.
+
+**We only ever *set* the flag.** A freshly created ad is never reserved, so whether the endpoint is a toggle
+or a setter is a question nothing here has to answer — and nobody has established which it is.
+
+**The hard part is the new ad's id, because `createAd` returns none.** Marktplaats answers the create with a
+302 to `/payments/orderOverview/index.html?previousAction=freeAdPlacement&…&orderId=…` — that `orderId` is the
+order for the *free placement*, **not** the ad — and the chain ends on
+`/seller/view/m2440161354?previousAction=syiSuccess`. Two ways to learn it:
+
+- **Read `res.url` after the redirect chain.** Exact and free, and it depends on the middle hop being a
+  **server** redirect rather than a browser navigation — which **has not been observed**. This is the
+  refinement.
+- **Diff `listMyAds` around the create.** What ships. Snapshot the ids before, again after, and the single
+  addition is the new ad.
+
+**Exactly one addition, or nothing happens.** Zero means we could not find it — list lag, or T37's open
+pagination question. More than one means somebody posted an ad by hand in another tab during the window, and
+**reserving the wrong ad marks an unrelated *live* listing as promised to a buyer**, which is worse than doing
+nothing.
+
+**The known hazard, written down rather than remembered:** a batch reposts ads through the same worker, so a
+list diff taken around one create can in principle see an id another repost made. The runner is strictly
+sequential and the diff window is one request wide, so this needs two creates to interleave — but it is a real
+property of this mechanism, and one of the reasons the refinement above exists.
+
+---
+
+## What a repost silently drops
+
+A repost is delete-and-recreate ([ADR-0002](adr/0002-relist-mechanic.md)), and **the new ad is not
+identical**. Set `CapturedAd` against the 36 fields `createAd` actually posts and these are captured, read by
+nothing, and destroyed by every repost. Written down (T71) because until it was, the list did not exist —
+`reserved` was found by looking, not by remembering.
+
+| Field | What it is | Restorable? |
+|---|---|---|
+| `reserved` | Gereserveerd — promised to a buyer | **Done** (T71, [#157](https://github.com/Shei254/marketplaats-extension/issues/157)) |
+| `buyItNowEnabled` | "Direct kopen" | Probably a `createAd` form field |
+| `escrowAllowed` | `isBuyerProtectionActiveOnListing` *is* posted, as `buyerProtectionAllowed`; this is a second flag and is not | Probably a form field |
+| `isMultiLingual` | Only `title_nl-NL` / `description_nl-NL` go out — a bilingual ad loses its second language | Probably two more form fields |
+| `adFeatures[]` | Topper, Dagtopper, urgency, etalage | **No, deliberately** — restoring one spends the seller's money without asking |
+
+**`adFeatures` is why the policy is not "restore everything"**
+([ADR-0028](adr/0028-a-repost-puts-back-what-it-can.md)). The three form-field candidates are edits to
+`createAd`'s form, whose field order is load-bearing and observed-only and which the failure table below
+already calls the likeliest breakage in the whole layer — so they are their own ticket rather than a rider on
+a safe endpoint call.
+
+---
+
 ## Photos
 
 **Download** (`downloadPhoto`, one per gallery URL, in parallel):
@@ -326,6 +384,12 @@ Open questions, each with a ticket where there is one:
   `packageSize` at all, while a pickup-only ad still falls back to `M`. One of those two is wrong and the
   form knows which. No ticket.
 - **Is the create-ad signature category-scoped?** We scrape one bicycle form for every ad. No ticket.
+- **Is the create's middle redirect hop a server redirect?** If it is, `res.url` after `createAd` carries the
+  new ad's id exactly, and the `listMyAds` diff — with its two extra requests and its two ways of being unsure
+  — comes out of the orchestrator entirely. Nobody has watched the chain in the network tab with *Preserve
+  log* on. The refinement to T71, no ticket.
+- **Is `reserveAd` a toggle or a setter?** We only ever set, on an ad that is never already reserved, so it
+  has never mattered. It would matter to anything that wanted to *un*-reserve. No ticket.
 - **What does a rejected `createAd` actually answer?** No status, body or shape has been recorded — which is
   why the failure table above says "compare and re-record" rather than naming one. No ticket.
 - **How often does the direct photo fetch fail?** Decides whether recompression is an edge case or the normal

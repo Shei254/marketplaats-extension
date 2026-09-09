@@ -15,7 +15,7 @@ apps/extension/src/auth/auth-config.ts:38  issuer: "http://localhost:8081/realms
 
 Both files carry the same comment, in almost the same words: *"#36 is what will serve this as client config
 instead of building it in."* [#36](https://github.com/Shei254/marketplaats-extension/issues/36) shipped, and
-deliberately did not. ADR-0013's 2026-08-23 amendment says what the document actually carries — the nine
+deliberately did not. ADR-0013's 2026-08-23 amendment says what the document actually carries — the ten
 Marktplaats paths, the CSRF rules and the pacing window — and states plainly that they "live in the extension
 and nowhere else."
 

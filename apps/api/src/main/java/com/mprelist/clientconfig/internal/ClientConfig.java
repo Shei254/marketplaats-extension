@@ -10,7 +10,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  * <p><strong>A patch, not a configuration.</strong> Every overridable field is optional, and a healthy
  * deployment serves the version and the rails and nothing else: the extension's built-in defaults are the
  * configuration, and this says only where an operator has had to depart from them. That is what keeps this
- * API from holding a second copy of nine Marktplaats paths it would then be able to serve out of date.
+ * API from holding a second copy of ten Marktplaats paths it would then be able to serve out of date.
  *
  * <p><strong>{@link Rails} is the exception and is admitted as one</strong> (ADR-0025). Every other field
  * replaces something the client shipped with; that one states a fact about <em>this</em> API — how many

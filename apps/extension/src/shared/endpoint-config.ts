@@ -92,7 +92,8 @@ export type EndpointName =
   | "createAdPage" // GET (HTML) → the create form, scraped for signature/timestamp/tmsid.
   | "uploadPhoto" // POST (multipart) → upload one photo, returns a media id.
   | "getBuckets" // GET → a parent category's buckets. Contains ":parentCategoryId".
-  | "getBucketCategories"; // GET → one bucket's categories. Contains ":parentCategoryId" and ":bucketId".
+  | "getBucketCategories" // GET → one bucket's categories. Contains ":parentCategoryId" and ":bucketId".
+  | "reserveAd"; // PUT → mark an ad as reserved (Gereserveerd). Body carries the itemId.
 
 /**
  * Every endpoint is optional here: a stored config may carry only the keys the
@@ -118,6 +119,7 @@ export const DEFAULT_ENDPOINT_CONFIG: Record<EndpointName, string> & { csrf: Csr
     uploadPhoto: "/plaats/api/image/upload",
     getBuckets: "/plaats/api/v1/category-aggregate/:parentCategoryId/buckets",
     getBucketCategories: "/plaats/api/v1/category-aggregate/:parentCategoryId/buckets/:bucketId/categories",
+    reserveAd: "/seller/api/reserve-ad",
     csrf: {
         mode: "fetch",
         url: "https://www.marktplaats.nl/plaats/1/2",
@@ -140,7 +142,7 @@ export const DEFAULT_ENDPOINT_CONFIG: Record<EndpointName, string> & { csrf: Csr
  * value as overrides would reintroduce the exact bug storing overrides fixed —
  * a later build correcting a path could never reach the profile, and the symptom
  * was a 404 on a path the tester never touched. There is no way to tell such a
- * value apart from a tester who genuinely overrode all nine, so it is not
+ * value apart from a tester who genuinely overrode all ten, so it is not
  * migrated: a new key means the stale profile is simply never read again, and
  * everything falls back to the build's defaults, which is the correct state.
  */
@@ -216,7 +218,7 @@ function pathsThisBuildKnows(served: Record<string, string>): Partial<Record<End
  *
  * The distinction is the whole point of this function. Writing the *resolved*
  * config back — defaults merged in, which is what `loadEndpointConfig` hands you
- * — pinned all nine endpoints at the running build's defaults the first time a
+ * — pinned all ten endpoints at the running build's defaults the first time a
  * tester overrode any one of them. A later build correcting a different path
  * then never reached that profile, and the symptom was a 404 on a path they
  * never touched, unrelated to the override they remembered making. Storing only

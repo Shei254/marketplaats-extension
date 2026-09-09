@@ -56,4 +56,13 @@ export interface MarktplaatsClient {
    * hand back: resolving at all is the success signal, and a failure throws.
    */
   createAd(draft: CapturedAd, photos: Photo[]): Promise<void>;
+  /**
+   * Mark an ad as **Gereserveerd** — promised to a buyer (T71, #157).
+   *
+   * Only ever *set*, never cleared: a freshly created ad is never reserved, so
+   * whether Marktplaats's endpoint is a toggle or a setter is a question nothing
+   * here has to answer. Takes the id of the ad to flag, which for the one caller
+   * is the **new** ad a repost just created rather than the one it deleted.
+   */
+  reserveAd(listingId: string): Promise<void>;
 }

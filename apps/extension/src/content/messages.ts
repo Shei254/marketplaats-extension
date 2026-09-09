@@ -33,6 +33,7 @@ export type RelayRequest =
   | { kind: "captureAd"; listingId: string }
   | { kind: "deleteAd"; listingId: string }
   | { kind: "createAd"; draft: CapturedAd; photos: WirePhoto[] }
+  | { kind: "reserveAd"; listingId: string }
   | { kind: "downloadPhoto"; urls: string[] }
   | { kind: "searchAd"; query: string }
 

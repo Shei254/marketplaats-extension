@@ -42,15 +42,23 @@ filter **Fetch/XHR**, then do the action by hand and record method + URL + heade
 | Search from that page's box | `searchAd` — same path as `listMyAds`, plus a `query` param |
 | Open an ad's edit view | `captureAd` (+ detail → draft, photo URLs) |
 | Delete a throwaway ad | `deleteAd` + the CSRF header/token source |
+| Mark a throwaway ad "Gereserveerd" | `reserveAd` — a `PUT`, body `{"itemId": …}` (T71) |
 | Open "Plaats je advertentie" | `createAdPage` — HTML, scraped for `signature`/`timestamp`/`tmsid` |
 | Pick a top-level category there | `getBuckets` (`:parentCategoryId`) |
 | Drill into one of its buckets | `getBucketCategories` (`:parentCategoryId`, `:bucketId`) |
 | Post a new ad (with photo) | `uploadPhoto` (multipart → media id) and `createAd` |
 
-That is all nine `EndpointName`s. The last three are not called by hand during a
-relist — `createAd` needs the scraped form attributes, and re-creating a captured ad
-fans out category → bucket to fill the `bucket` form field — so they break silently
-in the middle of a create rather than at the first call.
+That is all ten `EndpointName`s. **Four of them nothing clicks during a relist** —
+named rather than counted, because the list has grown twice and "the last three" was
+already wrong once. `createAdPage`, `getBuckets` and `getBucketCategories` are the
+create's own dependencies (it needs the scraped form attributes, and re-creating a
+captured ad fans out category → bucket to fill the `bucket` form field), so they
+break silently in the middle of a create rather than at the first call. `reserveAd`
+is the fourth and is quieter still: it runs only for an ad that was reserved, and its
+failure reaches nobody at all — the repost still succeeds and still reports `SUCCESS`
+([ADR-0028](adr/0028-a-repost-puts-back-what-it-can.md)). If a seller says a promised
+item went back on sale, this is the endpoint, and the worker console is the only place
+it left a mark.
 
 Note the **host** (it may be an `api.` subdomain — see the CORS caveat below) and
 where the **CSRF token** lives (a `<meta>`, a readable cookie, or none).
@@ -104,7 +112,7 @@ await chrome.storage.local.get("clientConfig");   // { fetchedAt, config }
 ```
 
 **If you live-tested before this change**, your profile is under the old
-`endpointConfig` key, and it holds a *resolved* config — all nine endpoints frozen
+`endpointConfig` key, and it holds a *resolved* config — all ten endpoints frozen
 at the defaults of whatever build first wrote it, which is the bug overrides fixed.
 Nothing reads that key any more, so you are already back on the build's defaults and
 need do nothing. Re-apply by hand any override you still want: the first

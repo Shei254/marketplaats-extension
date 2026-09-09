@@ -62,8 +62,8 @@ const POWER: Plan = {
 const OPENED: HandoffAnswer = { status: "opened", url: "https://checkout.stripe.com/c/pay/cs_1" };
 
 export const ADS: ListingSummary[] = [
-  { id: "m1", title: "Vintage Eames lounge chair", priceCents: 125_000, priceType: "FIXED", biddingEnabled: false },
-  { id: "m2", title: "Trek Marlin 7 mountainbike (M)", priceCents: 48_000, priceType: "FIXED", biddingEnabled: false },
+  { id: "m1", title: "Vintage Eames lounge chair", priceCents: 125_000, priceType: "FIXED", biddingEnabled: false, reserved: false },
+  { id: "m2", title: "Trek Marlin 7 mountainbike (M)", priceCents: 48_000, priceType: "FIXED", biddingEnabled: false, reserved: false },
 ];
 
 function fakeWorker(
@@ -968,6 +968,7 @@ describe("reposting several at once", () => {
     priceCents: 1000 * (at + 1),
     priceType: "FIXED",
     biddingEnabled: false,
+    reserved: false,
   }));
 
   /** The worker with a run it actually remembers, so the popup can watch one. */

@@ -100,7 +100,7 @@ mprelist:
   #
   # **A patch, and empty by default.** The paths and rules are the extension's own, built into every release;
   # what goes here is only where an operator has had to depart from them, which on a healthy day is nothing.
-  # So this API holds no copy of the nine endpoints and cannot serve a stale one — and `GET /api/client-config`
+  # So this API holds no copy of the ten endpoints and cannot serve a stale one — and `GET /api/client-config`
   # answers `{"schemaVersion":1}`, which means "your defaults are correct".
   #
   # **What it is for is the day Marktplaats moves something.** Every installed extension then fails the same

@@ -209,7 +209,7 @@ export function SignedInScreen({
           </>
         }
       />
-      <div className={stripClass(spent, paymentFailing)}>
+      <div className={stripClass(spent || grantsNothing, paymentFailing)}>
         <div className="popup-plan-top">
           <span className="popup-plan-name">
             {plan.tier.name}
@@ -264,9 +264,17 @@ export function SignedInScreen({
  */
 const ALLOWED_STATUSES: readonly DisplayState["subscriptionStatus"][] = ["ACTIVE", "TRIALING"];
 
-function stripClass(spent: boolean, paymentFailing: boolean): string {
+/**
+ * Which of the three treatments the strip wears.
+ *
+ * `nothingToSpend` is wider than *spent* on purpose (ADR-0029): a tier granting 0
+ * is not an exhausted one and the words say so, but the user can do exactly as
+ * much on it — nothing — and a strip drawn as ordinary above a list of locked
+ * buttons is a screen that looks fine and is not.
+ */
+function stripClass(nothingToSpend: boolean, paymentFailing: boolean): string {
   if (paymentFailing) return "popup-plan popup-plan--failing";
-  return spent ? "popup-plan popup-plan--spent" : "popup-plan";
+  return nothingToSpend ? "popup-plan popup-plan--spent" : "popup-plan";
 }
 
 /**

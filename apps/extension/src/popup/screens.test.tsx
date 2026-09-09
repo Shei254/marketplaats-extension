@@ -134,6 +134,12 @@ describe("the plan strip", () => {
     it("still points at the plans, which is the one thing that changes it", () => {
       expect(nothing).toContain("See plans");
     });
+
+    it("and still wears the warning strip, because there is still nothing to spend", () => {
+      // Not exhausted, and exactly as unusable — a strip drawn as ordinary above a
+      // list of locked buttons is a screen that looks fine and is not.
+      expect(nothing).toContain("popup-plan--spent");
+    });
   });
 });
 

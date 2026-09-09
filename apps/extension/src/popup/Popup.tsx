@@ -7,7 +7,15 @@ import { ASSUMED_RAILS, type BatchShape } from "../domain/batch-estimate";
 import type { BatchRun } from "../domain/batch-run";
 import { BULK_PACE } from "../domain/relist-pace";
 import { BatchBar } from "./BatchBar";
-import { bulkFor, offerSelection, offerUnstarted, pickUpTo, rowStatesFor, type BulkSelection } from "./batching";
+import {
+  bulkFor,
+  BULK_OFFERED,
+  offerSelection,
+  offerUnstarted,
+  pickUpTo,
+  rowStatesFor,
+  type BulkSelection,
+} from "./batching";
 import { ADS_LOADING, describeAdsFailure, type AdsView } from "./ads";
 import { adListCss, planCardCss, popupCss } from "./popup-styles";
 import { AdList } from "./AdList";
@@ -47,7 +55,22 @@ import {
  * and `popup.tsx`, the entry that does touch `chrome.runtime`, stays four lines
  * long.
  */
-export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
+export function Popup({
+  worker,
+  /**
+   * Whether this screen offers bulk at all — {@link BULK_OFFERED}, which is
+   * `false` while it is withdrawn (T70, #155; ADR-0027).
+   *
+   * **A parameter and not a bare read of the constant**, so the suite can flip
+   * it: the forty tests that describe the selection are what T68 spent its popup
+   * half on, and they are worth more standing and passing than deleted with a
+   * note saying they once did. Nothing in the product passes it.
+   */
+  offerBulk = BULK_OFFERED,
+}: {
+  worker: WorkerPort;
+  offerBulk?: boolean;
+}): JSX.Element {
   const [screen, setScreen] = useState<Screen>(LOADING);
   const [ads, setAds] = useState<AdsView>(ADS_LOADING);
   const [busy, setBusy] = useState(false);
@@ -175,9 +198,23 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
    */
   useEffect(() => {
     if (screen.screen !== "signed-in") return;
+    if (!offerBulk) {
+      // **Still asked, and the answer thrown away** (ADR-0027). It is for the
+      // badge and nothing else: a run that stopped while the popup was shut left
+      // a ✓ or a ! on the toolbar, and reading the state is what takes it down
+      // (`BatchRunner.state`). Without this a mark left by the build before this
+      // one would sit there until the extension was reloaded, explained by
+      // nothing on any screen — and there is no bar left to explain it.
+      //
+      // The run itself is not held. A batch that was genuinely mid-flight at
+      // upgrade paints no rows, because busy rows under a bar that is no longer
+      // there are worse than rows that say nothing.
+      void worker.batchState().catch(() => undefined);
+      return;
+    }
     void worker.batchState().then(showRun);
     void worker.batchShape().then(setBatchShape);
-  }, [screen.screen, worker, showRun]);
+  }, [screen.screen, worker, showRun, offerBulk]);
 
   /**
    * And asked again every second while one is going.
@@ -225,7 +262,7 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
    * component acts on: Select all applies it, and the list below holds the order
    * but not the entitlement.
    */
-  const bulk = screen.screen === "signed-in" ? bulkFor(screen.plan) : null;
+  const bulk = offerBulk && screen.screen === "signed-in" ? bulkFor(screen.plan) : null;
   const cap = bulk?.cap ?? 0;
 
   const toggleSelected = useCallback((listingId: string) => {
@@ -512,6 +549,7 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
           bulk,
           hidden,
           chosen,
+          offerBulk,
         })}
       </div>
     </>
@@ -555,6 +593,8 @@ interface Handlers {
   hidden: number;
   /** What is ticked altogether, in run order — what the bar offers and what a run gets. */
   chosen: readonly string[];
+  /** Whether this screen offers bulk at all, or draws none of it (ADR-0027). */
+  offerBulk: boolean;
 }
 
 function body(screen: Screen, handlers: Handlers): JSX.Element {
@@ -563,6 +603,7 @@ function body(screen: Screen, handlers: Handlers): JSX.Element {
   const { typed, showing, onType, onClearSearch } = handlers;
   const { run, selected, onToggleSelected, onStartBatch, onStopBatch, onDismissBatch } = handlers;
   const { onSelectAll, onClearSelection, onRepostUnstarted, batchShape, bulk, hidden, chosen } = handlers;
+  const { offerBulk } = handlers;
   switch (screen.screen) {
     case "loading":
       return <LoadingScreen />;
@@ -592,18 +633,29 @@ function body(screen: Screen, handlers: Handlers): JSX.Element {
             worker={worker}
             onOutcome={onOutcome}
             empty={showing.kind === "search" ? noMatches(showing.query) : undefined}
-            selection={{
-              selected,
-              onToggle: onToggleSelected,
-              onSelectAll,
-              onClear: onClearSelection,
-              frozen: running,
-              bulk,
-              hidden,
-            }}
-            runStates={rowStatesFor(run)}
+            // `null` is the surface that is not offering a selection, which is the
+            // state this prop was written with and the whole of what withdrawing
+            // bulk costs the list (ADR-0027).
+            selection={
+              offerBulk
+                ? {
+                    selected,
+                    onToggle: onToggleSelected,
+                    onSelectAll,
+                    onClear: onClearSelection,
+                    frozen: running,
+                    bulk,
+                    hidden,
+                  }
+                : null
+            }
+            runStates={offerBulk ? rowStatesFor(run) : undefined}
           />
-          {bulk === null ? (
+          {/* **Nothing at all while bulk is withdrawn** — and in particular not
+              the locked line, which is written to make a free user want the
+              feature. A screen that advertised it while no plan on sale could
+              grant it would be selling an upgrade to nowhere (ADR-0027). */}
+          {!offerBulk ? null : bulk === null ? (
             <p className="popup-foot popup-batch-locked">
               Reposting several at once is part of the paid plans.{" "}
               <button type="button" className="popup-link" onClick={seePlans}>

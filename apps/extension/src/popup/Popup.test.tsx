@@ -165,8 +165,18 @@ function fakeWorker(
 
 let container: HTMLElement;
 let root: Root;
+/**
+ * Whether the popup being rendered offers bulk (ADR-0027).
+ *
+ * **The default is the product's**, which is withdrawn — so every test outside the
+ * batch block asserts against the screen a user actually gets. The block that
+ * describes the selection turns it on in a `beforeEach`, which is what lets forty
+ * tests written for T68 go on proving the screen works while nothing draws it.
+ */
+let offerBulk = false;
 
 beforeEach(() => {
+  offerBulk = false;
   (globalThis as Record<string, unknown>)["IS_REACT_ACT_ENVIRONMENT"] = true;
   container = document.createElement("div");
   document.body.append(container);
@@ -180,7 +190,7 @@ afterEach(async () => {
 
 async function show(worker: WorkerPort): Promise<void> {
   await act(async () => {
-    root.render(<Popup worker={worker} />);
+    root.render(<Popup worker={worker} offerBulk={offerBulk} />);
   });
 }
 
@@ -934,6 +944,12 @@ describe("handing off to Stripe", () => {
  * still holding the old ids.
  */
 describe("reposting several at once", () => {
+  // On for this block and off everywhere else (ADR-0027): what follows is the
+  // screen T68 built, kept under test while the product does not draw it.
+  beforeEach(() => {
+    offerBulk = true;
+  });
+
   const PRO_PLAN: DisplayState = {
     ...PLAN,
     tier: { code: "pro", name: "Pro" },
@@ -1006,6 +1022,43 @@ describe("reposting several at once", () => {
     act(async () => {
       boxes()[nth]?.click();
     });
+
+  /**
+   * What the product actually ships (T70, #155; ADR-0027).
+   *
+   * Every other test in this block turns bulk on. This one turns it back off,
+   * which is the only arrangement a user can currently reach — and it is asserted
+   * against **Pro**, because withdrawn and not-entitled are different facts: the
+   * entitlement still grants, and the screen still declines to ask.
+   */
+  it("draws none of it while bulk is withdrawn, even on a plan that includes it", async () => {
+    offerBulk = false;
+    const { worker } = batching(PRO_PLAN, MANY);
+
+    await show(worker);
+
+    expect(boxes()).toHaveLength(0);
+    expect(selectAllBox()).toBeNull();
+    expect(container.querySelector(".popup-batch")).toBeNull();
+    // Nor the line pointing at Plans, which is the sentence a free user gets: it
+    // is written to make somebody want the feature, and no plan on sale can grant
+    // it while this is off.
+    expect(text()).not.toContain("part of the paid plans");
+    // And nothing else went with it. This took away a selection, not the list.
+    expect(container.querySelectorAll(".popup-ad")).toHaveLength(MANY.length);
+    expect(text()).toContain("Repost");
+  });
+
+  it("and still asks the worker for a run, so a badge left by the last build comes down", async () => {
+    offerBulk = false;
+    const { worker } = batching();
+
+    await show(worker);
+
+    // The answer is thrown away — reading the state is what takes the toolbar
+    // mark down (`BatchRunner.state`), and there is no bar left to explain one.
+    expect(worker.batchState).toHaveBeenCalled();
+  });
 
   it("puts a box on every row for a plan that includes it", async () => {
     const { worker } = batching();

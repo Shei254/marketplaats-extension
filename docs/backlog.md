@@ -693,7 +693,10 @@ together in the 2026-09-05 grilling and are written down together for that reaso
 feature. T69 came out of the 2026-09-06 session and is the operator's half of what T68 sold. **T70 is the
 2026-09-07 session taking T68's screen back off** for the length of go-live
 ([ADR-0027](adr/0027-the-popup-stops-offering-bulk-repost.md)) — which is why the section reads as a feature
-that shipped, gained an operator control, and currently cannot be reached.
+that shipped, gained an operator control, and currently cannot be reached. **T73 and T74 are the
+2026-09-10 session**, which came in asking for a tier with no repost cap and left with a sentinel
+placement ([ADR-0029](adr/0029-unlimited-is-null-and-zero-still-grants-nothing.md)), a publish rule that
+closes a gap nobody had noticed, and the vocabulary defect found underneath the new copy.
 
 #### [T67](https://github.com/Shei254/marketplaats-extension/issues/146) · The ad row stops reading `minimumBidPriceCents` as a bid floor · **S** · no deps · **shipped**
 A correction to T30a's row rendering, caught before it was ever committed.
@@ -895,6 +898,72 @@ field sits*, since that order is load-bearing. Then emit it, re-freeze the golde
 record the finding. **A field whose name cannot be established is left alone and said so**: a guessed form
 field is how a create starts 4xx-ing after a delete, which costs a real listing — which is also why this is
 its own ticket rather than a rider on T71's safe endpoint call.
+
+#### [T73](https://github.com/Shei254/marketplaats-extension/issues/160) · A tier may grant unlimited reposts · **M** · T53, T54, T66
+[ADR-0029](adr/0029-unlimited-is-null-and-zero-still-grants-nothing.md) is the decision, and its shape is one
+sentinel placement: **`null` is unlimited, `0` still grants nothing.** The obvious spelling — `0` means
+unlimited — is rejected there, because `0` is what `V5__tier_publication.sql` adopts a draft at, what
+[ADR-0019](adr/0019-plans-are-stripe-first-and-webhook-synced.md) spells "there is no free tier" as, and what
+`TierRows`' `where relist_quota_per_period > 0` tests against.
+
+**The column, and why `Integer` rather than `-1`.** `tier.relist_quota_per_period` becomes nullable; the
+`>= 0` check stays. `Entitlement`, `TierEdit`, `CatalogEntry`, `RemainingQuota` and `DisplayState` go
+`int → Integer`, which is the point of choosing `null`: `Math.max(0, -1 - held)` is `0`, so a `-1` tier would
+refuse every repost and read as a gate that works, while a `null` cannot be silently arithmetically wrong.
+`RemainingQuota.of` answers `null` and `isSpent()` is false; the held-count query may be skipped, since
+nothing reads the number.
+
+**Two wire shapes, and they differ on purpose.** Read side — `/api/me`, `/complete`, `/api/plans` and
+`AdminTier` — is `number | null` in `packages/contracts`. Write side needs a rule the read side does not:
+`AdministerTiers` states *"field is sent every time, so there is no 'absent or null' question"*, and both
+`asGrant()` methods refuse on `null` meaning *you forgot it*. So on the admin `PUT`/`POST`, **absent is a 400
+and an explicit `null` is unlimited**. No precedent for that distinction exists here — `@JsonCreator` appears
+twice, both on value types — so **the mechanism is to be verified, not assumed**.
+
+**The publish rule is the half of the original proposal that was right.** `published → (quota > 0 OR quota IS
+NULL)`, at `V7`'s three layers: a trigger, a typed `TierEdited.NothingToGrant` beside `NothingToChargeAgainst`,
+and a restatement in `CatalogEntry`'s constructor. It closes a live gap — the `> 0` guard was only ever on the
+webhook auto-publish path, so a zero-grant tier could be hand-published and bought.
+
+**`/admin` gains a checkbox and two warnings.** "Unlimited" disables and greys the number field. One warning
+fires when a published tier is zeroed — it says the plan will be withdrawn, then the form sends
+`published: false` itself, which is `NewPlanForm`'s existing habit of refusing locally rather than round-tripping
+to be told. The other fires on ticking Unlimited on the `isDefault` row, naming the reach: every new account and
+every subscription that ends ([ADR-0018](adr/0018-lapse-falls-back-to-the-default-tier.md)). It warns rather
+than refuses because a self-hosted single-user deployment *is* that configuration. **Note while in there:**
+`Number("") === 0`, so a blank quota field currently submits a zero-grant tier silently, at both call sites.
+
+**The popup gets two states, not one.** Unlimited is the tier name and "Unlimited reposts" — no bar, no date,
+mirroring the `paymentFailing` branch that drops both for the opposite reason. And a tier granting `0` stops
+being read as *exhausted*: `ExhaustedPrompt` currently promises its holder their reposts "come back on 14 Sep"
+when they come back as 0, so the strip reads "No reposts on this plan" and the prompt drops the date. `bulk`'s
+`min(quotaRemaining, upTo)` becomes `upTo`.
+
+**One rename rides along**, and only one: `relistsLeft` → reposts, because it would otherwise sit one line from
+"Unlimited reposts". Everything else is T74.
+
+**Deliberately not here.** A `used` count for unlimited tiers — the better screen, and its own ticket rather
+than a rider on a wire shape this already changes. `max_marktplaats_accounts` gains no unlimited; it is 1 on
+every tier until T38. Nothing in Stripe changes: a quota was never Stripe's
+([ADR-0014](adr/0014-tier-catalog-and-entitlements.md)).
+
+#### [T74](https://github.com/Shei254/marketplaats-extension/issues/161) · One word for the thing users press · **S** · T73
+The button says **Repost**. The strip above it says **relists**. The admin quota field says both in one field —
+label *"Relists per period"*, hint *"How many reposts a subscriber gets each period."*
+[ADR-0029](adr/0029-unlimited-is-null-and-zero-still-grants-nothing.md) settles it: users read **repost**,
+internal identifiers keep **relist**, and the split is deliberate the way the glossary already splits the
+**Brand name** from `mprelist`.
+
+**Copy only, and that is the whole reason it is a separate ticket.** `POST /api/relist/authorize`,
+`RelistEvent`, `RelistGate`, `relistQuotaPerPeriod` on the wire and in the column, and every golden payload
+stay exactly as they are — so this diff touches no schema, no contract and no test fixture, and mixing it into
+T73 would have buried a nullable column and a new invariant in a repo-wide rename.
+
+The sweep is `/admin`'s labels, hints and validation messages, the remaining popup and plan-card strings, and
+the prompts. `relistsLeft` is already done by T73. **Prose in ADRs is not touched** — a dated record is not
+rewritten to match how things turned out ([`adr/README.md`](adr/README.md)) — and neither are code comments,
+which are about the identifiers they sit beside.
+
 
 ---
 

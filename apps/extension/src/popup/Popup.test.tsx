@@ -256,7 +256,7 @@ describe("signed in", () => {
     await show(worker);
 
     expect(text()).toContain("Free");
-    expect(text()).toContain("2 of 3 relists left");
+    expect(text()).toContain("2 of 3 reposts left");
     expect(text()).toContain("resets 14 Sep");
     // And no prompt: a healthy plan is the case where the screen says nothing
     // beyond what it is.
@@ -273,7 +273,7 @@ describe("signed in", () => {
     await click("Refresh");
 
     expect(asked).toEqual(["display-state", "list-ads", "display-state", "list-ads"]);
-    expect(text()).toContain("1 of 3 relists left");
+    expect(text()).toContain("1 of 3 reposts left");
   });
 });
 
@@ -285,7 +285,7 @@ describe("the ad list beneath the plan", () => {
 
     expect(asked).toEqual(["display-state", "list-ads"]);
     expect(text()).toContain("Vintage Eames lounge chair");
-    expect(text()).toContain("2 of 3 relists left");
+    expect(text()).toContain("2 of 3 reposts left");
   });
 
   it("is never asked for when nobody is signed in", async () => {
@@ -317,7 +317,7 @@ describe("the ad list beneath the plan", () => {
 
     await show(worker);
 
-    expect(text()).toContain("2 of 3 relists left");
+    expect(text()).toContain("2 of 3 reposts left");
     expect(text()).toContain("Could not load your ads.");
     expect(text()).toContain("Open marktplaats.nl in a tab");
   });
@@ -499,11 +499,11 @@ describe("the quota after a relist", () => {
     const { worker, asked } = fakeWorker();
 
     await show(worker);
-    expect(text()).toContain("2 of 3 relists left");
+    expect(text()).toContain("2 of 3 reposts left");
 
     await click("Repost");
 
-    expect(text()).toContain("1 of 3 relists left");
+    expect(text()).toContain("1 of 3 reposts left");
     expect(asked.filter((question) => question === "display-state")).toHaveLength(1);
   });
 
@@ -525,7 +525,7 @@ describe("the quota after a relist", () => {
     await show(worker);
     await click("Repost");
 
-    expect(text()).toContain("2 of 3 relists left");
+    expect(text()).toContain("2 of 3 reposts left");
   });
 });
 
@@ -537,7 +537,7 @@ describe("a plan that cannot be relisted on", () => {
 
     await show(worker);
 
-    expect(text()).toContain("0 of 3 relists left");
+    expect(text()).toContain("0 of 3 reposts left");
     expect(text()).toContain("You’ve used your relists for this period");
     expect(text()).toContain("They come back on 14 Sep");
   });
@@ -585,7 +585,7 @@ describe("signed out", () => {
 
     expect(text()).toContain("Sign in");
     expect(container.querySelector(".popup-plan")).toBeNull();
-    expect(text()).not.toContain("relists left");
+    expect(text()).not.toContain("reposts left");
     expect(text()).not.toContain("Free");
     expect(container.querySelector('[aria-label="Refresh"]')).toBeNull();
     expect(container.querySelectorAll("button")).toHaveLength(1);
@@ -598,7 +598,7 @@ describe("signed out", () => {
     await click("Sign in");
 
     expect(asked).toEqual(["display-state", "sign-in", "display-state", "list-ads"]);
-    expect(text()).toContain("2 of 3 relists left");
+    expect(text()).toContain("2 of 3 reposts left");
   });
 
   it("says nothing when the user closed the window themselves", async () => {
@@ -639,7 +639,7 @@ describe("unavailable", () => {
 
     expect(text()).toContain("Can’t reach");
     expect(text()).toContain("Nothing has been changed on Marktplaats");
-    expect(text()).not.toContain("relists left");
+    expect(text()).not.toContain("reposts left");
   });
 
   it("recovers when the backend comes back", async () => {
@@ -648,7 +648,7 @@ describe("unavailable", () => {
     await show(worker);
     await click("Try again");
 
-    expect(text()).toContain("2 of 3 relists left");
+    expect(text()).toContain("2 of 3 reposts left");
   });
 });
 
@@ -661,7 +661,7 @@ describe("signing out", () => {
 
     expect(asked).toEqual(["display-state", "list-ads", "sign-out"]);
     expect(text()).toContain("Sign in");
-    expect(text()).not.toContain("2 of 3 relists left");
+    expect(text()).not.toContain("2 of 3 reposts left");
   });
 
   it("still signs out when the worker could not finish the job", async () => {
@@ -771,7 +771,7 @@ describe("the plan cards", () => {
     await click("Back");
 
     expect(asked).toEqual(["display-state", "list-ads", "plans"]);
-    expect(text()).toContain("2 of 3 relists left");
+    expect(text()).toContain("2 of 3 reposts left");
     expect(text()).not.toContain("Choose a plan");
   });
 

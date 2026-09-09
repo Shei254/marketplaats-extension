@@ -77,7 +77,7 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 		return this.db
 				.sql("select relist_quota_per_period, max_marktplaats_accounts, features::text from tier where id = ?")
 				.param(tier.id())
-				.query((row, number) -> new Entitlement(row.getInt("relist_quota_per_period"),
+				.query((row, number) -> new Entitlement(quotaIn(row),
 						row.getInt("max_marktplaats_accounts"), flagsIn(row.getString("features"))))
 				.optional()
 				.orElseThrow(() -> new IllegalStateException("No tier carries the id " + tier.id() + ", so there is "
@@ -110,7 +110,9 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 	 *
 	 * <p>Ordered by what it grants, so the cards come back in the order a buyer reads them — cheapest first —
 	 * rather than in whatever order Postgres happened to store them. That is a rendering decision made here
-	 * because it is a `order by` rather than a sort in three clients.
+	 * because it is a `order by` rather than a sort in three clients. An unlimited tier's {@code null} sorts
+	 * last under Postgres's default for an ascending order, which is where the most generous plan belongs —
+	 * so ADR-0029 cost this clause nothing.
 	 *
 	 * <p><strong>{@code published} alone is the whole filter, and that is not an omission.</strong> The other
 	 * half of "sellable" is a price to charge against, and {@code V5__tier_publication.sql} makes a published
@@ -130,8 +132,8 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 				""")
 				.query((row, number) -> new SellablePlan(new TierName(row.getString("code"), row.getString("name")),
 						prices.getOrDefault(row.getObject("id", UUID.class), List.of()),
-						new Entitlement(row.getInt("relist_quota_per_period"),
-								row.getInt("max_marktplaats_accounts"), flagsIn(row.getString("features")))))
+						new Entitlement(quotaIn(row), row.getInt("max_marktplaats_accounts"),
+								flagsIn(row.getString("features")))))
 				.list();
 	}
 
@@ -190,7 +192,9 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 	 *
 	 * <ul>
 	 * <li>{@code relist_quota_per_period} appears only in the {@code insert}, and there only as the 0 a draft
-	 * starts at. The {@code do update} arm cannot raise or lower a quota because it does not name the column.
+	 * starts at — still 0 and not the {@code null} ADR-0029 added, because a draft is "nobody has said what
+	 * this grants" and unlimited is somebody saying it. The {@code do update} arm cannot raise or lower a
+	 * quota because it does not name the column.
 	 * <li>{@code name} is written through a {@code coalesce}, so a Price with no nickname leaves the tier
 	 * called what it was called rather than renaming Pro to nothing.
 	 * <li>{@code published} is {@code tier.published or …}, so it only ever goes up, and only when the row is
@@ -256,9 +260,18 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 		 * Publishing still happens once, on the first price to land on a tier that grants something — which is
 		 * what fills in the seeded `pro` and `power`. A *second* price on an already-priced tier leaves
 		 * `published` exactly as it was, so adding an annual rhythm never puts a withdrawn plan back on sale.
+		 *
+		 * "Grants something" is now `> 0 or is null` rather than `> 0` (ADR-0029): an unlimited tier grants
+		 * everything, and under the old spelling it would have been the one tier that never went on sale when
+		 * its Price landed, precisely because it is the best one. The same condition is `V9`'s trigger and
+		 * `TierEdited.NothingToGrant`, which is what makes the two publish paths agree.
 		 */
 		if (hadNoPriceBefore) {
-			this.db.sql("update tier set published = true where id = ? and relist_quota_per_period > 0")
+			this.db.sql("""
+					update tier set published = true
+					 where id = ?
+					   and (relist_quota_per_period > 0 or relist_quota_per_period is null)
+					""")
 					.param(tier)
 					.update();
 		}
@@ -310,12 +323,14 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 	/**
 	 * The edit, as one statement and a read of what it left behind.
 	 *
-	 * <p><strong>The publish check is made here rather than left to the constraint</strong>, and that is the
-	 * only place in this class that duplicates one. {@code tier_is_published_only_with_a_price} would refuse
-	 * the row anyway, as a {@code DataIntegrityViolationException} somewhere under the route — a `500` and a
-	 * stack trace where what is wanted is a sentence telling an operator to go and create a Price in Stripe.
-	 * The constraint stays because it is what makes the rule true of every writer including this one; the
-	 * check exists so that the one writer with a human in front of it can say what happened.
+	 * <p><strong>The two publish checks are made here rather than left to the triggers</strong>, and they are
+	 * the only place in this class that duplicates one. {@code tier_is_published_only_with_a_price} and
+	 * {@code tier_is_published_only_when_it_grants_something} would refuse the row anyway, as a
+	 * {@code DataIntegrityViolationException} somewhere under the route — a `500` and a stack trace where
+	 * what is wanted is a sentence telling an operator to go and create a Price in Stripe, or to say what the
+	 * plan grants before selling it. The triggers stay because they are what makes the rules true of every
+	 * writer including this one; the checks exist so that the one writer with a human in front of it can say
+	 * what happened.
 	 *
 	 * <p>Read back inside the same transaction rather than assembled from the request, so the answer is the
 	 * row — including the {@code stripe_price_id} the operator did not send and the {@code is_default} this
@@ -330,6 +345,9 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 		}
 		if (edit.published() && stored.get().prices().isEmpty()) {
 			return new TierEdited.NothingToChargeAgainst();
+		}
+		if (edit.published() && Integer.valueOf(0).equals(edit.relistQuotaPerPeriod())) {
+			return new TierEdited.NothingToGrant();
 		}
 		this.db.sql("""
 				update tier
@@ -391,10 +409,17 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 
 	/** One row, read the one way — three statements above hand back an entry and all three mean this. */
 	private static CatalogEntry entry(ResultSet row, Map<UUID, List<TierPrice>> prices) throws SQLException {
-		return new CatalogEntry(new TierName(row.getString("code"), row.getString("name")),
-				row.getInt("relist_quota_per_period"), flagsIn(row.getString("features")),
-				row.getBoolean("published"), row.getBoolean("is_default"),
+		return new CatalogEntry(new TierName(row.getString("code"), row.getString("name")), quotaIn(row),
+				flagsIn(row.getString("features")), row.getBoolean("published"), row.getBoolean("is_default"),
 				prices.getOrDefault(row.getObject("id", UUID.class), List.of()));
+	}
+
+	/**
+	 * The quota column, boxed — {@code getInt} answers 0 for a SQL {@code null}, which is the one other value
+	 * in this column that means something (ADR-0029) and the reason every read of it goes through here.
+	 */
+	private static Integer quotaIn(ResultSet row) throws SQLException {
+		return row.getObject("relist_quota_per_period", Integer.class);
 	}
 
 	private static Map<String, Object> flagsIn(String features) {

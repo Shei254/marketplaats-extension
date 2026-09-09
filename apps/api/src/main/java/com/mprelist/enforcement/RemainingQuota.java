@@ -35,22 +35,29 @@ import com.mprelist.subscription.QuotaPeriod;
  * operator's to edit at any time (ADR-0014), so a subscriber who has spent five can find themselves on a rung
  * granting three — and a negative number rendered in the popup is not a smaller quota, it is a bug on screen.
  * Clamped here rather than at each reader, which is also what keeps {@link #isSpent()} the same question as
- * the gate's comparison
+ * the gate's comparison. <strong>{@code null} on an unlimited tier</strong> (ADR-0029), which is a different
+ * fact from any number and is why the component is boxed: there is nothing left of a grant that has no
+ * ceiling, and a large number in its place would be a lie the popup would draw a bar against
  * @param resetAt the end of the window, exclusive, which is {@link QuotaPeriod}'s own {@code end} and the
  * date every quota denial carries
  */
-public record RemainingQuota(int quotaRemaining, OffsetDateTime resetAt) {
+public record RemainingQuota(Integer quotaRemaining, OffsetDateTime resetAt) {
 
 	/**
 	 * What is left of a tier's grant after the units a period is already holding.
 	 *
-	 * @param granted what the caller's tier allows per period (#21)
+	 * <p><strong>An unlimited tier has nothing to subtract from</strong> (ADR-0029), so the answer is
+	 * {@code null} and {@code held} is not looked at. Its caller may skip counting it altogether, since
+	 * nothing reads the number.
+	 *
+	 * @param granted what the caller's tier allows per period (#21), or {@code null} for unlimited
 	 * @param held the reservations in this window that have not been refunded (#22) — an in-flight relist
 	 * among them, since the unit is taken before the extension does anything with it
 	 * @param period the window, whose {@code end} is the {@code resetAt} answered with
 	 */
 	public static RemainingQuota of(Entitlement granted, int held, QuotaPeriod period) {
-		return new RemainingQuota(Math.max(0, granted.relistsPerPeriod() - held), period.end());
+		Integer allowed = granted.relistsPerPeriod();
+		return new RemainingQuota(allowed == null ? null : Math.max(0, allowed - held), period.end());
 	}
 
 	/**
@@ -65,7 +72,9 @@ public record RemainingQuota(int quotaRemaining, OffsetDateTime resetAt) {
 	 */
 	@JsonIgnore
 	public boolean isSpent() {
-		return this.quotaRemaining == 0;
+		// An unlimited tier is never spent, which is the whole of what "unlimited" changes about the gate
+		// (ADR-0029): the order of the checks, the reservation and the pacing rails are untouched.
+		return this.quotaRemaining != null && this.quotaRemaining == 0;
 	}
 
 }

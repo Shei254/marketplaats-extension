@@ -32,19 +32,23 @@ import com.mprelist.subscription.SubscriptionStatus;
  * @param tier what the caller's plan is called, both halves, so that a client can brand a plan without
  * branching on text an operator may rewrite ({@link TierName})
  * @param quotaRemaining relists left in the current period, never below zero — the same subtraction the gate
- * refuses on and {@code /complete} answers with
+ * refuses on and {@code /complete} answers with. {@code null} on an unlimited tier (ADR-0029), where there is
+ * nothing left of a grant with no ceiling: the popup then draws the tier's name and "Unlimited reposts", and
+ * neither a bar nor a date
  * @param relistQuotaPerPeriod what the tier grants for a whole period, which is the other half of the sentence
  * a popup draws: "2 <em>of 3</em> relists left". Added by #41, whose design draws the pair and whose first
  * implementation could only render the numerator — a client that had one number and not the other would be
  * left keeping a catalog of quotas ours never reaches, which is the same mistake {@link TierName} exists to
  * prevent for a tier's name. It is the tier's grant and not the subscriber's history, so it does not move when
  * a unit is spent; lowering it under a subscriber is an operator's to do (ADR-0014), and
- * {@code quotaRemaining} clamping at zero is what keeps the pair readable when they do
+ * {@code quotaRemaining} clamping at zero is what keeps the pair readable when they do. {@code null} on an
+ * unlimited tier, and always {@code null} together with the field above it — one is the ceiling and the other
+ * is what is left under it, so a tier with no ceiling has neither
  * @param resetAt the end of that period, which is when the number above comes back
  * @param features the flags the tier carries, as the {@code tier.features} object holds them. Empty on every
  * tier in the catalog today, and rendered as an empty object rather than omitted: "this plan grants no flags"
  * is an answer, where a missing field is a client's guess
  */
-record DisplayState(SubscriptionStatus subscriptionStatus, TierName tier, int quotaRemaining,
-		int relistQuotaPerPeriod, OffsetDateTime resetAt, Map<String, Object> features) {
+record DisplayState(SubscriptionStatus subscriptionStatus, TierName tier, Integer quotaRemaining,
+		Integer relistQuotaPerPeriod, OffsetDateTime resetAt, Map<String, Object> features) {
 }

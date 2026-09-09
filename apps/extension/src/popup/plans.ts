@@ -103,6 +103,22 @@ export function priceOf(price: PlanPrice): string {
 }
 
 /**
+ * What a tier with no repost cap grants, in the words both surfaces use for it
+ * (T73, ADR-0029) — the plan card that sells it, and the strip of somebody already
+ * on it.
+ *
+ * Written once because it is the *same sentence about the same fact*: a buyer
+ * comparing cards and then subscribing should read what they were sold, and two
+ * spellings a screen apart is how "Unlimited reposts" quietly becomes "Unlimited
+ * relists" on one of them.
+ *
+ * A `used` count beside it — "Unlimited · 137 this period" — is the better screen
+ * and is deliberately not built here: it needs a number `/api/me` does not send,
+ * and T73 was already changing that wire shape.
+ */
+export const UNLIMITED_REPOSTS = "Unlimited reposts";
+
+/**
  * "50 relists a month" — what the plan grants, per the period it is billed over.
  *
  * The interval is Stripe's vocabulary (`day`, `week`, `month`, `year`) and is read
@@ -113,8 +129,15 @@ export function priceOf(price: PlanPrice): string {
  *
  * Since T62 (#128) the rhythm is passed in rather than taken off the plan: a plan
  * has several, and what a quota line describes is the one being looked at.
+ *
+ * **An unlimited tier names no rhythm** (T73, ADR-0029). "Unlimited reposts a
+ * month" would be inviting the reader to look for the limit the sentence is there
+ * to say does not exist — and the button beside it already says which rhythm they
+ * would be paying at. It is the same string the popup's own strip draws for the
+ * plan somebody is already on.
  */
 export function grantOf(plan: Plan, interval: string): string {
+  if (plan.relistQuotaPerPeriod === null) return UNLIMITED_REPOSTS;
   const relists = `${plan.relistQuotaPerPeriod} relist${plan.relistQuotaPerPeriod === 1 ? "" : "s"}`;
   return `${relists} ${every(interval)}`;
 }

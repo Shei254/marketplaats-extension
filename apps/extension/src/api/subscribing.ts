@@ -201,11 +201,15 @@ function asPlan(entry: unknown): Plan | null {
   const tier = asTier(fields["tier"]);
   if (!tier) return null;
 
+  // `null` is a tier with no cap (T73, ADR-0029), and it is the only other thing
+  // this number can be on a card: a published tier granting nothing is a row the
+  // schema refuses, so `0` never reaches a plan screen.
   const relistQuotaPerPeriod = fields["relistQuotaPerPeriod"];
   if (
-    typeof relistQuotaPerPeriod !== "number" ||
-    !Number.isInteger(relistQuotaPerPeriod) ||
-    relistQuotaPerPeriod < 0
+    relistQuotaPerPeriod !== null &&
+    (typeof relistQuotaPerPeriod !== "number" ||
+      !Number.isInteger(relistQuotaPerPeriod) ||
+      relistQuotaPerPeriod < 0)
   ) {
     return null;
   }

@@ -151,6 +151,60 @@ class BaselineSchemaTest {
 				.hasMessageContaining("tier_is_published_only_with_a_price");
 	}
 
+	/**
+	 * The other half of "sellable", added by {@code V9__unlimited_reposts.sql} (T73, ADR-0029): a tier has to
+	 * grant something as well as cost something. The {@code > 0} guard existed only on the sync's auto-publish
+	 * path, so this row was writeable by hand and a buyer could have paid for it.
+	 */
+	@Test
+	void andAPublishedTierGrantsSomething() {
+		UUID tier = tierGranting(0);
+		db.update("insert into tier_price (tier_id, stripe_price_id, billing_interval) values (?, ?, 'month')",
+				tier, "price_nothing");
+
+		assertThatThrownBy(() -> db.update("update tier set published = true where id = ?", tier))
+				.hasMessageContaining("tier_is_published_only_when_it_grants_something");
+	}
+
+	/** And the same rule the other way round: zeroing what a tier on sale grants is the same refusal. */
+	@Test
+	void andAPublishedTierCannotBeZeroedUnderItsBuyers() {
+		UUID tier = tierGranting(3);
+		db.update("insert into tier_price (tier_id, stripe_price_id, billing_interval) values (?, ?, 'month')",
+				tier, "price_something");
+		db.update("update tier set published = true where id = ?", tier);
+
+		assertThatThrownBy(() -> db.update("update tier set relist_quota_per_period = 0 where id = ?", tier))
+				.hasMessageContaining("tier_is_published_only_when_it_grants_something");
+	}
+
+	/**
+	 * Unlimited is {@code null} and grants everything, so it is the one thing that may be published without a
+	 * number (ADR-0029). {@code null = 0} is unknown, which the trigger's {@code if} does not take.
+	 */
+	@Test
+	void butAnUnlimitedTierMayBeOnSale() {
+		UUID tier = tierGranting(null);
+		db.update("insert into tier_price (tier_id, stripe_price_id, billing_interval) values (?, ?, 'month')",
+				tier, "price_unlimited");
+
+		db.update("update tier set published = true where id = ?", tier);
+
+		assertThat(db.queryForObject("select relist_quota_per_period from tier where id = ?", Integer.class, tier))
+				.isNull();
+	}
+
+	/**
+	 * The {@code >= 0} check stays and stays honest either side of the column becoming nullable:
+	 * {@code null >= 0} is unknown, which a check constraint passes, and a negative number is still an
+	 * unwriteable row rather than a smaller plan.
+	 */
+	@Test
+	void andNoTierGrantsFewerThanNoReposts() {
+		assertThatThrownBy(() -> tierGranting(-1))
+				.hasMessageContaining("tier_relist_quota_per_period_check");
+	}
+
 	@Test
 	void andItsLastPriceCannotBeTakenAwayWhileItIsOnSale() {
 		UUID tier = tier();
@@ -283,6 +337,14 @@ class BaselineSchemaTest {
 
 	private UUID defaultTier() {
 		return tier(true);
+	}
+
+	/** A tier granting exactly this — {@code null} for unlimited, which is what T73 made writeable. */
+	private UUID tierGranting(Integer relistsPerPeriod) {
+		return db.queryForObject("""
+				insert into tier (code, name, relist_quota_per_period, max_marktplaats_accounts)
+				values (?, 'A tier', ?, 1) returning id
+				""", UUID.class, UUID.randomUUID().toString(), relistsPerPeriod);
 	}
 
 	private UUID tier(boolean isDefault) {

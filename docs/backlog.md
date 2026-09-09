@@ -899,7 +899,7 @@ record the finding. **A field whose name cannot be established is left alone and
 field is how a create starts 4xx-ing after a delete, which costs a real listing — which is also why this is
 its own ticket rather than a rider on T71's safe endpoint call.
 
-#### [T73](https://github.com/Shei254/marketplaats-extension/issues/160) · A tier may grant unlimited reposts · **M** · T53, T54, T66
+#### [T73](https://github.com/Shei254/marketplaats-extension/issues/160) · A tier may grant unlimited reposts · **M** · T53, T54, T66 · **shipped**
 [ADR-0029](adr/0029-unlimited-is-null-and-zero-still-grants-nothing.md) is the decision, and its shape is one
 sentinel placement: **`null` is unlimited, `0` still grants nothing.** The obvious spelling — `0` means
 unlimited — is rejected there, because `0` is what `V5__tier_publication.sql` adopts a draft at, what
@@ -946,6 +946,29 @@ when they come back as 0, so the strip reads "No reposts on this plan" and the p
 than a rider on a wire shape this already changes. `max_marktplaats_accounts` gains no unlimited; it is 1 on
 every tier until T38. Nothing in Stripe changes: a quota was never Stripe's
 ([ADR-0014](adr/0014-tier-catalog-and-entitlements.md)).
+
+**What the build settled, since the ADR left three things open.**
+- **The absent-vs-null mechanism was verified rather than assumed**, as the ADR asked. `Optional<Integer>` on
+  a record component answers `Optional.empty()` for absent *and* for an explicit `null` under Jackson 3 —
+  exactly the distinction wanted and exactly the one it cannot make. A `JsonNode` component arrives as a Java
+  `null` when absent and a `NullNode` when written out, so that is what `TierEditRequest` and
+  `NewPlanRequest` hold, read through one `AdministerTiers.quotaIn`.
+- **`409` on the admin `PUT` now means one thing said two ways** — nothing to charge for it, or nothing to
+  get for the money — and the two are deliberately not told apart on the wire: a `reason` would be a second
+  vocabulary on an API whose codes are about a *user*, and the screen sending it has both facts on the row.
+- **`POST /api/admin/plans` refuses a published zero-grant plan as a `400`, before Stripe**, where the edit
+  route answers `409` at the end. That route creates a Product first, so a refusal after it would arrive as a
+  `409` indistinguishable from "that code is taken" — and an operator would rename, retry, and make a second
+  Product.
+
+The strip's reset date goes with the prompt's on a zero-grant tier, which the ADR states only of the prompt:
+"resets 14 Sep" under "No reposts on this plan" is the same promise in fewer words. And the popup's bulk cap
+is `Infinity` where neither the quota nor the flag caps a selection — arithmetic rather than a sentinel, since
+every comparison over it is correct and the one template string that could have printed it asks `describeCap`
+first.
+
+**Not walked against real ads.** Everything here is held by the three suites; the click-through scripts move
+with the copy but nobody has driven an unlimited tier through a real Marktplaats account.
 
 #### [T74](https://github.com/Shei254/marketplaats-extension/issues/161) · One word for the thing users press · **S** · T73
 The button says **Repost**. The strip above it says **relists**. The admin quota field says both in one field —

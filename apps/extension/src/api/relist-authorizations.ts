@@ -115,12 +115,19 @@ export class RelistAuthorizations implements RelistPermission {
   }
 }
 
-/** `{ quotaRemaining, resetAt }`, or nothing if that is not what came back. */
+/**
+ * `{ quotaRemaining, resetAt }`, or nothing if that is not what came back.
+ *
+ * A `quotaRemaining` of `null` is a tier with no cap (T73, ADR-0029) and not a
+ * body this could not read — the field is present and says there is no ceiling.
+ */
 export function asRemainingQuota(body: unknown): RemainingQuota | null {
   if (typeof body !== "object" || body === null) return null;
   const { quotaRemaining, resetAt } = body as Record<string, unknown>;
-  if (typeof quotaRemaining !== "number" || !Number.isInteger(quotaRemaining) || quotaRemaining < 0) {
-    return null;
+  if (quotaRemaining !== null) {
+    if (typeof quotaRemaining !== "number" || !Number.isInteger(quotaRemaining) || quotaRemaining < 0) {
+      return null;
+    }
   }
   if (typeof resetAt !== "string" || resetAt.length === 0) return null;
   return { quotaRemaining, resetAt };

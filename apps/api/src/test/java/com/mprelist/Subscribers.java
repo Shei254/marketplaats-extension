@@ -56,8 +56,11 @@ final class Subscribers {
 	 * <p>The tier is arranged rather than taken from the seeded catalog, for {@link TierEntitlementTest}'s
 	 * reason: those numbers are an operator's to edit (ADR-0014), so a suite that spent the free rung's three
 	 * would start failing the day somebody tuned it.
+	 *
+	 * @param relistsPerPeriod what a period grants, or {@code null} for unlimited (T73, ADR-0029) — boxed for
+	 * that third state, which is the one no number can stand in for
 	 */
-	Subscriber entitledTo(int relistsPerPeriod) {
+	Subscriber entitledTo(Integer relistsPerPeriod) {
 		UUID tier = this.db.queryForObject("""
 				insert into tier (code, name, relist_quota_per_period, max_marktplaats_accounts)
 				values (?, 'A tier of this suite''s own', ?, 1) returning id

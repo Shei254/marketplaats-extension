@@ -131,7 +131,13 @@ export interface CompleteRequest {
  * `quotaRemaining` is never negative.
  */
 export interface RemainingQuota {
-  quotaRemaining: number;
+  /**
+   * `null` on an unlimited tier (ADR-0029): there is nothing left of a grant with
+   * no ceiling, and a large number in its place is one a client would draw a bar
+   * against. Strict-null does for every reader here what `Integer` does on the
+   * server — it names them rather than leaving them to be found.
+   */
+  quotaRemaining: number | null;
   resetAt: string;
 }
 
@@ -166,14 +172,21 @@ export interface TierName {
 export interface DisplayState {
   subscriptionStatus: SubscriptionStatus;
   tier: TierName;
-  quotaRemaining: number;
+  /** `null` on an unlimited tier, always together with the field below it. */
+  quotaRemaining: number | null;
   /**
    * What the tier grants for a whole period — the other half of "2 of 3", and a
    * number that does not move when a unit is spent. A client holding only
    * `quotaRemaining` cannot draw that sentence and ends up keeping a catalog of
    * quotas the API never sends it.
+   *
+   * **`null` is unlimited** (ADR-0029), and the two nullable fields are always
+   * `null` together: one is the ceiling and the other is what is left under it, so
+   * a plan with no ceiling has neither. The strip then reads the tier's name and
+   * "Unlimited reposts", with no bar and no date — a meter draws a proportion and
+   * there is nothing here to draw one against.
    */
-  relistQuotaPerPeriod: number;
+  relistQuotaPerPeriod: number | null;
   resetAt: string;
   /** The tier's flags as stored. `{}` on every tier today, and sent rather than omitted. */
   features: Record<string, unknown>;
@@ -208,8 +221,12 @@ export interface PlanPrice {
  */
 export interface Plan {
   tier: TierName;
-  /** What a period grants, which is the number the card compares plans on. */
-  relistQuotaPerPeriod: number;
+  /**
+   * What a period grants, which is the number the card compares plans on. `null`
+   * is unlimited (ADR-0029), and never `0`: a tier granting nothing cannot be
+   * published, so it cannot be on this list at all.
+   */
+  relistQuotaPerPeriod: number | null;
   /** The tier's flags as stored. `{}` on every tier today, and sent rather than omitted. */
   features: Record<string, unknown>;
   /**
@@ -340,8 +357,12 @@ export interface PortalSession {
  */
 export interface AdminTier {
   tier: TierName;
-  /** What a period grants. Zero is coherent — on the default tier it is "no free tier". */
-  relistQuotaPerPeriod: number;
+  /**
+   * What a period grants. Zero is coherent — on the default tier it is "no free
+   * tier" (ADR-0019) — and `null` is unlimited (ADR-0029). This is the read side,
+   * and it mirrors the column; the write side below it needs one rule more.
+   */
+  relistQuotaPerPeriod: number | null;
   features: Record<string, unknown>;
   /** Whether a buyer may choose it. False on every draft, and on the free tier for good. */
   published: boolean;
@@ -402,10 +423,18 @@ export interface AdminTiers {
  * `PUT /api/admin/tiers/{code}` — the half of a tier an operator may change.
  *
  * **Whole rather than partial**, which is why it is a `PUT`: every field is stated
- * every time, so there is no "absent or null" question for a reader to answer
- * differently from the next one. A body leaving out `relistQuotaPerPeriod` or
- * `published` is a `400` rather than a default, because guessing either would
- * change a plan nobody asked to change.
+ * every time. A body leaving out `relistQuotaPerPeriod` or `published` is a `400`
+ * rather than a default, because guessing either would change a plan nobody asked
+ * to change.
+ *
+ * **One field answers "absent" and "null" differently, and it is the only one on
+ * this API** (ADR-0029). The old rule — "so there is no 'absent or null' question
+ * for a reader to answer differently from the next one" — rested on `null` meaning
+ * *you forgot it*. Since a quota of `null` is how unlimited is spelled, the two
+ * part company here: **leaving `relistQuotaPerPeriod` out is a `400`; sending it as
+ * an explicit JSON `null` is unlimited.** TypeScript cannot say that in a type —
+ * an optional property and an explicit `null` collapse to the same declaration —
+ * so it is written here and the field stays required.
  *
  * What is **not** here is the decision (ADR-0019): no amount or interval, because
  * Stripe Prices are immutable and a field called "amount" would be lying about
@@ -415,14 +444,18 @@ export interface AdminTiers {
  * the catalog rather than of one row — `PUT /api/admin/tiers/{code}/default` moves
  * it, and there is deliberately no way to ask for a catalog with no default at all.
  *
- * **`409` means one thing**: publishing a tier with nothing to charge against. The
- * way out is Stripe's — create a Price tagged with the tier's code. `404` means no
- * tier is stored under that code. Both carry an empty body, since there is exactly
- * one way for this route to conflict and the status is the whole of the message.
+ * **`409` means one thing said two ways**: this tier cannot go on sale as
+ * described. Either there is nothing to charge for it — no Stripe Price, and the
+ * way out is Stripe's, create one tagged with the tier's code — or there is nothing
+ * to get for the money, a quota of `0` (ADR-0029). `404` means no tier is stored
+ * under that code. Both carry an empty body: the screen that sends this shows both
+ * facts on the row it is editing, and a `reason` would be a second vocabulary on an
+ * API whose codes are statements about a *user*.
  */
 export interface TierEdit {
   name: string;
-  relistQuotaPerPeriod: number;
+  /** The number, or `null` for unlimited. Never absent — see above. */
+  relistQuotaPerPeriod: number | null;
   features: Record<string, unknown>;
   published: boolean;
 }
@@ -517,7 +550,12 @@ export interface NewPlan {
    * new Price and everybody already subscribed keeps the one they bought.
    */
   prices: NewPrice[];
-  relistQuotaPerPeriod: number;
+  /**
+   * The number, or `null` for unlimited — read by the same rule the edit form's is
+   * (ADR-0029), so a plan created here and one edited afterwards cannot disagree
+   * about what a quota may say. Absent is a `400`.
+   */
+  relistQuotaPerPeriod: number | null;
   features: Record<string, unknown>;
   published: boolean;
 }

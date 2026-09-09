@@ -83,6 +83,8 @@ describe("fail-closed, which applies to display too", () => {
     ["a status this build has never heard of", () => json({ ...PLAN, subscriptionStatus: "PAUSED" })],
     ["a quota that is not a number", () => json({ ...PLAN, quotaRemaining: "2" })],
     ["a negative quota", () => json({ ...PLAN, quotaRemaining: -1 })],
+    ["a grant that is not a number and not null", () => json({ ...PLAN, relistQuotaPerPeriod: "3" })],
+    ["a negative grant", () => json({ ...PLAN, relistQuotaPerPeriod: -1 })],
     ["no reset date", () => json({ ...PLAN, resetAt: undefined })],
     ["features that are not an object", () => json({ ...PLAN, features: [] })],
   ];
@@ -93,6 +95,23 @@ describe("fail-closed, which applies to display too", () => {
     const { client } = api({ answer });
 
     await expect(client.displayState()).resolves.toEqual({ status: "unavailable" });
+  });
+
+  /**
+   * The third state a quota can be in (T73, ADR-0029). `null` is not a hole in the
+   * body and is not a zero: it is a tier with no cap, and a parser that refused it
+   * would render "unavailable" to the users on the most generous plan there is.
+   * Both fields, together — they are always null together.
+   */
+  it("reads a tier with no cap as the two nulls it is, rather than as a hole", async () => {
+    const { client } = api({
+      answer: () => json({ ...PLAN, quotaRemaining: null, relistQuotaPerPeriod: null }),
+    });
+
+    await expect(client.displayState()).resolves.toEqual({
+      status: "ready",
+      plan: { ...PLAN, quotaRemaining: null, relistQuotaPerPeriod: null },
+    });
   });
 
   it("renders unavailable when the backend cannot be reached at all", async () => {

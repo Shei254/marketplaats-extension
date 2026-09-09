@@ -323,6 +323,22 @@ class StripePriceSyncTest {
 		assertThat(publishedIs("pro")).isFalse();
 	}
 
+	/**
+	 * But an unlimited tier is (T73, #160; ADR-0029). Under the {@code > 0} guard this path used to carry
+	 * alone, {@code null > 0} is unknown and the update would have matched no row — so the best plan in the
+	 * catalog would have been the one tier that never went on sale when its Price landed, precisely because
+	 * it is the best one. The condition is now the same one V9's trigger and {@code TierEdited.NothingToGrant}
+	 * state, which is what makes the two publish paths agree.
+	 */
+	@Test
+	void butAnUnlimitedOneIs() {
+		this.db.update("update tier set relist_quota_per_period = null where code = 'pro'");
+
+		signedPost(priceEvent("price.created", "price_pro_monthly", "pro", null));
+
+		assertThat(publishedIs("pro")).isTrue();
+	}
+
 	// --- The signature, which is the whole of the authentication --------------------------------------
 
 	@Test

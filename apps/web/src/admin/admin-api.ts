@@ -38,9 +38,12 @@ export type PricesAnswer = { status: "ready"; prices: UntaggedPrice[] } | Refusa
 /**
  * What came of writing.
  *
- * `unsellable` is the API's `409` and means one thing: publishing a tier with no
- * Stripe Price. The way out is Stripe's — create a Price tagged with the tier's
- * code — so the screen has a sentence rather than a retry. `rejected` is a `400`,
+ * `unsellable` is the API's `409`, and since ADR-0029 it means one thing said two
+ * ways — **this tier cannot go on sale as described**: either there is nothing to
+ * charge for it (no Stripe Price, and the way out is Stripe's — create one tagged
+ * with the tier's code) or nothing to get for the money (a quota of 0). Both forms
+ * warn before they send, so what reaches this is a stale tab. `rejected` is a
+ * `400`,
  * which for a form that always sends every field should be unreachable and is
  * rendered rather than swallowed, because unreachable is a claim and not a fact.
  */
@@ -272,8 +275,13 @@ export function asAdminTier(entry: unknown): AdminTier | null {
   if (typeof code !== "string" || code.length === 0) return null;
   if (typeof name !== "string") return null;
 
+  // `null` is a tier with no cap (T73, ADR-0029) and is a value rather than a hole:
+  // a parser that refused it would blank this screen over the one row an operator
+  // most needs to see.
   const quota = fields["relistQuotaPerPeriod"];
-  if (typeof quota !== "number" || !Number.isInteger(quota) || quota < 0) return null;
+  if (quota !== null && (typeof quota !== "number" || !Number.isInteger(quota) || quota < 0)) {
+    return null;
+  }
 
   const features = fields["features"];
   if (typeof features !== "object" || features === null || Array.isArray(features)) return null;
@@ -287,7 +295,7 @@ export function asAdminTier(entry: unknown): AdminTier | null {
 
   return {
     tier: { code, name },
-    relistQuotaPerPeriod: quota,
+    relistQuotaPerPeriod: quota as number | null,
     features: features as Record<string, unknown>,
     published,
     isDefault,

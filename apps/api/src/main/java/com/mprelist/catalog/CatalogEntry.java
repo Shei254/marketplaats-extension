@@ -31,7 +31,8 @@ import java.util.Map;
  * @param tier the pair every surface carries: the stable handle and the display text
  * @param relistQuotaPerPeriod what a period grants. **Zero is a coherent answer**, and on the default tier it
  * is how ADR-0019 says "there is no free tier" — every new user is still provisioned and every relist is
- * refused down the path that already works
+ * refused down the path that already works. **{@code null} is unlimited** (ADR-0029), which is the other
+ * meaning that had to be spelled somehow and got the rarer spelling of the two
  * @param features the flags as the {@code jsonb} column holds them, copied and unmodifiable
  * @param published whether a buyer may choose it. False on every draft, and on the free tier for good
  * @param isDefault whether new accounts are provisioned onto it. Exactly one tier carries it, which is an
@@ -41,14 +42,14 @@ import java.util.Map;
  * the free tier, and any tier whose Price has not been created in Stripe yet. Several since T62 (#128), where
  * monthly and annual are one plan rather than two
  */
-public record CatalogEntry(TierName tier, int relistQuotaPerPeriod, Map<String, Object> features,
+public record CatalogEntry(TierName tier, Integer relistQuotaPerPeriod, Map<String, Object> features,
 		boolean published, boolean isDefault, java.util.List<TierPrice> prices) {
 
 	public CatalogEntry {
 		if (tier == null) {
 			throw new IllegalArgumentException("A catalog entry names its tier");
 		}
-		if (relistQuotaPerPeriod < 0) {
+		if (relistQuotaPerPeriod != null && relistQuotaPerPeriod < 0) {
 			throw new IllegalArgumentException("A tier granting fewer than no relists is a row "
 					+ "tier_relist_quota_per_period_check would refuse: " + relistQuotaPerPeriod);
 		}
@@ -64,6 +65,13 @@ public record CatalogEntry(TierName tier, int relistQuotaPerPeriod, Map<String, 
 			// database would have refused.
 			throw new IllegalArgumentException("A published tier has something to charge against; "
 					+ "tier_is_published_only_with_a_price refuses the row otherwise");
+		}
+		if (published && relistQuotaPerPeriod != null && relistQuotaPerPeriod == 0) {
+			// V9's trigger, restated here for the same reason as the one above it (ADR-0029). It is a rule
+			// about *publishing* and not about what 0 means: 0 stays "grants nothing", and selling a tier
+			// that grants nothing is what is refused. Unlimited — null — passes, since it grants everything.
+			throw new IllegalArgumentException("A published tier grants something; "
+					+ "tier_is_published_only_when_it_grants_something refuses the row otherwise");
 		}
 		features = Collections.unmodifiableMap(new LinkedHashMap<>(features));
 		prices = java.util.List.copyOf(prices);

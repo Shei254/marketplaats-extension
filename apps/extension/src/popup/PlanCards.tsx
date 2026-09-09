@@ -3,7 +3,7 @@ import type { DisplayState, Plan, PlanPrice } from "@mprelist/contracts";
 import type { JSX } from "react";
 
 import { grantOf, priceAndRhythmOf, type Handoff, type PlansView } from "./plans";
-import { relistsLeft } from "./screens";
+import { grantLine } from "./screens";
 
 /**
  * What can be bought, and the plan they are on (T52, #83).
@@ -95,9 +95,7 @@ function CurrentPlanCard({ current }: { current: DisplayState }): JSX.Element {
         <span className="popup-plan-card-name">{current.tier.name}</span>
         <Badge tone="accent">Current</Badge>
       </div>
-      <p className="popup-plan-card-grant">
-        {relistsLeft(current.quotaRemaining, current.relistQuotaPerPeriod)}
-      </p>
+      <p className="popup-plan-card-grant">{grantLine(current)}</p>
       <Button shape="block" tone="done" aria-label={`${current.tier.name} is your plan`}>
         Your plan
       </Button>

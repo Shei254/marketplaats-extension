@@ -25,7 +25,11 @@ import java.util.Map;
  *
  * @param relistsPerPeriod what the quota check counts against, {@code tier.relist_quota_per_period}. Zero is
  * a coherent grant — a paused plan denies with {@code QUOTA_EXCEEDED} like any exhausted user, which is one
- * code path rather than a case of its own.
+ * code path rather than a case of its own. <strong>{@code null} is unlimited</strong> (ADR-0029), and the
+ * component is boxed for exactly that: a {@code -1} sentinel would make {@code Math.max(0, -1 - held)} come
+ * out {@code 0}, so the most generous tier in the catalog would refuse every repost while reading as a gate
+ * that works. A {@code null} cannot be silently arithmetically wrong — the compiler names every reader
+ * instead.
  * @param maxMarktplaatsAccounts how many Marktplaats accounts may be associated with the user,
  * {@code tier.max_marktplaats_accounts}. One on every tier in the catalog until #47 finds a stable Marktplaats
  * account identifier: until something can tell two of them apart, a tier promising three would be selling
@@ -35,7 +39,7 @@ import java.util.Map;
  * {@code V8__seed_bulk_entitlement.sql} is not a hypothetical: {@code bulk} carries {@code {"upTo": N}}.
  * Copied and unmodifiable, so an entitlement cannot change under a reader already holding it.
  */
-public record Entitlement(int relistsPerPeriod, int maxMarktplaatsAccounts, Map<String, Object> features) {
+public record Entitlement(Integer relistsPerPeriod, int maxMarktplaatsAccounts, Map<String, Object> features) {
 
 	/**
 	 * Reposting several ads in one act (#147, ADR-0025) — the first flag anything has ever read, and the name
@@ -52,7 +56,7 @@ public record Entitlement(int relistsPerPeriod, int maxMarktplaatsAccounts, Map<
 	 * would have refused, since a quota below zero denies every relist and would read as a gate that works.
 	 */
 	public Entitlement {
-		if (relistsPerPeriod < 0) {
+		if (relistsPerPeriod != null && relistsPerPeriod < 0) {
 			throw new IllegalArgumentException(
 					"A tier granting fewer than no relists per period is not a smaller plan, it is a row "
 							+ "tier_relist_quota_per_period_check would refuse: " + relistsPerPeriod);

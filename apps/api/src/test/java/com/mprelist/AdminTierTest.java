@@ -309,6 +309,92 @@ class AdminTierTest {
 		assertThat(defaultTiers()).containsExactly("free");
 	}
 
+	// --- unlimited (T73, #160; ADR-0029) ------------------------------------------------------------------------
+
+	/**
+	 * The sentinel, end to end: an explicit JSON {@code null} on the write side comes back as a {@code null}
+	 * on the read side and is stored as one in the column.
+	 */
+	@Test
+	void aTierMayGrantUnlimitedReposts() {
+		assertThat(put("/api/admin/tiers/pro", editUnlimited(false)).statusCode()).isEqualTo(200);
+
+		assertThat(tierNamed("pro").get("relistQuotaPerPeriod").isNull()).isTrue();
+		assertThat(this.db.queryForObject("select relist_quota_per_period from tier where code = 'pro'",
+				Integer.class)).isNull();
+	}
+
+	/**
+	 * <strong>Absent and {@code null} are different on this one field, and only on this one.</strong>
+	 * Everywhere else on this request {@code null} means <em>you forgot it</em>, and that rule is what
+	 * ADR-0029 had to make a local exception to. Asserted as a pair, because the value of the distinction is
+	 * entirely in the two answers differing — either alone would pass against a reader that could not tell
+	 * them apart.
+	 */
+	@Test
+	void andLeavingTheQuotaOutIsStillForgettingItRatherThanAskingForUnlimited() {
+		assertThat(put("/api/admin/tiers/pro", "{\"name\":\"Pro\",\"relistQuotaPerPeriod\":null,"
+				+ "\"features\":{},\"published\":false}").statusCode()).isEqualTo(200);
+		assertThat(put("/api/admin/tiers/pro", "{\"name\":\"Pro\",\"features\":{},\"published\":false}")
+				.statusCode()).isEqualTo(400);
+
+		// The refused one changed nothing, so the tier is still the unlimited one the first call made.
+		assertThat(tierNamed("pro").get("relistQuotaPerPeriod").isNull()).isTrue();
+	}
+
+	/** And a quota that is neither a whole number nor null is a body this API can read and cannot use. */
+	@Test
+	void andAQuotaThatIsNeitherANumberNorNullIsNotAnEdit() {
+		assertThat(put("/api/admin/tiers/pro", "{\"name\":\"Pro\",\"relistQuotaPerPeriod\":\"lots\","
+				+ "\"features\":{},\"published\":false}").statusCode()).isEqualTo(400);
+		assertThat(tierNamed("pro").get("relistQuotaPerPeriod").asInt()).isEqualTo(50);
+	}
+
+	/**
+	 * A published tier grants something (ADR-0029) — the backstop under a form that warns and withdraws the
+	 * tier itself. It closes a gap the {@code > 0} guard on the sync's auto-publish path left open: this row
+	 * was hand-publishable, and a buyer could have paid for it.
+	 */
+	@Test
+	void aTierGrantingNothingCannotBePutOnSale() {
+		TierPrices.soldByTheMonth(this.db, "pro", "price_pro");
+
+		HttpResponse<String> refused = put("/api/admin/tiers/pro", edit(0, true));
+
+		assertThat(refused.statusCode()).isEqualTo(409);
+		assertThat(refused.body()).isEmpty();
+		// And nothing about the row moved — not the quota it would have kept either.
+		assertThat(tierNamed("pro").get("relistQuotaPerPeriod").asInt()).isEqualTo(50);
+		assertThat(tierNamed("pro").get("published").asBoolean()).isFalse();
+	}
+
+	/** An unlimited one may, because it grants everything rather than nothing. */
+	@Test
+	void butAnUnlimitedOneCan() {
+		TierPrices.soldByTheMonth(this.db, "pro", "price_pro");
+
+		assertThat(put("/api/admin/tiers/pro", editUnlimited(true)).statusCode()).isEqualTo(200);
+
+		assertThat(tierNamed("pro").get("published").asBoolean()).isTrue();
+		assertThat(tierNamed("pro").get("relistQuotaPerPeriod").isNull()).isTrue();
+	}
+
+	/**
+	 * And what its subscribers have left is no number at all rather than a large one — the read side of the
+	 * same sentinel, on the body both clients render.
+	 */
+	@Test
+	void andItsSubscribersHaveNoNumberLeftRatherThanALargeOne() {
+		Subscriber user = this.rows.entitledTo(3);
+		String code = (String) this.rows.tierOf(user).get("code");
+		this.rows.unitHeldBy(user, Subscribers.now().minusMinutes(1));
+
+		assertThat(put("/api/admin/tiers/" + code, editUnlimited(false)).statusCode()).isEqualTo(200);
+
+		assertThat(displayStateOf(user).get("quotaRemaining").isNull()).isTrue();
+		assertThat(displayStateOf(user).get("relistQuotaPerPeriod").isNull()).isTrue();
+	}
+
 	// --- what it does to the people already on it -------------------------------------------------------------
 
 	/**
@@ -412,6 +498,35 @@ class AdminTierTest {
 	 * "create" mean create. Adopting it instead would repoint the existing tier's Price — the upsert's
 	 * ordinary behaviour, right for a webhook and quite wrong for a button labelled New plan.
 	 */
+	/**
+	 * A plan granting nothing and asking to be on sale is refused as a body rather than as a conflict, and
+	 * <strong>before Stripe is touched</strong> (T73, ADR-0029). The edit route answers {@code 409} for the
+	 * same mistake because nothing has happened yet when it decides; here a refusal at the end would arrive
+	 * with a Stripe Product already created, as a {@code 409} an operator would read as "that code is taken"
+	 * — and rename, retry, and make a second Product.
+	 */
+	@Test
+	void andAPlanGrantingNothingIsNotOneToPutOnSale() {
+		String onSale = "{\"tierCode\":\"starter\",\"name\":\"Starter\","
+				+ "\"prices\":[{\"amount\":500,\"interval\":\"month\"}],"
+				+ "\"relistQuotaPerPeriod\":0,\"features\":{},\"published\":true}";
+
+		assertThat(post(PLANS, onSale).statusCode()).isEqualTo(400);
+		assertThat(codesIn(Json.of(get(TIERS)).get("tiers"))).doesNotContain("starter");
+	}
+
+	/** Unlimited is not that: it grants everything, so it gets as far as Stripe like any other plan. */
+	@Test
+	void butAnUnlimitedOneReachesStripeLikeAnyOther() {
+		String unlimited = "{\"tierCode\":\"starter\",\"name\":\"Starter\","
+				+ "\"prices\":[{\"amount\":500,\"interval\":\"month\"}],"
+				+ "\"relistQuotaPerPeriod\":null,\"features\":{},\"published\":true}";
+
+		// No Stripe key is configured in this suite, so "as far as Stripe" is where it stops — which is the
+		// 422 every other well-formed plan gets here, and not the 400 above.
+		assertThat(post(PLANS, unlimited).statusCode()).isEqualTo(422);
+	}
+
 	@Test
 	void andACodeTheCatalogAlreadyHoldsIsNotANewPlan() {
 		HttpResponse<String> refused = post(PLANS, newPlan("pro"));
@@ -624,12 +739,16 @@ class AdminTierTest {
 	}
 
 	private int quotaRemainingOf(Subscriber user) {
-		HttpResponse<String> me = Http.send(HttpRequest.newBuilder(uri("/api/me"))
+		return displayStateOf(user).get("quotaRemaining").asInt();
+	}
+
+	/** {@code GET /api/me} as this subscriber — the body an edit is felt on, without a second call's shape. */
+	private JsonNode displayStateOf(Subscriber user) {
+		return Json.of(Http.send(HttpRequest.newBuilder(uri("/api/me"))
 				.timeout(TIMEOUT)
 				.header("Authorization", "Bearer " + user.token())
 				.GET()
-				.build());
-		return Json.of(me).get("quotaRemaining").asInt();
+				.build()));
 	}
 
 	/**
@@ -650,6 +769,12 @@ class AdminTierTest {
 
 	private static String edit(int quota, boolean published) {
 		return "{\"name\":\"Pro\",\"relistQuotaPerPeriod\":" + quota + ",\"features\":{},\"published\":"
+				+ published + "}";
+	}
+
+	/** The same body with the quota written out as an explicit JSON {@code null} — unlimited (ADR-0029). */
+	private static String editUnlimited(boolean published) {
+		return "{\"name\":\"Pro\",\"relistQuotaPerPeriod\":null,\"features\":{},\"published\":"
 				+ published + "}";
 	}
 

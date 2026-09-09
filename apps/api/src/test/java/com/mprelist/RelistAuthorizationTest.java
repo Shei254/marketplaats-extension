@@ -229,6 +229,36 @@ class RelistAuthorizationTest {
 	}
 
 	/**
+	 * And an unlimited tier is never refused, however much of the period it has already spent (T73, #160;
+	 * ADR-0029). The comparison is the only thing unlimited changes about this path.
+	 */
+	@Test
+	void butAnUnlimitedTierIsNeverRefusedForQuota() {
+		Subscriber user = aSubscriberEntitledTo(null);
+		for (int spent = 0; spent < 5; spent++) {
+			this.rows.unitHeldBy(user, Subscribers.now().minusMinutes(1));
+		}
+
+		assertThat(authorize(user, "ad-1").statusCode()).isEqualTo(200);
+	}
+
+	/**
+	 * <strong>And it still takes a unit</strong>, which is the trap ADR-0029 names and the thing that makes
+	 * "unlimited" honest. {@code SafetyPolicy} counts attempts and an attempt is a reservation, so a tier that
+	 * skipped the reservation would silently lose the minimum interval and the burst limit — "unlimited per
+	 * period" would become unlimited per minute, for exactly the users doing the highest volume on their own
+	 * Marktplaats accounts. It would take the {@code RelistEvent} breakage canary with it too.
+	 */
+	@Test
+	void andStillTakesTheUnitItDoesNotCount() {
+		Subscriber user = aSubscriberEntitledTo(null);
+
+		assertThat(authorize(user, "ad-1").statusCode()).isEqualTo(200);
+
+		assertThat(this.rows.theOnlyReservationOf(user).get("status")).isEqualTo("RESERVED");
+	}
+
+	/**
 	 * A refunded reservation is not one the user still holds. {@code FAILED_BEFORE_DELETE} means nothing
 	 * happened on Marktplaats (#23), so the unit returns to the period — and a count that asked for
 	 * {@code RESERVED} rows instead of "not refunded" would give every settled relist back the same way.
@@ -746,7 +776,8 @@ class RelistAuthorizationTest {
 	// — a pass-through under the same name is a second name for one thing, and RelistCompletionTest calls the
 	// fixture direct.
 
-	private Subscriber aSubscriberEntitledTo(int relistsPerPeriod) {
+	/** @param relistsPerPeriod what a period grants, or {@code null} for unlimited (T73, ADR-0029) */
+	private Subscriber aSubscriberEntitledTo(Integer relistsPerPeriod) {
 		return this.rows.entitledTo(relistsPerPeriod);
 	}
 

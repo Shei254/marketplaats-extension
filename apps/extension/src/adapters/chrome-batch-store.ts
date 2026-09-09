@@ -88,13 +88,18 @@ export function asBatchRun(value: unknown): BatchRun | null {
   };
 }
 
-/** `{ quotaRemaining, resetAt }`, or nothing — the same shape `/complete` answers with. */
+/**
+ * `{ quotaRemaining, resetAt }`, or nothing — the same shape `/complete` answers
+ * with, including the `null` an unlimited tier reports (T73, ADR-0029).
+ */
 function asRemainingQuota(value: unknown): RemainingQuota | null {
   if (typeof value !== "object" || value === null) return null;
   const { quotaRemaining, resetAt } = value as Record<string, unknown>;
-  if (!Number.isInteger(quotaRemaining) || (quotaRemaining as number) < 0) return null;
+  if (quotaRemaining !== null && (!Number.isInteger(quotaRemaining) || (quotaRemaining as number) < 0)) {
+    return null;
+  }
   if (typeof resetAt !== "string" || resetAt.length === 0) return null;
-  return { quotaRemaining: quotaRemaining as number, resetAt };
+  return { quotaRemaining: quotaRemaining as number | null, resetAt };
 }
 
 function asListingIds(value: unknown): string[] | null {

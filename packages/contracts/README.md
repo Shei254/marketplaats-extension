@@ -30,6 +30,14 @@ Both of the endpoints this file used to name as missing now exist and are in it:
 **Nothing here is written ahead of the endpoint it describes** — that is a guess which later reads as a
 contract, and it stays the rule for the next one.
 
+**Every quota on the read side is `number | null`** since T73
+([ADR-0029](../../docs/adr/0029-unlimited-is-null-and-zero-still-grants-nothing.md)): `null` is an unlimited
+tier and `0` still grants nothing. TypeScript's strict-null does for the four clients what `Integer` does for
+the server — it names every reader of a quota rather than leaving them to be found. The **write** side is the
+one place this file cannot say what it means: on the admin `PUT` and `POST`, leaving `relistQuotaPerPeriod`
+out is a `400` and sending it as an explicit `null` is unlimited, and an optional property and an explicit
+`null` are the same declaration here — so the field stays required and the rule is written on the type.
+
 **Dates travel as ISO-8601 strings**, exactly as they arrive. Parsing them into `Date` here would make this a
 decoder with an opinion about clocks, and what every consumer actually does with `resetAt` is render it.
 

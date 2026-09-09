@@ -199,3 +199,22 @@ already keeps for a price it could not fetch.
 Revisit if the product ever sells into a second currency zone. That is a bigger question than a column — the
 plan cards would have to choose a currency per viewer, and Stripe accounts settle in one — and nothing about
 this decision blocks it.
+
+## Amended by ADR-0029 (2026-09-10) — a draft is still quota 0, and that was the whole argument
+
+[ADR-0029](0029-unlimited-is-null-and-zero-still-grants-nothing.md) adds an **unlimited** tier and spells it
+`null`, deliberately leaving `0` to this ADR. The alternative — `0` means unlimited — was proposed first, and
+the **draft tier** above is the first of three reasons it was rejected: a Price tagged with a code the catalog
+does not hold is adopted here at quota 0 and `published = false`, by a webhook, with no form and no operator
+anywhere in the path. Under that alternative every draft the sync invents would be an uncapped tier held back
+only by a flag, and `AdminCatalog`'s draft detector — unpublished, quota 0, priced — would have been detecting
+the opposite of what it names.
+
+`TierRows`' auto-publish is the second: `update tier set published = true where id = ? and relist_quota_per_period > 0`
+means an uncapped tier spelled `0` would be the one tier that never goes on sale when its Price lands,
+precisely because it is the best one. It is left exactly as written — `null` is not `> 0`, so an unlimited tier
+is published deliberately rather than by the sync, which is the same care this ADR already takes with a draft.
+
+**"Publishing a draft is an admin setting its quota" is now enforceable rather than descriptive.** ADR-0029
+adds `published → (quota > 0 OR quota IS NULL)` at the three layers `V7` uses, so a draft cannot be published
+while it is still a draft.

@@ -24,12 +24,12 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0011](0011-repository-layout.md) | Repository layout — monorepo, one deployable per workspace | Accepted |
 | [0012](0012-backend-modular-monolith.md) | Backend — modular monolith (Spring Modulith), hexagonal modules | Accepted |
 | [0013](0013-remote-client-configuration.md) | Remote client configuration for the internal-API layer | Accepted, refined by 0024 |
-| [0014](0014-tier-catalog-and-entitlements.md) | Tier catalog & entitlements ours, keyed to Stripe Prices | Accepted, refines 0006 |
+| [0014](0014-tier-catalog-and-entitlements.md) | Tier catalog & entitlements ours, keyed to Stripe Prices | Accepted, refines 0006, refined by 0026 and 0029 |
 | [0015](0015-frozen-internal-api-golden-tests.md) | Internal-API layer frozen by golden-payload tests | Accepted |
 | [0016](0016-vertical-slices-and-review-gates.md) | Iteration 1 cut into vertical slices, each ending at a manual review | Accepted |
 | [0017](0017-web-surface-and-subscribing.md) | One web app, loginless public routes; subscribing starts in the popup | Accepted, amends 0011, refined by 0023 |
 | [0018](0018-lapse-falls-back-to-the-default-tier.md) | A subscription that ends falls back to the default tier | Accepted, refines 0014 |
-| [0019](0019-plans-are-stripe-first-and-webhook-synced.md) | Plans created in Stripe, synced to the Tier catalog by webhook | Accepted, refines 0014 |
+| [0019](0019-plans-are-stripe-first-and-webhook-synced.md) | Plans created in Stripe, synced to the Tier catalog by webhook | Accepted, refines 0014, refined by 0029 |
 | [0020](0020-deployment.md) | Deployed as four containers on one host, from a second compose file | Accepted, amended by 0023 |
 | [0021](0021-design-system-stays-ours.md) | The design system stays ours, and stays a CSS string | Accepted, refines 0016 |
 | [0022](0022-the-plan-screen-names-the-payment-methods.md) | The plan screen names the payment methods, read from Stripe | Accepted, refines 0006 |
@@ -39,6 +39,7 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0026](0026-a-feature-flag-is-a-field-spelled-once.md) | A feature flag is a field an operator types, and the flag is spelled once | Accepted, refines 0014 |
 | [0027](0027-the-popup-stops-offering-bulk-repost.md) | The popup stops offering bulk repost, and the mechanism stays | Accepted, refines 0025 |
 | [0028](0028-a-repost-puts-back-what-it-can.md) | A repost puts back what it can, and says what it cannot | Accepted, refines 0002 |
+| [0029](0029-unlimited-is-null-and-zero-still-grants-nothing.md) | Unlimited is `null`, and zero still grants nothing | Accepted, refines 0014 and 0019 |
 
 **Amended by the 2026-08-13 session:** 0006 (Stripe narrowed to money + lifecycle), 0007 (gating depth,
 `/api/me` display state, `marktplaatsAccountId` dropped), 0009 (monorepo, React popup, Options page removed).
@@ -109,6 +110,18 @@ go-live — scope rather than risk — while leaving the entitlement, the queue,
 ADR here that is cheap to reverse, and says so: what earns it a file is that the alternative leaves a whole
 tested subsystem with no way into it and nothing anywhere saying why.
 [T70](https://github.com/Shei254/marketplaats-extension/issues/155) is the ticket that undoes it.
+
+**Amended by the 2026-09-10 session:** [0029](0029-unlimited-is-null-and-zero-still-grants-nothing.md)
+makes `relist_quota_per_period` nullable so a tier can grant no cap, and refines
+[0014](0014-tier-catalog-and-entitlements.md) and [0019](0019-plans-are-stripe-first-and-webhook-synced.md) by
+keeping `0` exactly where they left it. The proposal it rejects is the obvious one — *let `0` mean unlimited* —
+and the rejection is the value: `0` is what a draft is adopted at, what "there is no free tier" is spelled as,
+and what the auto-publish rule tests against, so redefining it would have given every new account unlimited
+reposts by the same gesture that withdraws the free tier. The half of the proposal that was right became a
+publish rule instead, and closed a real gap: the `> 0` guard existed only on the webhook path, so a zero-grant
+tier could be hand-published and sold. The session also found the vocabulary defect underneath the new copy —
+the button says **Repost**, the strip above it says **relists** — and split the two the way the glossary
+already splits the brand name from `mprelist`.
 
 See also [../domain-model.md](../domain-model.md), [../glossary.md](../glossary.md) and
 [../enforcement-contract.md](../enforcement-contract.md).

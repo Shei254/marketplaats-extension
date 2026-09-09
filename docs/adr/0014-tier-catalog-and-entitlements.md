@@ -92,3 +92,28 @@ from the object. `Entitlement.grants` and the popup have always answered *not gr
 changes no reader; it is decided for the seed's sake. `V8__seed_bulk_entitlement.sql` writes only where the
 key is absent and claims of itself that the admin edit is the durable way to take a flag off a tier — a claim
 a deleted key would falsify on any restored dump, in a file Flyway's checksum forbids correcting.
+
+## Amended by ADR-0029 (2026-09-10)
+
+**`relist_quota_per_period` becomes nullable, and `null` means *unlimited*.**
+[ADR-0029](0029-unlimited-is-null-and-zero-still-grants-nothing.md) adds a tier with no cap per period. The
+split this ADR draws is untouched — money is still Stripe's and limits still ours, and a quota with no ceiling
+is as much ours as one with — so nothing in Stripe changes to sell one.
+
+**The zero-quota spelling above survived being challenged, and that is the decision.** The obvious alternative
+was to let `0` mean unlimited on the grounds that nobody would create a tier granting nothing. It is rejected
+in ADR-0029 because `0` is written by things other than an operator: the sync adopts a **draft** at `0`
+(ADR-0019), "there is no free tier" is the default tier at `0` (this file, amended above), and `TierRows`
+auto-publishes on `relist_quota_per_period > 0`. A `0` that meant unlimited would hand every new account — and
+every ex-customer, since ADR-0018 falls back here — an uncapped tier by the same gesture that withdraws the
+free one.
+
+**"Zero is a coherent grant" gains a limit: it cannot be *sold*.** The amendment above un-deferred the admin
+CRUD with `published` as its gate, and ADR-0029 adds the invariant that was missing beside
+`tier_is_published_only_with_a_price`: **a published tier grants something**, `published → (quota > 0 OR quota
+IS NULL)`. It closes a gap rather than adding a rule — the `> 0` guard existed only on the webhook path, so a
+zero-grant tier could be hand-published and bought.
+
+**The remaining deferral is still deferred.** What happens to existing subscribers when a quota is edited under
+them is unchanged: `quotaRemaining` clamps at zero, no proration and no notification. An edit *to* unlimited
+needs nothing extra — the subtraction simply stops being done.

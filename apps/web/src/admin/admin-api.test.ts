@@ -186,6 +186,56 @@ describe("moving the default", () => {
   });
 });
 
+describe("setting the order the plans are read in", () => {
+  const FREE: AdminTier = {
+    tier: { code: "free", name: "Free" },
+    relistQuotaPerPeriod: 3,
+    features: {},
+    published: false,
+    isDefault: true,
+    prices: [],
+  };
+
+  it("puts the whole catalog, by code, in one request", async () => {
+    // A sequence and never a per-row index (T75, #164; ADR-0030): moving a tier
+    // moves others, so one drag is one write.
+    const { client, calls } = api(() => json({ tiers: [PRO, FREE] }));
+
+    await expect(client.order(["pro", "free"])).resolves.toEqual({
+      status: "ordered",
+      tiers: [PRO, FREE],
+    });
+    expect(calls[0]?.url).toBe("http://localhost:8080/api/admin/tiers/order");
+    expect(calls[0]?.method).toBe("PUT");
+    expect(calls[0]?.body).toBe('{"codes":["pro","free"]}');
+  });
+
+  it("reads a 409 as a stale screen rather than as an unsellable tier", async () => {
+    // The same status the edit route answers, meaning something else entirely:
+    // here the list was not the catalog's set, because a tier arrived or left
+    // while the page was open. Folding the two together would put the edit form's
+    // sentence about Stripe Prices on a failed drag.
+    const { client } = api(() => empty(409));
+
+    await expect(client.order(["pro"])).resolves.toEqual({ status: "stale" });
+  });
+
+  it("and a 401 as a token that has run out", async () => {
+    const { client } = api(() => empty(401));
+
+    await expect(client.order(["pro", "free"])).resolves.toEqual({ status: "signed-out" });
+  });
+
+  it("and refuses a body it cannot read rather than rendering half a catalog", async () => {
+    // All of them or none of them, like every other read of this list: the rows
+    // that survived would look complete on the screen somebody arranges a catalog
+    // on.
+    const { client } = api(() => json({ tiers: [{ tier: { code: "pro" } }] }));
+
+    await expect(client.order(["pro"])).resolves.toEqual({ status: "unavailable" });
+  });
+});
+
 describe("the Prices nobody tagged", () => {
   it("reads them, one-offs and all", async () => {
     const untagged = { id: "price_1", nickname: null, amount: 999, currency: "eur", interval: null };

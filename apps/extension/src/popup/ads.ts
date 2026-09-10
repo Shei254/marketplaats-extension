@@ -41,13 +41,13 @@ export const ADS_LOADING: AdsView = { status: "loading" };
  */
 export function describeAdsFailure(error: unknown): string {
   if (error instanceof NoMarktplaatsTabError) {
-    return "Open marktplaats.nl in a tab, then try again.";
+    return "Open marktplaats.nl in een tabblad en probeer het opnieuw.";
   }
   if (error instanceof NotAuthenticatedError) {
-    return "Log in to Marktplaats first, then try again.";
+    return "Log eerst in op Marktplaats en probeer het opnieuw.";
   }
   if (error instanceof AdNotFoundError) {
-    return "Marktplaats no longer has this ad.";
+    return "Marktplaats heeft deze advertentie niet meer.";
   }
   if (error instanceof SpikePendingError) {
     // Its message names the endpoint that is unset, which is the whole diagnosis
@@ -55,7 +55,7 @@ export function describeAdsFailure(error: unknown): string {
     return error.message;
   }
   if (error instanceof ApiRequestError) {
-    return `Marktplaats refused the request (HTTP ${error.status}).`;
+    return `Marktplaats heeft het verzoek geweigerd (HTTP ${error.status}).`;
   }
   return error instanceof Error ? error.message : String(error);
 }

@@ -21,7 +21,10 @@ MP sessions live only in the user's browser. Nothing here holds them server-side
   webhook syncs one in on `metadata.tier_code`, unpublished and at quota 0 if the code is new, and never
   overwrites a quota (ADR-0019). **The quota per period is nullable, and `null` is unlimited** — `0` keeps
   meaning "grants nothing", which is what a draft is adopted at and what "no free tier" is said with
-  (ADR-0029).
+  (ADR-0029). **Every Tier also carries a place in the Catalog order** — the sequence an operator arranges in
+  `/admin`, which the plan cards are read in (T75, ADR-0030). The place is the *catalog's* and not the row's:
+  it is set by `PUT /api/admin/tiers/order` carrying every code at once, never on the Tier's own edit, and it
+  travels on no wire contract in either direction.
 - **Plan** — a **Tier joined with the Stripe Price** its `stripePriceId` names: quota and flags ours,
   amount and currency and interval Stripe's. Derived, never stored — `GET /api/plans` composes it and caches
   the Stripe half. Only a *published* Tier with a price id is one, so the free tier is a Tier and never a

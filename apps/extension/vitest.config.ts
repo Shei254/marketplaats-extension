@@ -12,7 +12,7 @@ export default defineConfig({
   // the emitted bundle.
   define: {
     __DEV__: "true",
-    __BRAND_NAME__: JSON.stringify("Bumpr"),
+    __BRAND_NAME__: JSON.stringify("AdBump"),
     // A version, not *the* version: what the real one is comes from the manifest at
     // build time, and `scripts/build.test.ts` asserts that against the emitted bundle.
     // A test asserting on this one is asserting on a fixture, which is the point.

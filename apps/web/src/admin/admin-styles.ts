@@ -279,7 +279,7 @@ export const adminCss = `
 /* The catalog table. Everything about how a table *looks* is \`.mp-table\`'s; what
    is here is the columns that need a treatment of their own. */
 .admin-table-scroll { overflow-x: auto; }
-.admin-table { min-width: 720px; }
+.admin-table { min-width: 800px; }
 .admin-code { font-weight: 650; color: var(--mp-fg); }
 .admin-numeric { font-variant-numeric: tabular-nums; }
 /* One line per rhythm a tier is sold at (T62) — usually one, sometimes two. A
@@ -299,6 +299,37 @@ export const adminCss = `
    can be a screen away, so each has to point at the other. */
 .admin-table tr[data-open="true"] td { background: var(--mp-hover); }
 .admin-table tr[data-open="true"] td:first-child { box-shadow: inset 2px 0 0 var(--mp-accent); }
+
+/* The Catalog order (T75, ADR-0030): a handle to drag a row by and two buttons to
+   step it with. Narrow enough that the column costs the table one thumb's width —
+   \`width: 1%\` on a table cell is the idiom for "as narrow as its content". */
+.admin-order { width: 1%; white-space: nowrap; }
+.admin-order-controls { display: flex; align-items: center; gap: 2px; }
+/* Drawn out of a token rather than shipped as an icon: \`packages/ui\` matches every
+   glyph it ships against an artboard, and \`/admin\` is the one surface the canvas
+   does not draw (T54). A dot grid is what a grip is, and this is one rule of it. */
+.admin-grip {
+  flex: none;
+  width: 13px;
+  height: 20px;
+  background-image: radial-gradient(var(--mp-line) 1.4px, transparent 1.4px);
+  background-size: 5px 6px;
+  background-position: 2px 3px;
+  background-repeat: repeat;
+  cursor: grab;
+}
+.admin-table tr:hover .admin-grip {
+  background-image: radial-gradient(var(--mp-muted) 1.4px, transparent 1.4px);
+}
+.admin-grip:active { cursor: grabbing; }
+/* Tighter than the popup header's refresh, which is what \`.mp-icon-btn\` is sized
+   for: two of these sit inside a table row. */
+.admin-move { padding: 1px 4px; font: var(--mp-text-control) var(--mp-font-family); }
+/* The row in the air, and the row it would land on. Later in the sheet than the
+   draft and open edges above, so a drag says where it is going even on a row that
+   is already saying something else — for as long as the drag lasts. */
+.admin-table tr[data-carrying="true"] td { opacity: 0.45; }
+.admin-table tr[data-under="true"] td { box-shadow: inset 0 2px 0 var(--mp-accent); }
 
 /* The forms. One at a time, directly under the heading, in a panel that says what
    it is and carries the way out of it in the same corner every time. */

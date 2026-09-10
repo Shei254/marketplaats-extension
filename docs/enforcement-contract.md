@@ -383,9 +383,17 @@ about a *user*, and nothing here is about one.
   caller: the screen is stale and the answer is to reload it. That is also the concurrency check — a draft the
   Stripe sync adopted while the page was open makes the list incomplete, so the write fails loudly instead of
   quietly filing the new tier wherever the renumbering left it.
+- **The `200` carries the whole catalog in its new order**, as the same **AdminTiers** body `GET
+  /api/admin/tiers` answers with — read back inside the write's own transaction, so a client renders what was
+  stored rather than what it hoped for, like every other write here. `/admin` moves the row optimistically and
+  reconciles against this; a refusal snaps it back.
 - **No `position` is ever sent back.** **AdminTier** carries none: the array is in order, and a number beside
   an ordered array is one fact spelled twice ([ADR-0026](adr/0026-a-feature-flag-is-a-field-spelled-once.md)).
-  A tier the sync drafts is appended, so it arrives last until somebody moves it.
+  A tier the sync drafts is appended, so it arrives last until somebody moves it — a rule the schema holds
+  (`V10`'s `tier_is_placed_last`) rather than one the sync's own insert remembers, so it is true of the seed
+  and of every fixture too.
+- **`400` with an empty body** for a body naming no `codes` at all. Not an empty catalog: the ordering that
+  would otherwise be read out of it — none of the tiers, in no order — is not something any screen means.
 - **`GET /api/admin/prices` → `200`:** the active Stripe Prices carrying no `tier_code`, newest first, at most
   a hundred — `{ "prices": [ { "id", "nickname", "amount", "currency", "interval" } ] }`. It exists because
   the failure it reports is silent: a Price created without the tag produces a plan screen without that plan

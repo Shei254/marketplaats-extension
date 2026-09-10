@@ -159,7 +159,7 @@ async function ask<K extends BackgroundRequest["kind"]>(
   const response = (await chrome.runtime.sendMessage(request)) as
     | BackgroundResponse<K>
     | undefined;
-  if (!response) throw new Error("The extension's background worker did not answer.");
+  if (!response) throw new Error("De achtergrondservice van de extensie reageerde niet.");
   if (!response.ok) throw fromWireError(response.error);
   return response.answer;
 }

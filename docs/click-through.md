@@ -302,6 +302,28 @@ URIs exactly, so sign-in lands on `/` and the page rewrites the address bar to `
    *Expect:* the form says a replacement is being created and that **everybody already subscribed keeps the
    price they signed up at**. After saving, the plan card shows the new amount and the other rhythm is
    untouched — which the single price column could not do.
+9f. **Drag a row by its handle** in the **Order** column and drop it on another (T75, #164,
+   [ADR-0030](adr/0030-the-catalog-order-is-the-operators.md)).
+   *Expect:* the row moves at once, and stays moved. **Then reopen the popup's plan cards: they are in the
+   same order.** That is the whole ticket — the order was `order by relist_quota_per_period, code` until now,
+   which nobody chose and which cannot put Pro above Power.
+   *This step is not optional and has no substitute.* `apps/web` runs on `happy-dom`, which ships no
+   `DragEvent` and answers zeros for `getBoundingClientRect`, so **no automated test anywhere covers the drop**
+   — a dnd library's would not have been testable either, which is half of why there is none. If reordering by
+   drag breaks, the suite stays green and this step is what notices.
+   *Also try the buttons:* **↑** and **↓** on each row do the same thing through the same code and are the
+   keyboard path — the first row has no **↑** and the last no **↓**, because there is nowhere to go. Those
+   *are* covered by `AdminApp.test.tsx`.
+   *And the half that looks like nothing:* drag **Free** to the top. The admin table changes and the plan
+   cards do not, because free is on no card. Every tier carries a place on purpose — a position that existed
+   only while a tier was published would be lost the first afternoon somebody took a plan off sale and put it
+   back.
+9g. With `/admin` open, add a Price in Stripe tagged with a **new** code, then — **without reloading** — drag
+   a row.
+   *Expect:* the row snaps back and a line says the catalog changed while the page was open and has been
+   reloaded. The new draft is now in the table, at the **bottom**. One refusal for "a tier you did not list",
+   "a code that is not there" and "a code twice", because all three mean the same thing to this screen: what
+   it is holding is stale.
 10. Reprice: in Stripe, create a **new** Price tagged with an existing tier's code.
    *Expect:* the tier repoints, the plan cards show the new amount, and anybody already subscribed keeps
    paying the old one — which is Stripe's immutability, not a bug. Force a failed payment on one of them and

@@ -17,8 +17,8 @@ describe("the success page", () => {
   it("says the payment landed, and that the thing they bought is in the toolbar", () => {
     // The webhook (T20, #30) is what moves the subscription; this page's whole job
     // is to catch a browser Stripe redirected and point it back at the extension.
-    expect(markup).toContain("Your payment went through");
-    expect(markup).toContain("icon in your toolbar");
+    expect(markup).toContain("Je betaling is gelukt");
+    expect(markup).toContain("-icoon in je werkbalk");
   });
 
   it("calls the product what brand.json calls it", () => {
@@ -32,8 +32,8 @@ describe("the cancel page", () => {
   it("says nothing was charged and nothing changed", () => {
     // Somebody who backed out of Checkout is being told they still have what they
     // had, which is true: cancelling a Checkout session changes no subscription.
-    expect(markup).toContain("nothing was charged and nothing changed");
-    expect(markup).toContain("Your free relists are still there");
+    expect(markup).toContain("er is niets betaald en er is niets veranderd");
+    expect(markup).toContain("Je gratis herplaatsingen staan er nog gewoon");
   });
 
   it("does not congratulate anybody", () => {
@@ -48,12 +48,12 @@ describe("the billing page", () => {
     // The webhook (T20, #30) is what moves the plan, so a user who cancelled and
     // reopens the popup immediately may still see the old one. Saying so here is
     // cheaper than a support ticket.
-    expect(markup).toContain("saved with Stripe");
+    expect(markup).toContain("opgeslagen bij Stripe");
     // Glossed rather than assumed (T64). The name is worth keeping — it is the one
     // on their statement — but not worth relying on them recognising.
-    expect(markup).toContain("the payment provider we use");
-    expect(markup).toContain("take a moment");
-    expect(markup).toContain("icon in your toolbar");
+    expect(markup).toContain("de betaaldienst die wij gebruiken");
+    expect(markup).toContain("kan even duren");
+    expect(markup).toContain("-icoon in je werkbalk");
   });
 
   it("does not assume the thing they changed was a card", () => {
@@ -76,12 +76,12 @@ describe("the not-found page", () => {
   const markup = renderToStaticMarkup(PAGES["not-found"]);
 
   it("sends a visitor to the toolbar rather than apologising", () => {
-    expect(markup).toContain("icon in your toolbar");
+    expect(markup).toContain("-icoon in je werkbalk");
   });
 
   it("does not tell somebody who just paid that anything went wrong", () => {
     // A mistyped URL after a payment is the likeliest way anyone reaches this.
-    expect(markup).toContain("the payment landed");
+    expect(markup).toContain("is die betaling gelukt");
   });
 });
 

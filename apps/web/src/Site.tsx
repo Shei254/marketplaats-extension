@@ -48,7 +48,7 @@ export function Site({ pathname, year }: { pathname: string; year: number }): JS
             © {year} {BRAND.name}
           </span>
           <span className="web-footer-links">
-            <a href={PATHS.privacy}>Privacy</a> · <a href={PATHS.terms}>Terms</a> ·{" "}
+            <a href={PATHS.privacy}>Privacy</a> · <a href={PATHS.terms}>Voorwaarden</a> ·{" "}
             <a href={`mailto:${BRAND.supportEmail}`}>{BRAND.supportEmail}</a>
           </span>
         </footer>
@@ -68,7 +68,7 @@ export function Site({ pathname, year }: { pathname: string; year: number }): JS
 function DocumentLink({ to, showing }: { to: "privacy" | "terms"; showing: Page }): JSX.Element {
   return (
     <a href={PATHS[to]} aria-current={showing === to ? "page" : undefined}>
-      {to === "privacy" ? "Privacy" : "Terms"}
+      {to === "privacy" ? "Privacy" : "Voorwaarden"}
     </a>
   );
 }

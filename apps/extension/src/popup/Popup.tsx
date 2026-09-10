@@ -657,9 +657,9 @@ function body(screen: Screen, handlers: Handlers): JSX.Element {
               grant it would be selling an upgrade to nowhere (ADR-0027). */}
           {!offerBulk ? null : bulk === null ? (
             <p className="popup-foot popup-batch-locked">
-              Reposting several at once is part of the paid plans.{" "}
+              Meerdere tegelijk herplaatsen hoort bij de betaalde abonnementen.{" "}
               <button type="button" className="popup-link" onClick={seePlans}>
-                See plans
+                Bekijk abonnementen
               </button>
             </p>
           ) : (
@@ -710,5 +710,5 @@ function body(screen: Screen, handlers: Handlers): JSX.Element {
  */
 function reportable(error: unknown): string | undefined {
   if (error instanceof Error && error.name === "SignInCancelledError") return undefined;
-  return error instanceof Error ? error.message : "Sign-in did not work. Try again.";
+  return error instanceof Error ? error.message : "Inloggen is niet gelukt. Probeer het opnieuw.";
 }

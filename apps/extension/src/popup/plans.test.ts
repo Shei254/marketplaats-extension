@@ -61,37 +61,37 @@ describe("what a plan costs", () => {
 
 describe("what a plan grants", () => {
   it("is the quota over the period it is billed for", () => {
-    expect(grantOf(PRO, "month")).toBe("50 relists a month");
+    expect(grantOf(PRO, "month")).toBe("50 herplaatsingen per maand");
   });
 
   it("reads the interval rather than assuming a month", () => {
     // A yearly Price is a thing the Stripe dashboard can create, and a card that
     // called it monthly would be off by twelve.
-    expect(grantOf(PRO, "year")).toBe("50 relists a year");
-    expect(grantOf(PRO, "week")).toBe("50 relists a week");
+    expect(grantOf(PRO, "year")).toBe("50 herplaatsingen per jaar");
+    expect(grantOf(PRO, "week")).toBe("50 herplaatsingen per week");
   });
 
   it("spells an interval it has never heard of rather than calling it a month", () => {
     expect(grantOf(PRO, "quarter")).toBe(
-      "50 relists every quarter",
+      "50 herplaatsingen per quarter",
     );
   });
 
   it("agrees with the number it is describing", () => {
-    expect(grantOf({ ...PRO, relistQuotaPerPeriod: 1 }, "month")).toBe("1 relist a month");
+    expect(grantOf({ ...PRO, relistQuotaPerPeriod: 1 }, "month")).toBe("1 herplaatsing per maand");
   });
 });
 
 describe("what to say when nothing opened", () => {
-  it("tells a buyer their plan is gone and a free user they have nothing to manage", () => {
+  it("tells a buyer their plan is gone and a free user they have niets te beheren", () => {
     // One status, two meanings — which is why the caller says which it asked.
-    expect(handoffFailure({ status: "gone" }, "checkout")).toContain("on sale");
-    expect(handoffFailure({ status: "gone" }, "portal")).toContain("nothing to manage");
+    expect(handoffFailure({ status: "gone" }, "checkout")).toContain("niet meer aangeboden");
+    expect(handoffFailure({ status: "gone" }, "portal")).toContain("niets te beheren");
   });
 
   it("says come back in a moment when Stripe could not be asked", () => {
-    expect(handoffFailure({ status: "unavailable" }, "checkout")).toContain("Try again");
-    expect(handoffFailure({ status: "unavailable" }, "portal")).toContain("Try again");
+    expect(handoffFailure({ status: "unavailable" }, "checkout")).toContain("Probeer het zo opnieuw");
+    expect(handoffFailure({ status: "unavailable" }, "portal")).toContain("Probeer het zo opnieuw");
   });
 
   it("has nothing to say about a page that opened, or about a screen change", () => {
@@ -109,17 +109,17 @@ describe("what a buyer can pay with", () => {
     // ADR-0006 chose Stripe over a card-only arrangement precisely to keep iDEAL,
     // and the order here is what that decision buys at the moment somebody is
     // deciding. Stripe's own order is alphabetical and would bury it under `card`.
-    expect(waysToPay(["card", "paypal", "ideal"])).toBe("Pay with iDEAL, PayPal or card.");
+    expect(waysToPay(["card", "paypal", "ideal"])).toBe("Je kunt betalen met iDEAL, PayPal of creditcard.");
   });
 
   it("joins two with `or` and one with neither", () => {
-    expect(waysToPay(["card", "ideal"])).toBe("Pay with iDEAL or card.");
-    expect(waysToPay(["ideal"])).toBe("Pay with iDEAL.");
+    expect(waysToPay(["card", "ideal"])).toBe("Je kunt betalen met iDEAL of creditcard.");
+    expect(waysToPay(["ideal"])).toBe("Je kunt betalen met iDEAL.");
   });
 
   it("says nothing at all rather than an empty sentence", () => {
     // Both of these render no line: Stripe could not be asked, or it offers only
-    // things this popup has no name for. "Pay with ." is not a sentence, and the
+    // things this popup has no name for. "Je kunt betalen met ." is not a sentence, and the
     // cards beside it are unaffected either way (T65, #137).
     expect(waysToPay([])).toBeNull();
     expect(waysToPay(["twint", "swish"])).toBeNull();
@@ -131,21 +131,21 @@ describe("what a buyer can pay with", () => {
     // month" is a lie about money. Here it is silence, and "or sepa_debit" in the
     // one line meant to reassure is worse than absent. The API logs the whole
     // offered set on refresh, so the gap is visible where the operator is.
-    expect(waysToPay(["ideal", "twint", "card"])).toBe("Pay with iDEAL or card.");
+    expect(waysToPay(["ideal", "twint", "card"])).toBe("Je kunt betalen met iDEAL of creditcard.");
   });
 
   it("leaves the wallets out, which is what keeps the sentence non-exhaustive", () => {
     // `link`, `apple_pay` and `google_pay` are usually on and are not what somebody
     // hesitating over a subscription is looking for. Omitting a method never makes
     // the sentence false; only naming one that is off would.
-    expect(waysToPay(["card", "link", "apple_pay", "google_pay"])).toBe("Pay with card.");
+    expect(waysToPay(["card", "link", "apple_pay", "google_pay"])).toBe("Je kunt betalen met creditcard.");
   });
 
   it("names SEPA and Bancontact when they are on, in the order it says them", () => {
     // SEPA and Bancontact sort last, so this is also the check that they are named
     // rather than quietly dropped for arriving late in `WAYS_TO_PAY`.
     expect(waysToPay(["sepa_debit", "bancontact", "ideal"])).toBe(
-      "Pay with iDEAL, Bancontact or SEPA Direct Debit.",
+      "Je kunt betalen met iDEAL, Bancontact of SEPA-incasso.",
     );
   });
 
@@ -156,7 +156,7 @@ describe("what a buyer can pay with", () => {
     // by a side door: the popup would again be holding an opinion about which of
     // the enabled methods are worth naming.
     expect(waysToPay(["ideal", "paypal", "card", "bancontact", "sepa_debit"])).toBe(
-      "Pay with iDEAL, PayPal, card, Bancontact or SEPA Direct Debit.",
+      "Je kunt betalen met iDEAL, PayPal, creditcard, Bancontact of SEPA-incasso.",
     );
   });
 
@@ -165,7 +165,7 @@ describe("what a buyer can pay with", () => {
     // reads and its membership decides what may appear at all — neither is
     // positional, so nothing falls off the end.
     expect(waysToPay(["ideal", "card", "bancontact", "sepa_debit"])).toBe(
-      "Pay with iDEAL, card, Bancontact or SEPA Direct Debit.",
+      "Je kunt betalen met iDEAL, creditcard, Bancontact of SEPA-incasso.",
     );
   });
 
@@ -174,7 +174,7 @@ describe("what a buyer can pay with", () => {
     // and step 4 then checks these are the same names Checkout offers. The four are
     // what T22 keeps ticked in the dashboard, and a truncating cap would break this.
     expect(waysToPay(["ideal", "paypal", "card", "sepa_debit"])).toBe(
-      "Pay with iDEAL, PayPal, card or SEPA Direct Debit.",
+      "Je kunt betalen met iDEAL, PayPal, creditcard of SEPA-incasso.",
     );
   });
 });

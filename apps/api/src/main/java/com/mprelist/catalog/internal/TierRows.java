@@ -4,9 +4,11 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -108,11 +110,16 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 	/**
 	 * The five columns a plan card needs, in one statement and one round trip.
 	 *
-	 * <p>Ordered by what it grants, so the cards come back in the order a buyer reads them — cheapest first —
-	 * rather than in whatever order Postgres happened to store them. That is a rendering decision made here
-	 * because it is a `order by` rather than a sort in three clients. An unlimited tier's {@code null} sorts
-	 * last under Postgres's default for an ascending order, which is where the most generous plan belongs —
-	 * so ADR-0029 cost this clause nothing.
+	 * <p><strong>In the Catalog order</strong> — the sequence an operator set in {@code /admin} (T75,
+	 * ADR-0030), of which this is the published subsequence. Still an {@code order by} here rather than a sort
+	 * in three clients, and still the same clause {@link #everyTier()} reads, which is the property that keeps
+	 * the two screens agreeing. What changed in T75 is only what the clause says: it was
+	 * {@code relist_quota_per_period, code} until then — cheapest grant first — which is a sensible default
+	 * and cannot express which plan an operator wants bought.
+	 *
+	 * <p>{@code , code} is the tie-break rather than a second opinion: {@code position} carries no
+	 * {@code unique} (ADR-0030 argues why at length), so two rows sharing one read as a stable alphabetical
+	 * pair instead of as a list that reshuffles between requests.
 	 *
 	 * <p><strong>{@code published} alone is the whole filter, and that is not an omission.</strong> The other
 	 * half of "sellable" is a price to charge against, and {@code V5__tier_publication.sql} makes a published
@@ -128,7 +135,7 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 				select id, code, name, relist_quota_per_period, max_marktplaats_accounts, features::text
 				  from tier
 				 where published
-				 order by relist_quota_per_period, code
+				 order by position, code
 				""")
 				.query((row, number) -> new SellablePlan(new TierName(row.getString("code"), row.getString("name")),
 						prices.getOrDefault(row.getObject("id", UUID.class), List.of()),
@@ -200,6 +207,11 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 	 * <li>{@code published} is {@code tier.published or …}, so it only ever goes up, and only when the row is
 	 * taking its <em>first</em> Price — inside an {@code update} every reference to a column is the old value,
 	 * which is what makes {@code tier.stripe_price_id is null} mean "had none before this event".
+	 * <li>{@code position} is named nowhere, and that is T75's doing rather than an omission
+	 * (ADR-0030): {@code V10__catalog_order.sql}'s {@code tier_is_placed_last} fills an unstated place with
+	 * the one after the catalog's last, so a tier this webhook drafts arrives at the bottom of the admin table
+	 * — where a new thing to deal with belongs — and it cannot reach the plan cards at all until somebody
+	 * publishes it. In the schema rather than here, so it is true of the seed and of every fixture too.
 	 * </ul>
 	 *
 	 * <p>The read before it is not part of the decision, only of the report: which of the first two happened is
@@ -302,11 +314,18 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 	// --- what an operator sees and changes (T53, #84) ------------------------------------------------------
 
 	/**
-	 * Every row, in the order the plan cards use — cheapest grant first, then by code.
+	 * Every row, in the Catalog order — including the rows no buyer ever sees.
 	 *
 	 * <p>The same {@code order by} as {@link #published()} rather than a second opinion about how a catalog
 	 * reads: an operator scanning their list and a buyer scanning the cards are looking at the same tiers, and
-	 * two orders would make a screen hard to check against the other.
+	 * two orders would make a screen hard to check against the other. Since T75 that is not merely a courtesy
+	 * — this is the screen the order is <em>set</em> on, so a list that read differently from the cards would
+	 * be a control whose effect is invisible from where it is operated.
+	 *
+	 * <p>The free tier and every draft carry a place too, which is why dragging {@code free} above {@code pro}
+	 * changes nothing a buyer sees. That is deliberate (ADR-0030): publishing is a checkbox on a form opened
+	 * for other reasons, so a position that survived only while a tier was on sale would lose an operator's
+	 * arrangement the first afternoon somebody withdrew a plan.
 	 */
 	@Override
 	public List<CatalogEntry> everyTier() {
@@ -314,7 +333,7 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 		return this.db.sql("""
 				select id, code, name, relist_quota_per_period, features::text, published, is_default
 				  from tier
-				 order by relist_quota_per_period, code
+				 order by position, code
 				""")
 				.query((row, number) -> entry(row, prices))
 				.list();
@@ -393,6 +412,58 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 		this.db.sql("update tier set is_default = false where is_default").update();
 		this.db.sql("update tier set is_default = true where code = ?").param(code).update();
 		return entryFor(code);
+	}
+
+	/**
+	 * Rewrite the Catalog order, as one statement over a list that has to be the catalog exactly (T75, #164;
+	 * ADR-0030).
+	 *
+	 * <p><strong>The whole sequence, never one row's index.</strong> Moving a tier moves others, so a
+	 * {@code position} on {@link #apply} would turn one drag into N requests a client sequenced itself,
+	 * non-atomically, leaving an order nobody chose if the third one failed. It is a property of the catalog
+	 * rather than of a row, which is the same reason {@code isDefault} is not on {@link TierEdit}.
+	 *
+	 * <p><strong>One refusal, and it is a set comparison.</strong> A code the catalog does not hold, a tier the
+	 * list forgot and a code named twice are one event from the only caller's point of view — the screen is
+	 * stale, and the answer is to reload it. Read inside this transaction, so it doubles as the concurrency
+	 * check the route needs for free: a draft the Stripe sync adopted while the page was open makes the list
+	 * incomplete, and the write fails loudly instead of silently filing the new tier wherever the renumbering
+	 * happened to leave it.
+	 *
+	 * <p>The codes travel to Postgres as a {@code jsonb} array rather than as a bound {@code text[]}, which is
+	 * the idiom {@link #apply} already uses one method up for the flags: {@code with ordinality} then turns the
+	 * position in the list into the position in the catalog, so the renumbering is 1..N in a single pass and
+	 * there is no moment at which two rows have swapped halfway.
+	 *
+	 * <p><strong>Nothing here needs a {@code unique} on the column and nothing here would tolerate one.</strong>
+	 * A swap violates a non-deferrable {@code unique (position)} mid-statement, so the constraint would have to
+	 * be {@code deferrable initially deferred} — which V7 has already shown is a check a rolled-back transaction
+	 * never runs. Distinctness is this method's, by being the only writer that ever sets a position other than
+	 * "last".
+	 *
+	 * @param codes every tier in the catalog, in the order the plan cards should read
+	 * @return the catalog as it now stands, or nothing when {@code codes} is not exactly its set
+	 */
+	@Override
+	@Transactional
+	public Optional<List<CatalogEntry>> reorder(List<String> codes) {
+		Set<String> asked = new LinkedHashSet<>(codes);
+		if (asked.size() != codes.size()) {
+			return Optional.empty();
+		}
+		Set<String> held = new LinkedHashSet<>(this.db.sql("select code from tier").query(String.class).list());
+		if (!asked.equals(held)) {
+			return Optional.empty();
+		}
+		this.db.sql("""
+				update tier
+				   set position = cast(placed.place as integer)
+				  from jsonb_array_elements_text(cast(:codes as jsonb)) with ordinality as placed(code, place)
+				 where tier.code = placed.code
+				""")
+				.param("codes", JSON.writeValueAsString(codes))
+				.update();
+		return Optional.of(everyTier());
 	}
 
 	private Optional<CatalogEntry> entryFor(String code) {

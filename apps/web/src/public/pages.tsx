@@ -39,15 +39,15 @@ export function SuccessPage(): JSX.Element {
       <div className="web-badge web-badge--ok">
         <Icon name="check" size={26} />
       </div>
-      <h1 className="web-title">You’re all set</h1>
+      <h1 className="web-title">Alles is geregeld</h1>
       <p className="web-copy">
-        Your payment went through. Open the {BRAND.name} icon in your browser toolbar — your new
-        relist allowance is already there.
+        Je betaling is gelukt. Open het {BRAND.name}-icoon in de werkbalk van je browser — je
+        nieuwe herplaatsingen staan er al klaar.
       </p>
       <Callout>
-        Click the <b>{BRAND.name}</b> icon in your toolbar
+        Klik op het <b>{BRAND.name}</b>-icoon in je werkbalk
       </Callout>
-      <p className="web-micro">Nothing to do here — you can close this tab.</p>
+      <p className="web-micro">Hier hoef je niets te doen — je kunt dit tabblad sluiten.</p>
     </>
   );
 }
@@ -58,12 +58,12 @@ export function CancelPage(): JSX.Element {
       <div className="web-badge web-badge--quiet">
         <Icon name="close" />
       </div>
-      <h1 className="web-title">No payment was taken</h1>
+      <h1 className="web-title">Er is niets afgeschreven</h1>
       <p className="web-copy">
-        You closed checkout before finishing, so nothing was charged and nothing changed. Your free
-        relists are still there.
+        Je hebt het afrekenen afgebroken, dus er is niets betaald en er is niets veranderd. Je
+        gratis herplaatsingen staan er nog gewoon.
       </p>
-      <Callout>Reopen {BRAND.name} whenever you want to try again</Callout>
+      <Callout>Open {BRAND.name} opnieuw wanneer je het nog eens wilt proberen</Callout>
     </>
   );
 }
@@ -90,16 +90,16 @@ export function BillingPage(): JSX.Element {
       <div className="web-badge web-badge--quiet">
         <Icon name="card" />
       </div>
-      <h1 className="web-title">That’s saved</h1>
+      <h1 className="web-title">Dat is opgeslagen</h1>
       <p className="web-copy">
-        Whatever you changed — how you pay, your plan, or cancelling — is saved with Stripe, the
-        payment provider we use. Open the {BRAND.name} icon in your browser toolbar to see where
-        that leaves you; a change can take a moment to reach it.
+        Wat je ook hebt gewijzigd — hoe je betaalt, je abonnement, of opzeggen — het is opgeslagen
+        bij Stripe, de betaaldienst die wij gebruiken. Open het {BRAND.name}-icoon in de werkbalk van
+        je browser om te zien wat dat betekent; het kan even duren voordat een wijziging daar is.
       </p>
       <Callout>
-        Click the <b>{BRAND.name}</b> icon in your toolbar
+        Klik op het <b>{BRAND.name}</b>-icoon in je werkbalk
       </Callout>
-      <p className="web-micro">Nothing to do here — you can close this tab.</p>
+      <p className="web-micro">Hier hoef je niets te doen — je kunt dit tabblad sluiten.</p>
     </>
   );
 }
@@ -110,13 +110,13 @@ export function NotFoundPage(): JSX.Element {
       <div className="web-badge web-badge--quiet">
         <Icon name="warning" />
       </div>
-      <h1 className="web-title">There’s nothing at this address</h1>
+      <h1 className="web-title">Op dit adres staat niets</h1>
       <p className="web-copy">
-        {BRAND.name} lives in your browser toolbar rather than on this site. If you have just paid,
-        the payment landed — nothing here is part of it.
+        {BRAND.name} zit in de werkbalk van je browser en niet op deze site. Heb je zojuist
+        betaald, dan is die betaling gelukt — deze pagina hoort daar niet bij.
       </p>
       <Callout>
-        Click the <b>{BRAND.name}</b> icon in your toolbar
+        Klik op het <b>{BRAND.name}</b>-icoon in je werkbalk
       </Callout>
     </>
   );

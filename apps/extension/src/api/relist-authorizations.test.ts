@@ -135,7 +135,7 @@ describe("saying what happened", () => {
 
   it("but an explicit null quota is a tier with no cap rather than a body it could not read", () => {
     // T73 (ADR-0029): there is nothing left of a grant with no ceiling, and the
-    // strip draws "Unlimited reposts" from exactly this.
+    // strip draws "Onbeperkt herplaatsen" from exactly this.
     expect(asRemainingQuota({ quotaRemaining: null, resetAt: "2026-09-14T08:31:22.101Z" })).toEqual({
       quotaRemaining: null,
       resetAt: "2026-09-14T08:31:22.101Z",

@@ -158,12 +158,12 @@ export function describeCap(bulk: BulkSelection): string | null {
  */
 const CAPPED_BY = {
   plan: {
-    long: (bulk: BulkSelection) => `Your plan reposts ${bulk.upTo} at a time.`,
-    short: (bulk: BulkSelection) => `${bulk.upTo} at a time`,
+    long: (bulk: BulkSelection) => `Je abonnement herplaatst er ${bulk.upTo} tegelijk.`,
+    short: (bulk: BulkSelection) => `${bulk.upTo} tegelijk`,
   },
   quota: {
-    long: () => "That is all the relists you have left this period.",
-    short: (bulk: BulkSelection) => `${bulk.cap} left`,
+    long: () => "Meer herplaatsingen heb je deze periode niet.",
+    short: (bulk: BulkSelection) => `${bulk.cap} over`,
   },
 } as const;
 
@@ -176,8 +176,9 @@ const CAPPED_BY = {
  * narrower question than the user is asking.
  */
 function lockedBecause(bulk: BulkSelection | null, frozen: boolean): string | null {
-  if (bulk === null) return "Reposting several at once is part of the paid plans.";
-  if (frozen) return "A run is going — it is working through the ads that were ticked when it started.";
+  if (bulk === null) return "Meerdere tegelijk herplaatsen hoort bij de betaalde abonnementen.";
+  if (frozen)
+    return "Er loopt een reeks — die werkt de advertenties af die waren aangevinkt bij de start.";
   return null;
 }
 
@@ -201,14 +202,14 @@ export function describeTick(
 ): string {
   const locked = lockedBecause(bulk, frozen);
   if (locked !== null) return locked;
-  if (ticked) return "Ticked — this ad is in the next run. Click to leave it out.";
+  if (ticked) return "Aangevinkt — deze advertentie zit in de volgende reeks. Klik om hem over te slaan.";
   if (full && bulk !== null) {
     const why = describeCap(bulk);
     // A cap that is not capping has nothing to say, and the ordinary sentence is
     // the true one — a box on an uncapped selection can always be ticked.
     if (why !== null) return why;
   }
-  return "Repost this ad in one run with the others.";
+  return "Herplaats deze advertentie samen met de andere in één reeks.";
 }
 
 /**
@@ -231,9 +232,11 @@ export function describeSelectAllTick(
   if (locked !== null) return locked;
   const why = bulk === null ? null : describeCap(bulk);
   if (bulk !== null && bulk.cap === 0 && why !== null) return why;
-  if (reach === 0) return "There are no ads here to select.";
-  if (all) return "Untick every row.";
-  return reach === 1 ? "Tick the one ad here and repost it." : `Tick the first ${reach} ads and repost them in one run.`;
+  if (reach === 0) return "Er zijn hier geen advertenties om te selecteren.";
+  if (all) return "Vink alle rijen uit.";
+  return reach === 1
+    ? "Vink de enige advertentie hier aan en herplaats deze."
+    : `Vink de eerste ${reach} advertenties aan en herplaats ze in één reeks.`;
 }
 
 /**
@@ -247,7 +250,7 @@ export function describeSelectAllTick(
  * ticked, and therefore no action bar and no explanation on the screen at all.
  *
  * `hint` is the right-hand half and gives way to Clear the moment something is
- * ticked — at that point the count carries the cap ("3 of 10 selected") and
+ * ticked — at that point the count carries the cap ("3 van 10 geselecteerd") and
  * repeating it would be the same number twice in one row of a 360px window.
  */
 export function describeSelectAll(
@@ -259,11 +262,11 @@ export function describeSelectAll(
   // it, and the sentence that explains it is the one pointing at Plans, pinned
   // under the list. Saying anything here would be a second answer to a question
   // already answered a few pixels lower.
-  if (bulk === null) return { label: "Select all", hint: null };
-  if (bulk.cap === 0) return { label: "Select all", hint: "No relists left" };
-  if (count === 0) return { label: "Select all", hint: shortCap(bulk) };
+  if (bulk === null) return { label: "Alles selecteren", hint: null };
+  if (bulk.cap === 0) return { label: "Alles selecteren", hint: "Geen herplaatsingen over" };
+  if (count === 0) return { label: "Alles selecteren", hint: shortCap(bulk) };
   // **The cap is only named while it can actually be met.** Two ads on a plan that
-  // reposts ten are two ads: "2 of 10 selected" over a list that has ticked
+  // reposts ten are two ads: "2 van 10 geselecteerd" over a list that has ticked
   // everything it holds — beside a Select all box that is, correctly, full —
   // is three controls telling the user three different stories about the same
   // screen, and the one that invents eight more ads is the one that is wrong.
@@ -271,16 +274,16 @@ export function describeSelectAll(
   // **An unbounded cap can never be met**, so it is never named (T73, ADR-0029).
   // Asked first because the test above cannot answer it: `rowsShown <= Infinity`
   // is true of every list, so a search hiding part of the selection fell straight
-  // through to the line below and read "5 of Infinity selected".
-  if (!Number.isFinite(bulk.cap)) return { label: `${count} selected`, hint: null };
-  if (rowsShown <= bulk.cap && count <= rowsShown) return { label: `${count} selected`, hint: null };
-  return { label: `${count} of ${bulk.cap} selected`, hint: null };
+  // through to the line below and read "5 van Infinity geselecteerd".
+  if (!Number.isFinite(bulk.cap)) return { label: `${count} geselecteerd`, hint: null };
+  if (rowsShown <= bulk.cap && count <= rowsShown) return { label: `${count} geselecteerd`, hint: null };
+  return { label: `${count} van ${bulk.cap} geselecteerd`, hint: null };
 }
 
 /**
  * The cap in the four or five characters a row this wide has left for it, or
  * nothing where nothing caps — which is the one place an unbounded cap could have
- * reached a screen, as "Infinity left".
+ * reached a screen, as "Infinity over".
  */
 function shortCap(bulk: BulkSelection): string | null {
   const cause = whatCaps(bulk);
@@ -301,8 +304,8 @@ function shortCap(bulk: BulkSelection): string | null {
 export function describeHidden(hidden: number): string | null {
   if (hidden <= 0) return null;
   return hidden === 1
-    ? "1 ticked ad isn’t in these results — it will still be reposted."
-    : `${hidden} ticked ads aren’t in these results — they will still be reposted.`;
+    ? "1 aangevinkte advertentie staat niet in deze resultaten — die wordt wel herplaatst."
+    : `${hidden} aangevinkte advertenties staan niet in deze resultaten — die worden wel herplaatst.`;
 }
 
 /**
@@ -312,7 +315,7 @@ export function describeHidden(hidden: number): string | null {
  * **The duration is said before somebody commits**, which is the condition
  * ADR-0025 attached to letting a Power batch be twenty-five: a two-hour unattended
  * run is a reasonable thing to start and an unreasonable thing to discover. The
- * pause is named separately from the length for the same reason — "about 2 hours"
+ * pause is named separately from the length for the same reason — "ongeveer 2 uur"
  * alone reads as two hours of work, and what actually happens is a wait in the
  * middle while the burst rail slides.
  *
@@ -337,15 +340,15 @@ export function offerSelection(chosen: readonly string[], bulk: BulkSelection, s
   return {
     kind: "repost",
     listingIds,
-    // "2 of 5" and not "2": the rows that will not run this time are still ticked
+    // "2 van 5" and not "2": the rows that will not run this time are still ticked
     // and still on screen, and a button that counted only the ones it was taking
     // would be silently dropping three ads the user can see they chose.
     label:
       listingIds.length < chosen.length
-        ? `Repost ${listingIds.length} of ${chosen.length} selected · ${long}`
-        : `Repost ${chosen.length} selected · ${long}`,
+        ? `Herplaats ${listingIds.length} van ${chosen.length} geselecteerd · ${long}`
+        : `Herplaats ${chosen.length} geselecteerd · ${long}`,
     note: sleepsMidRun(listingIds.length, shape.rails)
-      ? "It will pause partway — Marktplaats only tolerates so many reposts in an hour."
+      ? "Halverwege wordt er gepauzeerd — Marktplaats staat maar een beperkt aantal herplaatsingen per uur toe."
       : null,
   };
 }
@@ -381,10 +384,10 @@ export function offerUnstarted(run: BatchRun | null, bulk: BulkSelection | null)
     ? {
         kind: "repost",
         listingIds,
-        label: `Repost ${listingIds.length} of the remaining ${unstarted.length}`,
+        label: `Herplaats ${listingIds.length} van de resterende ${unstarted.length}`,
         note: describeCap(bulk),
       }
-    : { kind: "repost", listingIds, label: `Repost the remaining ${unstarted.length}`, note: null };
+    : { kind: "repost", listingIds, label: `Herplaats de resterende ${unstarted.length}`, note: null };
 }
 
 /**
@@ -402,12 +405,12 @@ export type BatchOffer =
   /** Ads were left over and the plan can start none of them yet, and this is why. */
   | { kind: "blocked"; why: string };
 
-/** "3 of 5 reposted" while a run is going, and after it has stopped. */
+/** "3 van 5 herplaatst" while a run is going, and after it has stopped. */
 export function describeProgress(run: BatchRun): string {
   const { attempted, total, reposted } = progressOf(run);
   return run.stop === null
-    ? `Reposting ${Math.min(attempted + 1, total)} of ${total}…`
-    : `${reposted} of ${total} reposted.`;
+    ? `Bezig met herplaatsen ${Math.min(attempted + 1, total)} van ${total}…`
+    : `${reposted} van ${total} herplaatst.`;
 }
 
 /**
@@ -423,23 +426,23 @@ export function describeStop(reason: BatchStopReason): string | null {
     case "finished":
       return null;
     case "stopped":
-      return "Stopped.";
+      return "Gestopt.";
     case "browser-restart":
-      return "Chrome restarted while this was running, so the rest was dropped rather than run without you.";
+      return "Chrome is opnieuw gestart terwijl dit liep, dus de rest is niet uitgevoerd in plaats van zonder jou door te gaan.";
     case "quota":
-      return "You have used your relists for this period, so the rest were not started.";
+      return "Je hebt je limiet voor herplaatsingen in deze periode bereikt, dus de rest is niet gestart.";
     case "dunning":
-      return "Your payment didn’t go through, so the rest were not started.";
+      return "Je betaling is niet gelukt, dus de rest is niet gestart.";
     case "not-in-plan":
-      return "Reposting several at once isn’t part of your plan, so the rest were not started.";
+      return "Meerdere tegelijk herplaatsen hoort niet bij je abonnement, dus de rest is niet gestart.";
     case "unavailable":
-      return "Couldn’t check your plan, so the rest were not started. Try again.";
+      return "Je abonnement kon niet worden gecontroleerd, dus de rest is niet gestart. Probeer het opnieuw.";
     case "ad-down":
       // The one stop that is about an ad rather than about the account, and the
       // one where the user has something to do on a specific row.
-      return "One ad was removed and couldn’t be posted again, so nothing else was started. It is saved in the extension — press Retry on that row.";
+      return "Eén advertentie is verwijderd en kon niet opnieuw worden geplaatst, dus er is niets anders gestart. De advertentie is opgeslagen in de extensie — klik op Opnieuw bij die rij.";
     case "failures":
-      return "Two reposts in a row got nowhere, so the rest were not started. Nothing was removed.";
+      return "Twee herplaatsingen achter elkaar leverden niets op, dus de rest is niet gestart. Er is niets verwijderd.";
   }
 }
 
@@ -474,14 +477,14 @@ function rowStateForOutcome(result: "reposted" | "skipped" | "down"): RowState {
         kind: "failed",
         tone: "error",
         action: "relist",
-        message: "Nothing was reposted — your ad is untouched.",
+        message: "Er is niets herplaatst — je advertentie is ongewijzigd.",
       };
     case "down":
       return {
         kind: "failed",
         tone: "warn",
         action: "retry",
-        message: "Your ad was removed but posting it again failed. It is saved in the extension — press Retry.",
+        message: "Je advertentie is verwijderd, maar opnieuw plaatsen is mislukt. De advertentie is opgeslagen in de extensie — klik op Opnieuw.",
       };
   }
 }

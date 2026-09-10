@@ -16,7 +16,7 @@ describe("what an outcome does to the row", () => {
     const state = rowStateFor({ status: "failed-before-delete", error: WIRE_ERROR, quota: QUOTA });
 
     expect(state).toMatchObject({ kind: "failed", tone: "error", action: "relist" });
-    expect(state).toHaveProperty("message", expect.stringContaining("your ad is untouched"));
+    expect(state).toHaveProperty("message", expect.stringContaining("je advertentie is ongewijzigd"));
   });
 
   it("offers to resume when the ad is already gone, and says where it is", () => {
@@ -31,7 +31,7 @@ describe("what an outcome does to the row", () => {
     });
 
     expect(state).toMatchObject({ kind: "failed", tone: "warn", action: "retry" });
-    expect(state).toHaveProperty("message", expect.stringContaining("saved in the extension"));
+    expect(state).toHaveProperty("message", expect.stringContaining("opgeslagen in de extensie"));
   });
 
   it("keeps a refusal apart from a failure", () => {
@@ -46,7 +46,7 @@ describe("what an outcome does to the row", () => {
   it("carries the reason each failure came with, whatever it was", () => {
     const state = rowStateFor({ status: "failed-before-delete", error: WIRE_ERROR, quota: QUOTA });
 
-    expect(state).toHaveProperty("message", expect.stringContaining("Open marktplaats.nl in a tab"));
+    expect(state).toHaveProperty("message", expect.stringContaining("Open marktplaats.nl in een tabblad"));
   });
 });
 
@@ -54,13 +54,13 @@ describe("what a refusal says", () => {
   it("has something for every locked state the gate can produce", () => {
     // Provisional copy — the designed prompts are T32 (#41) — but a button that
     // silently does nothing is not an acceptable intermediate state.
-    expect(refusalNote({ state: "upgrade", resetAt: null })).toContain("used your relists");
-    expect(refusalNote({ state: "update-card" })).toContain("payment");
+    expect(refusalNote({ state: "upgrade", resetAt: null })).toContain("je limiet voor herplaatsingen");
+    expect(refusalNote({ state: "update-card" })).toContain("betaling");
     // Not the quota sentence: the two end at the same screen and say different
     // things about why you are looking at it.
-    expect(refusalNote({ state: "not-in-plan" })).toContain("part of your plan");
-    expect(refusalNote({ state: "not-in-plan" })).not.toContain("used your relists");
-    expect(refusalNote({ state: "retry" })).toContain("Try again");
+    expect(refusalNote({ state: "not-in-plan" })).toContain("bij je abonnement");
+    expect(refusalNote({ state: "not-in-plan" })).not.toContain("je limiet voor herplaatsingen");
+    expect(refusalNote({ state: "retry" })).toContain("Probeer het opnieuw");
   });
 
   it("counts the seconds when it was given them, and does not invent them when it was not", () => {

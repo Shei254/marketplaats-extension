@@ -9,33 +9,33 @@ const render = (pathname: string): string =>
 
 describe("what the site serves", () => {
   it("draws the success page at the path Stripe is given", () => {
-    expect(render("/success")).toContain("Your payment went through");
+    expect(render("/success")).toContain("Je betaling is gelukt");
   });
 
   it("draws the cancel page at its own", () => {
-    expect(render("/cancel")).toContain("No payment was taken");
+    expect(render("/cancel")).toContain("Er is niets afgeschreven");
   });
 
   it("draws the billing page where the Customer Portal returns a browser", () => {
     // `apps/api` builds the Portal's `return_url` from its own copy of this path
     // (T21, #31), so an address answered "there's nothing here" would be the last
     // thing somebody sees after cancelling.
-    expect(render("/billing")).toContain("That’s saved");
+    expect(render("/billing")).toContain("Dat is opgeslagen");
   });
 
   it("draws the privacy policy at the path the Web Store listing will carry", () => {
     // T58 (#89) cannot go up without a hosted privacy URL, and this is it.
-    expect(render("/privacy")).toContain("Last updated");
-    expect(render("/privacy")).toContain("only ever receive the id");
+    expect(render("/privacy")).toContain("Laatst bijgewerkt op");
+    expect(render("/privacy")).toContain("ontvangen alleen het id");
   });
 
   it("draws the terms at theirs", () => {
-    expect(render("/terms")).toContain("the original ad is deleted");
+    expect(render("/terms")).toContain("de oorspronkelijke advertentie wordt verwijderd");
   });
 
   it("draws the not-found page everywhere else, including the root", () => {
-    expect(render("/")).toContain("There’s nothing at this address");
-    expect(render("/whatever")).toContain("There’s nothing at this address");
+    expect(render("/")).toContain("Op dit adres staat niets");
+    expect(render("/whatever")).toContain("Op dit adres staat niets");
   });
 });
 

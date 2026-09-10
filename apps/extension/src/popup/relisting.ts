@@ -26,8 +26,8 @@ export const IDLE: RowState = { kind: "idle" };
  *
  * The two failures are not the same event and the copy says so plainly, because
  * the user's next move differs: one leaves their ad exactly where it was, and the
- * other has already deleted it and is holding the only copy. **"It is saved in the
- * extension" is the sentence that has to be there** — an ad that vanished from
+ * other has already deleted it and is holding the only copy. **"De advertentie is
+ * opgeslagen in de extensie" is the sentence that has to be there** — an ad that vanished from
  * Marktplaats with no explanation is the worst thing this product can do to
  * somebody, and the snapshot (ADR-0003) is the reason it has not.
  */
@@ -42,7 +42,7 @@ export function rowStateFor(outcome: WireRelistOutcome): RowState {
         kind: "failed",
         tone: "error",
         action: "relist",
-        message: `Nothing was reposted — your ad is untouched. ${describeAdsFailure(
+        message: `Er is niets herplaatst — je advertentie is ongewijzigd. ${describeAdsFailure(
           fromWireError(outcome.error),
         )}`,
       };
@@ -51,7 +51,7 @@ export function rowStateFor(outcome: WireRelistOutcome): RowState {
         kind: "failed",
         tone: "warn",
         action: "retry",
-        message: `Your ad was removed but posting it again failed. It is saved in the extension — press Retry. ${describeAdsFailure(
+        message: `Je advertentie is verwijderd, maar opnieuw plaatsen is mislukt. De advertentie is opgeslagen in de extensie — klik op Opnieuw. ${describeAdsFailure(
           fromWireError(outcome.error),
         )}`,
       };
@@ -68,7 +68,8 @@ export function rowStateFor(outcome: WireRelistOutcome): RowState {
  * fast as a worker can loop is machine-shaped against *their* Marktplaats
  * account, which is the account that gets flagged.
  */
-export const PACING_NOTE = "Waiting a moment before this one, so your reposts look like clicks rather than a script.";
+export const PACING_NOTE =
+  "Even wachten voor deze, zodat je herplaatsingen op klikken lijken en niet op een script.";
 
 /**
  * What a refusal says on the row, **provisionally**.
@@ -82,19 +83,19 @@ export const PACING_NOTE = "Waiting a moment before this one, so your reposts lo
 export function refusalNote(locked: LockedState): string {
   switch (locked.state) {
     case "upgrade":
-      return "You have used your relists for this period.";
+      return "Je hebt je limiet voor herplaatsingen in deze periode bereikt.";
     case "cooldown":
       return locked.retryAfter === null
-        ? "Give Marktplaats a moment before reposting again."
-        : `Give Marktplaats a moment — reposting again in ${locked.retryAfter}s.`;
+        ? "Geef Marktplaats even de tijd voordat je opnieuw herplaatst."
+        : `Geef Marktplaats even de tijd — opnieuw herplaatsen over ${locked.retryAfter}s.`;
     case "not-in-plan":
       // Names the capability rather than the plan: "upgrade to Pro" is a sentence
       // about our pricing, and this one is about what the user just tried to do.
-      return "Reposting several at once isn’t part of your plan.";
+      return "Meerdere tegelijk herplaatsen hoort niet bij je abonnement.";
     case "update-card":
-      return "Your payment didn’t go through, so reposting is paused.";
+      return "Je betaling is niet gelukt, dus herplaatsen is gepauzeerd.";
     case "retry":
-      return "Couldn’t check your plan, so nothing was reposted. Try again.";
+      return "Je abonnement kon niet worden gecontroleerd, dus er is niets herplaatst. Probeer het opnieuw.";
   }
 }
 

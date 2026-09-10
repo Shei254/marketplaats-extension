@@ -29,8 +29,9 @@ import { themeCss } from "./theme";
  * <li><strong>Focus is visible.</strong> Nothing here showed keyboard focus
  * before — the search box's outline was the whole of it — so every control now
  * takes the same ring, and it is one rule rather than a decision per component.
- * <li><strong>State changes are transitions.</strong> Only colour and shadow, only
- * `--mp-fast`, and dropped entirely under `prefers-reduced-motion` — a hover that
+ * <li><strong>State changes are transitions.</strong> Colour, shadow and — since
+ * the primary button became a gradient, which cannot cross-fade — brightness. Only
+ * `--mp-fast`, and dropped entirely under `prefers-reduced-motion`: a hover that
  * takes longer than that reads as lag, and one that snaps reads as a repaint.
  * <li><strong>Two elevations.</strong> A resting card is `--mp-shadow-sm`; the
  * lifted one is what it always was.
@@ -83,6 +84,7 @@ export const componentCss = `
     background-color var(--mp-fast) var(--mp-ease),
     border-color var(--mp-fast) var(--mp-ease),
     color var(--mp-fast) var(--mp-ease),
+    filter var(--mp-fast) var(--mp-ease),
     box-shadow var(--mp-fast) var(--mp-ease);
 }
 .mp-btn--pill { padding: 5px 12px; border-radius: var(--mp-radius-pill); }
@@ -94,12 +96,38 @@ export const componentCss = `
   font: var(--mp-text-control-large) var(--mp-font-family);
 }
 
+/* The primary tone is the one gradient in the system that is not a shimmer, and
+   the two stops are the two accents we already have. That is worth stating,
+   because the names now say something the rule does not: \`--mp-accent-hover\` is a
+   **rest** stop here, and \`:hover\` no longer touches the background at all.
+
+   It has to be that way round. A gradient is \`background-image\`, and
+   \`background-image\` does not interpolate in any browser — so a hover that swapped
+   one gradient for another would snap where this control has always faded. What
+   hover changes instead is the two things that *do* interpolate: the elevation it
+   already owned, and brightness. The button lifts rather than repaints.
+
+   \`background-color\` is spelled separately from \`background-image\` rather than
+   folded into one \`background\`, so there is a solid accent underneath the ramp for
+   the forced-colours rule at the foot of this sheet to fall back to.
+
+   The ramp runs corner to corner, which is a decision with two visible costs taken
+   knowingly: the two accents sit on opposite sides of the neutral in the two
+   themes, so the light button darkens towards its bottom-right and the dark one
+   lightens towards it; and a 135deg ramp reads as more horizontal the wider the
+   control, so a \`pill\` in a row and a \`block\` in the foot are not lit identically.
+   Both are cured by an \`--accent-grad\` token drawn on the canvas per theme, which
+   is where to start if either one ever grates. */
 .mp-btn--primary {
   color: var(--mp-on-accent);
-  background: var(--mp-accent);
+  background-color: var(--mp-accent);
+  background-image: linear-gradient(135deg, var(--mp-accent), var(--mp-accent-hover));
   box-shadow: var(--mp-shadow-sm);
 }
-.mp-btn--primary:hover:not(:disabled) { background: var(--mp-accent-hover); }
+.mp-btn--primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+  box-shadow: var(--mp-shadow);
+}
 .mp-btn--secondary {
   color: var(--mp-fg);
   background: var(--mp-bg);
@@ -371,6 +399,15 @@ export const componentCss = `
   .mp-root *::after { transition-duration: 1ms; }
   .mp-spinner { animation-duration: var(--mp-spin-reduced); }
   .mp-skeleton { animation: none; }
+}
+
+@media (forced-colors: active) {
+  /* Forced colours overrides \`background-color\` and \`color\` and leaves
+     \`background-image\` painting, so the ramp would survive underneath text the
+     system has just recoloured for contrast. Dropping it puts this control back to
+     the flat fill it had before there was a gradient, which is the one thing a
+     reader in this mode asked for. */
+  .mp-btn--primary { background-image: none; }
 }
 `.trim();
 

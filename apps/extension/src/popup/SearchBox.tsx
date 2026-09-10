@@ -33,15 +33,15 @@ export function SearchBox({
       <Input
         // The label is what a screen reader reads; the placeholder is what
         // everybody else does, and a placeholder alone is not a label.
-        aria-label="Search your ads"
-        placeholder="Search your ads"
+        aria-label="Zie jouw advertenties"
+        placeholder="Zie jouw advertenties"
         value={value}
         onChange={(event) => onType(event.target.value)}
         autoComplete="off"
         spellCheck={false}
       />
       {value.length > 0 ? (
-        <IconButton label="Clear search" className="popup-search-clear" onClick={onClear}>
+        <IconButton label="Zoekopdracht wissen" className="popup-search-clear" onClick={onClear}>
           <Icon name="close" />
         </IconButton>
       ) : null}

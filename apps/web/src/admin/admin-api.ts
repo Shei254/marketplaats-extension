@@ -13,9 +13,9 @@ import type { AdminConfig } from "./admin-config";
 import type { Http } from "./discovery";
 
 /**
- * The four routes the admin corner is made of (T54, #85): the catalog, an edit,
- * the move that says which tier new accounts start on, and the Stripe Prices
- * nobody tagged.
+ * The routes the admin corner is made of (T54, #85): the catalog, an edit, the move
+ * that says which tier new accounts start on, the sequence they are all read in
+ * (T75, #164), and the Stripe Prices nobody tagged.
  *
  * **Every answer is a value and nothing throws**, which is the arrangement the
  * extension's own clients keep: this surface has a screen for each outcome and no
@@ -49,6 +49,22 @@ export type PricesAnswer = { status: "ready"; prices: UntaggedPrice[] } | Refusa
  * rendered rather than swallowed, because unreachable is a claim and not a fact.
  */
 export type EditAnswer = { status: "saved"; tier: AdminTier } | WriteRefusal;
+
+/**
+ * What came of setting the Catalog order (T75, #164).
+ *
+ * `ordered` carries the whole catalog as the API now holds it, so the table
+ * reconciles against what was stored rather than keeping the row where it was
+ * dropped. `stale` is the API's `409` and is the only refusal with an instruction
+ * in it: the list this screen sent was not the catalog's set, which means a tier
+ * arrived or left while the page was open — reload and try again. It is a
+ * *different sentence* from the edit form's `unsellable`, which is the same status
+ * meaning something else entirely, and that is why this answer does not reuse it.
+ */
+export type OrderAnswer =
+  | { status: "ordered"; tiers: AdminTier[] }
+  | { status: "stale" }
+  | Refusal;
 
 /**
  * Every way a call can come back without a body. The last three only ever reach a
@@ -111,6 +127,32 @@ export class AdminApi {
    */
   async makeDefault(code: string): Promise<EditAnswer> {
     return this.write(`/api/admin/tiers/${encodeURIComponent(code)}/default`, undefined);
+  }
+
+  /**
+   * Set the order the plan cards are read in: **every tier, in one request** (T75,
+   * #164; ADR-0030).
+   *
+   * **A sequence, never a per-row index.** Moving one tier moves others, so the
+   * order is a property of the catalog rather than of a row — the same reason
+   * `isDefault` has a route of its own. Sent whole, one drag is one write and there
+   * is no half-applied order for a failed third call to leave behind.
+   *
+   * The `409` becomes `stale` rather than the `unsellable` the shared reader would
+   * make of it: on this route it means the list was not the catalog's set, which is
+   * a reload rather than a sentence about what a tier may be sold for.
+   */
+  async order(codes: string[]): Promise<OrderAnswer> {
+    const answer = await this.call("/api/admin/tiers/order", {
+      method: "PUT",
+      body: JSON.stringify({ codes }),
+      headers: { "content-type": "application/json" },
+    });
+    if (answer.status !== "ok") {
+      return answer.refusal.status === "unsellable" ? { status: "stale" } : readRefusal(answer.refusal);
+    }
+    const tiers = asAdminTiers(answer.body);
+    return tiers ? { status: "ordered", tiers } : UNAVAILABLE;
   }
 
   /**

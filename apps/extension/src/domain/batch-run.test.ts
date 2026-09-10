@@ -77,7 +77,7 @@ describe("a run in progress", () => {
     expect(progressOf(run)).toEqual({ attempted: 3, total: 3, reposted: 3 });
   });
 
-  // What the popup renders as "2 of 3 relists left" while the popup is shut for
+  // What the popup renders as "2 van 3 herplaatsingen over" while the popup is shut for
   // most of a run. It comes from `/complete`'s own answer rather than a second
   // `/api/me`, which is the arrangement T32 (#41) already made for one repost.
   it("carries the quota the last report answered with", () => {

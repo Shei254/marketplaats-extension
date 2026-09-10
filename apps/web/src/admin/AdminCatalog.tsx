@@ -13,6 +13,7 @@ import {
   Card,
   Checkbox,
   Field,
+  IconButton,
   Input,
   Note,
   Select,
@@ -26,6 +27,7 @@ import type {
   CreateAnswer,
   CurrencyAnswer,
   EditAnswer,
+  OrderAnswer,
   PricesAnswer,
 } from "./admin-api";
 import { ADMIN_ROLE } from "./admin-config";
@@ -57,6 +59,12 @@ import { tierCodeFrom } from "./tier-code";
  * **The form is total over what may be edited**, because the API's `PUT` is: every
  * field is sent on every save, so there is no partial state to reason about here
  * and no way for a field left untouched to arrive as a change.
+ *
+ * **The rows are dragged into the order the plan cards read in** (T75, #164;
+ * ADR-0030). The drop is the commit: the row moves at once and the whole sequence
+ * is sent, because a table that waited for a round trip before showing the move
+ * would feel broken on the one gesture that has to feel direct. A refusal snaps it
+ * back and says why.
  *
  * **What it will not offer**: creating a tier, deleting one, typing a Stripe
  * Price id, or typing the code a plan is filed under (`tier-code.ts`). A plan is created by tagging a Price in Stripe and the sync drafts the
@@ -217,6 +225,45 @@ export function AdminCatalog({
     [api, applied],
   );
 
+  /**
+   * The Catalog order, moved on screen first and written after (T75, #164).
+   *
+   * **Optimistic, and the snap-back is the honest half of that.** The row moves
+   * before the API is asked, because a drag that snapped to its old place for a
+   * round trip and then jumped would read as a bug rather than as a wait. What is
+   * on screen in the meantime is a claim, so a refusal puts the catalog back
+   * exactly as it was rather than leaving a move nobody stored.
+   *
+   * **A `stale` refusal reloads.** It means the list sent was not the catalog's
+   * set — a tier the Stripe sync drafted while this page was open, most likely —
+   * and the only useful next act is to look at the catalog that actually exists.
+   */
+  const reorder = useCallback(
+    async (codes: string[]) => {
+      const held = catalog;
+      if (held?.status !== "ready") return;
+      setCatalog({ status: "ready", tiers: inOrder(held.tiers, codes) });
+      setNote(null);
+      setBusy(true);
+      const answer = await api.order(codes);
+      setBusy(false);
+      if (answer.status === "signed-out") {
+        onSignedOut();
+        return;
+      }
+      if (answer.status === "ordered") {
+        // What was stored rather than what was hoped for — the same rule every
+        // other write on this screen keeps.
+        setCatalog({ status: "ready", tiers: answer.tiers });
+        return;
+      }
+      setCatalog(held);
+      setNote({ tone: answer.status === "stale" ? "warn" : "error", message: whyNotOrdered(answer) });
+      if (answer.status === "stale") await load();
+    },
+    [api, catalog, load, onSignedOut],
+  );
+
   const ready = catalog?.status === "ready" ? catalog : null;
 
   return (
@@ -254,6 +301,7 @@ export function AdminCatalog({
         onCreate={(plan) => void createPlan(plan)}
         onAddPrice={(code, price) => void addPrice(code, price)}
         onMakeDefault={(tier) => void makeDefault(tier)}
+        onReorder={(codes) => void reorder(codes)}
       />
     </AdminShell>
   );
@@ -279,6 +327,7 @@ function Tiers({
   onCreate,
   onAddPrice,
   onMakeDefault,
+  onReorder,
 }: {
   catalog: CatalogAnswer | null;
   prices: PricesAnswer | null;
@@ -292,6 +341,8 @@ function Tiers({
   onCreate: (plan: NewPlan) => void;
   onAddPrice: (code: string, price: NewPrice) => void;
   onMakeDefault: (tier: AdminTier) => void;
+  /** The whole catalog, in the order it should be read in. Never one row's index. */
+  onReorder: (codes: string[]) => void;
 }): JSX.Element {
   if (!catalog) return <p className="admin-empty">Loading the catalog…</p>;
   if (catalog.status === "forbidden") {
@@ -312,7 +363,6 @@ function Tiers({
     );
   }
 
-  const open = panel?.kind === "edit" || panel?.kind === "price" ? panel.code : null;
   const editing = panel?.kind === "edit" ? tierIn(catalog.tiers, panel.code) : null;
   const pricing = panel?.kind === "price" ? tierIn(catalog.tiers, panel.code) : null;
 
@@ -350,53 +400,141 @@ function Tiers({
           onSave={(edit) => onSave(editing.tier.code, edit)}
         />
       ) : null}
-      <Card flush>
-        {/* The table scrolls inside the card rather than pushing the page sideways:
-            five columns and three row actions do not fit a narrow window, and a
-            page that scrolls horizontally loses its own sidebar. */}
-        <div className="admin-table-scroll">
-          <table className="mp-table admin-table">
-            <thead>
-              <tr>
-                <th>Code</th>
-                <th>Name</th>
-                <th>Relists</th>
-                <th>Stripe Price</th>
-                <th>State</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {catalog.tiers.map((tier) => (
-                <TierRow
-                  key={tier.tier.code}
-                  tier={tier}
-                  busy={busy}
-                  open={open === tier.tier.code}
-                  editing={panel?.kind === "edit" && panel.code === tier.tier.code}
-                  pricing={panel?.kind === "price" && panel.code === tier.tier.code}
-                  onEdit={() =>
-                    onOpen(
-                      panel?.kind === "edit" && panel.code === tier.tier.code
-                        ? null
-                        : { kind: "edit", code: tier.tier.code },
-                    )
-                  }
-                  onAddPrice={() =>
-                    onOpen(
-                      panel?.kind === "price" && panel.code === tier.tier.code
-                        ? null
-                        : { kind: "price", code: tier.tier.code },
-                    )
-                  }
-                  onMakeDefault={() => onMakeDefault(tier)}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+      <CatalogTable
+        tiers={catalog.tiers}
+        panel={panel}
+        busy={busy}
+        onOpen={onOpen}
+        onMakeDefault={onMakeDefault}
+        onReorder={onReorder}
+      />
     </div>
+  );
+}
+
+/**
+ * The catalog itself, and the order it is read in.
+ *
+ * **The drag state is here rather than above** because it is about the gesture and
+ * not about the catalog: what is half-dragged is not something the page or the API
+ * has any use for, and it has to survive being re-rendered by a write that lands
+ * mid-drag.
+ *
+ * **Rows are `draggable` only once the handle is held.** Making every row draggable
+ * always is one attribute less and takes text selection away from the whole table —
+ * on the screen where somebody copies a Stripe Price id out of a cell. Arming on
+ * the handle's `pointerdown` keeps the browser's own row drag image, which dragging
+ * the handle alone would not.
+ *
+ * **The up and down buttons are not a consolation prize** (ADR-0030). They are the
+ * keyboard path — a drag-only table is a screen an operator cannot work from a
+ * keyboard — and they are the half of this feature the suite can hold at all:
+ * `happy-dom` ships `PointerEvent` and `DataTransfer` but **no `DragEvent`**, and
+ * `getBoundingClientRect` answers zeros, so no drag implementation here could be
+ * unit-tested — a library's included, which is half of why there is no library.
+ * The drag layer is covered by `docs/click-through.md` and nothing else.
+ */
+function CatalogTable({
+  tiers,
+  panel,
+  busy,
+  onOpen,
+  onMakeDefault,
+  onReorder,
+}: {
+  tiers: AdminTier[];
+  panel: Panel;
+  busy: boolean;
+  onOpen: (panel: Panel) => void;
+  onMakeDefault: (tier: AdminTier) => void;
+  onReorder: (codes: string[]) => void;
+}): JSX.Element {
+  /** The row whose handle is held, and so the only row the browser may pick up. */
+  const [armed, setArmed] = useState<string | null>(null);
+  /** The row being carried, and the one it is currently over — the insertion line. */
+  const [carrying, setCarrying] = useState<string | null>(null);
+  const [over, setOver] = useState<string | null>(null);
+
+  const open = panel?.kind === "edit" || panel?.kind === "price" ? panel.code : null;
+  const codes = tiers.map((tier) => tier.tier.code);
+  const letGo = () => {
+    setArmed(null);
+    setCarrying(null);
+    setOver(null);
+  };
+  const move = (code: string, onto: string) => {
+    const moved = movedOnto(codes, code, onto);
+    if (moved !== codes) onReorder(moved);
+  };
+
+  return (
+    <Card flush>
+      {/* The table scrolls inside the card rather than pushing the page sideways:
+          six columns and three row actions do not fit a narrow window, and a
+          page that scrolls horizontally loses its own sidebar. */}
+      <div className="admin-table-scroll">
+        <table className="mp-table admin-table">
+          <thead>
+            <tr>
+              {/* Named rather than left blank, unlike the actions column: an
+                  operator has to be told this table has an order before they will
+                  look for a way to change it. */}
+              <th>Order</th>
+              <th>Code</th>
+              <th>Name</th>
+              <th>Relists</th>
+              <th>Stripe Price</th>
+              <th>State</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {tiers.map((tier, index) => (
+              <TierRow
+                key={tier.tier.code}
+                tier={tier}
+                busy={busy}
+                open={open === tier.tier.code}
+                editing={panel?.kind === "edit" && panel.code === tier.tier.code}
+                pricing={panel?.kind === "price" && panel.code === tier.tier.code}
+                first={index === 0}
+                last={index === tiers.length - 1}
+                armed={armed === tier.tier.code}
+                carrying={carrying === tier.tier.code}
+                // Never under itself: a row cannot be dropped where it already is,
+                // and a line drawn there would say it could.
+                under={over === tier.tier.code && carrying !== null && carrying !== tier.tier.code}
+                onArm={() => setArmed(tier.tier.code)}
+                onGrab={() => setCarrying(tier.tier.code)}
+                onOver={() => setOver(tier.tier.code)}
+                onLetGo={letGo}
+                onDrop={() => {
+                  if (carrying) move(carrying, tier.tier.code);
+                  letGo();
+                }}
+                onUp={() => move(tier.tier.code, codes[index - 1] ?? tier.tier.code)}
+                onDown={() => move(tier.tier.code, codes[index + 1] ?? tier.tier.code)}
+                onEdit={() =>
+                  onOpen(
+                    panel?.kind === "edit" && panel.code === tier.tier.code
+                      ? null
+                      : { kind: "edit", code: tier.tier.code },
+                  )
+                }
+                onAddPrice={() =>
+                  onOpen(
+                    panel?.kind === "price" && panel.code === tier.tier.code
+                      ? null
+                      : { kind: "price", code: tier.tier.code },
+                  )
+                }
+                onMakeDefault={() => onMakeDefault(tier)}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }
 
@@ -540,6 +678,11 @@ function Untagged({ answer }: { answer: PricesAnswer | null }): JSX.Element | nu
  * One tier. A draft — quota 0 and unpublished — is marked, because it is the row
  * this screen exists to let somebody act on and it looks like every other row
  * until you read two columns.
+ *
+ * **Its place in the catalog is the first cell** (T75, #164): a handle to drag it
+ * by and a pair of buttons to step it with. The buttons say the tier's *name* and
+ * not "up" alone, because a screen reader announcing eleven identical "Move up"
+ * buttons has told nobody which row they are on.
  */
 function TierRow({
   tier,
@@ -547,6 +690,18 @@ function TierRow({
   open,
   editing,
   pricing,
+  first,
+  last,
+  armed,
+  carrying,
+  under,
+  onArm,
+  onGrab,
+  onOver,
+  onLetGo,
+  onDrop,
+  onUp,
+  onDown,
   onEdit,
   onAddPrice,
   onMakeDefault,
@@ -557,13 +712,76 @@ function TierRow({
   open: boolean;
   editing: boolean;
   pricing: boolean;
+  /** Nothing above it, so there is nowhere to move it up to — and the same below. */
+  first: boolean;
+  last: boolean;
+  /** Its handle is held, which is the only thing that makes a row draggable at all. */
+  armed: boolean;
+  /** It is the row being carried. */
+  carrying: boolean;
+  /** The carried row would land here, which is what the insertion line says. */
+  under: boolean;
+  onArm: () => void;
+  onGrab: () => void;
+  onOver: () => void;
+  onLetGo: () => void;
+  onDrop: () => void;
+  onUp: () => void;
+  onDown: () => void;
   onEdit: () => void;
   onAddPrice: () => void;
   onMakeDefault: () => void;
 }): JSX.Element {
   const draft = isDraft(tier);
   return (
-    <tr data-draft={draft} data-open={open}>
+    <tr
+      data-draft={draft}
+      data-open={open}
+      data-carrying={carrying}
+      data-under={under}
+      draggable={armed}
+      onDragStart={onGrab}
+      onDragEnd={onLetGo}
+      // Released anywhere in the row, which is the case a `pointerup` on the handle
+      // alone misses: let go a millimetre to the right of it and the row would stay
+      // draggable, with its own text unselectable, until something else armed.
+      onPointerUp={onLetGo}
+      onDragOver={(event) => {
+        // Without this the browser refuses the drop, silently — the one line that
+        // makes an HTML5 drop target a drop target.
+        event.preventDefault();
+        onOver();
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        onDrop();
+      }}
+    >
+      <td className="admin-order">
+        <div className="admin-order-controls">
+          {/* The handle is the affordance and the arm: holding it is what makes
+              the row draggable, so the rest of the row stays selectable text.
+              Hidden from the accessibility tree because the two buttons beside it
+              are the same act, said in a way a keyboard can reach. */}
+          <span className="admin-grip" aria-hidden="true" onPointerDown={busy ? undefined : onArm} />
+          <IconButton
+            label={`Move ${tier.tier.name} up`}
+            onClick={onUp}
+            disabled={busy || first}
+            className="admin-move"
+          >
+            ↑
+          </IconButton>
+          <IconButton
+            label={`Move ${tier.tier.name} down`}
+            onClick={onDown}
+            disabled={busy || last}
+            className="admin-move"
+          >
+            ↓
+          </IconButton>
+        </div>
+      </td>
       <td className="admin-code">{tier.tier.code}</td>
       <td>{tier.tier.name}</td>
       <td className="admin-numeric">{quotaColumn(tier.relistQuotaPerPeriod)}</td>
@@ -1314,6 +1532,61 @@ function quotaColumn(quota: number | null): string {
  */
 function isDraft(tier: AdminTier): boolean {
   return !tier.published && tier.relistQuotaPerPeriod === 0 && tier.prices.length > 0;
+}
+
+/**
+ * The sequence with one code moved to where another one is (T75, #164).
+ *
+ * **The dropped row takes the target's place and everything else closes up**, which
+ * is the same arithmetic whichever direction it came from: take it out, then put it
+ * back at the index the target held in the list as it was. Dropping a row on the one
+ * directly below it is therefore a swap, which is what makes the up and down buttons
+ * this same function rather than a second rule that could disagree with it.
+ *
+ * Returns the list it was given when nothing would move, so the caller can tell "no
+ * change" from "a change" by identity and never sends a write that reorders nothing.
+ */
+function movedOnto(codes: string[], moving: string, onto: string): string[] {
+  const to = codes.indexOf(onto);
+  const from = codes.indexOf(moving);
+  if (to < 0 || from < 0 || to === from) return codes;
+  const without = codes.filter((code) => code !== moving);
+  without.splice(to, 0, moving);
+  return without;
+}
+
+/**
+ * The catalog rearranged to match a sequence of codes — what the table shows in the
+ * moment between the drop and the answer.
+ *
+ * Total over anything the sequence does not name, which the one caller never sends:
+ * a row left out keeps its place at the end rather than vanishing from a screen
+ * because a list was short.
+ */
+function inOrder(tiers: AdminTier[], codes: string[]): AdminTier[] {
+  const byCode = new Map(tiers.map((tier) => [tier.tier.code, tier]));
+  const moved = codes.map((code) => byCode.get(code)).filter((tier) => tier !== undefined);
+  const unnamed = tiers.filter((tier) => !codes.includes(tier.tier.code));
+  return [...moved, ...unnamed];
+}
+
+/**
+ * What each refusal of an *ordering* means, which is not what the edit form's mean.
+ *
+ * `stale` is the same `409` the edit route answers and a different event entirely:
+ * there, a tier cannot go on sale as described; here, the list this screen sent was
+ * not the catalog's set, because something arrived or left while the page was open.
+ * The sentence has to say what happens next, since the screen reloads itself.
+ */
+function whyNotOrdered(answer: Exclude<OrderAnswer, { status: "ordered" | "signed-out" }>): string {
+  switch (answer.status) {
+    case "stale":
+      return "The catalog changed while this page was open, so the new order was not saved. It has been reloaded — move the row again.";
+    case "forbidden":
+      return "This account no longer has the ADMIN role.";
+    default:
+      return "The order could not be saved, so the row has gone back where it was.";
+  }
 }
 
 function tierIn(tiers: AdminTier[], code: string): AdminTier | null {

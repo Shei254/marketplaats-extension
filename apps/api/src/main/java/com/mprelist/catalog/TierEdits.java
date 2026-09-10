@@ -23,7 +23,12 @@ import java.util.Optional;
 public interface TierEdits {
 
 	/**
-	 * Every tier, drafts and all, cheapest grant first.
+	 * Every tier, drafts and all, in the <strong>Catalog order</strong>.
+	 *
+	 * <p>That order is an operator's own since T75 (#164, ADR-0030) and was {@code relist_quota_per_period,
+	 * code} before it — cheapest grant first, which nobody chose and which cannot say which plan to put first.
+	 * It is the same sequence {@code GET /api/plans} renders the published subsequence of, so the list an
+	 * operator arranges and the cards a buyer reads cannot disagree.
 	 *
 	 * <p><strong>Unfiltered, which is the point.</strong> {@link TierCatalog#published()} deliberately hides a
 	 * draft — the row ADR-0019's sync creates at quota 0 for a Price nobody has decided about — and hiding it
@@ -47,6 +52,33 @@ public interface TierEdits {
 	 * @return applied, or which of the two ways it could not be
 	 */
 	TierEdited apply(String code, TierEdit edit);
+
+	/**
+	 * Set the Catalog order: every tier there is, in the sequence the plan cards should read (T75, #164).
+	 *
+	 * <p><strong>The whole sequence rather than one tier's place</strong>, and for the reason
+	 * {@link #makeDefault(String)} is a move rather than a toggle: the order is a property of the catalog and
+	 * not of a row. Moving one tier moves others, so an index on {@link TierEdit} would turn one drag into N
+	 * requests a client sequenced itself — non-atomically, leaving a half-applied order nobody chose if the
+	 * third one failed.
+	 *
+	 * <p><strong>Every tier carries a place, including the ones no buyer sees.</strong> The free tier is never
+	 * a plan card and a draft is not one yet, and both are in this list: a position that existed only while a
+	 * tier was published would be lost the first afternoon somebody withdrew a plan and opened it again
+	 * (ADR-0030). Dragging {@code free} to the top therefore changes nothing a buyer sees, which the admin
+	 * table already says by marking which rows are on sale.
+	 *
+	 * <p><strong>Nothing but the catalog's own set will do.</strong> A code stored under no tier, a tier the
+	 * list left out and a code named twice are refused identically, because they are one event to the only
+	 * caller: the screen is stale. That is also the concurrency check — a tier the Stripe sync drafted while
+	 * the page was open makes the list incomplete, and being refused is how the operator finds out rather than
+	 * discovering the new plan filed wherever a renumbering left it.
+	 *
+	 * @param codes every tier in the catalog, in order
+	 * @return the catalog as it now stands, in its new order, or nothing where {@code codes} is not exactly
+	 * the set of codes the catalog holds
+	 */
+	Optional<List<CatalogEntry>> reorder(List<String> codes);
 
 	/**
 	 * Make this tier the one new accounts are provisioned onto.

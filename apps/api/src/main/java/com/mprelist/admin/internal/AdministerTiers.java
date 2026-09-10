@@ -30,14 +30,19 @@ import tools.jackson.databind.JsonNode;
  * none of them can forget to. What a caller without the role gets is the resource server's own {@code 403},
  * pinned by {@code AdminGuardTest}.
  *
- * <p><strong>Three routes, and the third exists to make an invariant unbreakable.</strong> Listing and
- * editing are what a catalog screen needs; {@code PUT …/default} is separate because the default tier is a
- * property of the <em>catalog</em> rather than of one row. Exactly one tier carries it, and a catalog with
+ * <p><strong>Four routes, and two of them are here because a catalog is not a bag of rows.</strong> Listing
+ * and editing are what a catalog screen needs; {@code PUT …/default} is separate because the default tier is
+ * a property of the <em>catalog</em> rather than of one row. Exactly one tier carries it, and a catalog with
  * none takes down every new sign-in — {@code TierCatalog.defaultTier()} throws and
  * {@code ProvisionOnFirstLogin} catches nothing. Written as "make this one the default", there is no request
  * anybody can send that leaves the catalog with none. The alternative — a boolean on the edit body, refused
  * when it would clear the last one — needs a refusal, a status for it, a message for it and a test that the
  * refusal works, all to defend something that can simply be made unsayable.
+ *
+ * <p>{@code PUT …/order} is the fourth and is separate for exactly the same reason (T75, #164, ADR-0030):
+ * moving a tier moves others, so the order is the catalog's and not a field on {@link TierEdit}. It carries
+ * the whole sequence, so one drag is one request and there is no half-applied order for a failed third call
+ * to leave behind.
  *
  * <p><strong>What it deliberately cannot do:</strong> create a tier, delete one, or set a price. A tier is
  * created by tagging a Stripe Price with its code (ADR-0019) and the sync drafts the row; nothing here
@@ -116,6 +121,40 @@ class AdministerTiers {
 	}
 
 	/**
+	 * Set the order the catalog is read in — every tier, in the sequence the plan cards should appear (T75,
+	 * #164; ADR-0030).
+	 *
+	 * <p><strong>A literal segment where {@code {code}} would match, which is a collision worth naming.</strong>
+	 * Spring prefers the exact pattern, so this handler and not {@link #edit} takes {@code /api/admin/tiers/order}
+	 * — at the cost of a tier coded {@code order} being uneditable through this API. Nothing creates one: a code
+	 * is derived from a plan's name in {@code /admin} or typed into a Stripe Price's {@code metadata.tier_code},
+	 * and the operator who managed both would find out on the first save rather than silently.
+	 *
+	 * <p><strong>{@code 409} with an empty body is the one refusal, and it means the screen is stale.</strong>
+	 * A code nothing is stored under, a tier the list forgot and a code sent twice are one event to the only
+	 * caller — reload and try again — so splitting them into a {@code 404} and a {@code 409} would be two
+	 * statuses for one recovery. It doubles as the concurrency check: a draft the Stripe sync adopted while the
+	 * page was open makes the list incomplete, and the write is refused rather than quietly filing the new tier
+	 * wherever the renumbering left it.
+	 *
+	 * <p><strong>The answer is the whole catalog in its new order</strong>, the same body {@link #everyTier()}
+	 * gives, read back inside the write's own transaction. The screen has already moved the row optimistically,
+	 * so this is what it reconciles against — and it is the shape every other write here answers with, for the
+	 * same reason: what was stored rather than what was hoped for. <strong>No {@code position} travels on it</strong>
+	 * — the array is in order, and a number beside an ordered array is one fact spelled twice (ADR-0026).
+	 */
+	@PutMapping(path = TIERS + "/order", consumes = MediaType.APPLICATION_JSON_VALUE)
+	ResponseEntity<Tiers> reorder(@RequestBody CatalogOrderRequest request) {
+		if (request.codes() == null) {
+			return ResponseEntity.badRequest().build();
+		}
+		return this.catalog.reorder(request.codes())
+				.map(tiers -> new Tiers(tiers.stream().map(AdministerTiers::asAdminTier).toList()))
+				.map(ResponseEntity::ok)
+				.orElseGet(() -> ResponseEntity.status(409).build());
+	}
+
+	/**
 	 * One tier as the admin screen renders it.
 	 *
 	 * <p>{@code tier} carries both spellings for the reason {@code /api/me} does: {@code code} is the stable
@@ -174,6 +213,19 @@ class AdministerTiers {
 					this.features == null ? Map.of() : this.features, this.published);
 		}
 
+	}
+
+	/**
+	 * What the catalog table sends when a row is dropped somewhere new: the whole sequence, by code.
+	 *
+	 * <p><strong>Codes rather than ids, like every other body on this API</strong> — the code is the stable
+	 * handle nothing renames (ADR-0014), and it is what the screen already keys its rows on.
+	 *
+	 * <p>Absent is a {@code 400} and never an empty catalog: a body with no {@code codes} is one this API
+	 * could read and could not use, and the ordering it would otherwise be taken to ask for — none of the
+	 * tiers, in no order — is not something any screen means.
+	 */
+	record CatalogOrderRequest(List<String> codes) {
 	}
 
 	/**

@@ -54,6 +54,15 @@ describe("the component rules", () => {
     expect(reducedMotion()).toContain("transition-duration: 1ms;");
   });
 
+  it("drop the primary button's gradient under forced colours", () => {
+    // Forced colours overrides `background-color` and `color` and leaves
+    // `background-image` painting. Without this rule the ramp survives under text
+    // the system has just recoloured for contrast — which is invisible to everyone
+    // not running a high-contrast theme, and so is exactly the kind of thing that
+    // has to be a test rather than a habit.
+    expect(forcedColours()).toContain(".mp-btn--primary { background-image: none; }");
+  });
+
   it("give every control the same focus ring, because it was nowhere before", () => {
     // A control that shows nothing on :focus-visible is unusable by keyboard and
     // looks identical to one that works, which is why this is asserted rather
@@ -93,7 +102,22 @@ const countOf = (text: string, character: string): number =>
 
 /** The rules that only apply when the reader has asked for less movement. */
 function reducedMotion(): string {
-  const block = /@media \(prefers-reduced-motion: reduce\) \{(.*)\n\}/s.exec(componentCss);
-  if (!block?.[1]) throw new Error("the component rules no longer answer prefers-reduced-motion");
+  return mediaBlock("prefers-reduced-motion: reduce");
+}
+
+/** The rules that only apply when the reader's system is picking the colours. */
+function forcedColours(): string {
+  return mediaBlock("forced-colors: active");
+}
+
+/**
+ * One `@media` block's rules. The `?` is load-bearing now that there are two of
+ * them: greedy, this runs to the last `\n}` in the sheet, so a query would quietly
+ * return its own rules *plus* every block after it and go on passing `toContain`.
+ */
+function mediaBlock(query: string): string {
+  const pattern = new RegExp(`@media \\(${query}\\) \\{(.*?)\\n\\}`, "s");
+  const block = pattern.exec(componentCss);
+  if (!block?.[1]) throw new Error(`the component rules no longer answer ${query}`);
   return block[1];
 }

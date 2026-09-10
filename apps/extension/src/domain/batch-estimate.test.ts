@@ -68,16 +68,16 @@ describe("how long a selection takes", () => {
 
 describe("saying it out loud", () => {
   // Coarse on purpose. The estimate is built on an average gap and a rail that may
-  // have moved, so "about 1 hour 47 minutes" would claim a precision the
+  // have moved, so "ongeveer 1 uur 47 minutes" would claim a precision the
   // arithmetic does not have — and somebody deciding whether to start an
   // unattended run is choosing between now and later.
   it.each([
-    [0, "under a minute"],
-    [30_000, "under a minute"],
-    [60_000, "about 1 minute"],
-    [3 * 60_000, "about 3 minutes"],
-    [59 * 60_000, "about 59 minutes"],
-    [2 * 60 * 60_000, "about 2 hours"],
+    [0, "minder dan een minuut"],
+    [30_000, "minder dan een minuut"],
+    [60_000, "ongeveer 1 minuut"],
+    [3 * 60_000, "ongeveer 3 minuten"],
+    [59 * 60_000, "ongeveer 59 minuten"],
+    [2 * 60 * 60_000, "ongeveer 2 uur"],
   ])("says %ims as %s", (ms, said) => {
     expect(describeDuration(ms)).toBe(said);
   });
@@ -85,7 +85,7 @@ describe("saying it out loud", () => {
   // The two sentences the click-through reads back: Pro's four selected ads, and
   // Power's twenty-five.
   it("describes the two runs the tiers were drawn around", () => {
-    expect(describeDuration(estimateBatchMs(4, BULK_PACE, ASSUMED_RAILS))).toBe("about 2 minutes");
-    expect(describeDuration(estimateBatchMs(25, BULK_PACE, ASSUMED_RAILS))).toBe("about 2 hours");
+    expect(describeDuration(estimateBatchMs(4, BULK_PACE, ASSUMED_RAILS))).toBe("ongeveer 2 minuten");
+    expect(describeDuration(estimateBatchMs(25, BULK_PACE, ASSUMED_RAILS))).toBe("ongeveer 2 uur");
   });
 });

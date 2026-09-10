@@ -22,21 +22,21 @@ describe("the terms", () => {
     // The most important sentence in the product (ADR-0002/0003). A terms page for
     // a delete-and-recreate tool that buried this would be the one piece of copy
     // it is not acceptable to get wrong.
-    expect(markup).toContain("the original ad is deleted");
-    expect(markup).toContain("Do not relist an ad you cannot afford to lose");
+    expect(markup).toContain("de oorspronkelijke advertentie wordt verwijderd");
+    expect(markup).toContain("Herplaats geen advertentie die je niet kwijt kunt");
   });
 
   it("say what happens when a paid plan ends, which is not a lockout", () => {
     // ADR-0018: a lapsed subscription falls back to the default tier. "You are
-    // never locked out of your own ads" is behaviour, not reassurance.
-    expect(markup).toContain("drop back to the free plan");
-    expect(markup).toContain("never locked out");
+    // nooit buitengesloten of your own ads" is behaviour, not reassurance.
+    expect(markup).toContain("terug naar het gratis abonnement");
+    expect(markup).toContain("nooit buitengesloten");
   });
 
   it("do not promise Marktplaats will not object", () => {
     // ADR-0008 is explicit that pacing reduces the risk and cannot remove it, and
     // this is the page where that has to be said out loud rather than implied.
-    expect(markup).toContain("cannot promise Marktplaats will not object");
+    expect(markup).toContain("kan niet beloven dat Marktplaats er geen bezwaar tegen maakt");
   });
 });
 
@@ -47,8 +47,8 @@ describe("the privacy policy", () => {
     // ADR-0001/0005: the relist runs in the user's own browser under their own
     // Marktplaats session, and the only thing our API is ever told about an ad is
     // its id (#22). This page is where that promise is made in public.
-    expect(markup).toContain("never reach us");
-    expect(markup).toContain("only ever receive the id");
+    expect(markup).toContain("bereiken ons nooit");
+    expect(markup).toContain("ontvangen alleen het id");
   });
 
   it("says payment details go to Stripe rather than to us, without saying card", () => {
@@ -56,12 +56,12 @@ describe("the privacy policy", () => {
     // policy that hid its processor would be the worse document. What changed in
     // T64 is "card details" — iDEAL, SEPA and PayPal are all offered, so describing
     // only cards describes a minority of the payments this product takes.
-    expect(markup).toContain("straight to Stripe");
+    expect(markup).toContain("rechtstreeks naar Stripe");
     expect(markup).not.toContain("Card details");
   });
 
   it("claims no analytics, because there is none to claim", () => {
-    expect(markup).toContain("no analytics or advertising code");
+    expect(markup).toContain("geen analyse- of advertentiecode");
   });
 });
 
@@ -75,7 +75,7 @@ describe("both documents", () => {
         // it deploys, and somebody has to be able to tell that it is a draft
         // without reading the repository. T58 (#89) is where it stops being one.
         expect(markup).toContain("[PLACEHOLDER]");
-        expect(markup).toContain("needs a lawyer");
+        expect(markup).toContain("moet door een jurist");
       });
 
       it("calls the product what brand.json calls it", () => {

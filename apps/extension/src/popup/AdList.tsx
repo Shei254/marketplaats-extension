@@ -33,7 +33,7 @@ export function AdList({
   onOutcome,
   selection,
   runStates,
-  empty = "You have no active ads.",
+  empty = "Je hebt geen actieve advertenties.",
 }: {
   view: AdsView;
   worker: WorkerPort;
@@ -140,7 +140,7 @@ export function AdList({
   if (view.status === "failed") {
     return (
       <div className="popup-ads-failed">
-        <Note tone="error">Could not load your ads. {view.message}</Note>
+        <Note tone="error">Je advertenties konden niet worden geladen. {view.message}</Note>
       </div>
     );
   }
@@ -292,7 +292,7 @@ export function AdRow({
               className="popup-ad-tick"
               checked={ticked}
               disabled={selection.bulk === null || selection.frozen || full}
-              aria-label={`Select “${ad.title}” to repost`}
+              aria-label={`Selecteer “${ad.title}” om te herplaatsen`}
               onChange={() => selection.onToggle(ad.id)}
             />
           </label>
@@ -359,7 +359,7 @@ function PriceMeta({ price, reserved }: { price: PriceLine; reserved: boolean })
  * market. The badge is the first place a seller learns this ad is different, so it
  * is also the place to say the mechanic knows.
  */
-const RESERVED_TOOLTIP = "Reserved for a buyer. Reposting keeps it reserved.";
+const RESERVED_TOOLTIP = "Gereserveerd voor een koper. Bij herplaatsen blijft de advertentie gereserveerd.";
 
 /**
  * The countdown on a cooldown, in whole seconds, ending itself when it runs out.
@@ -396,7 +396,7 @@ function RowNote({ state, pacing }: { state: RowState; pacing?: boolean }): JSX.
   if (pacing) return <Note tone="warn">{PACING_NOTE}</Note>;
   switch (state.kind) {
     case "done":
-      return <Note tone="ok">Reposted. Reloading your ads…</Note>;
+      return <Note tone="ok">Herplaatst. Je advertenties worden opnieuw geladen…</Note>;
     case "failed":
       return <Note tone={state.tone}>{state.message}</Note>;
     case "refused":
@@ -429,15 +429,16 @@ function toneFor(state: RowState, locked: boolean): "primary" | "busy" | "done" 
 function labelFor(state: RowState): string {
   switch (state.kind) {
     case "busy":
-      return "Reposting…";
+      return "Bezig met herplaatsen…";
     case "done":
-      return "Reposted";
+      return "Herplaatst";
     case "failed":
-      // "Retry" is a resume from the snapshot — the ad is already gone and this is
-      // what puts it back. "Try again" starts over on an ad that is still there.
-      return state.action === "retry" ? "Retry" : "Try again";
+      // "Opnieuw" is a resume from the snapshot — the ad is already gone and this
+      // is what puts it back. "Opnieuw proberen" starts over on an ad that is
+      // still there.
+      return state.action === "retry" ? "Opnieuw" : "Opnieuw proberen";
     default:
-      return "Repost";
+      return "Herplaats";
   }
 }
 
@@ -448,7 +449,7 @@ function labelFor(state: RowState): string {
  */
 function tooltipFor(state: RowState, title: string): string {
   if (state.kind === "idle") {
-    return `Delete “${title}” and post it again, so it lands back on top.`;
+    return `Verwijder “${title}” en plaats de advertentie opnieuw, zodat deze weer bovenaan staat.`;
   }
   return labelFor(state);
 }

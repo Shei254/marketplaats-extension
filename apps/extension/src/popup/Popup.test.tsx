@@ -204,7 +204,7 @@ const text = (): string => container.querySelector(".mp-root")?.textContent ?? "
  * Whitespace as a reader sees it.
  *
  * `Intl` puts a non-breaking space between `€` and the amount, so a button reading
- * "€ 9,99 a month" does not match that string typed with an ordinary space — which
+ * "€ 9,99 per maand" does not match that string typed with an ordinary space — which
  * is a test failing over a character nobody can see.
  */
 const readable = (text: string | null | undefined): string =>
@@ -226,7 +226,7 @@ function click(label: string): Promise<void> {
 // month. The 2026-08 pass moved it onto `@mprelist/ui`'s own input and this
 // assertion did not have to know.
 const searchBox = (): HTMLInputElement | null =>
-  container.querySelector<HTMLInputElement>('input[aria-label="Search your ads"]');
+  container.querySelector<HTMLInputElement>('input[aria-label="Zie jouw advertenties"]');
 
 /**
  * Type into the search box the way a person does.
@@ -256,8 +256,8 @@ describe("signed in", () => {
     await show(worker);
 
     expect(text()).toContain("Free");
-    expect(text()).toContain("2 of 3 reposts left");
-    expect(text()).toContain("resets 14 Sep");
+    expect(text()).toContain("2 van 3 herplaatsingen over");
+    expect(text()).toContain("Reset op 14 sep");
     // And no prompt: a healthy plan is the case where the screen says nothing
     // beyond what it is.
     expect(container.querySelector(".popup-prompt")).toBeNull();
@@ -270,10 +270,10 @@ describe("signed in", () => {
     ]);
 
     await show(worker);
-    await click("Refresh");
+    await click("Vernieuwen");
 
     expect(asked).toEqual(["display-state", "list-ads", "display-state", "list-ads"]);
-    expect(text()).toContain("1 of 3 reposts left");
+    expect(text()).toContain("1 van 3 herplaatsingen over");
   });
 });
 
@@ -285,7 +285,7 @@ describe("the ad list beneath the plan", () => {
 
     expect(asked).toEqual(["display-state", "list-ads"]);
     expect(text()).toContain("Vintage Eames lounge chair");
-    expect(text()).toContain("2 of 3 reposts left");
+    expect(text()).toContain("2 van 3 herplaatsingen over");
   });
 
   it("is never asked for when nobody is signed in", async () => {
@@ -317,9 +317,9 @@ describe("the ad list beneath the plan", () => {
 
     await show(worker);
 
-    expect(text()).toContain("2 of 3 reposts left");
-    expect(text()).toContain("Could not load your ads.");
-    expect(text()).toContain("Open marktplaats.nl in a tab");
+    expect(text()).toContain("2 van 3 herplaatsingen over");
+    expect(text()).toContain("Je advertenties konden niet worden geladen.");
+    expect(text()).toContain("Open marktplaats.nl in een tabblad");
   });
 
   it("says so plainly when the account has none", async () => {
@@ -327,7 +327,7 @@ describe("the ad list beneath the plan", () => {
 
     await show(worker);
 
-    expect(text()).toContain("You have no active ads.");
+    expect(text()).toContain("Je hebt geen actieve advertenties.");
   });
 });
 
@@ -393,8 +393,8 @@ describe("searching the ad list", () => {
     await type("sofa");
     await settle();
 
-    expect(text()).toContain("No ads match “sofa”.");
-    expect(text()).not.toContain("You have no active ads.");
+    expect(text()).toContain("Geen advertenties gevonden voor “sofa”.");
+    expect(text()).not.toContain("Je hebt geen actieve advertenties.");
   });
 
   it("never lets a slow answer overwrite a newer one", async () => {
@@ -426,7 +426,7 @@ describe("searching the ad list", () => {
     await show(worker);
     await type("trek");
     await settle();
-    await click("Clear search");
+    await click("Zoekopdracht wissen");
 
     expect(asked).toEqual(["display-state", "list-ads", "search:trek", "list-ads"]);
     expect(searchBox()?.value).toBe("");
@@ -452,7 +452,7 @@ describe("searching the ad list", () => {
     await show(worker);
     await type("trek");
     await settle();
-    await click("Refresh");
+    await click("Vernieuwen");
 
     expect(asked).toEqual(["display-state", "list-ads", "search:trek", "display-state", "search:trek"]);
     expect(searchBox()?.value).toBe("trek");
@@ -464,7 +464,7 @@ describe("searching the ad list", () => {
     await show(worker);
     await type("trek");
     await settle();
-    await click("Repost");
+    await click("Herplaats");
 
     expect(asked).toEqual(["display-state", "list-ads", "search:trek", "relist", "search:trek"]);
   });
@@ -483,8 +483,8 @@ describe("searching the ad list", () => {
     await show(worker);
     await type("trek");
     await settle();
-    await click("Sign out");
-    await click("Sign in");
+    await click("Uitloggen");
+    await click("Inloggen");
 
     expect(searchBox()?.value).toBe("");
     expect(asked.at(-1)).toBe("list-ads");
@@ -499,11 +499,11 @@ describe("the quota after a relist", () => {
     const { worker, asked } = fakeWorker();
 
     await show(worker);
-    expect(text()).toContain("2 of 3 reposts left");
+    expect(text()).toContain("2 van 3 herplaatsingen over");
 
-    await click("Repost");
+    await click("Herplaats");
 
-    expect(text()).toContain("1 of 3 reposts left");
+    expect(text()).toContain("1 van 3 herplaatsingen over");
     expect(asked.filter((question) => question === "display-state")).toHaveLength(1);
   });
 
@@ -511,7 +511,7 @@ describe("the quota after a relist", () => {
     const { worker, asked } = fakeWorker();
 
     await show(worker);
-    await click("Repost");
+    await click("Herplaats");
 
     expect(asked).toEqual(["display-state", "list-ads", "relist", "list-ads"]);
   });
@@ -523,9 +523,9 @@ describe("the quota after a relist", () => {
     worker.relist = vi.fn(async () => ({ status: "relisted", quota: null }) as const);
 
     await show(worker);
-    await click("Repost");
+    await click("Herplaats");
 
-    expect(text()).toContain("2 of 3 reposts left");
+    expect(text()).toContain("2 van 3 herplaatsingen over");
   });
 });
 
@@ -537,14 +537,14 @@ describe("a plan that cannot be relisted on", () => {
 
     await show(worker);
 
-    expect(text()).toContain("0 of 3 reposts left");
-    expect(text()).toContain("You’ve used your relists for this period");
-    expect(text()).toContain("They come back on 14 Sep");
+    expect(text()).toContain("0 van 3 herplaatsingen over");
+    expect(text()).toContain("Je hebt je limiet voor herplaatsingen in deze periode bereikt");
+    expect(text()).toContain("Ze resetten op 14 sep");
   });
 
   it("says a card is failing without saying the plan is gone", async () => {
     // ADR-0018: dunning keeps the paid tier and Stripe is still retrying, so
-    // "your plan is still Pro" is the load-bearing half of this copy — and
+    // "je abonnement is nog steeds Pro" is the load-bearing half of this copy — and
     // "resubscribe" would be addressed to somebody who has not cancelled.
     const { worker } = fakeWorker([
       {
@@ -555,9 +555,9 @@ describe("a plan that cannot be relisted on", () => {
 
     await show(worker);
 
-    expect(text()).toContain("payment failed");
-    expect(text()).toContain("Your payment didn’t go through");
-    expect(text()).toContain("your plan is still Pro");
+    expect(text()).toContain("betaling mislukt");
+    expect(text()).toContain("Je betaling is niet gelukt");
+    expect(text()).toContain("je abonnement is nog steeds Pro");
     expect(text()).not.toContain("resubscribe");
   });
 
@@ -583,11 +583,11 @@ describe("signed out", () => {
 
     await show(worker);
 
-    expect(text()).toContain("Sign in");
+    expect(text()).toContain("Inloggen");
     expect(container.querySelector(".popup-plan")).toBeNull();
     expect(text()).not.toContain("reposts left");
     expect(text()).not.toContain("Free");
-    expect(container.querySelector('[aria-label="Refresh"]')).toBeNull();
+    expect(container.querySelector('[aria-label="Vernieuwen"]')).toBeNull();
     expect(container.querySelectorAll("button")).toHaveLength(1);
   });
 
@@ -595,10 +595,10 @@ describe("signed out", () => {
     const { worker, asked } = fakeWorker([{ status: "signed-out" }, { status: "ready", plan: PLAN }]);
 
     await show(worker);
-    await click("Sign in");
+    await click("Inloggen");
 
     expect(asked).toEqual(["display-state", "sign-in", "display-state", "list-ads"]);
-    expect(text()).toContain("2 of 3 reposts left");
+    expect(text()).toContain("2 van 3 herplaatsingen over");
   });
 
   it("says nothing when the user closed the window themselves", async () => {
@@ -609,9 +609,9 @@ describe("signed out", () => {
     });
 
     await show(worker);
-    await click("Sign in");
+    await click("Inloggen");
 
-    expect(text()).toContain("Sign in");
+    expect(text()).toContain("Inloggen");
     expect(text()).not.toContain("cancelled");
     expect(container.querySelector(".mp-note")).toBeNull();
   });
@@ -623,7 +623,7 @@ describe("signed out", () => {
     });
 
     await show(worker);
-    await click("Sign in");
+    await click("Inloggen");
 
     expect(container.querySelector(".mp-note--error")?.textContent).toContain("invalid_client");
   });
@@ -637,8 +637,8 @@ describe("unavailable", () => {
 
     await show(worker);
 
-    expect(text()).toContain("Can’t reach");
-    expect(text()).toContain("Nothing has been changed on Marktplaats");
+    expect(text()).toContain("is nu niet bereikbaar");
+    expect(text()).toContain("Er is niets gewijzigd op Marktplaats");
     expect(text()).not.toContain("reposts left");
   });
 
@@ -646,9 +646,9 @@ describe("unavailable", () => {
     const { worker } = fakeWorker([{ status: "unavailable" }, { status: "ready", plan: PLAN }]);
 
     await show(worker);
-    await click("Try again");
+    await click("Opnieuw proberen");
 
-    expect(text()).toContain("2 of 3 reposts left");
+    expect(text()).toContain("2 van 3 herplaatsingen over");
   });
 });
 
@@ -657,11 +657,11 @@ describe("signing out", () => {
     const { worker, asked } = fakeWorker();
 
     await show(worker);
-    await click("Sign out");
+    await click("Uitloggen");
 
     expect(asked).toEqual(["display-state", "list-ads", "sign-out"]);
-    expect(text()).toContain("Sign in");
-    expect(text()).not.toContain("2 of 3 reposts left");
+    expect(text()).toContain("Inloggen");
+    expect(text()).not.toContain("2 van 3 herplaatsingen over");
   });
 
   it("still signs out when the worker could not finish the job", async () => {
@@ -673,9 +673,9 @@ describe("signing out", () => {
     });
 
     await show(worker);
-    await click("Sign out");
+    await click("Uitloggen");
 
-    expect(text()).toContain("Sign in");
+    expect(text()).toContain("Inloggen");
   });
 });
 
@@ -689,11 +689,11 @@ describe("the plan cards", () => {
     const { worker, asked } = fakeWorker([{ status: "ready", plan: SPENT }]);
 
     await show(worker);
-    await click("See plans");
+    await click("Bekijk abonnementen");
 
     expect(asked).toEqual(["display-state", "list-ads", "plans"]);
-    expect(text()).toContain("Choose a plan");
-    expect(text()).toContain("50 relists a month");
+    expect(text()).toContain("Kies een abonnement");
+    expect(text()).toContain("50 herplaatsingen per maand");
   });
 
   it("and from the header, so somebody who is not out of relists can still reach them", async () => {
@@ -703,9 +703,9 @@ describe("the plan cards", () => {
     const { worker } = fakeWorker();
 
     await show(worker);
-    await click("Plans");
+    await click("Abonnementen");
 
-    expect(text()).toContain("Choose a plan");
+    expect(text()).toContain("Kies een abonnement");
   });
 
   it("warn that Checkout takes over the screen, because it does", async () => {
@@ -714,10 +714,10 @@ describe("the plan cards", () => {
     const { worker } = fakeWorker();
 
     await show(worker);
-    await click("Plans");
+    await click("Abonnementen");
 
-    expect(text()).toContain("Checkout opens in a new tab");
-    expect(text()).toContain("you drop back to Free, never locked out");
+    expect(text()).toContain("Het afrekenen wordt geopend in een nieuw tabblad");
+    expect(text()).toContain("je gaat dan terug naar Gratis en behoudt altijd toegang");
   });
 
   it("say what a buyer can pay with, before they leave for a page they have never seen", async () => {
@@ -728,9 +728,9 @@ describe("the plan cards", () => {
     const { worker } = fakeWorker();
 
     await show(worker);
-    await click("Plans");
+    await click("Abonnementen");
 
-    expect(text()).toContain("Pay with iDEAL, PayPal or card");
+    expect(text()).toContain("Je kunt betalen met iDEAL, PayPal of creditcard");
   });
 
   it("and say nothing at all when Stripe could not be asked what they are", async () => {
@@ -742,10 +742,10 @@ describe("the plan cards", () => {
     });
 
     await show(worker);
-    await click("Plans");
+    await click("Abonnementen");
 
     expect(text()).not.toContain("Pay with");
-    expect(text()).toContain("Checkout opens in a new tab");
+    expect(text()).toContain("Het afrekenen wordt geopend in een nieuw tabblad");
     expect(text()).toContain("9,99");
   });
 
@@ -753,10 +753,10 @@ describe("the plan cards", () => {
     const { worker } = fakeWorker();
 
     await show(worker);
-    await click("Plans");
+    await click("Abonnementen");
 
     expect(text()).toContain("Free");
-    expect(text()).toContain("Your plan");
+    expect(text()).toContain("Je abonnement");
     expect(text()).toContain("Pro");
     expect(text()).toContain("Power");
   });
@@ -767,21 +767,21 @@ describe("the plan cards", () => {
     const { worker, asked } = fakeWorker();
 
     await show(worker);
-    await click("Plans");
-    await click("Back");
+    await click("Abonnementen");
+    await click("Terug");
 
     expect(asked).toEqual(["display-state", "list-ads", "plans"]);
-    expect(text()).toContain("2 of 3 reposts left");
-    expect(text()).not.toContain("Choose a plan");
+    expect(text()).toContain("2 van 3 herplaatsingen over");
+    expect(text()).not.toContain("Kies een abonnement");
   });
 
   it("say prices could not be loaded rather than showing a guessed one", async () => {
     const { worker } = fakeWorker(undefined, ADS, { plans: { status: "unavailable" } });
 
     await show(worker);
-    await click("Plans");
+    await click("Abonnementen");
 
-    expect(text()).toContain("Prices couldn’t be loaded");
+    expect(text()).toContain("De prijzen konden nu niet worden geladen");
     expect(text()).not.toContain("Upgrade");
   });
 
@@ -789,8 +789,8 @@ describe("the plan cards", () => {
     const { worker, asked } = fakeWorker(undefined, ADS, { plans: { status: "unavailable" } });
 
     await show(worker);
-    await click("Plans");
-    await click("Try again");
+    await click("Abonnementen");
+    await click("Opnieuw proberen");
 
     expect(asked.filter((call) => call === "plans")).toHaveLength(2);
   });
@@ -801,19 +801,19 @@ describe("the plan cards", () => {
     const { worker } = fakeWorker(undefined, ADS, { plans: { status: "signed-out" } });
 
     await show(worker);
-    await click("Plans");
+    await click("Abonnementen");
 
-    expect(text()).toContain("Sign in");
-    expect(text()).not.toContain("Choose a plan");
+    expect(text()).toContain("Inloggen");
+    expect(text()).not.toContain("Kies een abonnement");
   });
 
   it("and a build the backend has stopped serving to the update screen", async () => {
     const { worker } = fakeWorker(undefined, ADS, { plans: { status: "outdated" } });
 
     await show(worker);
-    await click("Plans");
+    await click("Abonnementen");
 
-    expect(text()).toContain("needs updating");
+    expect(text()).toContain("moet worden bijgewerkt");
   });
 });
 
@@ -825,8 +825,8 @@ describe("handing off to Stripe", () => {
     const { worker, asked } = fakeWorker();
 
     await show(worker);
-    await click("Plans");
-    await click("€ 9,99 a month");
+    await click("Abonnementen");
+    await click("€ 9,99 per maand");
 
     expect(asked).toContain("checkout:pro:month");
   });
@@ -854,8 +854,8 @@ describe("handing off to Stripe", () => {
     });
 
     await show(worker);
-    await click("Plans");
-    await click("€ 99,00 a year");
+    await click("Abonnementen");
+    await click("€ 99,00 per jaar");
 
     expect(asked).toContain("checkout:pro:year");
     expect(asked).not.toContain("checkout:pro:month");
@@ -866,28 +866,28 @@ describe("handing off to Stripe", () => {
     const { worker } = fakeWorker(undefined, ADS, { checkout: { status: "gone" } });
 
     await show(worker);
-    await click("Plans");
-    await click("€ 9,99 a month");
+    await click("Abonnementen");
+    await click("€ 9,99 per maand");
 
-    expect(text()).toContain("isn’t on sale any more");
+    expect(text()).toContain("wordt niet meer aangeboden");
   });
 
   it("and says come back in a moment when Stripe could not be asked", async () => {
     const { worker } = fakeWorker(undefined, ADS, { checkout: { status: "unavailable" } });
 
     await show(worker);
-    await click("Plans");
-    await click("€ 9,99 a month");
+    await click("Abonnementen");
+    await click("€ 9,99 per maand");
 
-    expect(text()).toContain("Checkout couldn’t be opened");
+    expect(text()).toContain("Het afrekenen kon niet worden geopend");
   });
 
   it("opens the Customer Portal from the plans screen", async () => {
     const { worker, asked } = fakeWorker();
 
     await show(worker);
-    await click("Plans");
-    await click("Manage billing");
+    await click("Abonnementen");
+    await click("Betaling beheren");
 
     expect(asked).toContain("portal");
   });
@@ -898,10 +898,10 @@ describe("handing off to Stripe", () => {
     const { worker } = fakeWorker(undefined, ADS, { portal: { status: "gone" } });
 
     await show(worker);
-    await click("Plans");
-    await click("Manage billing");
+    await click("Abonnementen");
+    await click("Betaling beheren");
 
-    expect(text()).toContain("nothing to manage");
+    expect(text()).toContain("niets te beheren");
   });
 
   it("offers the Portal beside a failing card, which is where ADR-0018 puts it", async () => {
@@ -911,8 +911,8 @@ describe("handing off to Stripe", () => {
     const { worker, asked } = fakeWorker([{ status: "ready", plan: failing }]);
 
     await show(worker);
-    expect(text()).toContain("Your payment didn’t go through");
-    await click("Update card");
+    expect(text()).toContain("Je betaling is niet gelukt");
+    await click("Betaalgegevens bijwerken");
 
     expect(asked).toContain("portal");
   });
@@ -924,16 +924,16 @@ describe("handing off to Stripe", () => {
     });
 
     await show(worker);
-    await click("Update card");
+    await click("Betaalgegevens bijwerken");
 
-    expect(text()).toContain("billing page couldn’t be opened");
+    expect(text()).toContain("betaalpagina kon niet worden geopend");
     // And the plan is still theirs: a failed hand-off changes nothing about it.
     expect(text()).toContain("Pro");
   });
 });
 
 /**
- * Reposting several at once (T68, #147; ADR-0025), through the real components:
+ * Meerdere tegelijk herplaatsen (T68, #147; ADR-0025), through the real components:
  * the boxes on the rows, the bar under them, and what the screen does when the
  * worker says a run has ended.
  *
@@ -1044,10 +1044,10 @@ describe("reposting several at once", () => {
     // Nor the line pointing at Plans, which is the sentence a free user gets: it
     // is written to make somebody want the feature, and no plan on sale can grant
     // it while this is off.
-    expect(text()).not.toContain("part of the paid plans");
+    expect(text()).not.toContain("hoort bij de betaalde abonnementen");
     // And nothing else went with it. This took away a selection, not the list.
     expect(container.querySelectorAll(".popup-ad")).toHaveLength(MANY.length);
-    expect(text()).toContain("Repost");
+    expect(text()).toContain("Herplaats");
   });
 
   it("and still asks the worker for a run, so a badge left by the last build comes down", async () => {
@@ -1081,7 +1081,7 @@ describe("reposting several at once", () => {
 
     expect(boxes()).toHaveLength(ADS.length);
     expect(boxes().every((box) => box.disabled)).toBe(true);
-    expect(text()).toContain("part of the paid plans");
+    expect(text()).toContain("hoort bij de betaalde abonnementen");
   });
 
   // The pinned line answers the list; the tooltip answers the control. A pointer
@@ -1094,8 +1094,8 @@ describe("reposting several at once", () => {
     await show(worker);
 
     expect(tickTitles()).toHaveLength(ADS.length);
-    expect(tickTitles().every((why) => why.includes("paid plans"))).toBe(true);
-    expect(selectAllTitle()).toContain("paid plans");
+    expect(tickTitles().every((why) => why.includes("betaalde abonnementen"))).toBe(true);
+    expect(selectAllTitle()).toContain("betaalde abonnementen");
   });
 
   it("and says how many Select all would tick on a plan that has it", async () => {
@@ -1103,7 +1103,7 @@ describe("reposting several at once", () => {
 
     await show(worker);
 
-    expect(selectAllTitle()).toBe("Tick the first 10 ads and repost them in one run.");
+    expect(selectAllTitle()).toBe("Vink de eerste 10 advertenties aan en herplaats ze in één reeks.");
   });
 
   // The cap said where the pointer is, not only in the header: a box that has gone
@@ -1117,7 +1117,7 @@ describe("reposting several at once", () => {
 
     const stopped = boxes().flatMap((box, at) => (box.disabled ? [tickTitles()[at] ?? ""] : []));
     expect(stopped).not.toHaveLength(0);
-    expect(stopped.every((why) => why === "Your plan reposts 10 at a time.")).toBe(true);
+    expect(stopped.every((why) => why === "Je abonnement herplaatst er 10 tegelijk.")).toBe(true);
   });
 
   // And the per-row button is untouched, which is the sentence the whole
@@ -1127,7 +1127,7 @@ describe("reposting several at once", () => {
 
     await show(worker);
 
-    expect([...container.querySelectorAll("button")].some((button) => readable(button.textContent) === "Repost")).toBe(
+    expect([...container.querySelectorAll("button")].some((button) => readable(button.textContent) === "Herplaats")).toBe(
       true,
     );
   });
@@ -1148,8 +1148,8 @@ describe("reposting several at once", () => {
     await tick(0);
     await tick(1);
 
-    expect(text()).toContain("about 1 hour");
-    expect(text()).toContain("pause");
+    expect(text()).toContain("ongeveer 1 uur");
+    expect(text()).toContain("gepauzeerd");
   });
 
   it("says how many are ticked and how long they will take", async () => {
@@ -1159,10 +1159,10 @@ describe("reposting several at once", () => {
     await tick(0);
     await tick(1);
 
-    expect(text()).toContain("Repost 2 selected");
-    // Two ads is one gap of the wider window — under a minute, and said before
+    expect(text()).toContain("Herplaats 2 geselecteerd");
+    // Two ads is one gap of the wider window — minder dan een minuut, and said before
     // anybody commits to it.
-    expect(text()).toContain("under a minute");
+    expect(text()).toContain("minder dan een minuut");
   });
 
   // The order is the screen's rather than the order they were ticked: somebody who
@@ -1174,7 +1174,7 @@ describe("reposting several at once", () => {
     await tick(1);
     await tick(0);
 
-    await click("Repost 2 selected · under a minute");
+    await click("Herplaats 2 geselecteerd · minder dan een minuut");
 
     expect(fixture.worker.startBatch).toHaveBeenCalledWith([ADS[0]!.id, ADS[1]!.id]);
   });
@@ -1189,7 +1189,7 @@ describe("reposting several at once", () => {
     await tick(0);
 
     expect(boxes()[1]?.disabled).toBe(true);
-    expect(text()).toContain("all the relists you have left");
+    expect(text()).toContain("Meer herplaatsingen heb je deze periode niet");
   });
 
   it("and says it is the plan's number when that is the smaller one", async () => {
@@ -1199,7 +1199,7 @@ describe("reposting several at once", () => {
     await tick(0);
 
     expect(boxes()[1]?.disabled).toBe(true);
-    expect(text()).toContain("reposts 1 at a time");
+    expect(text()).toContain("herplaatst er 1 tegelijk");
   });
 
   it("shows the run once it has started, and offers to stop it", async () => {
@@ -1207,10 +1207,10 @@ describe("reposting several at once", () => {
     await show(fixture.worker);
     await tick(0);
 
-    await click("Repost 1 selected · under a minute");
+    await click("Herplaats 1 geselecteerd · minder dan een minuut");
 
-    expect(text()).toContain("Reposting 1 of 1…");
-    expect(text()).toContain("keeps going with the popup closed");
+    expect(text()).toContain("Bezig met herplaatsen 1 van 1…");
+    expect(text()).toContain("gaat door als de pop-up gesloten is");
   });
 
   // Every row is locked while a run is going, for the reason one relist locks the
@@ -1221,7 +1221,7 @@ describe("reposting several at once", () => {
     await show(fixture.worker);
     await tick(0);
 
-    await click("Repost 1 selected · under a minute");
+    await click("Herplaats 1 geselecteerd · minder dan een minuut");
 
     expect(boxes().every((box) => box.disabled)).toBe(true);
   });
@@ -1231,12 +1231,12 @@ describe("reposting several at once", () => {
     await show(fixture.worker);
     await tick(0);
     await tick(1);
-    await click("Repost 2 selected · under a minute");
+    await click("Herplaats 2 geselecteerd · minder dan een minuut");
 
-    await click("Stop");
+    await click("Stoppen");
 
-    expect(text()).toContain("0 of 2 reposted.");
-    expect(text()).toContain("Stopped.");
+    expect(text()).toContain("0 van 2 herplaatst.");
+    expect(text()).toContain("Gestopt.");
   });
 
   // The ads that never ran are offered rather than resumed, which is ADR-0025's
@@ -1248,11 +1248,11 @@ describe("reposting several at once", () => {
     await show(fixture.worker);
     await tick(0);
     await tick(1);
-    await click("Repost 2 selected · under a minute");
+    await click("Herplaats 2 geselecteerd · minder dan een minuut");
 
-    await click("Stop");
+    await click("Stoppen");
 
-    expect(text()).toContain("Repost the remaining 2");
+    expect(text()).toContain("Herplaats de resterende 2");
   });
 
   /**
@@ -1269,12 +1269,12 @@ describe("reposting several at once", () => {
     await show(fixture.worker);
     await tick(0);
     await tick(1);
-    expect(text()).toContain("Repost 2 selected");
+    expect(text()).toContain("Herplaats 2 geselecteerd");
 
     // A single repost, which the fake answers with one relist left.
-    await click("Repost");
+    await click("Herplaats");
 
-    expect(text()).toContain("Repost 1 of 2 selected");
+    expect(text()).toContain("Herplaats 1 van 2 geselecteerd");
   });
 
   it("and starts exactly the ads that button named", async () => {
@@ -1282,9 +1282,9 @@ describe("reposting several at once", () => {
     await show(fixture.worker);
     await tick(0);
     await tick(1);
-    await click("Repost");
+    await click("Herplaats");
 
-    await click("Repost 1 of 2 selected · under a minute");
+    await click("Herplaats 1 van 2 geselecteerd · minder dan een minuut");
 
     expect(fixture.worker.startBatch).toHaveBeenCalledWith([MANY[0]!.id]);
   });
@@ -1300,10 +1300,10 @@ describe("reposting several at once", () => {
     await show(fixture.worker);
     await tick(0);
 
-    await click("Repost");
+    await click("Herplaats");
 
-    expect(text()).not.toContain("Repost 1 selected");
-    expect(text()).toContain("That is all the relists you have left this period.");
+    expect(text()).not.toContain("Herplaats 1 geselecteerd");
+    expect(text()).toContain("Meer herplaatsingen heb je deze periode niet.");
   });
 
   /**
@@ -1322,7 +1322,7 @@ describe("reposting several at once", () => {
     fixture.worker.batchState = vi.fn(async () => stopBatch(startBatch(left, 1_700_000_000_000), "stopped"));
     await show(fixture.worker);
 
-    await click("Repost 2 of the remaining 5");
+    await click("Herplaats 2 van de resterende 5");
 
     expect(fixture.worker.startBatch).toHaveBeenCalledWith(left.slice(0, 2));
   });
@@ -1338,7 +1338,7 @@ describe("reposting several at once", () => {
     await show(fixture.worker);
 
     expect(text()).not.toContain("Repost the remaining");
-    expect(text()).toContain("That is all the relists you have left this period.");
+    expect(text()).toContain("Meer herplaatsingen heb je deze periode niet.");
   });
 
   // A reposted ad comes back with a new id, so reloading mid-run would reshuffle
@@ -1348,9 +1348,9 @@ describe("reposting several at once", () => {
     await show(fixture.worker);
     const loadsBefore = fixture.asked.filter((ask) => ask === "list-ads").length;
     await tick(0);
-    await click("Repost 1 selected · under a minute");
+    await click("Herplaats 1 geselecteerd · minder dan een minuut");
 
-    await click("Stop");
+    await click("Stoppen");
 
     expect(fixture.asked.filter((ask) => ask === "list-ads")).toHaveLength(loadsBefore + 1);
   });
@@ -1359,10 +1359,10 @@ describe("reposting several at once", () => {
     const fixture = batching();
     await show(fixture.worker);
     await tick(0);
-    await click("Repost 1 selected · under a minute");
-    await click("Stop");
+    await click("Herplaats 1 geselecteerd · minder dan een minuut");
+    await click("Stoppen");
 
-    await click("Dismiss");
+    await click("Sluiten");
 
     expect(text()).not.toContain("reposted.");
   });
@@ -1381,12 +1381,12 @@ describe("reposting several at once", () => {
     const fixture = batching();
     await show(fixture.worker);
     await tick(0);
-    await click("Repost 1 selected · under a minute");
-    await click("Stop");
+    await click("Herplaats 1 geselecteerd · minder dan een minuut");
+    await click("Stoppen");
 
     await tick(1);
 
-    expect(text()).toContain("Repost 1 selected");
+    expect(text()).toContain("Herplaats 1 geselecteerd");
   });
 
   // And it is one offer rather than two: the ads a stopped run never reached and
@@ -1397,14 +1397,14 @@ describe("reposting several at once", () => {
     await show(fixture.worker);
     await tick(0);
     await tick(1);
-    await click("Repost 2 selected · under a minute");
-    await click("Stop");
-    expect(text()).toContain("Repost the remaining 2");
+    await click("Herplaats 2 geselecteerd · minder dan een minuut");
+    await click("Stoppen");
+    expect(text()).toContain("Herplaats de resterende 2");
 
     await tick(0);
 
     expect(text()).not.toContain("Repost the remaining");
-    expect(text()).toContain("Repost 1 selected");
+    expect(text()).toContain("Herplaats 1 geselecteerd");
   });
 
   // The summary itself does not go anywhere: it is the only record of what the last
@@ -1413,13 +1413,13 @@ describe("reposting several at once", () => {
     const fixture = batching();
     await show(fixture.worker);
     await tick(0);
-    await click("Repost 1 selected · under a minute");
-    await click("Stop");
+    await click("Herplaats 1 geselecteerd · minder dan een minuut");
+    await click("Stoppen");
 
     await tick(1);
 
-    expect(text()).toContain("0 of 1 reposted.");
-    expect(text()).toContain("Stopped.");
+    expect(text()).toContain("0 van 1 herplaatst.");
+    expect(text()).toContain("Gestopt.");
   });
 
   /**
@@ -1436,7 +1436,7 @@ describe("reposting several at once", () => {
     await selectAll();
 
     expect(ticked()).toEqual([0, 1]);
-    expect(text()).toContain("Repost 2 selected");
+    expect(text()).toContain("Herplaats 2 geselecteerd");
   });
 
   // The cap is applied where the plan is read, and from the top: the ten a Pro user
@@ -1448,7 +1448,7 @@ describe("reposting several at once", () => {
     await selectAll();
 
     expect(ticked()).toEqual([0]);
-    expect(text()).toContain("reposts 1 at a time");
+    expect(text()).toContain("herplaatst er 1 tegelijk");
   });
 
   // The other half of the same cap, and the one a bigger plan does not fix.
@@ -1467,11 +1467,11 @@ describe("reposting several at once", () => {
 
     await tick(0);
 
-    expect(text()).toContain("1 of 10 selected");
+    expect(text()).toContain("1 van 10 geselecteerd");
   });
 
   // But only while the cap is a number the list can actually reach. Two ads on a
-  // plan that reposts ten are two ads, and "2 of 10 selected" beside a Select all
+  // plan that reposts ten are two ads, and "2 van 10 geselecteerd" beside a Select all
   // box that is — correctly — full invents eight ads the account does not have.
   it("but counts plainly when the list is shorter than the cap", async () => {
     const { worker } = batching();
@@ -1479,8 +1479,8 @@ describe("reposting several at once", () => {
 
     await selectAll();
 
-    expect(text()).toContain("2 selected");
-    expect(text()).not.toContain("2 of 10 selected");
+    expect(text()).toContain("2 geselecteerd");
+    expect(text()).not.toContain("2 van 10 geselecteerd");
   });
 
   // Select all after a few rows have been ticked by hand adds to them rather than
@@ -1504,7 +1504,7 @@ describe("reposting several at once", () => {
 
     await show(worker);
 
-    expect(text()).toContain("10 at a time");
+    expect(text()).toContain("10 tegelijk");
   });
 
   it("unticks everything from the header", async () => {
@@ -1512,10 +1512,10 @@ describe("reposting several at once", () => {
     await show(worker);
     await selectAll();
 
-    await click("Clear");
+    await click("Wissen");
 
     expect(ticked()).toEqual([]);
-    expect(text()).not.toContain("Repost 2 selected");
+    expect(text()).not.toContain("Herplaats 2 geselecteerd");
   });
 
   // The same box, both ways: a full selection is unticked by the control that
@@ -1544,7 +1544,7 @@ describe("reposting several at once", () => {
 
     await show(worker);
 
-    expect(text()).toContain("No relists left");
+    expect(text()).toContain("Geen herplaatsingen over");
     expect(selectAllBox()?.disabled).toBe(true);
     expect(boxes().every((box) => box.disabled)).toBe(true);
   });
@@ -1593,9 +1593,9 @@ describe("reposting several at once", () => {
       await settle();
 
       expect(boxes()).toHaveLength(1);
-      expect(text()).toContain("2 of 10 selected");
-      expect(text()).toContain("1 ticked ad isn’t in these results");
-      expect(text()).toContain("Repost 2 selected");
+      expect(text()).toContain("2 van 10 geselecteerd");
+      expect(text()).toContain("1 aangevinkte advertentie staat niet in deze resultaten");
+      expect(text()).toContain("Herplaats 2 geselecteerd");
     } finally {
       vi.useRealTimers();
     }
@@ -1612,7 +1612,7 @@ describe("reposting several at once", () => {
       await type("Eames");
       await settle();
 
-      await click("Repost 2 selected · under a minute");
+      await click("Herplaats 2 geselecteerd · minder dan een minuut");
 
       expect(fixture.worker.startBatch).toHaveBeenCalledWith([ADS[0]!.id, ADS[1]!.id]);
     } finally {
@@ -1630,7 +1630,7 @@ describe("reposting several at once", () => {
       await type("Eames");
       await settle();
 
-      await click("Clear search");
+      await click("Zoekopdracht wissen");
       await settle();
 
       expect(text()).not.toContain("aren’t in these results");

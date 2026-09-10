@@ -132,7 +132,7 @@ function StartRow({
   return (
     <>
       <div className="popup-batch-row">
-        <Button shape="rect" tone="primary" onClick={onStart} title="Repost the ads you have ticked, one after another.">
+        <Button shape="rect" tone="primary" onClick={onStart} title="Herplaats de advertenties die je hebt aangevinkt, één voor één.">
           {offer.label}
         </Button>
       </div>
@@ -155,13 +155,13 @@ function RunningRun({ run, onStop }: { run: BatchRun; onStop: () => void }): JSX
     <>
       <div className="popup-batch-row">
         <span className="popup-batch-progress">{describeProgress(run)}</span>
-        <Button shape="rect" tone="ghost" onClick={onStop} title="Finish the ad that is running and start no more.">
-          Stop
+        <Button shape="rect" tone="ghost" onClick={onStop} title="Maak de lopende advertentie af en start er geen meer.">
+          Stoppen
         </Button>
       </div>
       <p className="popup-batch-note">
-        This keeps going with the popup closed. Reposts are spaced out so they look like clicks rather than a
-        script.
+        Dit gaat door als de pop-up gesloten is. Herplaatsingen worden gespreid zodat ze op klikken lijken
+        en niet op een script.
       </p>
     </>
   );
@@ -184,7 +184,7 @@ function StoppedRun({ run, onDismiss }: { run: BatchRun; onDismiss: () => void }
       <div className="popup-batch-row">
         <span className="popup-batch-progress">{describeProgress(run)}</span>
         <Button shape="rect" tone="ghost" onClick={onDismiss}>
-          Dismiss
+          Sluiten
         </Button>
       </div>
       {why ? <Note tone={run.stop?.reason === "finished" ? "ok" : "warn"}>{why}</Note> : null}

@@ -62,7 +62,7 @@ export function sameShowing(one: Showing, other: Showing): boolean {
 
 /** What to say when a search matched nothing — never "you have no active ads". */
 export function noMatches(query: string): string {
-  return `No ads match “${query}”.`;
+  return `Geen advertenties gevonden voor “${query}”.`;
 }
 
 /**

@@ -104,13 +104,14 @@ export function sleepsMidRun(count: number, rails: BurstRails): boolean {
  * run is choosing between "now" and "later", not scheduling around it.
  */
 export function describeDuration(ms: number): string {
-  // Anything short of a minute is "under a minute" rather than rounded up to one:
-  // half a minute rounds to "about 1 minute", which is the only place this
+  // Anything short of a minute is "minder dan een minuut" rather than rounded up
+  // to one: half a minute rounds to "ongeveer 1 minuut", which is the only place this
   // sentence could overstate a wait, and the shortest runs are the ones somebody
   // is most likely to sit and watch.
-  if (ms < 60_000) return "under a minute";
+  if (ms < 60_000) return "minder dan een minuut";
   const minutes = Math.round(ms / 60_000);
-  if (minutes < 60) return `about ${minutes} minute${minutes === 1 ? "" : "s"}`;
+  if (minutes < 60) return `ongeveer ${minutes} minu${minutes === 1 ? "ut" : "ten"}`;
   const hours = Math.round(ms / (60 * 60_000));
-  return `about ${hours} hour${hours === 1 ? "" : "s"}`;
+  // "uur" does not inflect: 1 uur, 2 uur.
+  return `ongeveer ${hours} uur`;
 }

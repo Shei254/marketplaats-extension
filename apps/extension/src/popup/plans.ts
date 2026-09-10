@@ -18,7 +18,8 @@ import type { HandoffAnswer } from "../api/subscribing";
  */
 export type PlansView =
   | { status: "loading" }
-  | { status: "ready"; plans: Plan[]; paymentMethods: string[] }
+  | { status: "ready";
+  plans: Plan[]; paymentMethods: string[] }
   | { status: "failed" };
 
 export const PLANS_LOADING: PlansView = { status: "loading" };
@@ -61,13 +62,13 @@ export const MANAGING = "manage-billing";
 export function handoffFailure(answer: HandoffAnswer, asked: "checkout" | "portal"): string | null {
   if (answer.status === "gone") {
     return asked === "checkout"
-      ? "That plan isn’t on sale any more."
-      : "You haven’t paid for anything yet, so there’s nothing to manage.";
+      ? "Dat abonnement wordt niet meer aangeboden."
+      : "Je hebt nog niets betaald, dus er is niets te beheren.";
   }
   if (answer.status === "unavailable") {
     return asked === "checkout"
-      ? "Checkout couldn’t be opened. Try again in a moment."
-      : "Your billing page couldn’t be opened. Try again in a moment.";
+      ? "Het afrekenen kon niet worden geopend. Probeer het zo opnieuw."
+      : "Je betaalpagina kon niet worden geopend. Probeer het zo opnieuw.";
   }
   return null;
 }
@@ -109,17 +110,18 @@ export function priceOf(price: PlanPrice): string {
  *
  * Written once because it is the *same sentence about the same fact*: a buyer
  * comparing cards and then subscribing should read what they were sold, and two
- * spellings a screen apart is how "Unlimited reposts" quietly becomes "Unlimited
- * relists" on one of them.
+ * spellings a screen apart is how "Onbeperkt herplaatsen" quietly becomes
+ * "Onbeperkt opnieuw plaatsen" on one of them.
  *
- * A `used` count beside it — "Unlimited · 137 this period" — is the better screen
+ * A `used` count beside it — "Onbeperkt · 137 deze periode" — is the better screen
  * and is deliberately not built here: it needs a number `/api/me` does not send,
  * and T73 was already changing that wire shape.
  */
-export const UNLIMITED_REPOSTS = "Unlimited reposts";
+export const UNLIMITED_REPOSTS = "Onbeperkt herplaatsen";
 
 /**
- * "50 relists a month" — what the plan grants, per the period it is billed over.
+ * "50 herplaatsingen per maand" — what the plan grants, per the period it is
+ * billed over.
  *
  * The interval is Stripe's vocabulary (`day`, `week`, `month`, `year`) and is read
  * rather than assumed: a yearly Price is a thing the dashboard can create, and a
@@ -130,20 +132,20 @@ export const UNLIMITED_REPOSTS = "Unlimited reposts";
  * Since T62 (#128) the rhythm is passed in rather than taken off the plan: a plan
  * has several, and what a quota line describes is the one being looked at.
  *
- * **An unlimited tier names no rhythm** (T73, ADR-0029). "Unlimited reposts a
- * month" would be inviting the reader to look for the limit the sentence is there
+ * **An unlimited tier names no rhythm** (T73, ADR-0029). "Onbeperkt herplaatsen
+ * per maand" would be inviting the reader to look for the limit the sentence is there
  * to say does not exist — and the button beside it already says which rhythm they
  * would be paying at. It is the same string the popup's own strip draws for the
  * plan somebody is already on.
  */
 export function grantOf(plan: Plan, interval: string): string {
   if (plan.relistQuotaPerPeriod === null) return UNLIMITED_REPOSTS;
-  const relists = `${plan.relistQuotaPerPeriod} relist${plan.relistQuotaPerPeriod === 1 ? "" : "s"}`;
+  const relists = `${plan.relistQuotaPerPeriod} herplaatsing${plan.relistQuotaPerPeriod === 1 ? "" : "en"}`;
   return `${relists} ${every(interval)}`;
 }
 
 /**
- * "€ 9,99 a month" — one of a plan's rhythms, as its own button says it (T62,
+ * "€ 9,99 per maand" — one of a plan's rhythms, as its own button says it (T62,
  * #128).
  *
  * A plan may be sold monthly and annually, and what a buyer is choosing between is
@@ -157,15 +159,17 @@ export function priceAndRhythmOf(price: PlanPrice): string {
 function every(interval: string): string {
   switch (interval) {
     case "day":
-      return "a day";
+      return "per dag";
     case "week":
-      return "a week";
+      return "per week";
     case "month":
-      return "a month";
+      return "per maand";
     case "year":
-      return "a year";
+      return "per jaar";
     default:
-      return `every ${interval}`;
+      // Stripe's own word, untranslated and deliberately: a new interval should
+      // read oddly rather than be silently called something it is not.
+      return `per ${interval}`;
   }
 }
 
@@ -193,13 +197,14 @@ function every(interval: string): string {
 const WAYS_TO_PAY: ReadonlyArray<readonly [token: string, name: string]> = [
   ["ideal", "iDEAL"],
   ["paypal", "PayPal"],
-  ["card", "card"],
+  ["card", "creditcard"],
   ["bancontact", "Bancontact"],
-  ["sepa_debit", "SEPA Direct Debit"],
+  ["sepa_debit", "SEPA-incasso"],
 ];
 
 /**
- * "Pay with iDEAL, PayPal, card or SEPA Direct Debit." — or nothing at all.
+ * "Je kunt betalen met iDEAL, PayPal, creditcard of SEPA-incasso." — or nothing
+ * at all.
  *
  * **`null` is an ordinary answer and renders no sentence**: Stripe could not be
  * asked, or it offers only methods this popup has no name for. The plan cards are
@@ -215,13 +220,13 @@ const WAYS_TO_PAY: ReadonlyArray<readonly [token: string, name: string]> = [
  * departure from `grantOf` and `priceOf` above, and worth saying why. Those render
  * what Stripe spelled because the alternative was *mistranslation*: an unknown
  * interval called "a month" is a lie about money. Here the alternative is silence,
- * "or sepa_debit" in the one line whose job is to reassure is worse than absent,
+ * "of sepa_debit" in the one line whose job is to reassure is worse than absent,
  * and the API logs the whole offered set whenever it refreshes — so a method
  * nobody has named is visible where an operator is, not where a buyer is.
  */
 export function waysToPay(methods: readonly string[]): string | null {
   const named = WAYS_TO_PAY.filter(([token]) => methods.includes(token)).map(([, name]) => name);
   if (named.length === 0) return null;
-  if (named.length === 1) return `Pay with ${named[0]}.`;
-  return `Pay with ${named.slice(0, -1).join(", ")} or ${named[named.length - 1]}.`;
+  if (named.length === 1) return `Je kunt betalen met ${named[0]}.`;
+  return `Je kunt betalen met ${named.slice(0, -1).join(", ")} of ${named[named.length - 1]}.`;
 }

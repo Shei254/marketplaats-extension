@@ -86,8 +86,8 @@ export function SelectionHeader({
         <span className="popup-select-all-text">{label}</span>
       </label>
       {count > 0 && !frozen ? (
-        <Button shape="rect" tone="ghost" onClick={onClear} title="Untick every row.">
-          Clear
+        <Button shape="rect" tone="ghost" onClick={onClear} title="Vink alle rijen uit.">
+          Wissen
         </Button>
       ) : hint !== null && !frozen ? (
         // Not while a run is going. The cap is about a selection somebody is
@@ -103,8 +103,8 @@ export function SelectionHeader({
 }
 
 function selectAllLabel(all: boolean, reach: number): string {
-  if (reach === 0) return "Select all";
-  return all ? "Clear the selection" : `Select the first ${reach} ads to repost`;
+  if (reach === 0) return "Alles selecteren";
+  return all ? "Selectie wissen" : `Selecteer de eerste ${reach} advertenties om te herplaatsen`;
 }
 
 /**

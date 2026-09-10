@@ -57,17 +57,17 @@ export function SignedOutScreen({
         <div className="popup-badge">
           <Icon name="logo" />
         </div>
-        <h1 className="popup-title">Put your ads back on top</h1>
+        <h1 className="popup-title">Zet je advertenties weer bovenaan</h1>
         <p className="popup-copy">
-          Sign in to relist your Marktplaats ads in one click. Three a month are free.
+          Log in om je Marktplaats-advertenties met één klik opnieuw te plaatsen.
         </p>
         <Button shape="block" tone={busy ? "busy" : "primary"} onClick={onSignIn}>
-          {busy ? "Signing in…" : "Sign in"}
+          {busy ? "Bezig met inloggen…" : "Inloggen"}
         </Button>
         {failure ? <Note tone="error">{failure}</Note> : null}
         <p className="popup-micro">
-          {__BRAND_NAME__} never sees your Marktplaats password — relisting runs in your own browser
-          session.
+          {__BRAND_NAME__} ziet je Marktplaats-wachtwoord nooit — het herplaatsen gebeurt in je
+          eigen browsersessie.
         </p>
       </div>
     </>
@@ -84,7 +84,7 @@ export function LoadingScreen(): JSX.Element {
         <Skeleton width={64} height={11} />
       </div>
       <div className="popup-centred">
-        <Spinner size="lg" label="Loading your plan" />
+        <Spinner size="lg" label="Je abonnement wordt geladen" />
       </div>
     </>
   );
@@ -117,13 +117,14 @@ export function OutdatedScreen(): JSX.Element {
         <div className="popup-warning">
           <Icon name="warning" />
         </div>
-        <h1 className="popup-title">{__BRAND_NAME__} needs updating</h1>
+        <h1 className="popup-title">{__BRAND_NAME__} moet worden bijgewerkt</h1>
         <p className="popup-copy">
-          This version is too old to keep reposting safely, so it has stopped. Chrome usually updates
-          extensions within a few hours — reopen this then.
+          Deze versie is te oud om veilig te blijven herplaatsen, dus dat is gestopt. Chrome werkt
+          extensies meestal binnen een paar uur bij — open dit dan opnieuw.
         </p>
         <p className="popup-micro">
-          Nothing has been changed on Marktplaats, and your ads are exactly where you left them.
+          Er is niets gewijzigd op Marktplaats en je advertenties staan precies waar je ze
+          hebt achtergelaten.
         </p>
       </div>
     </>
@@ -144,13 +145,13 @@ export function UnavailableScreen({
         <div className="popup-warning">
           <Icon name="warning" />
         </div>
-        <h1 className="popup-title">Can’t reach {__BRAND_NAME__} right now</h1>
+        <h1 className="popup-title">{__BRAND_NAME__} is nu niet bereikbaar</h1>
         <p className="popup-copy">
-          Your plan and quota can’t be checked, so relisting is paused. Nothing has been changed on
-          Marktplaats.
+          Je abonnement en limiet kunnen niet worden gecontroleerd, dus herplaatsen is gepauzeerd.
+          Er is niets gewijzigd op Marktplaats.
         </p>
         <Button shape="rect" tone={busy ? "busy" : "secondary"} onClick={onRetry}>
-          {busy ? "Trying…" : "Try again"}
+          {busy ? "Bezig…" : "Opnieuw proberen"}
         </Button>
       </div>
     </>
@@ -197,14 +198,14 @@ export function SignedInScreen({
       <Header
         actions={
           <>
-            <IconButton label="Refresh" onClick={onRefresh} disabled={busy}>
+            <IconButton label="Vernieuwen" onClick={onRefresh} disabled={busy}>
               <Icon name="refresh" />
             </IconButton>
             <Button tone="ghost" onClick={onSeePlans} disabled={busy}>
-              Plans
+              Abonnementen
             </Button>
             <Button tone="ghost" onClick={onSignOut} disabled={busy}>
-              Sign out
+              Uitloggen
             </Button>
           </>
         }
@@ -213,7 +214,7 @@ export function SignedInScreen({
         <div className="popup-plan-top">
           <span className="popup-plan-name">
             {plan.tier.name}
-            {paymentFailing ? <Badge tone="err">payment failed</Badge> : null}
+            {paymentFailing ? <Badge tone="err">betaling mislukt</Badge> : null}
           </span>
           <span className="popup-plan-left">{grantLine(plan, paymentFailing)}</span>
         </div>
@@ -293,7 +294,7 @@ function stripClass(nothingToSpend: boolean, paymentFailing: boolean): string {
  * treatment and passes nothing
  */
 export function grantLine(plan: DisplayState, paymentFailing = false): string {
-  // Unlimited first, and before the failing card: "Unlimited reposts" is what the
+  // Unlimited first, and before the failing card: "Onbeperkt herplaatsen" is what the
   // tier grants, which is exactly what that branch says for a capped one.
   if (plan.relistQuotaPerPeriod === null) return UNLIMITED_REPOSTS;
   // **A tier granting 0 is not an exhausted one**, and "0 of 0 reposts left" reads
@@ -304,12 +305,12 @@ export function grantLine(plan: DisplayState, paymentFailing = false): string {
   // under the people already on it (ADR-0029), one of whom may have a card
   // failing — and "0 relists" over a dunning prompt blames Stripe for a nothing
   // the operator chose.
-  if (plan.relistQuotaPerPeriod === 0) return "No reposts on this plan";
+  if (plan.relistQuotaPerPeriod === 0) return "Geen herplaatsingen in dit abonnement";
   // A card that is failing shows the grant rather than the remainder: the tier is
   // still theirs (ADR-0018) and nothing of it can be spent, so a number that moved
   // would be describing spending that cannot happen.
   if (paymentFailing) {
-    return `${plan.relistQuotaPerPeriod} relist${plan.relistQuotaPerPeriod === 1 ? "" : "s"}`;
+    return `${plan.relistQuotaPerPeriod} herplaatsing${plan.relistQuotaPerPeriod === 1 ? "" : "en"}`;
   }
   return repostsLeft(plan.quotaRemaining ?? 0, plan.relistQuotaPerPeriod);
 }
@@ -343,12 +344,13 @@ function ExhaustedPrompt({
         <Icon name="bolt" />
       </span>
       <div>
-        <p className="popup-prompt-title">You’ve used your relists for this period</p>
+        <p className="popup-prompt-title">Je hebt je limiet voor herplaatsingen in deze periode bereikt</p>
         <p className="popup-prompt-copy">
-          They come back {resetsOn(resetAt).replace("resets ", "on ") || "when the period rolls"}.
+          Ze resetten{" "}
+          {resetsOn(resetAt).replace("Reset op ", "op ") || "wanneer de periode wordt vernieuwd"}.
         </p>
         <Button shape="rect" tone="primary" onClick={onSeePlans}>
-          See plans
+          Bekijk abonnementen
         </Button>
       </div>
     </div>
@@ -375,10 +377,10 @@ function NoRepostsPrompt({ onSeePlans }: { onSeePlans: () => void }): JSX.Elemen
         <Icon name="bolt" />
       </span>
       <div>
-        <p className="popup-prompt-title">This plan doesn’t include reposts</p>
-        <p className="popup-prompt-copy">A paid plan is what adds them.</p>
+        <p className="popup-prompt-title">Dit abonnement bevat geen herplaatsingen</p>
+        <p className="popup-prompt-copy">Met een betaald abonnement krijg je ze wel.</p>
         <Button shape="rect" tone="primary" onClick={onSeePlans}>
-          See plans
+          Bekijk abonnementen
         </Button>
       </div>
     </div>
@@ -386,11 +388,11 @@ function NoRepostsPrompt({ onSeePlans }: { onSeePlans: () => void }): JSX.Elemen
 }
 
 /**
- * Shown while a card is failing. **"Your plan is still Pro" is the load-bearing
+ * Shown while a card is failing. **"je abonnement is nog steeds Pro" is the load-bearing
  * half**: Stripe is still retrying, the tier has not been taken away, and a
  * successful retry gives it straight back (ADR-0018).
  *
- * "Update card" opens the Customer Portal (T21, #31), which is where the card
+ * "Betaalgegevens bijwerken" opens the Customer Portal (T21, #31), which is where the card
  * actually lives — none of it is built here, and ADR-0018 asks for this copy
  * rather than "resubscribe" precisely because nothing has been cancelled.
  */
@@ -410,12 +412,13 @@ function DunningPrompt({
         <Icon name="card" />
       </span>
       <div>
-        <p className="popup-prompt-title">Your payment didn’t go through</p>
+        <p className="popup-prompt-title">Je betaling is niet gelukt</p>
         <p className="popup-prompt-copy">
-          We’ll keep retrying. Update your card to start relisting again — your plan is still {tier}.
+          We blijven het proberen. Werk je betaalgegevens bij om weer te kunnen herplaatsen — je
+          abonnement is nog steeds {tier}.
         </p>
         <Button shape="rect" tone={opening ? "busy" : "secondary"} onClick={onManageBilling}>
-          {opening ? "Opening…" : "Update card"}
+          {opening ? "Bezig met openen…" : "Betaalgegevens bijwerken"}
         </Button>
         {handoff.kind === "failed" ? <Note tone="error">{handoff.message}</Note> : null}
       </div>
@@ -427,8 +430,9 @@ function DunningPrompt({
  * The plan cards, and the frame around them (T52, #83).
  *
  * The cards themselves are `PlanCards`, handed in — this is the title, the two
- * sentences the canvas puts around them, and the way back. **"Checkout opens in a
- * new tab" is a warning, not decoration**: the popup is destroyed the moment that
+ * sentences the canvas puts around them, and the way back. **"Het afrekenen wordt
+ * geopend in een nieuw tabblad" is a warning, not decoration**: the popup is
+ * destroyed the moment that
  * tab takes focus (ADR-0017), so a user who is not told will read the popup
  * vanishing as the click having failed.
  *
@@ -440,7 +444,7 @@ function DunningPrompt({
  * no second answer to drift (ADR-0022). When there is nothing to say it says
  * nothing: no placeholder, no "loading", and the lede above stands on its own.
  *
- * **"Manage billing" is here rather than on a card**, because it belongs to
+ * **"Betaling beheren" is here rather than on a card**, because it belongs to
  * whoever has billing at all rather than to any one plan — and it is shown to
  * everybody, including somebody who has never paid, because nothing on this screen
  * can tell: the free tier is absent from `/api/plans` by construction, and a
@@ -458,7 +462,8 @@ export function PlansScreen({
   onManageBilling: () => void;
   handoff: Handoff;
   /**
-   * The finished sentence — "Pay with iDEAL, PayPal or card." — or `null`, which renders
+   * The finished sentence — "Je kunt betalen met iDEAL, PayPal of creditcard." — or
+   * `null`, which renders
    * nothing at all. Built by `waysToPay` in `plans.ts`; this end only places it.
    */
   payWith: string | null;
@@ -471,20 +476,20 @@ export function PlansScreen({
       <Header
         actions={
           <Button tone="ghost" onClick={onBack}>
-            Back
+            Terug
           </Button>
         }
       />
       <div className="popup-plans-body">
-        <h1 className="popup-plans-title">Choose a plan</h1>
+        <h1 className="popup-plans-title">Kies een abonnement</h1>
         <p className="popup-plans-lede">
-          Checkout opens in a new tab. Come back here when you’re done.
+          Het afrekenen wordt geopend in een nieuw tabblad. Kom daarna hier terug.
           {payWith ? <span className="popup-plans-ways"> {payWith}</span> : null}
         </p>
         {children}
         {handoff.kind === "failed" ? <Note tone="error">{handoff.message}</Note> : null}
         <p className="popup-plans-fine">
-          Cancel any time — you drop back to Free, never locked out.
+          Je kunt op elk moment opzeggen — je gaat dan terug naar Gratis en behoudt altijd toegang.
         </p>
         <Button
           tone="ghost"
@@ -492,7 +497,7 @@ export function PlansScreen({
           onClick={onManageBilling}
           disabled={handoff.kind === "opening"}
         >
-          {managing ? "Opening…" : "Manage billing"}
+          {managing ? "Bezig met openen…" : "Betaling beheren"}
         </Button>
       </div>
     </>
@@ -500,34 +505,38 @@ export function PlansScreen({
 }
 
 /**
- * "2 of 3 reposts left" — the sentence the canvas draws, and the reason `/api/me`
- * grew a `relistQuotaPerPeriod` in T32 (#41).
+ * "2 van 3 herplaatsingen over" — the sentence the canvas draws, and the reason
+ * `/api/me` grew a `relistQuotaPerPeriod` in T32 (#41).
  *
  * The pair is what makes it legible: the first number alone says nothing about
  * whether two is nearly all of them or nearly none. The plural agrees with the
- * grant rather than the remainder, so "1 of 3 reposts left" reads correctly and a
- * one-repost tier still says "1 of 1 repost left".
+ * grant rather than the remainder, so "1 van 3 herplaatsingen over" reads
+ * correctly and a one-repost tier still says "1 van 1 herplaatsing over".
  *
- * **Users read "repost" and the code keeps "relist"** (ADR-0029). This one string
- * came over with T73 rather than waiting for T74's sweep, because it would
- * otherwise have sat one line from "Unlimited reposts". The wire field it reads is
- * still `relistQuotaPerPeriod`, and deliberately so — the split is the same one the
- * glossary draws between the brand name and `mprelist`.
+ * **Users read "herplaatsing" and the code keeps "relist"** (ADR-0029). The wire
+ * field it reads is still `relistQuotaPerPeriod`, and deliberately so — the split
+ * is the same one the glossary draws between the brand name and `mprelist`, and it
+ * is what let the copy become Dutch without touching a contract.
  */
 export function repostsLeft(remaining: number, granted: number): string {
-  return `${remaining} of ${granted} repost${granted === 1 ? "" : "s"} left`;
+  return `${remaining} van ${granted} herplaatsing${granted === 1 ? "" : "en"} over`;
 }
 
 /**
- * "resets 14 Sep", or nothing at all if the date cannot be read — a strip reading
- * `resets Invalid Date` is worse than one that says only what it knows.
+ * "Reset op 14 sep", or nothing at all if the date cannot be read — a strip
+ * reading `Reset op Invalid Date` is worse than one that says only what it knows.
  *
- * Spelled from a table rather than by `Intl`, which is the unusual choice and so
- * the one to write down. `Intl` with `en-GB` renders September as **"Sept"** on
- * current ICU and "Sep" on older ones, so one build would read differently on two
- * Chromes and neither would match the design canvas. The copy on this surface is
- * English and there is no localisation ticket; when there is one, this is the
- * function it replaces.
+ * **Still spelled from a table rather than by `Intl`, and the reason survived the
+ * translation intact.** `Intl` with `nl-NL` renders March as **"mrt."** on current
+ * ICU and September as "sep." — with the trailing stop, and inconsistently across
+ * ICU versions, exactly as `en-GB` disagreed with itself over "Sept" and "Sep". One
+ * build would read differently on two Chromes and neither would match the design
+ * canvas, which is the whole argument for the table and is not an argument about
+ * which language it holds.
+ *
+ * The abbreviations are lower-case because that is how Dutch writes them; the line
+ * begins with a capital because it begins a sentence, which is why the "Reset op"
+ * carries it rather than the month.
  *
  * The date is read in the user's own zone, because the day their quota comes back
  * is the day on their own calendar.
@@ -535,7 +544,7 @@ export function repostsLeft(remaining: number, granted: number): string {
 export function resetsOn(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
-  return `resets ${date.getDate()} ${MONTHS[date.getMonth()]}`;
+  return `Reset op ${date.getDate()} ${MONTHS[date.getMonth()]}`;
 }
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTHS = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];

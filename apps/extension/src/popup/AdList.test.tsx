@@ -111,7 +111,7 @@ describe("reposting one ad", () => {
     await show(worker, (outcome) => outcomes.push(outcome));
     await press(0);
 
-    expect(text()).toContain("Reposted. Reloading your ads…");
+    expect(text()).toContain("Herplaatst. Je advertenties worden opnieuw geladen…");
     expect(outcomes).toEqual([RELISTED]);
   });
 });
@@ -124,7 +124,7 @@ describe("one relist at a time", () => {
     await show(worker);
     await press(0);
 
-    expect(text()).toContain("Reposting…");
+    expect(text()).toContain("Bezig met herplaatsen…");
     expect(buttons()[1]?.disabled).toBe(true);
     // And the running one cannot be pressed twice either.
     expect(buttons()[0]?.disabled).toBe(true);
@@ -152,8 +152,8 @@ describe("when it does not work", () => {
     await show(worker);
     await press(0);
 
-    expect(text()).toContain("your ad is untouched");
-    expect(buttons()[0]?.textContent).toContain("Try again");
+    expect(text()).toContain("je advertentie is ongewijzigd");
+    expect(buttons()[0]?.textContent).toContain("Opnieuw proberen");
 
     await press(0);
     expect(worker.relist).toHaveBeenCalledTimes(2);
@@ -168,8 +168,8 @@ describe("when it does not work", () => {
     await show(worker);
     await press(0);
 
-    expect(text()).toContain("saved in the extension");
-    expect(buttons()[0]?.textContent).toContain("Retry");
+    expect(text()).toContain("opgeslagen in de extensie");
+    expect(buttons()[0]?.textContent).toContain("Opnieuw");
 
     await press(0);
     expect(worker.retry).toHaveBeenCalledWith("m1");
@@ -246,7 +246,7 @@ describe("a cooldown", () => {
     });
 
     expect(buttons()[1]?.disabled).toBe(false);
-    expect(buttons()[1]?.textContent).toContain("Repost");
+    expect(buttons()[1]?.textContent).toContain("Herplaats");
 
     vi.useRealTimers();
   });
@@ -269,7 +269,7 @@ describe("a cooldown", () => {
 describe("a wait the extension chose", () => {
   /**
    * T46 (#54). The worker paces a relist before it starts; what this list has to
-   * do is make that legible — a button reading "Reposting…" for a minute is the
+   * do is make that legible — a button reading "Bezig met herplaatsen…" for a minute is the
    * shape of a hang, and the ticket's fourth criterion is that a user can tell the
    * two apart.
    */
@@ -303,7 +303,7 @@ describe("a wait the extension chose", () => {
     await show(worker);
     await press(0);
 
-    expect(text()).toContain("look like clicks rather than a script");
+    expect(text()).toContain("op klikken lijken en niet op een script");
   });
 
   it("leaves every other row locked while it waits", async () => {
@@ -333,7 +333,7 @@ describe("a wait the extension chose", () => {
       vi.advanceTimersByTime(2100);
     });
 
-    expect(buttons()[0]?.textContent).toContain("Reposting");
+    expect(buttons()[0]?.textContent).toContain("Bezig met herplaatsen");
     expect(text()).not.toContain("look like clicks");
 
     vi.useRealTimers();
@@ -348,7 +348,7 @@ describe("a wait the extension chose", () => {
     await show(worker);
     await press(0);
 
-    expect(buttons()[0]?.textContent).toContain("Reposting");
+    expect(buttons()[0]?.textContent).toContain("Bezig met herplaatsen");
     expect(text()).not.toContain("look like clicks");
   });
 
@@ -368,7 +368,7 @@ describe("a wait the extension chose", () => {
     hang();
     await press(1);
 
-    expect(buttons()[1]?.textContent).toContain("Reposting");
+    expect(buttons()[1]?.textContent).toContain("Bezig met herplaatsen");
 
     vi.useRealTimers();
   });
@@ -383,7 +383,7 @@ describe("a wait the extension chose", () => {
     await press(0);
 
     expect(text()).not.toContain("look like clicks");
-    expect(text()).toContain("used your relists");
+    expect(text()).toContain("je limiet voor herplaatsingen");
   });
 });
 
@@ -394,7 +394,7 @@ describe("when the backend refuses", () => {
     await show(worker);
     await press(0);
 
-    expect(text()).toContain("used your relists");
+    expect(text()).toContain("je limiet voor herplaatsingen");
     expect(buttons()[0]?.disabled).toBe(true);
   });
 

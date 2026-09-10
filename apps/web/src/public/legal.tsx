@@ -43,80 +43,81 @@ export interface LegalDocument {
 
 export const PRIVACY: LegalDocument = {
   title: "Privacy",
-  updated: "1 September 2026",
+  updated: "1 september 2026",
   sections: [
     {
-      heading: "What we store",
+      heading: "Wat wij bewaren",
       body:
-        "Your email address and an account id from our sign-in provider, the plan you are on, and a " +
-        "count of relists you have made. That is the whole list.",
+        "Je e-mailadres en een account-id van onze inlogdienst, het abonnement waar je op zit, en " +
+        "een telling van de herplaatsingen die je hebt gedaan. Dat is de hele lijst.",
     },
     {
-      heading: "What we never see",
+      heading: "Wat wij nooit zien",
       body:
-        "Your Marktplaats password, your Marktplaats session, and the contents of your ads. Relisting " +
-        "runs entirely in your own browser under your own Marktplaats login — the ad text and photos " +
-        "are copied from Marktplaats to Marktplaats and never reach us. We only ever receive the id of " +
-        "an ad you relisted.",
+        "Je Marktplaats-wachtwoord, je Marktplaats-sessie en de inhoud van je advertenties. Het " +
+        "herplaatsen gebeurt volledig in je eigen browser onder je eigen Marktplaats-login — de tekst " +
+        "en de foto's gaan van Marktplaats naar Marktplaats en bereiken ons nooit. Wij ontvangen " +
+        "alleen het id van een advertentie die je hebt herplaatst.",
     },
     {
-      heading: "Payments",
+      heading: "Betalingen",
       body:
-        "Payment details go straight to Stripe, the payment provider we use, and to whichever way of " +
-        `paying you pick there. They are never handled by ${BRAND.name}. We store the customer ` +
-        "reference Stripe gives us so we know which plan you are on.",
+        "Je betaalgegevens gaan rechtstreeks naar Stripe, de betaaldienst die wij gebruiken, en naar " +
+        `de betaalmethode die je daar kiest. ${BRAND.name} verwerkt ze nooit zelf. Wij bewaren de ` +
+        "klantreferentie die Stripe ons geeft, zodat wij weten op welk abonnement je zit.",
     },
     {
-      heading: "Who else gets it",
+      heading: "Wie het verder krijgt",
       body:
-        "Nobody. We do not sell data, and there is no analytics or advertising code in the extension.",
+        "Niemand. Wij verkopen geen gegevens en er zit geen analyse- of advertentiecode in de extensie.",
     },
     {
-      heading: "Deleting your account",
+      heading: "Je account verwijderen",
       body:
-        "Email us and everything above is removed. Your Marktplaats ads are unaffected — they were " +
-        "never ours.",
+        "Mail ons en alles hierboven wordt verwijderd. Je Marktplaats-advertenties blijven ongemoeid " +
+        "— die waren nooit van ons.",
     },
   ],
 };
 
 export const TERMS: LegalDocument = {
-  title: "Terms",
-  updated: "1 September 2026",
+  title: "Voorwaarden",
+  updated: "1 september 2026",
   sections: [
     {
-      heading: `What ${BRAND.name} does`,
+      heading: `Wat ${BRAND.name} doet`,
       body:
-        `${BRAND.name} deletes one of your Marktplaats ads and immediately posts it again, so it ` +
-        "reappears at the top of recent listings. That is the whole product.",
+        `${BRAND.name} verwijdert een van je Marktplaats-advertenties en plaatst deze direct opnieuw, ` +
+        "zodat hij weer bovenaan de recente advertenties verschijnt. Dat is het hele product.",
     },
     {
-      heading: "This is destructive, and you should know it",
+      heading: "Dit verwijdert je advertentie, en dat moet je weten",
       body:
-        `Relisting means the original ad is deleted. ${BRAND.name} saves every field and photo first ` +
-        "and restores them, but if Marktplaats rejects the new ad the old one is already gone. Do not " +
-        "relist an ad you cannot afford to lose.",
+        `Herplaatsen betekent dat de oorspronkelijke advertentie wordt verwijderd. ${BRAND.name} slaat ` +
+        "eerst elk veld en elke foto op en zet die terug, maar als Marktplaats de nieuwe advertentie " +
+        "weigert, is de oude al weg. Herplaats geen advertentie die je niet kwijt kunt.",
     },
     {
-      heading: "Your Marktplaats account is yours",
+      heading: "Je Marktplaats-account is van jou",
       body:
-        "You are responsible for how you use your own account, including Marktplaats’ own terms. " +
-        `${BRAND.name} paces relists to keep behaviour reasonable, but it cannot promise Marktplaats ` +
-        "will not object.",
+        "Je bent zelf verantwoordelijk voor hoe je je eigen account gebruikt, inclusief de voorwaarden " +
+        `van Marktplaats zelf. ${BRAND.name} spreidt herplaatsingen om het gedrag redelijk te houden, ` +
+        "maar kan niet beloven dat Marktplaats er geen bezwaar tegen maakt.",
     },
     {
-      heading: "Plans and quotas",
+      heading: "Abonnementen en limieten",
       body:
-        "Each plan grants a number of relists per month. Unused relists do not carry over. We may " +
-        "change what a plan grants; if we lower it, you keep what you already paid for until your " +
-        "period ends.",
+        "Elk abonnement geeft een aantal herplaatsingen per maand. Ongebruikte herplaatsingen gaan " +
+        "niet mee naar de volgende periode. Wij kunnen wijzigen wat een abonnement geeft; verlagen wij " +
+        "dat, dan houd je waar je al voor betaald hebt tot je periode afloopt.",
     },
     {
-      heading: "Cancelling",
+      heading: "Opzeggen",
       body:
-        "Cancel any time from Manage billing in the extension, which opens the billing pages Stripe " +
-        "keeps for you. You keep your paid plan until the period you paid for runs out, then drop " +
-        "back to the free plan — you are never locked out of your own ads.",
+        "Je kunt op elk moment opzeggen via Betaling beheren in de extensie, dat de betaalpagina's " +
+        "opent die Stripe voor je bijhoudt. Je houdt je betaalde abonnement tot de periode waarvoor je " +
+        "betaald hebt afloopt en gaat daarna terug naar het gratis abonnement — je wordt nooit " +
+        "buitengesloten van je eigen advertenties.",
     },
   ],
 };
@@ -140,7 +141,7 @@ function Document({ document }: { document: LegalDocument }): JSX.Element {
   return (
     <article className="web-doc">
       <h1 className="web-doc-title">{document.title}</h1>
-      <p className="web-doc-updated">Last updated {document.updated}</p>
+      <p className="web-doc-updated">Laatst bijgewerkt op {document.updated}</p>
       <div className="web-doc-rule" />
       {document.sections.map((section) => (
         <section key={section.heading}>
@@ -149,8 +150,9 @@ function Document({ document }: { document: LegalDocument }): JSX.Element {
         </section>
       ))}
       <p className="web-placeholder">
-        <b>[PLACEHOLDER]</b> — this is the structure and the honest description of what {BRAND.name}{" "}
-        does. The binding text needs a lawyer before the Web Store listing goes up.
+        <b>[PLACEHOLDER]</b> — dit is de structuur en een eerlijke beschrijving van wat{" "}
+        {BRAND.name} doet. De bindende tekst moet door een jurist voordat de Web Store-vermelding
+        online gaat.
       </p>
     </article>
   );

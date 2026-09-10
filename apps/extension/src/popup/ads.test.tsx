@@ -37,11 +37,11 @@ describe("the ads themselves", () => {
 
   it("each carry a Repost button that says what pressing it does", () => {
     // Repost deletes the ad first (ADR-0002), and a button that says only
-    // "Repost" says so nowhere. The POC popup put it in the hover text.
+    // "Herplaats" says so nowhere. The POC popup put it in the hover text.
     const markup = render({ status: "ready", ads: ADS });
 
-    expect(markup).toContain("Repost</button>");
-    expect(markup).toContain("and post it again, so it lands back on top");
+    expect(markup).toContain("Herplaats</button>");
+    expect(markup).toContain("en plaats de advertentie opnieuw, zodat deze weer bovenaan staat");
   });
 });
 
@@ -49,7 +49,7 @@ describe("an account with nothing on it", () => {
   it("is told so, rather than left with a spinner turning", () => {
     const markup = render({ status: "ready", ads: [] });
 
-    expect(markup).toContain("You have no active ads.");
+    expect(markup).toContain("Je hebt geen actieve advertenties.");
     expect(markup).not.toContain("mp-skeleton");
   });
 });
@@ -62,10 +62,10 @@ describe("while they are coming", () => {
 
 describe("when they could not be fetched", () => {
   it("says so where the list would be, and says why", () => {
-    const markup = render({ status: "failed", message: "Open marktplaats.nl in a tab, then try again." });
+    const markup = render({ status: "failed", message: "Open marktplaats.nl in een tabblad en probeer het opnieuw." });
 
-    expect(markup).toContain("Could not load your ads.");
-    expect(markup).toContain("Open marktplaats.nl in a tab");
+    expect(markup).toContain("Je advertenties konden niet worden geladen.");
+    expect(markup).toContain("Open marktplaats.nl in een tabblad");
     expect(markup).toContain("mp-note--error");
   });
 
@@ -73,10 +73,10 @@ describe("when they could not be fetched", () => {
     // The two commonest failures are both theirs to fix, which is why these two
     // say what to do. Ported from the POC popup, whose copy this is.
     expect(describeAdsFailure(new NoMarktplaatsTabError())).toBe(
-      "Open marktplaats.nl in a tab, then try again.",
+      "Open marktplaats.nl in een tabblad en probeer het opnieuw.",
     );
     expect(describeAdsFailure(new NotAuthenticatedError())).toBe(
-      "Log in to Marktplaats first, then try again.",
+      "Log eerst in op Marktplaats en probeer het opnieuw.",
     );
   });
 
@@ -86,9 +86,9 @@ describe("when they could not be fetched", () => {
     );
   });
 
-  it("names the status when Marktplaats refused the request", () => {
+  it("names the status when Marktplaats heeft het verzoek geweigerd", () => {
     expect(describeAdsFailure(new ApiRequestError("listMyAds", 403, ""))).toBe(
-      "Marktplaats refused the request (HTTP 403).",
+      "Marktplaats heeft het verzoek geweigerd (HTTP 403).",
     );
   });
 
@@ -113,7 +113,7 @@ describe("an ad that is reserved", () => {
     const markup = render({ status: "ready", ads: [reserved] });
 
     expect(markup).toContain("Gereserveerd");
-    expect(markup).toContain("Reserved for a buyer. Reposting keeps it reserved.");
+    expect(markup).toContain("Gereserveerd voor een koper. Bij herplaatsen blijft de advertentie gereserveerd.");
   });
 
   // it("says it first, so a column of rows can be scanned for the promised ones", () => {
@@ -129,7 +129,9 @@ describe("an ad that is reserved", () => {
   it("is the only row that says it", () => {
     const markup = render({ status: "ready", ads: [reserved, ADS[1]!] });
 
-    expect(markup.match(/Gereserveerd/g)).toHaveLength(1);
+    // The badge's own text, not the bare word: since T74 the tooltip opens with
+    // "Gereserveerd" too, so counting the word counts one row twice.
+    expect(markup.match(/>Gereserveerd</g)).toHaveLength(1);
   });
 
   /**

@@ -161,7 +161,8 @@ export interface BackgroundAnswers {
   /**
    * The ads themselves on success; a failure travels as the envelope's typed
    * `WireError`, so the popup can still tell "no marktplaats.nl tab" from
-   * "Marktplaats refused the request" and say something different about each.
+   * "Marktplaats heeft het verzoek geweigerd" and say something different about
+   * each. The codes stay English; only what the popup renders from them is Dutch.
    */
   "list-ads": ListingSummary[];
   /** The matches, in the same shape, so one row component renders both. */

@@ -49,9 +49,9 @@ export function PlanCards({
       <div className="popup-plans-failed">
         {/* The contract's own words for a `503` here: never a guessed amount, and
             never a card whose button would open a Checkout for one. */}
-        <Note tone="warn">Prices couldn’t be loaded just now.</Note>
+        <Note tone="warn">De prijzen konden nu niet worden geladen.</Note>
         <Button shape="rect" tone="secondary" onClick={onRetry}>
-          Try again
+          Opnieuw proberen
         </Button>
       </div>
     );
@@ -74,7 +74,7 @@ export function PlanCards({
       {onSale.length === 0 ? (
         // Not a failure: nothing is on sale, which is every stack whose Stripe
         // Prices have not been created yet (T22, #28).
-        <p className="popup-plans-empty">There are no paid plans on offer right now.</p>
+        <p className="popup-plans-empty">Er zijn op dit moment geen betaalde abonnementen beschikbaar.</p>
       ) : null}
     </div>
   );
@@ -93,11 +93,11 @@ function CurrentPlanCard({ current }: { current: DisplayState }): JSX.Element {
     <div className="popup-plan-card popup-plan-card--current">
       <div className="popup-plan-card-head">
         <span className="popup-plan-card-name">{current.tier.name}</span>
-        <Badge tone="accent">Current</Badge>
+        <Badge tone="accent">Huidig</Badge>
       </div>
       <p className="popup-plan-card-grant">{grantLine(current)}</p>
-      <Button shape="block" tone="done" aria-label={`${current.tier.name} is your plan`}>
-        Your plan
+      <Button shape="block" tone="done" aria-label={`${current.tier.name} is je abonnement`}>
+        Je abonnement
       </Button>
     </div>
   );
@@ -119,14 +119,14 @@ function PlanCard({
     <div className={current ? "popup-plan-card popup-plan-card--current" : "popup-plan-card"}>
       <div className="popup-plan-card-head">
         <span className="popup-plan-card-name">{plan.tier.name}</span>
-        {current ? <Badge tone="accent">Current</Badge> : null}
+        {current ? <Badge tone="accent">Huidig</Badge> : null}
       </div>
       {/* The quota, described in the rhythm of the first price — which is the
           cheapest, and the one somebody reads the card by. */}
       <p className="popup-plan-card-grant">{grantOf(plan, plan.prices[0]?.interval ?? "month")}</p>
       {current ? (
-        <Button shape="block" tone="done" aria-label={`${plan.tier.name} is your plan`}>
-          Your plan
+        <Button shape="block" tone="done" aria-label={`${plan.tier.name} is je abonnement`}>
+          Je abonnement
         </Button>
       ) : (
         /*
@@ -187,7 +187,7 @@ function RhythmButton({
       tone={openingThis ? "busy" : opening ? "locked" : alternative ? "secondary" : "primary"}
       onClick={() => onUpgrade(plan.tier.code, price.interval)}
     >
-      {openingThis ? "Opening…" : priceAndRhythmOf(price)}
+      {openingThis ? "Bezig met openen…" : priceAndRhythmOf(price)}
       {openingThis || opening ? null : <Icon name="external" size={13} />}
     </Button>
   );

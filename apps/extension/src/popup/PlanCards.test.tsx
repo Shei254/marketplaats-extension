@@ -54,9 +54,9 @@ describe("the cards", () => {
   it("show what each plan costs and what it grants", () => {
     expect(markup).toContain("Pro");
     expect(markup).toContain("9,99");
-    expect(markup).toContain("50 relists a month");
+    expect(markup).toContain("50 herplaatsingen per maand");
     expect(markup).toContain("Power");
-    expect(markup).toContain("200 relists a month");
+    expect(markup).toContain("200 herplaatsingen per maand");
   });
 
   it("keep the order the backend sent them in", () => {
@@ -91,7 +91,7 @@ describe("the cards", () => {
     expect([...shown.matchAll(/mp-btn--primary/g)]).toHaveLength(1);
     expect([...shown.matchAll(/mp-btn--secondary/g)]).toHaveLength(1);
     // Still one card for the plan, with one name and one quota line.
-    expect([...shown.matchAll(/50 relists/g)]).toHaveLength(1);
+    expect([...shown.matchAll(/50 herplaatsingen/g)]).toHaveLength(1);
   });
 });
 
@@ -102,8 +102,8 @@ describe("the plan they are already on", () => {
     const markup = render(ON_SALE);
 
     expect(markup).toContain("Free");
-    expect(markup).toContain("Current");
-    expect(markup).toContain("Your plan");
+    expect(markup).toContain("Huidig");
+    expect(markup).toContain("Je abonnement");
   });
 
   it("carries no amount, because nothing here knows one", () => {
@@ -113,7 +113,7 @@ describe("the plan they are already on", () => {
     // instead is the thing `/api/me` does know.
     const markup = render(ON_SALE);
 
-    expect(markup).toContain("0 of 3 reposts left");
+    expect(markup).toContain("0 van 3 herplaatsingen over");
     expect(markup).not.toContain("€ 0,00");
   });
 
@@ -123,11 +123,11 @@ describe("the plan they are already on", () => {
     const pro: DisplayState = { ...FREE, tier: { code: "pro", name: "Pro" }, relistQuotaPerPeriod: 50 };
     const markup = render(ON_SALE, pro);
 
-    expect(markup).toContain("Current");
-    expect(markup).toContain("Your plan");
+    expect(markup).toContain("Huidig");
+    expect(markup).toContain("Je abonnement");
     // One buyable rhythm, on Power. Not on the plan they hold.
     expect(markup).toContain("19,99");
-    expect(markup).toContain("Your plan");
+    expect(markup).toContain("Je abonnement");
   });
 });
 
@@ -137,8 +137,8 @@ describe("while a Checkout tab is being opened", () => {
   it("says so on the rhythm that was clicked", () => {
     // Keyed by tier *and* rhythm: a plan with two buttons would otherwise light
     // both when one was pressed.
-    expect(opening).toContain("Opening…");
-    expect([...opening.matchAll(/Opening…/g)]).toHaveLength(1);
+    expect(opening).toContain("Bezig met openen…");
+    expect([...opening.matchAll(/Bezig met openen…/g)]).toHaveLength(1);
   });
 
   it("and locks every other one", () => {
@@ -150,12 +150,12 @@ describe("while a Checkout tab is being opened", () => {
 
   it("and locks them for the Portal too, which is opening a tab just the same", () => {
     // The Customer Portal is opened from the screen around these cards, and it
-    // destroys this popup exactly as a Checkout does. No card says "Opening…",
+    // destroys this popup exactly as a Checkout does. No card says "Bezig met openen…",
     // because none of them is the thing being opened.
     const managing = render(ON_SALE, FREE, { kind: "opening", what: MANAGING });
 
     expect(managing).toContain("mp-btn--locked");
-    expect(managing).not.toContain("Opening…");
+    expect(managing).not.toContain("Bezig met openen…");
   });
 });
 
@@ -165,8 +165,8 @@ describe("when there is nothing to show", () => {
     // card for the plan they are on is still there, because they still have one.
     const markup = render({ status: "ready", plans: [], paymentMethods: [] });
 
-    expect(markup).toContain("no paid plans on offer");
-    expect(markup).toContain("Your plan");
+    expect(markup).toContain("geen betaalde abonnementen beschikbaar");
+    expect(markup).toContain("Je abonnement");
   });
 
   it("says prices could not be loaded when Stripe could not be asked", () => {
@@ -174,15 +174,15 @@ describe("when there is nothing to show", () => {
     // never a card whose button would open a Checkout for one.
     const markup = render({ status: "failed" });
 
-    expect(markup).toContain("Prices couldn’t be loaded");
-    expect(markup).toContain("Try again");
-    expect(markup).not.toContain("a month");
+    expect(markup).toContain("De prijzen konden nu niet worden geladen");
+    expect(markup).toContain("Opnieuw proberen");
+    expect(markup).not.toContain("per maand");
   });
 
   it("shows the shape of the answer while it is loading", () => {
     const markup = render({ status: "loading" });
 
     expect(markup).toContain("mp-skeleton");
-    expect(markup).not.toContain("a month");
+    expect(markup).not.toContain("per maand");
   });
 });

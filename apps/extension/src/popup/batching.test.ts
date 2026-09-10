@@ -120,14 +120,14 @@ describe("what the action bar says", () => {
   };
 
   it("names how many and how long", () => {
-    expect(offered(4).label).toBe("Repost 4 selected · about 2 minutes");
+    expect(offered(4).label).toBe("Herplaats 4 geselecteerd · ongeveer 2 minuten");
   });
 
   // Said before the button is pressed, which is the condition ADR-0025 attached to
   // letting a Power batch be twenty-five: a two-hour unattended run is a
   // reasonable thing to choose and an unreasonable thing to discover.
   it("and a full Power batch says two hours before anybody commits to it", () => {
-    expect(offered(25).label).toContain("about 2 hours");
+    expect(offered(25).label).toContain("ongeveer 2 uur");
   });
 
   /**
@@ -140,7 +140,7 @@ describe("what the action bar says", () => {
   it("and counts what it will actually start when the quota has fallen under it", () => {
     const offer = offered(5, { cap: 2, upTo: 10 });
 
-    expect(offer.label).toBe("Repost 2 of 5 selected · under a minute");
+    expect(offer.label).toBe("Herplaats 2 van 5 geselecteerd · minder dan een minuut");
     expect(offer.listingIds).toEqual(["ad-0", "ad-1"]);
   });
 
@@ -149,7 +149,7 @@ describe("what the action bar says", () => {
   it("and offers the reason instead of a button when it can start none of them", () => {
     expect(offerSelection(ads(3), { cap: 0, upTo: 10 }, SHAPE)).toEqual({
       kind: "blocked",
-      why: "That is all the relists you have left this period.",
+      why: "Meer herplaatsingen heb je deze periode niet.",
     });
   });
 
@@ -157,11 +157,11 @@ describe("what the action bar says", () => {
     expect(offerSelection([], { cap: 10, upTo: 10 }, SHAPE)).toBeNull();
   });
 
-  // A separate sentence rather than a longer one: "about 2 hours" alone reads as
+  // A separate sentence rather than a longer one: "ongeveer 2 uur" alone reads as
   // two hours of work, and what actually happens is a wait in the middle.
   it("and says it will pause when the selection is past the burst rail", () => {
     expect(offered(4).note).toBeNull();
-    expect(offered(25).note).toContain("pause");
+    expect(offered(25).note).toContain("gepauzeerd");
   });
 });
 
@@ -169,13 +169,13 @@ describe("what a run says about itself", () => {
   it("counts the ad it is on while it is going", () => {
     const run = advanceBatch(startBatch(["a", "b", "c"], NOW), { status: "relisted", quota: null }, NOW).run;
 
-    expect(describeProgress(run)).toBe("Reposting 2 of 3…");
+    expect(describeProgress(run)).toBe("Bezig met herplaatsen 2 van 3…");
   });
 
   it("and counts what it got through once it is not", () => {
     const run = stopBatch(advanceBatch(startBatch(["a", "b", "c"], NOW), { status: "relisted", quota: null }, NOW).run, "stopped");
 
-    expect(describeProgress(run)).toBe("1 of 3 reposted.");
+    expect(describeProgress(run)).toBe("1 van 3 herplaatst.");
   });
 
   // A run that got through its selection needs no explanation — the count is the
@@ -188,13 +188,13 @@ describe("what a run says about itself", () => {
   // rather than one "it stopped": a quota comes back on a date, a card needs
   // replacing, an ad that is down needs one press of Retry.
   it.each([
-    ["quota", "relists for this period"],
-    ["dunning", "payment"],
-    ["not-in-plan", "isn’t part of your plan"],
-    ["unavailable", "Try again"],
-    ["ad-down", "Retry"],
-    ["failures", "Nothing was removed"],
-    ["browser-restart", "Chrome restarted"],
+    ["quota", "herplaatsingen in deze periode"],
+    ["dunning", "betaling"],
+    ["not-in-plan", "hoort niet bij je abonnement"],
+    ["unavailable", "Probeer het opnieuw"],
+    ["ad-down", "Opnieuw"],
+    ["failures", "Er is niets verwijderd"],
+    ["browser-restart", "Chrome is opnieuw gestart"],
   ] as const)("says something a user can act on about %s", (reason, said) => {
     expect(describeStop(reason)).toContain(said);
   });
@@ -225,7 +225,7 @@ describe("what the rows show during a run", () => {
     ).run;
 
     expect(rowStatesFor(down)["a"]).toMatchObject({ kind: "failed", action: "retry" });
-    expect(rowStatesFor(down)["a"]).toHaveProperty("message", expect.stringContaining("saved in the extension"));
+    expect(rowStatesFor(down)["a"]).toHaveProperty("message", expect.stringContaining("opgeslagen in de extensie"));
   });
 
   it("and one that removed nothing says the ad is untouched", () => {
@@ -236,7 +236,7 @@ describe("what the rows show during a run", () => {
     ).run;
 
     expect(skipped["outcomes"]).toHaveLength(1);
-    expect(rowStatesFor(skipped)["a"]).toHaveProperty("message", expect.stringContaining("untouched"));
+    expect(rowStatesFor(skipped)["a"]).toHaveProperty("message", expect.stringContaining("ongewijzigd"));
   });
 
   it("and nothing at all when there is no run", () => {
@@ -273,11 +273,11 @@ describe("ticking as much as the plan allows", () => {
   // Which of the two numbers ran out decides the sentence, and only one of them is
   // something a bigger plan fixes.
   it("says the plan's number when that is what stopped it", () => {
-    expect(describeCap({ cap: 10, upTo: 10 })).toBe("Your plan reposts 10 at a time.");
+    expect(describeCap({ cap: 10, upTo: 10 })).toBe("Je abonnement herplaatst er 10 tegelijk.");
   });
 
   it("and the period's when that is the smaller one", () => {
-    expect(describeCap({ cap: 3, upTo: 10 })).toContain("all the relists you have left");
+    expect(describeCap({ cap: 3, upTo: 10 })).toContain("Meer herplaatsingen heb je deze periode niet");
   });
 
   // Neither ran out, so there is no sentence to say — and saying one would name a
@@ -294,47 +294,47 @@ describe("ticking as much as the plan allows", () => {
 describe("what the line over the list says", () => {
   it("offers to select all, and says how many that would be", () => {
     expect(describeSelectAll(0, { cap: 10, upTo: 10 }, 40)).toEqual({
-      label: "Select all",
-      hint: "10 at a time",
+      label: "Alles selecteren",
+      hint: "10 tegelijk",
     });
   });
 
   // The quota half of the cap, in the four or five characters this row has left
   // for it — the long form belongs under the button, where there is room.
   it("or how many the period has left, when that is the smaller number", () => {
-    expect(describeSelectAll(0, { cap: 3, upTo: 10 }, 40)).toEqual({ label: "Select all", hint: "3 left" });
+    expect(describeSelectAll(0, { cap: 3, upTo: 10 }, 40)).toEqual({ label: "Alles selecteren", hint: "3 over" });
   });
 
   // And no number at all where neither caps: the row would otherwise read
   // "Infinity left", which is the one place an unbounded cap could reach a screen.
   it("and no number at all where nothing caps it", () => {
     const uncapped = { cap: Number.POSITIVE_INFINITY, upTo: null };
-    expect(describeSelectAll(0, uncapped, 40)).toEqual({ label: "Select all", hint: null });
-    expect(describeSelectAll(3, uncapped, 40)).toEqual({ label: "3 selected", hint: null });
+    expect(describeSelectAll(0, uncapped, 40)).toEqual({ label: "Alles selecteren", hint: null });
+    expect(describeSelectAll(3, uncapped, 40)).toEqual({ label: "3 geselecteerd", hint: null });
   });
 
   // The count carries the cap once anything is ticked, and the hint gives way to
-  // Clear: "3 of 10 selected" beside "10 at a time" is the same number twice in a
+  // Clear: "3 van 10 geselecteerd" beside "10 tegelijk" is the same number twice in a
   // 360px row.
   it("and counts the selection against the cap once there is one", () => {
     expect(describeSelectAll(3, { cap: 10, upTo: 10 }, 40)).toEqual({
-      label: "3 of 10 selected",
+      label: "3 van 10 geselecteerd",
       hint: null,
     });
   });
 
   // A cap that cannot be met is not a cap the user needs told. Two ads on a plan
-  // that reposts ten are two ads, and "2 of 10 selected" beside a Select all box
+  // that reposts ten are two ads, and "2 van 10 geselecteerd" beside a Select all box
   // that is — correctly — full is the screen inventing eight ads nobody has.
   it("but not against a cap the list is too short to reach", () => {
-    expect(describeSelectAll(2, { cap: 10, upTo: 10 }, 2)).toEqual({ label: "2 selected", hint: null });
+    expect(describeSelectAll(2, { cap: 10, upTo: 10 }, 2)).toEqual({ label: "2 geselecteerd", hint: null });
   });
 
   // Unless a search is hiding part of the selection, in which case the count is
   // bigger than the list and the cap is exactly what explains it.
   it("and names it again once the count is bigger than the list", () => {
     expect(describeSelectAll(5, { cap: 10, upTo: 10 }, 2)).toEqual({
-      label: "5 of 10 selected",
+      label: "5 van 10 geselecteerd",
       hint: null,
     });
   });
@@ -345,7 +345,7 @@ describe("what the line over the list says", () => {
   // selected" (T73, ADR-0029).
   it("but never names an unbounded one, however the count outgrew the list", () => {
     expect(describeSelectAll(5, { cap: Number.POSITIVE_INFINITY, upTo: null }, 2)).toEqual({
-      label: "5 selected",
+      label: "5 geselecteerd",
       hint: null,
     });
   });
@@ -354,8 +354,8 @@ describe("what the line over the list says", () => {
   // the screen and put no sentence anywhere near them.
   it("says so outright when the period has nothing left", () => {
     expect(describeSelectAll(0, { cap: 0, upTo: 10 }, 40)).toEqual({
-      label: "Select all",
-      hint: "No relists left",
+      label: "Alles selecteren",
+      hint: "Geen herplaatsingen over",
     });
   });
 
@@ -364,7 +364,7 @@ describe("what the line over the list says", () => {
   // the list — saying anything here would be a second answer to a question already
   // answered a few pixels lower.
   it("but nothing at all on a plan that does not include bulk", () => {
-    expect(describeSelectAll(0, null, 40)).toEqual({ label: "Select all", hint: null });
+    expect(describeSelectAll(0, null, 40)).toEqual({ label: "Alles selecteren", hint: null });
   });
 });
 
@@ -373,18 +373,18 @@ describe("what the line over the list says", () => {
  *
  * A selection survives the box being typed in, which is what makes it possible to
  * build one across two queries — and the price is that some of what is about to be
- * reposted is not visible. Reposting deletes first (ADR-0003), so that is the one
+ * reposted is not visible. Bezig met herplaatsen deletes first (ADR-0003), so that is the one
  * surprise on this screen nobody can undo, and it is never left to be inferred from
  * a count that does not match the boxes.
  */
 describe("the part of a selection a search is hiding", () => {
   it("is said, with the plural it needs", () => {
-    expect(describeHidden(2)).toContain("2 ticked ads aren’t in these results");
-    expect(describeHidden(1)).toContain("1 ticked ad isn’t in these results");
+    expect(describeHidden(2)).toContain("2 aangevinkte advertenties staan niet in deze resultaten");
+    expect(describeHidden(1)).toContain("1 aangevinkte advertentie staat niet in deze resultaten");
   });
 
   it("and says they are still going to be reposted", () => {
-    expect(describeHidden(3)).toContain("still be reposted");
+    expect(describeHidden(3)).toContain("wel herplaatst");
   });
 
   it("but nothing at all when the list is showing all of them", () => {
@@ -410,7 +410,7 @@ describe("the offer a stopped run makes", () => {
   it("is all the ads it never reached, when the plan can start them all", () => {
     const offer = offerUnstarted(stoppedWith(["a", "b", "c"], 1), { cap: 10, upTo: 10 });
 
-    expect(offer).toEqual({ kind: "repost", listingIds: ["b", "c"], label: "Repost the remaining 2", note: null });
+    expect(offer).toEqual({ kind: "repost", listingIds: ["b", "c"], label: "Herplaats de resterende 2", note: null });
   });
 
   // The bug this exists for: twenty-two leftovers against two remaining relists is
@@ -422,8 +422,8 @@ describe("the offer a stopped run makes", () => {
     expect(offer).toEqual({
       kind: "repost",
       listingIds: ["a", "b"],
-      label: "Repost 2 of the remaining 4",
-      note: "That is all the relists you have left this period.",
+      label: "Herplaats 2 van de resterende 4",
+      note: "Meer herplaatsingen heb je deze periode niet.",
     });
   });
 
@@ -432,7 +432,7 @@ describe("the offer a stopped run makes", () => {
   it("and when the period has nothing left, the reason instead of a button", () => {
     expect(offerUnstarted(stoppedWith(["a", "b"], 0), { cap: 0, upTo: 10 })).toEqual({
       kind: "blocked",
-      why: "That is all the relists you have left this period.",
+      why: "Meer herplaatsingen heb je deze periode niet.",
     });
   });
 
@@ -453,40 +453,40 @@ describe("the offer a stopped run makes", () => {
  */
 describe("why a box will or will not tick", () => {
   it("points at the plans when the plan does not include bulk at all", () => {
-    expect(describeTick(null, false, false, false)).toContain("paid plans");
-    expect(describeSelectAllTick(null, false, false, 0)).toContain("paid plans");
+    expect(describeTick(null, false, false, false)).toContain("betaalde abonnementen");
+    expect(describeSelectAllTick(null, false, false, 0)).toContain("betaalde abonnementen");
   });
 
   it("and says a run is going, which is a wait rather than a limit", () => {
-    expect(describeTick({ cap: 10, upTo: 10 }, true, false, false)).toContain("A run is going");
-    expect(describeSelectAllTick({ cap: 10, upTo: 10 }, true, false, 10)).toContain("A run is going");
+    expect(describeTick({ cap: 10, upTo: 10 }, true, false, false)).toContain("Er loopt een reeks");
+    expect(describeSelectAllTick({ cap: 10, upTo: 10 }, true, false, 10)).toContain("Er loopt een reeks");
   });
 
   // The two halves of the cap are two different next moves — one is fixed by a
   // bigger plan and the other by waiting for the period to roll — so the box that
   // has stopped ticking says which.
   it("and names the number that is biting when the cap is spent", () => {
-    expect(describeTick({ cap: 10, upTo: 10 }, false, false, true)).toBe("Your plan reposts 10 at a time.");
-    expect(describeTick({ cap: 2, upTo: 10 }, false, false, true)).toContain("relists you have left");
-    expect(describeSelectAllTick({ cap: 0, upTo: 10 }, false, false, 0)).toContain("relists you have left");
+    expect(describeTick({ cap: 10, upTo: 10 }, false, false, true)).toBe("Je abonnement herplaatst er 10 tegelijk.");
+    expect(describeTick({ cap: 2, upTo: 10 }, false, false, true)).toContain("Meer herplaatsingen heb je deze periode niet");
+    expect(describeSelectAllTick({ cap: 0, upTo: 10 }, false, false, 0)).toContain("Meer herplaatsingen heb je deze periode niet");
   });
 
   it("and otherwise says what pressing it would do", () => {
-    expect(describeTick({ cap: 10, upTo: 10 }, false, false, false)).toContain("Repost this ad");
-    expect(describeTick({ cap: 10, upTo: 10 }, false, true, false)).toContain("leave it out");
+    expect(describeTick({ cap: 10, upTo: 10 }, false, false, false)).toContain("Herplaats deze advertentie");
+    expect(describeTick({ cap: 10, upTo: 10 }, false, true, false)).toContain("om hem over te slaan");
     expect(describeSelectAllTick({ cap: 10, upTo: 10 }, false, false, 7)).toBe(
-      "Tick the first 7 ads and repost them in one run.",
+      "Vink de eerste 7 advertenties aan en herplaats ze in één reeks.",
     );
-    expect(describeSelectAllTick({ cap: 10, upTo: 10 }, false, true, 7)).toBe("Untick every row.");
+    expect(describeSelectAllTick({ cap: 10, upTo: 10 }, false, true, 7)).toBe("Vink alle rijen uit.");
   });
 
   // A ticked box is never the one that has run out: the cap is spent on *other*
   // rows, and unticking has to stay available or the cap is a trap.
   it("and a ticked box offers to untick even when the cap is full", () => {
-    expect(describeTick({ cap: 3, upTo: 10 }, false, true, true)).toContain("leave it out");
+    expect(describeTick({ cap: 3, upTo: 10 }, false, true, true)).toContain("om hem over te slaan");
   });
 
   it("and counts the one ad on a list of one properly", () => {
-    expect(describeSelectAllTick({ cap: 10, upTo: 10 }, false, false, 1)).toContain("the one ad here");
+    expect(describeSelectAllTick({ cap: 10, upTo: 10 }, false, false, 1)).toContain("de enige advertentie hier");
   });
 });

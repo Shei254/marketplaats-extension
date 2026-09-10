@@ -20,19 +20,19 @@ describe("what is left of the plan", () => {
     // "2" does not say whether that is nearly all of them or nearly none. The
     // denominator arrived with T32 (#41), which added `relistQuotaPerPeriod` to
     // `/api/me` for exactly this sentence.
-    expect(repostsLeft(2, 3)).toBe("2 of 3 reposts left");
-    expect(repostsLeft(0, 3)).toBe("0 of 3 reposts left");
+    expect(repostsLeft(2, 3)).toBe("2 van 3 herplaatsingen over");
+    expect(repostsLeft(0, 3)).toBe("0 van 3 herplaatsingen over");
   });
 
   it("agrees with the grant rather than the remainder", () => {
-    expect(repostsLeft(1, 3)).toBe("1 of 3 reposts left");
-    expect(repostsLeft(1, 1)).toBe("1 of 1 repost left");
+    expect(repostsLeft(1, 3)).toBe("1 van 3 herplaatsingen over");
+    expect(repostsLeft(1, 1)).toBe("1 van 1 herplaatsing over");
   });
 });
 
 describe("when the quota comes back", () => {
   it("reads as a day and a month", () => {
-    expect(resetsOn("2026-09-14T08:31:22.101Z")).toBe("resets 14 Sep");
+    expect(resetsOn("2026-09-14T08:31:22.101Z")).toBe("Reset op 14 sep");
   });
 
   it("says nothing at all when the date cannot be read", () => {
@@ -62,8 +62,8 @@ describe("the plan strip", () => {
   it("names the tier as the operator spells it, beside what is left", () => {
     const markup = render(2);
     expect(markup).toContain('<span class="popup-plan-name">Free</span>');
-    expect(markup).toContain("2 of 3 reposts left");
-    expect(markup).toContain("resets 14 Sep");
+    expect(markup).toContain("2 van 3 herplaatsingen over");
+    expect(markup).toContain("Reset op 14 sep");
   });
 
   it("turns when there is nothing left, so the strip itself carries the news", () => {
@@ -72,21 +72,21 @@ describe("the plan strip", () => {
   });
 
   it("offers refresh, the plans and sign-out, which is the whole of what this screen does", () => {
-    // "Plans" arrived with T52 (#83) and is the second departure from the canvas,
+    // "Abonnementen" arrived with T52 (#83) and is the second departure from the canvas,
     // for the reason the file's docstring gives: without a way in that does not
     // depend on being out of relists, a paying subscriber could never reach their
     // own billing — and ADR-0017 makes this popup the account surface.
     const markup = render(2);
-    expect(markup).toContain('aria-label="Refresh"');
-    expect(markup).toContain("Plans");
-    expect(markup).toContain("Sign out");
+    expect(markup).toContain('aria-label="Vernieuwen"');
+    expect(markup).toContain("Abonnementen");
+    expect(markup).toContain("Uitloggen");
   });
 
   it("puts the way to the plans on the prompt as well, once the quota is spent", () => {
     // Beside the ad list, which ADR-0007 leaves ungated precisely so the
     // conversion click is next to the user's own locked ads.
-    expect(render(0)).toContain("See plans");
-    expect(render(2)).not.toContain("See plans");
+    expect(render(0)).toContain("Bekijk abonnementen");
+    expect(render(2)).not.toContain("Bekijk abonnementen");
   });
 
   describe("on a tier with no cap (T73, ADR-0029)", () => {
@@ -94,7 +94,7 @@ describe("the plan strip", () => {
 
     it("says so instead of a fraction", () => {
       expect(unlimited).toContain('<span class="popup-plan-name">Free</span>');
-      expect(unlimited).toContain("Unlimited reposts");
+      expect(unlimited).toContain("Onbeperkt herplaatsen");
       expect(unlimited).not.toContain("reposts left");
     });
 
@@ -106,12 +106,12 @@ describe("the plan strip", () => {
     });
 
     it("and no reset date, which would invite the reader to believe there is a limit", () => {
-      expect(unlimited).not.toContain("resets 14 Sep");
+      expect(unlimited).not.toContain("Reset op 14 sep");
     });
 
     it("is never the spent strip, however much has been reposted", () => {
       expect(unlimited).not.toContain("popup-plan--spent");
-      expect(unlimited).not.toContain("See plans");
+      expect(unlimited).not.toContain("Bekijk abonnementen");
     });
   });
 
@@ -119,21 +119,21 @@ describe("the plan strip", () => {
     const nothing = renderPlan({ quotaRemaining: 0, relistQuotaPerPeriod: 0 });
 
     it("reads as a plan without reposts rather than as one that has run out", () => {
-      expect(nothing).toContain("No reposts on this plan");
+      expect(nothing).toContain("Geen herplaatsingen in dit abonnement");
       expect(nothing).not.toContain("0 of 0");
     });
 
     it("promises no date, because nothing comes back on it", () => {
       // The prompt used to tell its holder their reposts "come back on 14 Sep"
-      // when they come back as 0. The strip's own "resets 14 Sep" is the same
+      // when they come back as 0. The strip's own "Reset op 14 sep" is the same
       // promise in fewer words, so it goes with it.
-      expect(nothing).not.toContain("resets 14 Sep");
+      expect(nothing).not.toContain("Reset op 14 sep");
       expect(nothing).not.toContain("They come back");
     });
 
     it("says the same thing when a card is failing, because the grant is the reason", () => {
       // Reachable the way ADR-0029 says it is: a tier may be zeroed under the
-      // people already on it, and one of them may have a failing card. "0 relists"
+      // people already on it, and one of them may have a failing card. "0 herplaatsingen"
       // beside a dunning prompt blames the card for a nothing the plan chose.
       const failing = renderPlan({
         quotaRemaining: 0,
@@ -141,12 +141,12 @@ describe("the plan strip", () => {
         subscriptionStatus: "PAST_DUE",
       });
 
-      expect(failing).toContain("No reposts on this plan");
-      expect(failing).not.toContain("0 relists");
+      expect(failing).toContain("Geen herplaatsingen in dit abonnement");
+      expect(failing).not.toContain("0 herplaatsingen");
     });
 
     it("still points at the plans, which is the one thing that changes it", () => {
-      expect(nothing).toContain("See plans");
+      expect(nothing).toContain("Bekijk abonnementen");
     });
 
     it("and still wears the warning strip, because there is still nothing to spend", () => {
@@ -161,8 +161,8 @@ describe("the update screen", () => {
   const markup = renderToStaticMarkup(<OutdatedScreen />);
 
   it("says the build is the problem, and names the product doing the saying", () => {
-    expect(markup).toContain("needs updating");
-    expect(markup).toContain("Bumpr");
+    expect(markup).toContain("moet worden bijgewerkt");
+    expect(markup).toContain("AdBump");
   });
 
   it("offers no button, because there is nothing a button could do", () => {
@@ -173,6 +173,6 @@ describe("the update screen", () => {
   });
 
   it("says the ads are untouched, which is what somebody locked out most needs to read", () => {
-    expect(markup).toContain("Nothing has been changed on Marktplaats");
+    expect(markup).toContain("Er is niets gewijzigd op Marktplaats");
   });
 });

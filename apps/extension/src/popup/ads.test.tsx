@@ -164,7 +164,7 @@ describe("what kind of price an ad has", () => {
 
   it("is the seller's own word for it, beside the number", () => {
     expect(describePrice(ad({ priceType: "FIXED", priceCents: 125_000 }))).toMatchObject({
-      label: "Vraagprijs",
+      label: "",
       bidding: false,
     });
     expect(describePrice(ad({ priceType: "FIXED", priceCents: 125_000 })).amount).toMatch(

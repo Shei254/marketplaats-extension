@@ -24,7 +24,7 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0011](0011-repository-layout.md) | Repository layout — monorepo, one deployable per workspace | Accepted |
 | [0012](0012-backend-modular-monolith.md) | Backend — modular monolith (Spring Modulith), hexagonal modules | Accepted |
 | [0013](0013-remote-client-configuration.md) | Remote client configuration for the internal-API layer | Accepted, refined by 0024 |
-| [0014](0014-tier-catalog-and-entitlements.md) | Tier catalog & entitlements ours, keyed to Stripe Prices | Accepted, refines 0006, refined by 0026 and 0029 |
+| [0014](0014-tier-catalog-and-entitlements.md) | Tier catalog & entitlements ours, keyed to Stripe Prices | Accepted, refines 0006, refined by 0026, 0029 and 0030 |
 | [0015](0015-frozen-internal-api-golden-tests.md) | Internal-API layer frozen by golden-payload tests | Accepted |
 | [0016](0016-vertical-slices-and-review-gates.md) | Iteration 1 cut into vertical slices, each ending at a manual review | Accepted |
 | [0017](0017-web-surface-and-subscribing.md) | One web app, loginless public routes; subscribing starts in the popup | Accepted, amends 0011, refined by 0023 |
@@ -40,6 +40,7 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0027](0027-the-popup-stops-offering-bulk-repost.md) | The popup stops offering bulk repost, and the mechanism stays | Accepted, refines 0025 |
 | [0028](0028-a-repost-puts-back-what-it-can.md) | A repost puts back what it can, and says what it cannot | Accepted, refines 0002 |
 | [0029](0029-unlimited-is-null-and-zero-still-grants-nothing.md) | Unlimited is `null`, and zero still grants nothing | Accepted, refines 0014 and 0019 |
+| [0030](0030-the-catalog-order-is-the-operators.md) | The catalog order is the operator's, and it is one sequence | Accepted, refines 0014 |
 
 **Amended by the 2026-08-13 session:** 0006 (Stripe narrowed to money + lifecycle), 0007 (gating depth,
 `/api/me` display state, `marktplaatsAccountId` dropped), 0009 (monorepo, React popup, Options page removed).
@@ -122,6 +123,21 @@ publish rule instead, and closed a real gap: the `> 0` guard existed only on the
 tier could be hand-published and sold. The session also found the vocabulary defect underneath the new copy —
 the button says **Repost**, the strip above it says **relists** — and split the two the way the glossary
 already splits the brand name from `mprelist`.
+
+**Amended by the 2026-09-10 ordering session:** [0030](0030-the-catalog-order-is-the-operators.md) refines
+[0014](0014-tier-catalog-and-entitlements.md) on something that ADR made ours and never said: what order the
+catalog is in. It was `order by relist_quota_per_period, code`, written twice on purpose so the popup and
+`/admin` read alike, and chosen by nobody — the `V2` seed grants 3, 50 and 200 in that sequence, so grant
+order has been indistinguishable from creation order on every deployment that exists. The session opened with
+the belief that the cards were in creation order, which is the clearest evidence the rule was never designed.
+An operator now states the order, because *which plan you want bought* is not a function of any column we
+have. Two cheaper alternatives are costed and rejected there — ordering by amount is a better derived rule
+that still cannot say "Pro first", and a `featured` boolean is the pair-that-can-disagree shape this repo has
+now refused four times. The decision also departs from this schema's habit of making invariants unwriteable,
+and says why: the only unwriteable spelling of "positions are distinct" needs the `deferred` constraint
+[0019](0019-plans-are-stripe-first-and-webhook-synced.md)'s trigger work already rejected as a test that
+passes having checked nothing.
+[T75](https://github.com/Shei254/marketplaats-extension/issues/164) is the ticket.
 
 See also [../domain-model.md](../domain-model.md), [../glossary.md](../glossary.md) and
 [../enforcement-contract.md](../enforcement-contract.md).

@@ -1006,6 +1006,44 @@ the prompts. `relistsLeft` is already done by T73. **Prose in ADRs is not touche
 rewritten to match how things turned out ([`adr/README.md`](adr/README.md)) — and neither are code comments,
 which are about the identifiers they sit beside.
 
+#### [T75](https://github.com/Shei254/marketplaats-extension/issues/164) · The operator sets the order the plans are read in · **M** · T53, T54, T73
+The plan cards are ordered `relist_quota_per_period, code` and always have been — cheapest grant first, ties
+by code — spelled identically in `TierRows.published()` and `TierRows.everyTier()` so the popup and `/admin`
+read alike. Nobody chose it, and the `V2` seed hides that: `free` 3, `pro` 50, `power` 200 is grant order and
+creation order at once, so the rule has never had to be told apart from anything. It comes apart on the first
+tier granting 100.
+
+[ADR-0030](adr/0030-the-catalog-order-is-the-operators.md) makes the order stated rather than derived,
+because *which plan you want bought* is not a function of any column we have. Ordering by amount instead of
+quota was weighed and is a better derived rule that still cannot say "Pro first"; a `featured` boolean was
+weighed and is the pair-that-can-disagree shape this repo has refused four times.
+
+**`V10__catalog_order.sql`** adds `position integer not null` to `tier`, backfilled from
+`relist_quota_per_period, code` so nothing moves on deploy. **No `unique`** — the only unwriteable version
+needs `deferrable initially deferred`, which V7 has already argued is a test that passes having checked
+nothing — so distinctness is the single writer's and the read is `order by position, code`. The one insert
+path in `TierRows` gains `coalesce(max(position), 0) + 1`, so a tier the sync drafts lands last. It is `V10`
+because `V9__unlimited_reposts.sql` is T73's, which is why that ticket is a dependency and why it is one this
+no longer waits on.
+
+**`PUT /api/admin/tiers/order`** takes `{ codes }` — the whole catalog, in order, one statement. It follows
+`isDefault`'s precedent: order is a property of the catalog, so it stays off `TierEdit`. **One refusal,
+`409` with an empty body**, for a list that is not exactly the catalog's set — a forgotten tier and an unknown
+code are one event to the only caller, and it doubles as the stale-screen check for a draft the sync added
+while the page was open. **`AdminTier` gains no `position`**: the array is already ordered, and a number
+beside it is one fact spelled twice (ADR-0026).
+
+**The screen** gets a drag handle column, native `draggable` rows, and an up/down `IconButton` pair. The drop
+*is* the commit — optimistic move, whole-sequence PUT, snap back with a `Note` on refusal. The buttons are
+the keyboard path and the only half the suite can hold: `happy-dom` ships no `DragEvent` and no geometry, so
+**the drag layer is covered by `click-through.md` and nothing else**. No dnd library — it would be the first
+behaviour dependency in `apps/web` ([ADR-0021](adr/0021-design-system-stays-ours.md)) and would buy no
+coverage either.
+
+**Not in it:** a live preview of the cards beside the table (a second `PlanCards` in a second app, and it
+could never show the per-viewer `CurrentPlanCard` anyway), touch dragging, per-viewer ordering. The extension
+is untouched — `PlansOnOffer`, `subscribing.ts` and `PlanCards` already render whatever order the API sends.
+
 
 ---
 

@@ -191,8 +191,12 @@ about their **software**. It therefore carries none, exactly like every other `4
 
 - **`relistQuotaPerPeriod` is `null` on an unlimited tier** (T73, ADR-0029), and never `0`: a tier granting
   nothing cannot be published either, so it never reaches this list. The card then reads "Unlimited reposts"
-  with no rhythm on it — the button beside it already says which rhythm is being bought. Cheapest grant
-  first puts it last, which is where the most generous plan belongs on a comparison.
+  with no rhythm on it — the button beside it already says which rhythm is being bought.
+
+- **`plans` is in the Catalog order** (T75, [ADR-0030](adr/0030-the-catalog-order-is-the-operators.md)) — the
+  sequence an operator set in `/admin`, of which this is the published subsequence. It is an `order by` here
+  rather than a sort in three clients, and it was `relist_quota_per_period, code` until T75: a sensible
+  default that could not say which plan to put first. A client renders the list as it arrives.
 
 - **The amount comes from Stripe and is cached; it is never stored** (ADR-0014/0019). This is display, so the
   cache is the whole defence — `authorize` still never calls Stripe, and this route is not on that path.
@@ -301,14 +305,14 @@ what every other answer in this document is read from.
   to do, meant a failing card left the row saying `ACTIVE` and the subscriber went on relisting while Stripe
   retried it.
 
-### The admin API — `GET /api/admin/tiers`, `PUT …/{code}`, `PUT …/{code}/default`, `GET /api/admin/prices`
+### The admin API — `GET /api/admin/tiers`, `PUT …/{code}`, `PUT …/{code}/default`, `PUT …/order`, `GET /api/admin/prices`
 Consumed by `apps/web`'s `/admin` (T54, #85) and by nothing the extension runs. Its audience is an operator
 rather than a subscriber, which is why none of its answers carries a `reason`: those codes are statements
 about a *user*, and nothing here is about one.
 
 - **Auth:** `Authorization: Bearer <token carrying the realm's `ADMIN` role>`. Guarded by path rather than by
   route — see "the `ADMIN` guard" above — so a route added under `/api/admin` is closed by being there.
-- **`GET /api/admin/tiers` → `200`:** every tier there is, cheapest grant first, each as an **AdminTier**:
+- **`GET /api/admin/tiers` → `200`:** every tier there is, in the **Catalog order**, each as an **AdminTier**:
 
   ```json
   { "tiers": [
@@ -367,6 +371,21 @@ about a *user*, and nothing here is about one.
   sign-in and the operator who caused it sees nothing wrong. Expressed this way there is no request that can
   leave the catalog without one. Naming the tier that already holds it is idempotent. **"No free tier" is not
   this route** — it is a quota of `0` on whichever tier is the default (ADR-0019).
+- **`PUT /api/admin/tiers/order` → `200`** sets the **Catalog order** (T75,
+  [ADR-0030](adr/0030-the-catalog-order-is-the-operators.md)) — `{ "codes": ["free", "pro", "power"] }`, the
+  whole catalog in the order the plan cards should read. **A sequence, never a per-row index**, and for
+  `isDefault`'s reason one bullet up: moving a tier moves others, so it is a property of the catalog rather
+  than of a row, and a `position` on `PUT …/{code}` would turn one drag into N requests a client sequences
+  itself. Every tier carries a place, `free` and the drafts included; `GET /api/plans` renders the published
+  subsequence.
+- **`409` with an empty body** when `codes` is not exactly the catalog's set — a code nothing is stored under,
+  a tier the list forgot, or a repeat. **One refusal for all three**, because they are one event to the only
+  caller: the screen is stale and the answer is to reload it. That is also the concurrency check — a draft the
+  Stripe sync adopted while the page was open makes the list incomplete, so the write fails loudly instead of
+  quietly filing the new tier wherever the renumbering left it.
+- **No `position` is ever sent back.** **AdminTier** carries none: the array is in order, and a number beside
+  an ordered array is one fact spelled twice ([ADR-0026](adr/0026-a-feature-flag-is-a-field-spelled-once.md)).
+  A tier the sync drafts is appended, so it arrives last until somebody moves it.
 - **`GET /api/admin/prices` → `200`:** the active Stripe Prices carrying no `tier_code`, newest first, at most
   a hundred — `{ "prices": [ { "id", "nickname", "amount", "currency", "interval" } ] }`. It exists because
   the failure it reports is silent: a Price created without the tag produces a plan screen without that plan

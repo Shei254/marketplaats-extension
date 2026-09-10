@@ -117,3 +117,20 @@ zero-grant tier could be hand-published and bought.
 **The remaining deferral is still deferred.** What happens to existing subscribers when a quota is edited under
 them is unchanged: `quotaRemaining` clamps at zero, no proration and no notification. An edit *to* unlimited
 needs nothing extra — the subtraction simply stops being done.
+
+## Amended by ADR-0030 (2026-09-10)
+
+**The catalog gains an order, and it is the operator's.**
+[ADR-0030](0030-the-catalog-order-is-the-operators.md) adds `tier.position`, set by an operator dragging rows
+in `/admin` and read by both screens that list tiers. The split this ADR draws is again untouched — an order
+is as much ours as a quota, and nothing in Stripe changes to set one.
+
+**What it corrects is an omission rather than a decision.** This ADR made the catalog ours and never said
+what order it is in, so the order became whatever the first query wrote: `order by relist_quota_per_period,
+code`, repeated in the admin query so the two screens would agree. That is a sensible default and it cannot
+express the thing an operator actually wants to say, which is *which plan to put first*.
+
+**"An admin tier UI becomes possible at all" now includes the order it is read in.** The route is
+`PUT /api/admin/tiers/order` carrying the whole sequence, and it is deliberately not a field on `TierEdit`
+for the reason `isDefault` is not one: moving a tier moves others, so it is a property of the catalog rather
+than of a row.

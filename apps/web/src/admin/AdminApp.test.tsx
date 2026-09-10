@@ -73,6 +73,7 @@ interface Backend {
   tiers?: () => Response;
   prices?: () => Response;
   write?: () => Response;
+  order?: () => Response;
   currency?: () => Response;
   create?: () => Response;
   addPrice?: () => Response;
@@ -89,6 +90,9 @@ function stack(backend: Backend = {}) {
         : json({ access_token: tokenFor(backend.roles ?? ["ADMIN"]) });
     }
     if (url.endsWith("/api/admin/tiers")) return (backend.tiers ?? (() => json({ tiers: [FREE, PRO] })))();
+    if (url.endsWith("/api/admin/tiers/order")) {
+      return (backend.order ?? (() => json({ tiers: [PRO, FREE] })))();
+    }
     if (url.endsWith("/api/admin/prices")) return (backend.prices ?? (() => json({ prices: [] })))();
     if (url.endsWith("/api/admin/currency")) {
       return (backend.currency ?? (() => json({ currency: "eur" })))();
@@ -191,6 +195,36 @@ async function check(selector: string): Promise<void> {
   const box = container.querySelector<HTMLInputElement>(selector);
   if (!box) throw new Error(`no checkbox at ${selector} — screen reads: ${text()}`);
   await act(async () => box.click());
+}
+
+/** The codes down the table, top to bottom — the Catalog order as the screen has it. */
+function codesOnScreen(): string[] {
+  return [...container.querySelectorAll("tbody .admin-code")].map(
+    (cell) => cell.textContent?.trim() ?? "",
+  );
+}
+
+/**
+ * Step a row with the keyboard-reachable half of the ordering control (T75, #164).
+ *
+ * The drag half cannot be driven from here at all: `happy-dom` ships no
+ * `DragEvent` and `getBoundingClientRect` answers zeros, which is why ADR-0030
+ * makes `docs/click-through.md` the only cover the drop has. These buttons are the
+ * same act through the same function, so what they prove about the arithmetic
+ * holds for both.
+ */
+function move(name: string, direction: "up" | "down"): Promise<void> {
+  const found = container.querySelector<HTMLButtonElement>(
+    `button[aria-label="Move ${name} ${direction}"]`,
+  );
+  if (!found) throw new Error(`no ${direction} button for ${name} — screen reads: ${text()}`);
+  return act(async () => found.click());
+}
+
+/** The sequence the screen sent to `PUT /api/admin/tiers/order`. */
+function sentOrder(s: ReturnType<typeof stack>): string[] {
+  const sent = s.calls.find((call) => call.url.endsWith("/api/admin/tiers/order"));
+  return (JSON.parse(sent?.body ?? "{}") as { codes?: string[] }).codes ?? [];
 }
 
 /** The body of the one `PUT /api/admin/tiers/...` this screen sent. */
@@ -853,6 +887,111 @@ describe("moving the default", () => {
     const put = s.calls.find((call) => call.method === "PUT");
     expect(put?.url).toBe("http://localhost:8080/api/admin/tiers/pro/default");
     expect(put?.body).toBeUndefined();
+  });
+});
+
+describe("the order the plans are read in", () => {
+  it("moves the row and sends the whole catalog rather than one row's index", async () => {
+    // A sequence, never a per-row number: moving a tier moves others, so the order
+    // is a property of the catalog (T75, #164; ADR-0030).
+    const s = stack();
+
+    await arrive(s);
+    await move("Pro", "up");
+    await until(() => s.calls.some((call) => call.url.endsWith("/order")), "the order to reach the API");
+
+    expect(sentOrder(s)).toEqual(["pro", "free"]);
+  });
+
+  it("and renders what was stored rather than what was asked for", async () => {
+    // The row moved before the API was asked, which is what makes a drag feel
+    // direct — and what makes the answer, not the gesture, the thing to end up on.
+    const s = stack({ order: () => json({ tiers: [DRAFT, PRO, FREE] }) });
+
+    await arrive(s);
+    await move("Pro", "up");
+    await until(() => codesOnScreen().length === 3, "the stored order to arrive");
+
+    expect(codesOnScreen()).toEqual(["starter", "pro", "free"]);
+  });
+
+  it("puts the row back and says why when the write is refused", async () => {
+    // `409` here is not the edit form's: it means the list sent was not the
+    // catalog's set, so something arrived or left while this page was open.
+    const s = stack({ order: () => new Response(null, { status: 409 }) });
+
+    await arrive(s);
+    expect(codesOnScreen()).toEqual(["free", "pro"]);
+
+    await move("Pro", "up");
+    await until(() => text().includes("changed while this page was open"), "the refusal to be said");
+
+    expect(codesOnScreen()).toEqual(["free", "pro"]);
+  });
+
+  it("and reloads the catalog, because the useful next act is to look at it", async () => {
+    const s = stack({ order: () => new Response(null, { status: 409 }) });
+
+    await arrive(s);
+    const read = s.calls.filter((call) => call.url.endsWith("/api/admin/tiers")).length;
+    await move("Pro", "up");
+    await until(
+      () => s.calls.filter((call) => call.url.endsWith("/api/admin/tiers")).length > read,
+      "the catalog to be read again",
+    );
+  });
+
+  it("offers nowhere to move the first row up, or the last one down", async () => {
+    const s = stack();
+
+    await arrive(s);
+
+    expect(
+      container.querySelector<HTMLButtonElement>('button[aria-label="Move Free up"]')?.disabled,
+    ).toBe(true);
+    expect(
+      container.querySelector<HTMLButtonElement>('button[aria-label="Move Pro down"]')?.disabled,
+    ).toBe(true);
+    expect(
+      container.querySelector<HTMLButtonElement>('button[aria-label="Move Free down"]')?.disabled,
+    ).toBe(false);
+  });
+
+  it("names the tier on every one of them, so eleven of these are told apart", async () => {
+    // "Move up" eleven times over is a screen reader saying nothing about which row
+    // it is on.
+    const s = stack({ tiers: () => json({ tiers: [FREE, PRO, UNLIMITED] }) });
+
+    await arrive(s);
+
+    for (const name of ["Free", "Pro", "Power"]) {
+      expect(container.querySelector(`button[aria-label="Move ${name} up"]`), name).not.toBeNull();
+    }
+  });
+
+  it("makes a row draggable only while its handle is held", async () => {
+    // Every row draggable always would take text selection away from the whole
+    // table — on the screen somebody copies a Stripe Price id out of a cell.
+    const s = stack();
+
+    await arrive(s);
+    const row = container.querySelector("tbody tr");
+    const grip = row?.querySelector(".admin-grip");
+    expect(row?.getAttribute("draggable")).toBe("false");
+
+    await act(async () => grip?.dispatchEvent(new Event("pointerdown", { bubbles: true })));
+    expect(row?.getAttribute("draggable")).toBe("true");
+
+    await act(async () => grip?.dispatchEvent(new Event("pointerup", { bubbles: true })));
+    expect(row?.getAttribute("draggable")).toBe("false");
+  });
+
+  it("keeps the handle out of the accessibility tree, since the buttons are the same act", async () => {
+    const s = stack();
+
+    await arrive(s);
+
+    expect(container.querySelector(".admin-grip")?.getAttribute("aria-hidden")).toBe("true");
   });
 });
 

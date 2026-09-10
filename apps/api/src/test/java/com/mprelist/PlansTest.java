@@ -71,6 +71,10 @@ class PlansTest {
 	void aCatalogWithTwoThingsOnSale() {
 		this.db.update("delete from tier where code not in ('free', 'pro', 'power')");
 		TierPrices.nothingIsPriced(this.db);
+		// The Catalog order restored to the seed's own (T75, #164): it is an operator's to change, this suite
+		// shares a database with whichever others share its configuration, and one of those is
+		// `AdminTierTest`, whose whole business is changing it.
+		this.db.update("update tier set position = case code when 'free' then 1 when 'pro' then 2 else 3 end");
 		this.db.update("update tier set relist_quota_per_period = 50 where code = 'pro'");
 		this.db.update("update tier set relist_quota_per_period = 200 where code = 'power'");
 		TierPrices.soldByTheMonth(this.db, "pro", "price_pro");
@@ -98,10 +102,45 @@ class PlansTest {
 		assertThat(pro.get("prices").get(0).get("interval").asString()).isEqualTo("month");
 	}
 
+	/**
+	 * The cards are in the <strong>Catalog order</strong> — the sequence an operator set in {@code /admin}
+	 * (T75, #164; ADR-0030), of which this is the published subsequence.
+	 *
+	 * <p>Still one rendering decision made as an {@code order by} rather than three times as a sort in three
+	 * clients. What changed in T75 is who decides: it was {@code relist_quota_per_period, code} — cheapest
+	 * grant first — which nobody chose, and which cannot say which plan an operator wants bought.
+	 */
 	@Test
-	void andComesBackCheapestFirst() {
-		// A rendering decision made once, as an `order by`, rather than three times as a sort in three
-		// clients — and the order a buyer reads a comparison in.
+	void andComesBackInTheOrderTheCatalogIsHeldIn() {
+		assertThat(codesOnOffer()).containsExactly("pro", "power");
+	}
+
+	/**
+	 * And moving a tier in the catalog moves its card, which is the whole of what T75 buys a buyer.
+	 *
+	 * <p>Written against the column rather than through {@code PUT /api/admin/tiers/order}, because what this
+	 * suite is about is the route below it: that the operator's screen writes these numbers is
+	 * {@code AdminTierTest}'s, and a test here that went through the admin API would fail for two reasons at
+	 * once.
+	 */
+	@Test
+	void andMovingATierInTheCatalogMovesItsCard() {
+		this.db.update("update tier set position = 1 where code = 'power'");
+		this.db.update("update tier set position = 2 where code = 'pro'");
+
+		assertThat(codesOnOffer()).containsExactly("power", "pro");
+	}
+
+	/**
+	 * The free tier and every draft carry a place too, and it costs the cards nothing: this list is the
+	 * published subsequence, so a free tier dragged to the top of the admin table is still not a plan.
+	 */
+	@Test
+	void andATierNoBuyerSeesTakesUpNoPlaceOnTheCards() {
+		this.db.update("update tier set position = 1 where code = 'free'");
+		this.db.update("update tier set position = 2 where code = 'pro'");
+		this.db.update("update tier set position = 3 where code = 'power'");
+
 		assertThat(codesOnOffer()).containsExactly("pro", "power");
 	}
 
@@ -110,8 +149,10 @@ class PlansTest {
 	 * (T73, #160; ADR-0029) — the popup then says "Unlimited reposts" where the others say "50 reposts a
 	 * month".
 	 *
-	 * <p>It sorts last, which is where the most generous plan belongs on a comparison and which the
-	 * {@code order by} gives for nothing: Postgres puts nulls last in an ascending order.
+	 * <p>It is last here because that is where the catalog holds it (T75) and no longer because Postgres
+	 * sorts nulls last in an ascending order — which is what put it there while the clause was
+	 * {@code relist_quota_per_period, code}, and is a dated fact about a clause that has been replaced. An
+	 * unlimited tier now sits wherever an operator put it, which may be first.
 	 */
 	@Test
 	void andATierWithNoCapCarriesNoNumber() {

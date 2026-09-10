@@ -1006,7 +1006,7 @@ the prompts. `relistsLeft` is already done by T73. **Prose in ADRs is not touche
 rewritten to match how things turned out ([`adr/README.md`](adr/README.md)) — and neither are code comments,
 which are about the identifiers they sit beside.
 
-#### [T75](https://github.com/Shei254/marketplaats-extension/issues/164) · The operator sets the order the plans are read in · **M** · T53, T54, T73
+#### [T75](https://github.com/Shei254/marketplaats-extension/issues/164) · The operator sets the order the plans are read in · **M** · T53, T54, T73 · **shipped**
 The plan cards are ordered `relist_quota_per_period, code` and always have been — cheapest grant first, ties
 by code — spelled identically in `TierRows.published()` and `TierRows.everyTier()` so the popup and `/admin`
 read alike. Nobody chose it, and the `V2` seed hides that: `free` 3, `pro` 50, `power` 200 is grant order and
@@ -1043,6 +1043,30 @@ coverage either.
 **Not in it:** a live preview of the cards beside the table (a second `PlanCards` in a second app, and it
 could never show the per-viewer `CurrentPlanCard` anyway), touch dragging, per-viewer ordering. The extension
 is untouched — `PlansOnOffer`, `subscribing.ts` and `PlanCards` already render whatever order the API sends.
+
+**Shipped, with one thing built a layer lower than written above.** "A tier nobody placed goes last" is
+`V10__catalog_order.sql`'s `tier_is_placed_last`, a `before insert` trigger, rather than a
+`coalesce(max(position), 0) + 1` inside `TierRows`' insert. There is one production path that creates a tier
+and there are the seed, later migrations and seven test fixtures; written in the insert the rule would have
+been true of the first and false of the rest, which is V1's argument and V5's and V7's. The column is
+therefore `not null` **with no default** — a `default 0` would have been the opposite of the rule, filing
+every unplaced tier ahead of the plans somebody arranged. [ADR-0030](adr/0030-the-catalog-order-is-the-operators.md)
+describes the expression in the insert and is a dated record that stays as written
+([adr/README.md](adr/README.md)).
+
+**Two smaller things the plan left open, decided while building.** The `200` answers with the whole catalog
+in its new order — the same **AdminTiers** body the `GET` gives, read back inside the write's transaction —
+so the screen reconciles against what was stored rather than keeping the row where it was dropped; the
+contract now says so. And the up/down glyphs are `↑`/`↓` inside `IconButton` rather than icons added to
+`packages/ui`: `icons.test.tsx` matches every glyph that package ships against an artboard, and `/admin` is
+the one surface the design canvas does not draw (T54). The grip is one CSS rule over a token, for the same
+reason.
+
+**Where the honest gap is.** The drop has no automated cover at all and `docs/click-through.md` step 9f says
+so in the step itself. What the suite does hold: the buttons (which are the same function), the arming of
+`draggable`, the whole sequence going out as one `PUT`, the snap-back, and the `409`-becomes-reload. The API
+side is `AdminTierTest`'s new section, `BaselineSchemaTest` on the column and the missing `unique`, and
+`PlansTest` on the cards following the catalog.
 
 
 ---

@@ -205,6 +205,61 @@ class BaselineSchemaTest {
 				.hasMessageContaining("tier_relist_quota_per_period_check");
 	}
 
+	/**
+	 * Every tier carries a place in the Catalog order, and a tier nobody placed goes last (T75, #164;
+	 * ADR-0030).
+	 *
+	 * <p>{@code position} is {@code not null} with no default, and what fills it is
+	 * {@code tier_is_placed_last} — a {@code before insert} trigger, so the rule holds for the Stripe sync,
+	 * for the seed and for a fixture standing a row up by hand. Written into the one insert that creates a
+	 * tier in production it would have been true there and false everywhere else; {@code default 0} would
+	 * have been the opposite of the rule, filing every unplaced tier ahead of the plans somebody arranged.
+	 */
+	@Test
+	void aTierNobodyPlacedIsPlacedLast() {
+		tier();
+		UUID last = tier();
+
+		assertThat(db.queryForObject("select position from tier where id = ?", Integer.class, last))
+				.isEqualTo(db.queryForObject("select max(position) from tier", Integer.class));
+	}
+
+	/** And a writer with an opinion keeps it — which is what a restore from a dump is. */
+	@Test
+	void andAWriterThatNamesAPlaceKeepsIt() {
+		UUID placed = db.queryForObject("""
+				insert into tier (code, name, relist_quota_per_period, max_marktplaats_accounts, position)
+				values (?, 'A tier', 3, 1, 41) returning id
+				""", UUID.class, UUID.randomUUID().toString());
+
+		assertThat(db.queryForObject("select position from tier where id = ?", Integer.class, placed))
+				.isEqualTo(41);
+	}
+
+	/**
+	 * <strong>Two tiers may share a place, and that is a departure this schema states rather than hides.</strong>
+	 *
+	 * <p>Everywhere else here an invariant a query would have to remember is written into the database instead
+	 * (V1, V5, V7, V9). {@code position} carries no {@code unique} because the only unwriteable version is one
+	 * V7 has already rejected on this table: swapping two rows violates a non-deferrable {@code unique} halfway
+	 * through the statement, so it would have to be {@code deferrable initially deferred} — and V7's own words
+	 * are that a transaction which rolls back never commits, so the check never runs and a test asserting the
+	 * invariant passes having checked nothing. Distinctness is instead the single writer's,
+	 * {@code PUT /api/admin/tiers/order}, which renumbers every row 1..N in one statement.
+	 *
+	 * <p>What makes the absence safe rather than merely tolerable is the {@code , code} tie-break both readers
+	 * carry: two rows sharing a position read as a stable alphabetical pair, not as a list that reshuffles
+	 * between requests.
+	 */
+	@Test
+	void andTwoTiersMayShareOnePlace() {
+		UUID first = tier();
+		UUID second = tier();
+
+		assertThatCode(() -> db.update("update tier set position = 7 where id in (?, ?)", first, second))
+				.doesNotThrowAnyException();
+	}
+
 	@Test
 	void andItsLastPriceCannotBeTakenAwayWhileItIsOnSale() {
 		UUID tier = tier();

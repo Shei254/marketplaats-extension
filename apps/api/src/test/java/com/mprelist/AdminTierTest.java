@@ -79,6 +79,10 @@ class AdminTierTest {
 		this.db.update("update tier set is_default = true where code = 'free'");
 		this.db.update("update tier set relist_quota_per_period = 3 where code = 'free'");
 		this.db.update("update tier set relist_quota_per_period = 50, name = 'Pro' where code = 'pro'");
+		// And the Catalog order back to the seed's own (T75, #164). It is state an operator writes, so the
+		// tests below that write it have to start from somewhere stated rather than from wherever the last
+		// one left the catalog.
+		this.db.update("update tier set position = case code when 'free' then 1 when 'pro' then 2 else 3 end");
 	}
 
 	// --- what an operator sees ------------------------------------------------------------------------------
@@ -426,6 +430,120 @@ class AdminTierTest {
 		assertThat(quotaRemainingOf(user)).isEqualTo(9);
 	}
 
+	// --- the order the catalog is read in (T75, #164) ---------------------------------------------------------
+
+	/**
+	 * The order is stated rather than derived (ADR-0030), and the list is what states it.
+	 *
+	 * <p>The catalog was {@code free, pro, power} — {@code order by relist_quota_per_period, code}, which the
+	 * seed's own 3/50/200 made indistinguishable from creation order for as long as nobody looked. Nothing
+	 * about what these three tiers grant changes below; only where an operator wants them read.
+	 */
+	@Test
+	void theCatalogIsHeldInTheOrderAnOperatorPutItIn() {
+		assertThat(put(ORDER, order("power", "pro", "free")).statusCode()).isEqualTo(200);
+
+		assertThat(codesIn(Json.of(get(TIERS)).get("tiers"))).containsExactly("power", "pro", "free");
+	}
+
+	/** And the answer is the catalog as it now stands, so a screen has nothing to fetch to reconcile with. */
+	@Test
+	void andTheAnswerIsTheWholeCatalogInItsNewOrder() {
+		HttpResponse<String> ordered = put(ORDER, order("power", "free", "pro"));
+
+		assertThat(codesIn(Json.of(ordered).get("tiers"))).containsExactly("power", "free", "pro");
+	}
+
+	/**
+	 * <strong>No {@code position} travels on the wire in either direction</strong> (ADR-0026): the array is
+	 * already in order, and a number beside an ordered array is one fact spelled twice — two things that can
+	 * disagree, on a screen whose whole job is to keep them agreeing.
+	 */
+	@Test
+	void andNoTierEverCarriesTheNumberItIsHeldAt() {
+		put(ORDER, order("power", "pro", "free"));
+
+		for (JsonNode tier : Json.of(get(TIERS)).get("tiers")) {
+			assertThat(tier.has("position")).isFalse();
+		}
+	}
+
+	/**
+	 * The free tier and every draft carry a place, which is why they are in the list an operator sends.
+	 *
+	 * <p>Ordering only the published rows was the alternative and is worse in a way that only shows later
+	 * (ADR-0030): publishing is a checkbox on a form opened for other reasons, so a tier taken off sale for an
+	 * afternoon would lose its place and come back somewhere new. A position that survives a publish toggle is
+	 * one an operator can trust, and the cost is that moving {@code free} changes nothing a buyer sees.
+	 */
+	@Test
+	void andEveryTierCarriesAPlaceIncludingTheOnesNobodyCanBuy() {
+		put(ORDER, order("free", "power", "pro"));
+		put("/api/admin/tiers/pro", edit(50, false));
+
+		// Unpublishing Pro moved it nowhere: the order is the catalog's own and not a property of what is on
+		// sale this afternoon.
+		assertThat(codesIn(Json.of(get(TIERS)).get("tiers"))).containsExactly("free", "power", "pro");
+	}
+
+	/**
+	 * A list that is not exactly the catalog's set is one refusal said three ways, and the recovery is the
+	 * same for all three: the screen is stale, reload it.
+	 */
+	@Test
+	void aListThatIsNotTheCatalogIsNotAnOrder() {
+		// A code nothing is stored under.
+		assertThat(put(ORDER, order("free", "pro", "power", "nonesuch")).statusCode()).isEqualTo(409);
+		// A tier the list forgot — which is what a draft the Stripe sync adopted while the page was open
+		// looks like from here, and the reason this doubles as the concurrency check.
+		assertThat(put(ORDER, order("free", "pro")).statusCode()).isEqualTo(409);
+		// A code named twice, which is two answers to one question about where that tier goes.
+		assertThat(put(ORDER, order("free", "pro", "pro")).statusCode()).isEqualTo(409);
+	}
+
+	@Test
+	void andTheRefusalCarriesNothingToRead() {
+		HttpResponse<String> refused = put(ORDER, order("free", "pro"));
+
+		assertThat(refused.statusCode()).isEqualTo(409);
+		assertThat(refused.body()).isEmpty();
+	}
+
+	@Test
+	void andARefusedOrderMovedNothing() {
+		put(ORDER, order("power", "pro", "free"));
+
+		assertThat(put(ORDER, order("free", "pro")).statusCode()).isEqualTo(409);
+
+		assertThat(codesIn(Json.of(get(TIERS)).get("tiers"))).containsExactly("power", "pro", "free");
+	}
+
+	/**
+	 * A tier nobody placed goes last — the row {@code price.created} drafts for an unknown {@code tier_code},
+	 * which is a job to deal with rather than a plan to sell.
+	 *
+	 * <p>Written as a bare insert on purpose. The rule is {@code V10__catalog_order.sql}'s
+	 * {@code tier_is_placed_last} rather than a line in {@code TierRows.adopt}, so it holds for the sync, for
+	 * the seed and for a fixture like this one — and this test is what says so.
+	 */
+	@Test
+	void aTierNobodyPlacedGoesLast() {
+		put(ORDER, order("power", "pro", "free"));
+
+		this.db.update("insert into tier (code, name, relist_quota_per_period, max_marktplaats_accounts) "
+				+ "values ('starter', 'Starter', 0, 1)");
+
+		assertThat(codesIn(Json.of(get(TIERS)).get("tiers")))
+				.containsExactly("power", "pro", "free", "starter");
+	}
+
+	@Test
+	void andABodyNamingNoOrderAtAllIsNotOne() {
+		// Not an empty catalog: a body with no `codes` is one this API could read and could not use.
+		assertThat(put(ORDER, "{}").statusCode()).isEqualTo(400);
+		assertThat(put(ORDER, "not json").statusCode()).isEqualTo(400);
+	}
+
 	// --- bodies this API will not take -------------------------------------------------------------------------
 
 	@Test
@@ -466,6 +584,7 @@ class AdminTierTest {
 		assertThat(getAs(TIERS, IDP.token()).statusCode()).isEqualTo(403);
 		assertThat(putAs("/api/admin/tiers/pro", edit(1, false), IDP.token()).statusCode()).isEqualTo(403);
 		assertThat(putAs("/api/admin/tiers/pro/default", null, IDP.token()).statusCode()).isEqualTo(403);
+		assertThat(putAs(ORDER, order("power", "pro", "free"), IDP.token()).statusCode()).isEqualTo(403);
 		assertThat(getAs(PRICES, IDP.token()).statusCode()).isEqualTo(403);
 	}
 
@@ -767,6 +886,11 @@ class AdminTierTest {
 				+ ",\"relistQuotaPerPeriod\":10,\"features\":{},\"published\":false}";
 	}
 
+	/** The whole catalog, in order, as the table sends it when a row is dropped somewhere new. */
+	private static String order(String... codes) {
+		return "{\"codes\":[\"" + String.join("\",\"", codes) + "\"]}";
+	}
+
 	private static String edit(int quota, boolean published) {
 		return "{\"name\":\"Pro\",\"relistQuotaPerPeriod\":" + quota + ",\"features\":{},\"published\":"
 				+ published + "}";
@@ -840,6 +964,8 @@ class AdminTierTest {
 	private Subscribers rows;
 
 	private static final String TIERS = "/api/admin/tiers";
+
+	private static final String ORDER = "/api/admin/tiers/order";
 
 	private static final String PRICES = "/api/admin/prices";
 

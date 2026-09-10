@@ -29,6 +29,7 @@ export {
   type AdminTiers,
   type AuthorizeRequest,
   type CatalogCurrency,
+  type CatalogOrder,
   type CheckoutRequest,
   type ClientConfig,
   type ClientConfigCsrf,

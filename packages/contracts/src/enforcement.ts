@@ -409,11 +409,17 @@ export interface NewPrice {
 }
 
 /**
- * `GET /api/admin/tiers`. **Every tier there is**, cheapest grant first — including
- * the drafts `GET /api/plans` hides (quota 0, unpublished, created by the sync for
- * a Price nobody has decided about) and the free tier, which is never sellable and
- * is very much editable. An operator who could not see a draft could not act on
- * the one thing the screen exists for.
+ * `GET /api/admin/tiers`. **Every tier there is**, in the **Catalog order** —
+ * including the drafts `GET /api/plans` hides (quota 0, unpublished, created by the
+ * sync for a Price nobody has decided about) and the free tier, which is never
+ * sellable and is very much editable. An operator who could not see a draft could
+ * not act on the one thing the screen exists for.
+ *
+ * The order is the operator's own since T75 ({@link CatalogOrder}) and was
+ * `relist_quota_per_period, code` — cheapest grant first — before it. It is the
+ * same sequence `GET /api/plans` renders the published subsequence of, so the list
+ * arranged here and the cards a buyer reads cannot disagree. A tier the sync drafts
+ * is appended, so it arrives last until somebody moves it.
  */
 export interface AdminTiers {
   tiers: AdminTier[];
@@ -458,6 +464,41 @@ export interface TierEdit {
   relistQuotaPerPeriod: number | null;
   features: Record<string, unknown>;
   published: boolean;
+}
+
+/**
+ * `PUT /api/admin/tiers/order` — the sequence the plan cards are read in (T75,
+ * #164; ADR-0030).
+ *
+ * **The whole catalog, in order, in one request.** Moving a tier moves others, so
+ * the order is a property of the catalog rather than of a row — the same reason
+ * `isDefault` is not on **TierEdit** and is moved by a route of its own. A
+ * `position` field per tier would turn one drag into N requests a client sequenced
+ * itself, non-atomically, leaving an order nobody chose if the third one failed.
+ *
+ * **Every tier carries a place, including the ones no buyer sees.** The free tier
+ * is never a plan card and a draft is not one yet, and both are in `codes`:
+ * `GET /api/plans` renders the published subsequence. A position that existed only
+ * while a tier was on sale would be lost the first afternoon somebody withdrew a
+ * plan and put it back, and publishing is a checkbox on a form opened for other
+ * reasons.
+ *
+ * **`409` with an empty body** when `codes` is not exactly the catalog's set — a
+ * code nothing is stored under, a tier the list forgot, or a code sent twice. One
+ * refusal for all three, because they are one event to the only caller: the screen
+ * is stale and the answer is to reload it. That is also the concurrency check — a
+ * draft the Stripe sync adopted while the page was open makes the list incomplete,
+ * so the write fails loudly instead of quietly filing the new tier wherever the
+ * renumbering left it.
+ *
+ * **`200` answers with the whole catalog in its new order**, as **AdminTiers** —
+ * what was stored rather than what was asked for, like every other write here. **No
+ * `position` is ever sent back**: the array is in order, and a number beside an
+ * ordered array is one fact spelled twice (ADR-0026).
+ */
+export interface CatalogOrder {
+  /** Every tier there is, by code, in the order the plan cards should read. */
+  codes: string[];
 }
 
 /**

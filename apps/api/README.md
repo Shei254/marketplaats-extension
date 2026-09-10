@@ -173,7 +173,12 @@ rhythms, and turns V5's check into the trigger that spans both. `V8__seed_bulk_e
 first feature flag anything reads. `V9__unlimited_reposts.sql` makes `relist_quota_per_period` nullable —
 `null` is unlimited, `0` still grants nothing ([ADR-0029](../../docs/adr/0029-unlimited-is-null-and-zero-still-grants-nothing.md))
 — and adds the trigger that says a published tier grants something, which is the rule the sync's auto-publish
-had to itself until now.
+had to itself until now. `V10__catalog_order.sql` gives `tier` a `position`, backfilled from the clause it
+replaces so nothing moves on deploy: the order the plan cards read in is an operator's to set
+([ADR-0030](../../docs/adr/0030-the-catalog-order-is-the-operators.md)) rather than
+`order by relist_quota_per_period, code`, which nobody chose and which cannot say which plan to put first. It
+carries **no `unique`** and a `before insert` trigger that files an unplaced tier last — both argued at
+length in the file itself.
 
 > If startup fails with **`Migration checksum mismatch for migration version 1`**, your Postgres volume
 > predates the rename `keycloak_subject` → `idp_subject` in [#17](https://github.com/Shei254/marketplaats-extension/issues/17),
@@ -1715,10 +1720,19 @@ configured**, which is what makes both refusals testable — each is decided bef
 
 ## The catalog, as an operator works on it
 
-`GET /api/admin/tiers`, `PUT /api/admin/tiers/{code}`, `PUT /api/admin/tiers/{code}/default` and
-`GET /api/admin/prices` ([#84](https://github.com/Shei254/marketplaats-extension/issues/84), T53) — the CRUD
-ADR-0014 deferred and [ADR-0019](../../docs/adr/0019-plans-are-stripe-first-and-webhook-synced.md)
-un-deferred once iteration 1 had something to sell.
+`GET /api/admin/tiers`, `PUT /api/admin/tiers/{code}`, `PUT /api/admin/tiers/{code}/default`,
+`PUT /api/admin/tiers/order` and `GET /api/admin/prices`
+([#84](https://github.com/Shei254/marketplaats-extension/issues/84), T53;
+[#164](https://github.com/Shei254/marketplaats-extension/issues/164), T75) — the CRUD ADR-0014 deferred and
+[ADR-0019](../../docs/adr/0019-plans-are-stripe-first-and-webhook-synced.md) un-deferred once iteration 1 had
+something to sell.
+
+**Two of the five are about the catalog rather than about a tier**, and both are routes of their own for the
+same reason. `…/{code}/default` moves a flag exactly one row may carry; `…/order` carries the whole sequence,
+because moving a tier moves others — so a `position` on the edit body would turn one drag into N requests a
+client sequenced itself, non-atomically. `…/order` answers `409` with an empty body when its `codes` are not
+exactly the catalog's set, which is one refusal for three mistakes and doubles as the check that the screen is
+not stale ([ADR-0030](../../docs/adr/0030-the-catalog-order-is-the-operators.md)).
 
 **Guarded by being where it is.** `OperatorsOnly` (#27) closes `/api/admin/**` on the realm's `ADMIN` role
 before routing, so none of these handlers asks and none of them can forget to. That was the whole of #27 and

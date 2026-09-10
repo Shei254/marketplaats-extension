@@ -835,6 +835,17 @@ queue — every suite that covers bulk stubs Marktplaats.
 feature nobody could reach; and `/admin`'s `Bulk repost [ N ] at a time`, which has been setting a cap with
 no visible effect — worth one look at the seeded values before the boxes are back.
 
+**And one shape to reconsider while the file is open.** `BulkSelection.cap` is `Infinity` where nothing caps
+a selection — an unlimited tier whose flag sells no number (T73, [ADR-0029](adr/0029-unlimited-is-null-and-zero-still-grants-nothing.md)).
+It is arithmetically correct at all ten comparison sites, and it printed "5 of Infinity selected" from the
+one of three template strings that had no guard, because a docstring claimed there were two. The fix was a
+guard; the shape is the question. **A nullable `cap` is not the answer** — `${bulk.cap}` compiles just as
+happily and prints "5 of null", so the compiler catches neither — and the only design that makes a leak a
+type error is a discriminated union on whether the selection is capped at all. That is ~10 narrowing sites
+across `batching.ts`, `SelectionHeader`, `Popup`, `BatchBar` and `AdList`, which is not work to do to a
+screen no user can open. Do it here, where the code is being touched and walked anyway, or decide the guards
+are enough.
+
 #### [T71](https://github.com/Shei254/marketplaats-extension/issues/157) · A repost puts back the Gereserveerd flag · **M** · T26, T30b, T45
 A repost is delete-and-recreate (ADR-0002), and the new ad is not identical: the `Gereserveerd` flag is gone,
 so an item the seller promised to a buyer goes quietly back on the open market as a side-effect of our own

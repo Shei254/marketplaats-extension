@@ -106,6 +106,40 @@ class PlansTest {
 	}
 
 	/**
+	 * A tier with no cap renders as one, and the card carries {@code null} rather than a large number
+	 * (T73, #160; ADR-0029) — the popup then says "Unlimited reposts" where the others say "50 reposts a
+	 * month".
+	 *
+	 * <p>It sorts last, which is where the most generous plan belongs on a comparison and which the
+	 * {@code order by} gives for nothing: Postgres puts nulls last in an ascending order.
+	 */
+	@Test
+	void andATierWithNoCapCarriesNoNumber() {
+		this.db.update("update tier set relist_quota_per_period = null where code = 'power'");
+
+		JsonNode plans = Json.of(get()).get("plans");
+
+		assertThat(codesOnOffer()).containsExactly("pro", "power");
+		assertThat(plans.get(1).get("relistQuotaPerPeriod").isNull()).isTrue();
+		assertThat(plans.get(0).get("relistQuotaPerPeriod").asInt()).isEqualTo(50);
+	}
+
+	/**
+	 * And a tier granting nothing cannot be one of these, because it cannot be published at all — the other
+	 * half of the rule V9 added, asserted here for the reason the price one below it is: it is why
+	 * {@code published()} reads one column rather than three.
+	 */
+	@Test
+	void andATierGrantingNothingCannotEvenBePublished() {
+		this.db.update("update tier set published = false where code = 'power'");
+		this.db.update("update tier set relist_quota_per_period = 0 where code = 'power'");
+
+		assertThatThrownBy(() -> this.db.update("update tier set published = true where code = 'power'"))
+				.hasMessageContaining("tier_is_published_only_when_it_grants_something");
+		assertThat(codesOnOffer()).containsExactly("pro");
+	}
+
+	/**
 	 * The free tier is not something a buyer chooses, and it is excluded by the thing that makes it free: it
 	 * has no Stripe Price. Asserted rather than assumed, because a card for it would be a button that opens a
 	 * Checkout for nothing.

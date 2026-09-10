@@ -835,6 +835,17 @@ queue — every suite that covers bulk stubs Marktplaats.
 feature nobody could reach; and `/admin`'s `Bulk repost [ N ] at a time`, which has been setting a cap with
 no visible effect — worth one look at the seeded values before the boxes are back.
 
+**And one shape to reconsider while the file is open.** `BulkSelection.cap` is `Infinity` where nothing caps
+a selection — an unlimited tier whose flag sells no number (T73, [ADR-0029](adr/0029-unlimited-is-null-and-zero-still-grants-nothing.md)).
+It is arithmetically correct at all ten comparison sites, and it printed "5 of Infinity selected" from the
+one of three template strings that had no guard, because a docstring claimed there were two. The fix was a
+guard; the shape is the question. **A nullable `cap` is not the answer** — `${bulk.cap}` compiles just as
+happily and prints "5 of null", so the compiler catches neither — and the only design that makes a leak a
+type error is a discriminated union on whether the selection is capped at all. That is ~10 narrowing sites
+across `batching.ts`, `SelectionHeader`, `Popup`, `BatchBar` and `AdList`, which is not work to do to a
+screen no user can open. Do it here, where the code is being touched and walked anyway, or decide the guards
+are enough.
+
 #### [T71](https://github.com/Shei254/marketplaats-extension/issues/157) · A repost puts back the Gereserveerd flag · **M** · T26, T30b, T45
 A repost is delete-and-recreate (ADR-0002), and the new ad is not identical: the `Gereserveerd` flag is gone,
 so an item the seller promised to a buyer goes quietly back on the open market as a side-effect of our own
@@ -899,7 +910,7 @@ record the finding. **A field whose name cannot be established is left alone and
 field is how a create starts 4xx-ing after a delete, which costs a real listing — which is also why this is
 its own ticket rather than a rider on T71's safe endpoint call.
 
-#### [T73](https://github.com/Shei254/marketplaats-extension/issues/160) · A tier may grant unlimited reposts · **M** · T53, T54, T66
+#### [T73](https://github.com/Shei254/marketplaats-extension/issues/160) · A tier may grant unlimited reposts · **M** · T53, T54, T66 · **shipped**
 [ADR-0029](adr/0029-unlimited-is-null-and-zero-still-grants-nothing.md) is the decision, and its shape is one
 sentinel placement: **`null` is unlimited, `0` still grants nothing.** The obvious spelling — `0` means
 unlimited — is rejected there, because `0` is what `V5__tier_publication.sql` adopts a draft at, what
@@ -946,6 +957,37 @@ when they come back as 0, so the strip reads "No reposts on this plan" and the p
 than a rider on a wire shape this already changes. `max_marktplaats_accounts` gains no unlimited; it is 1 on
 every tier until T38. Nothing in Stripe changes: a quota was never Stripe's
 ([ADR-0014](adr/0014-tier-catalog-and-entitlements.md)).
+
+**What the build settled, since the ADR left three things open.**
+- **The absent-vs-null mechanism was verified rather than assumed**, as the ADR asked. `Optional<Integer>` on
+  a record component answers `Optional.empty()` for absent *and* for an explicit `null` under Jackson 3 —
+  exactly the distinction wanted and exactly the one it cannot make. A `JsonNode` component arrives as a Java
+  `null` when absent and a `NullNode` when written out, so that is what `TierEditRequest` and
+  `NewPlanRequest` hold, read through one `AdministerTiers.quotaSent`.
+- **`409` on the admin `PUT` now means one thing said two ways** — nothing to charge for it, or nothing to
+  get for the money — and the two are deliberately not told apart on the wire: a `reason` would be a second
+  vocabulary on an API whose codes are about a *user*, and the screen sending it has both facts on the row.
+- **`POST /api/admin/plans` refuses a published zero-grant plan as a `400`, before Stripe**, where the edit
+  route answers `409` at the end. That route creates a Product first, so a refusal after it would arrive as a
+  `409` indistinguishable from "that code is taken" — and an operator would rename, retry, and make a second
+  Product.
+- **The zero-grant warning is two sentences and fires on the checkbox, not the stored row.** The ADR names
+  one: a published tier being zeroed, told it will be withdrawn. The submit refuses the other direction too
+  — ticking On sale on a draft, which is quota 0 by definition ([ADR-0019](adr/0019-plans-are-stripe-first-and-webhook-synced.md)) and so
+  the commoner way to ask for this at all — and keying the warning to the stored flag left that path saving
+  with the box quietly back where it started. Found by review. The second sentence says the tier will *not*
+  go on sale, because the withdrawal one would be describing subscribers a draft does not have.
+
+The strip's reset date goes with the prompt's on a zero-grant tier, which the ADR states only of the prompt:
+"resets 14 Sep" under "No reposts on this plan" is the same promise in fewer words. And the popup's bulk cap
+is `Infinity` where neither the quota nor the flag caps a selection — arithmetic rather than a sentinel, since
+every comparison over it is correct. Three places could print it and each is guarded separately; this first
+said "the one template string, and it asks `describeCap` first", which was wrong and was what stopped anybody
+reading the third. `describeSelectAll` counted a selection against the cap whenever a search hid part of it,
+and on an unlimited tier that read **"5 of Infinity selected"**. Found by review, fixed with the sentence.
+
+**Not walked against real ads.** Everything here is held by the three suites; the click-through scripts move
+with the copy but nobody has driven an unlimited tier through a real Marktplaats account.
 
 #### [T74](https://github.com/Shei254/marketplaats-extension/issues/161) · One word for the thing users press · **S** · T73
 The button says **Repost**. The strip above it says **relists**. The admin quota field says both in one field —

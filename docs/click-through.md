@@ -66,7 +66,7 @@ thread.
    else. This is the path every customer takes and the only one nobody has walked.
 4. *Expect:* the window closes on its own and the popup shows the signed-in state.
 5. Read the header.
-   *Expect:* **`Free · 3 of 3 relists left`** and a reset date about a month out. That number came from
+   *Expect:* **`Free · 3 of 3 reposts left`** and a reset date about a month out. That number came from
    `/api/me`, which came from the tier catalog seeded in #18 — this is the first time any of it has been
    seen.
 6. Read the list.
@@ -211,7 +211,7 @@ rather than a 404 — a host that does not (T55, #86) breaks this step *after* t
    PayPal **Sandbox** account. The mirror (T20, #30) reads the subscription and never the method, so nothing
    downstream of here can tell the two payments apart — which is the whole of why PayPal is a method.
 6. Reopen the popup.
-   *Expect:* **`Pro · 50 relists left`** and unlocked buttons, and `resetAt` is **Stripe's** period end rather
+   *Expect:* **`Pro · 50 reposts left`** and unlocked buttons, and `resetAt` is **Stripe's** period end rather
    than a month from signing up. Relist once to confirm.
    *If it still says Free:* the webhook is where to look, not the popup — `stripe listen` shows the
    `customer.subscription.created` delivery and its status, and a `400` there is the signing secret.
@@ -465,7 +465,7 @@ number.
    *Expect:* a checkbox on every row, **disabled**, with one line pointing at Plans — and a **working
    per-row Repost button**. The locked control is the conversion surface (ADR-0007); the working one is the
    proof that bulk sells convenience rather than capability.
-2. On **Pro** with 4 relists left, tick ads until they stop ticking.
+2. On **Pro** with 4 reposts left, tick ads until they stop ticking.
    *Expect:* the fifth box will not tick — the cap is `min(quotaRemaining, upTo)` and quota is the smaller
    number here. The action bar reads **`Repost 4 selected · about 3 minutes`**.
 3. Press it, and watch the first row.

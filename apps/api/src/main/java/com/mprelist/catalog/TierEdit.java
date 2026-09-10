@@ -27,19 +27,29 @@ import java.util.Map;
  * </ul>
  *
  * <p><strong>Whole rather than partial</strong>, which is why the route that takes one is a {@code PUT}: every
- * field is stated on every edit, so there is no "absent or null" question to answer differently at each reader,
- * and the form on the other side (T54, #85) is holding all four values anyway.
+ * field is stated on every edit, and the form on the other side (T54, #85) is holding all four values anyway.
+ *
+ * <p><strong>One field answers "absent" and "null" differently, and it is the only one</strong> (ADR-0029).
+ * That rule used to be stated as "so there is no 'absent or null' question to answer differently at each
+ * reader", and it rested on {@code null} meaning <em>you forgot it</em>. Since a quota of {@code null} is how
+ * unlimited is spelled, the two have to part: on the wire, leaving {@code relistQuotaPerPeriod} out is a
+ * {@code 400} and sending it as an explicit JSON {@code null} is unlimited. The distinction lives at the wire
+ * shape ({@code AdministerTiers.TierEditRequest}), not here — by the time an edit is one of these, the field
+ * has been stated.
  *
  * @param name display text, an operator's to rewrite at any time (ADR-0014). Never compared, only rendered
- * @param relistQuotaPerPeriod what a period grants. **Lowering it under existing subscribers is allowed** and
+ * @param relistQuotaPerPeriod what a period grants, or {@code null} for unlimited (ADR-0029). **Lowering it
+ * under existing subscribers is allowed** and
  * is not a special case: what is left of a period is the grant minus what has been spent, clamped at zero
  * ({@code RemainingQuota}), so somebody who has already used more than the new number simply has none left
  * until it rolls. No proration and no notification (ADR-0014, amended)
  * @param features the flags, as the object the column holds. Empty is the ordinary case
  * @param published whether it may be bought. Publishing a tier with nothing to charge against is refused —
- * see {@link TierEdited.NothingToChargeAgainst}
+ * see {@link TierEdited.NothingToChargeAgainst} — and so is publishing one that grants nothing, see
+ * {@link TierEdited.NothingToGrant}
  */
-public record TierEdit(String name, int relistQuotaPerPeriod, Map<String, Object> features, boolean published) {
+public record TierEdit(String name, Integer relistQuotaPerPeriod, Map<String, Object> features,
+		boolean published) {
 
 	public TierEdit {
 		if (name == null || name.isBlank()) {
@@ -48,7 +58,7 @@ public record TierEdit(String name, int relistQuotaPerPeriod, Map<String, Object
 			// whatever is there rather than taking a subscriber's `/api/me` down over a label.
 			throw new IllegalArgumentException("A tier carries display text; an empty name is not one");
 		}
-		if (relistQuotaPerPeriod < 0) {
+		if (relistQuotaPerPeriod != null && relistQuotaPerPeriod < 0) {
 			throw new IllegalArgumentException("A tier granting fewer than no relists is a row "
 					+ "tier_relist_quota_per_period_check would refuse: " + relistQuotaPerPeriod);
 		}
@@ -58,6 +68,39 @@ public record TierEdit(String name, int relistQuotaPerPeriod, Map<String, Object
 		}
 		name = name.strip();
 		features = Collections.unmodifiableMap(new LinkedHashMap<>(features));
+	}
+
+	/**
+	 * Whether a period on this tier grants no reposts at all (ADR-0029).
+	 *
+	 * <p><strong>Here because the publish rule has three layers and they must agree what "nothing" is.</strong>
+	 * {@code CatalogEntry}'s constructor, {@code TierRows.applyEdit} and {@code CreatePlans.asGrant} each
+	 * refuse a published tier that grants nothing, and each had written the comparison out for itself — in
+	 * three spellings, one of them an unboxing {@code ==}. Three copies of one rule about one field is the
+	 * set that drifts, and the way it drifts here is silent: every spelling agrees about {@code 0}, and the
+	 * one that unboxes throws on unlimited instead of answering false.
+	 *
+	 * <p><strong>It is not the rule, only half of it.</strong> The rule is
+	 * {@code published() && grantsNothing()} and is written that way at every site, because folding
+	 * {@code published} in would make this read as a statement about what {@code 0} means. It means what an
+	 * operator typed: a tier granting nothing is a legitimate row, and only selling one is refused (see
+	 * {@link TierEdited.NothingToGrant}).
+	 */
+	public boolean grantsNothing() {
+		return grantsNothing(this.relistQuotaPerPeriod);
+	}
+
+	/**
+	 * The same question of a bare quota, for the readers holding one outside a {@link TierEdit} —
+	 * {@code CatalogEntry}, which is the read side of the same row and cannot build an edit to ask.
+	 *
+	 * <p>{@code Integer.valueOf(0).equals(...)} rather than {@code quota == 0}, and that is the whole reason
+	 * this is a method: unlimited is {@code null} (ADR-0029), so the unboxing comparison throws a
+	 * {@link NullPointerException} on the most generous tier in the catalog — on a path whose job is to
+	 * decide whether that tier may be sold.
+	 */
+	public static boolean grantsNothing(Integer relistQuotaPerPeriod) {
+		return Integer.valueOf(0).equals(relistQuotaPerPeriod);
 	}
 
 }

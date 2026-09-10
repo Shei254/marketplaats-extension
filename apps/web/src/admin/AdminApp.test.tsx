@@ -48,6 +48,16 @@ const DRAFT: AdminTier = {
   prices: [{ stripePriceId: "price_starter", interval: "month" }],
 };
 
+/** A tier with no repost cap (T73, ADR-0029) — the third thing a quota can say. */
+const UNLIMITED: AdminTier = {
+  tier: { code: "power", name: "Power" },
+  relistQuotaPerPeriod: null,
+  features: {},
+  published: true,
+  isDefault: false,
+  prices: [{ stripePriceId: "price_power", interval: "month" }],
+};
+
 /** A Price in Stripe carrying no `tier_code`, which is what the second page lists. */
 const UNTAGGED = {
   id: "price_loose",
@@ -174,6 +184,21 @@ async function type(selector: string, value: string): Promise<void> {
   const prototype = field instanceof HTMLTextAreaElement ? HTMLTextAreaElement : HTMLInputElement;
   Object.getOwnPropertyDescriptor(prototype.prototype, "value")?.set?.call(field, value);
   await act(async () => field.dispatchEvent(new Event("input", { bubbles: true })));
+}
+
+/** Tick or untick a checkbox the way a person does — by clicking the box itself. */
+async function check(selector: string): Promise<void> {
+  const box = container.querySelector<HTMLInputElement>(selector);
+  if (!box) throw new Error(`no checkbox at ${selector} — screen reads: ${text()}`);
+  await act(async () => box.click());
+}
+
+/** The body of the one `PUT /api/admin/tiers/...` this screen sent. */
+function sentEdit(s: ReturnType<typeof stack>): Record<string, unknown> {
+  return JSON.parse(s.calls.find((call) => call.method === "PUT")?.body ?? "{}") as Record<
+    string,
+    unknown
+  >;
 }
 
 /** The body of the one `POST /api/admin/plans` this screen sent. */
@@ -477,6 +502,146 @@ describe("editing a tier", () => {
     // Quota 0 on the default tier is how ADR-0019 says "there is no free tier".
     expect(sent["relistQuotaPerPeriod"]).toBe(0);
     expect(Object.keys(sent).sort()).toEqual(["features", "name", "published", "relistQuotaPerPeriod"]);
+  });
+
+  it("refuses a blank quota rather than reading it as zero", async () => {
+    // `Number("") === 0`, so a cleared field used to submit a tier granting
+    // nothing, silently — and on the default tier that is "there is no free tier"
+    // (ADR-0019) applied by accident.
+    const s = stack();
+
+    await arrive(s);
+    await click("Edit");
+    await type("#tier-quota", "");
+    await click("Save");
+
+    expect(text()).toContain("Relists per period");
+    expect(s.calls.some((call) => call.method === "PUT")).toBe(false);
+  });
+
+  describe("and giving it no cap at all (T73, ADR-0029)", () => {
+    it("shows the row as unlimited rather than as a blank or a zero", async () => {
+      const s = stack({ tiers: () => json({ tiers: [FREE, UNLIMITED] }) });
+
+      await arrive(s);
+
+      expect(text()).toContain("Unlimited");
+    });
+
+    it("sends an explicit null, which is the only thing that means unlimited", async () => {
+      const s = stack({ tiers: () => json({ tiers: [PRO] }) });
+
+      await arrive(s);
+      await click("Edit");
+      await check("#tier-unlimited");
+      await click("Save");
+      await until(() => s.calls.some((call) => call.method === "PUT"), "the save to reach the API");
+
+      // Present and null — absent is a `400`, which is the distinction the whole
+      // write side of ADR-0029 rests on.
+      const sent = sentEdit(s);
+      expect(sent["relistQuotaPerPeriod"]).toBeNull();
+      expect(Object.keys(sent).sort()).toEqual(["features", "name", "published", "relistQuotaPerPeriod"]);
+    });
+
+    it("and greys the number, because there is no longer a number to type", async () => {
+      const s = stack({ tiers: () => json({ tiers: [PRO] }) });
+
+      await arrive(s);
+      await click("Edit");
+      await check("#tier-unlimited");
+
+      expect(container.querySelector<HTMLInputElement>("#tier-quota")?.disabled).toBe(true);
+    });
+
+    it("warns about the reach when it is the tier every new account lands on", async () => {
+      // Every new account and every subscription that ends (ADR-0018). It warns
+      // rather than refuses: a self-hosted single-user deployment *is* this.
+      const s = stack();
+
+      await arrive(s);
+      await click("Edit");
+      await check("#tier-unlimited");
+
+      expect(text()).toContain("every new account");
+    });
+
+    it("and says nothing of the sort on a tier nobody is provisioned onto", async () => {
+      const s = stack({ tiers: () => json({ tiers: [PRO] }) });
+
+      await arrive(s);
+      await click("Edit");
+      await check("#tier-unlimited");
+
+      expect(text()).not.toContain("every new account");
+    });
+  });
+
+  describe("and zeroing one that is on sale (T73, ADR-0029)", () => {
+    it("says the plan will be withdrawn rather than letting the API refuse it", async () => {
+      const s = stack({ tiers: () => json({ tiers: [PRO] }) });
+
+      await arrive(s);
+      await click("Edit");
+      await type("#tier-quota", "0");
+
+      expect(text()).toContain("take Pro off sale");
+    });
+
+    it("and withdraws it in the same submit, because a PUT is whole", async () => {
+      const s = stack({ tiers: () => json({ tiers: [PRO] }) });
+
+      await arrive(s);
+      await click("Edit");
+      await type("#tier-quota", "0");
+      await click("Save");
+      await until(() => s.calls.some((call) => call.method === "PUT"), "the save to reach the API");
+
+      // Said here rather than sent to an API that would refuse it, which is
+      // `NewPlanForm`'s existing habit: a round trip to be told what is already
+      // visible on this form.
+      expect(sentEdit(s)["relistQuotaPerPeriod"]).toBe(0);
+      expect(sentEdit(s)["published"]).toBe(false);
+    });
+  });
+
+  describe("and putting one that grants nothing on sale (T73, ADR-0029)", () => {
+    // The same rule met from the other side, and the commoner route: a draft is
+    // quota 0 by definition (ADR-0019), so ticking On sale on one is how an
+    // operator most often asks for a thing the API refuses.
+    it("warns before the save, rather than unticking the box behind them", async () => {
+      const s = stack({ tiers: () => json({ tiers: [DRAFT] }) });
+
+      await arrive(s);
+      await click("Edit");
+      await check("#tier-published");
+
+      expect(text()).toContain("not put starter on sale");
+    });
+
+    it("and says it in the tense of what has not happened yet", async () => {
+      // The withdrawal sentence would be a lie here: nothing is being taken off
+      // sale, because it was never on it.
+      const s = stack({ tiers: () => json({ tiers: [DRAFT] }) });
+
+      await arrive(s);
+      await click("Edit");
+      await check("#tier-published");
+
+      expect(text()).not.toContain("off sale");
+    });
+
+    it("and the save still leaves it off sale, which is what the warning said", async () => {
+      const s = stack({ tiers: () => json({ tiers: [DRAFT] }) });
+
+      await arrive(s);
+      await click("Edit");
+      await check("#tier-published");
+      await click("Save");
+      await until(() => s.calls.some((call) => call.method === "PUT"), "the save to reach the API");
+
+      expect(sentEdit(s)["published"]).toBe(false);
+    });
   });
 
   it("says why a tier with no Price cannot go on sale, before the save rather than after", async () => {
@@ -792,6 +957,38 @@ describe("creating a plan from the screen", () => {
       { amount: 500, interval: "month" },
       { amount: 5000, interval: "year" },
     ]);
+  });
+
+  it("refuses a blank quota rather than creating a plan that grants nothing", async () => {
+    // The same `Number("") === 0` hole as the edit form's, at the second of its two
+    // call sites — a plan created granting nothing is one nobody can be sold.
+    const s = stack();
+
+    await arrive(s);
+    await click("New plan");
+    await type("#plan-name", "Starter");
+    await type("#plan-amount-month", "5.00");
+    await type("#plan-quota", "");
+    await click("Create in Stripe");
+
+    expect(s.calls.some((call) => call.url.endsWith("/api/admin/plans"))).toBe(false);
+  });
+
+  it("or creates one with no cap at all, as an explicit null", async () => {
+    const s = stack();
+
+    await arrive(s);
+    await click("New plan");
+    await type("#plan-name", "Starter");
+    await type("#plan-amount-month", "5.00");
+    await check("#plan-unlimited");
+    await click("Create in Stripe");
+    await until(
+      () => s.calls.some((call) => call.url.endsWith("/api/admin/plans")),
+      "the plan to reach the API",
+    );
+
+    expect(sentPlan(s)["relistQuotaPerPeriod"]).toBeNull();
   });
 
   it("and a plan sold only one way is still a plan", async () => {

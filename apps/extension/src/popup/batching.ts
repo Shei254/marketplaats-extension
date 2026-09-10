@@ -26,6 +26,19 @@ export interface BulkSelection {
    * and the quota is what the period has left — a selection of ten against two
    * remaining relists is eight ads the gate would refuse one after another, each
    * costing an attempt and a wait.
+   *
+   * **`Infinity` where neither half caps** — an unlimited tier (ADR-0029) whose
+   * flag sells no number. That is arithmetic and not a sentinel, which is the
+   * distinction ADR-0029 draws about `-1`: every comparison in this file is
+   * *correct* on it (`min`, `>=`, `<=`, `slice`), where a large finite stand-in
+   * would be a lie that bites at exactly the scale nobody tests at.
+   *
+   * **Three places could print it, and each is guarded separately** — the two
+   * sentences ask {@link describeCap} and {@link shortCap}, which answer `null`
+   * where nothing caps; {@link describeSelectAll} has no such call and asks
+   * {@link Number.isFinite} itself. The first draft of this claimed the two
+   * sentences were all of them, and the count over a searched list printed
+   * "5 of Infinity selected" for as long as that sentence went unchecked.
    */
   cap: number;
   /** What the plan sells, for the sentence that explains a cap the quota set. */
@@ -76,16 +89,23 @@ export const BULK_OFFERED = false;
  * **What stays here is the quota**, which is the half nothing else can know: the
  * cap is `min(quotaRemaining, upTo)`, and the second number is one `/api/me`
  * reports rather than one the plan sells.
+ *
+ * **An unlimited tier drops out of that `min`** (T73, ADR-0029): a period with no
+ * ceiling cannot be the smaller of the two, so what the plan sells is the whole of
+ * the cap — and where it sells no number either, nothing caps the selection but
+ * the list itself.
  */
 export function bulkFor(plan: DisplayState): BulkSelection | null {
   const grant = bulkIn(plan.features);
   if (!grant.granted) return null;
   const { upTo } = grant;
-  return { cap: upTo === null ? plan.quotaRemaining : Math.min(plan.quotaRemaining, upTo), upTo };
+  const left = plan.quotaRemaining ?? Number.POSITIVE_INFINITY;
+  return { cap: upTo === null ? left : Math.min(left, upTo), upTo };
 }
 
 /**
- * As many of these ads as the cap allows, top down.
+ * As many of these ads as the cap allows, top down. An `Infinity` cap takes them
+ * all, which is what `slice` does with it and what an uncapped selection means.
  *
  * **Top down and not "the ones nearest the cap"**, because the list is the order
  * somebody read it in: Select all on a plan that reposts ten of forty ads has to
@@ -97,27 +117,55 @@ export function pickUpTo(listingIds: readonly string[], cap: number): string[] {
 }
 
 /**
- * Which of the two numbers in the cap is the one doing the stopping.
+ * Which of the two numbers in the cap is the one doing the stopping, or neither.
  *
  * Asked in one place and answered in one place, because the two sentences built on
  * it — the long one under the button and the short one in the header — have to
  * agree about which number is biting or they are two screens describing different
- * accounts.
+ * accounts. {@link CAPPED_BY} carries the wording of both for the same reason.
+ *
+ * `null` is an unlimited tier whose flag sells no number (ADR-0029): the cap is
+ * `Infinity`, nothing is stopping anything, and there is no sentence to say.
  */
-function whatCaps(bulk: BulkSelection): "plan" | "quota" {
-  return bulk.upTo !== null && bulk.cap >= bulk.upTo ? "plan" : "quota";
+function whatCaps(bulk: BulkSelection): "plan" | "quota" | null {
+  if (bulk.upTo !== null && bulk.cap >= bulk.upTo) return "plan";
+  return Number.isFinite(bulk.cap) ? "quota" : null;
 }
 
 /**
  * Why the boxes stopped ticking, as a sentence — and it is a different sentence
  * depending on which of the two numbers ran out, because only one of them is
  * something a bigger plan fixes.
+ *
+ * `null` where neither ran out. Every caller here asks this before drawing rather
+ * than after deciding a cap bit, so an unbounded selection cannot reach a screen
+ * as a number.
  */
-export function describeCap(bulk: BulkSelection): string {
-  return whatCaps(bulk) === "plan"
-    ? `Your plan reposts ${bulk.upTo} at a time.`
-    : "That is all the relists you have left this period.";
+export function describeCap(bulk: BulkSelection): string | null {
+  const cause = whatCaps(bulk);
+  return cause === null ? null : CAPPED_BY[cause].long(bulk);
 }
+
+/**
+ * The two ways of saying each cause, side by side.
+ *
+ * **A table rather than the same switch written twice**, because the pair under one
+ * key is the thing that has to agree: the long sentence under the button and the
+ * short one in the header describe the same number biting, and when they lived in
+ * two functions a hundred lines apart, keeping them saying the same thing was
+ * nobody's job. {@link whatCaps} already made the *decision* one; this makes the
+ * wording one.
+ */
+const CAPPED_BY = {
+  plan: {
+    long: (bulk: BulkSelection) => `Your plan reposts ${bulk.upTo} at a time.`,
+    short: (bulk: BulkSelection) => `${bulk.upTo} at a time`,
+  },
+  quota: {
+    long: () => "That is all the relists you have left this period.",
+    short: (bulk: BulkSelection) => `${bulk.cap} left`,
+  },
+} as const;
 
 /**
  * Why no box on this list can be ticked at all, or nothing when they can.
@@ -154,7 +202,12 @@ export function describeTick(
   const locked = lockedBecause(bulk, frozen);
   if (locked !== null) return locked;
   if (ticked) return "Ticked — this ad is in the next run. Click to leave it out.";
-  if (full && bulk !== null) return describeCap(bulk);
+  if (full && bulk !== null) {
+    const why = describeCap(bulk);
+    // A cap that is not capping has nothing to say, and the ordinary sentence is
+    // the true one — a box on an uncapped selection can always be ticked.
+    if (why !== null) return why;
+  }
   return "Repost this ad in one run with the others.";
 }
 
@@ -176,7 +229,8 @@ export function describeSelectAllTick(
 ): string {
   const locked = lockedBecause(bulk, frozen);
   if (locked !== null) return locked;
-  if (bulk !== null && bulk.cap === 0) return describeCap(bulk);
+  const why = bulk === null ? null : describeCap(bulk);
+  if (bulk !== null && bulk.cap === 0 && why !== null) return why;
   if (reach === 0) return "There are no ads here to select.";
   if (all) return "Untick every row.";
   return reach === 1 ? "Tick the one ad here and repost it." : `Tick the first ${reach} ads and repost them in one run.`;
@@ -213,13 +267,24 @@ export function describeSelectAll(
   // everything it holds — beside a Select all box that is, correctly, full —
   // is three controls telling the user three different stories about the same
   // screen, and the one that invents eight more ads is the one that is wrong.
+  //
+  // **An unbounded cap can never be met**, so it is never named (T73, ADR-0029).
+  // Asked first because the test above cannot answer it: `rowsShown <= Infinity`
+  // is true of every list, so a search hiding part of the selection fell straight
+  // through to the line below and read "5 of Infinity selected".
+  if (!Number.isFinite(bulk.cap)) return { label: `${count} selected`, hint: null };
   if (rowsShown <= bulk.cap && count <= rowsShown) return { label: `${count} selected`, hint: null };
   return { label: `${count} of ${bulk.cap} selected`, hint: null };
 }
 
-/** The cap in the four or five characters a row this wide has left for it. */
-function shortCap(bulk: BulkSelection): string {
-  return whatCaps(bulk) === "plan" ? `${bulk.upTo} at a time` : `${bulk.cap} left`;
+/**
+ * The cap in the four or five characters a row this wide has left for it, or
+ * nothing where nothing caps — which is the one place an unbounded cap could have
+ * reached a screen, as "Infinity left".
+ */
+function shortCap(bulk: BulkSelection): string | null {
+  const cause = whatCaps(bulk);
+  return cause === null ? null : CAPPED_BY[cause].short(bulk);
 }
 
 /**
@@ -262,7 +327,12 @@ export function describeHidden(hidden: number): string | null {
 export function offerSelection(chosen: readonly string[], bulk: BulkSelection, shape: BatchShape): BatchOffer | null {
   if (chosen.length === 0) return null;
   const listingIds = pickUpTo(chosen, bulk.cap);
-  if (listingIds.length === 0) return { kind: "blocked", why: describeCap(bulk) };
+  if (listingIds.length === 0) {
+    // Something has to be capping for a non-empty selection to come back empty, so
+    // there is a sentence; a bar with no offer and no reason on it would not be one.
+    const why = describeCap(bulk);
+    return why === null ? null : { kind: "blocked", why };
+  }
   const long = describeDuration(estimateBatchMs(listingIds.length, shape.gap, shape.rails));
   return {
     kind: "repost",
@@ -303,7 +373,10 @@ export function offerUnstarted(run: BatchRun | null, bulk: BulkSelection | null)
   // are not reachable from there.
   if (unstarted.length === 0 || bulk === null) return null;
   const listingIds = pickUpTo(unstarted, bulk.cap);
-  if (listingIds.length === 0) return { kind: "blocked", why: describeCap(bulk) };
+  if (listingIds.length === 0) {
+    const why = describeCap(bulk);
+    return why === null ? null : { kind: "blocked", why };
+  }
   return listingIds.length < unstarted.length
     ? {
         kind: "repost",

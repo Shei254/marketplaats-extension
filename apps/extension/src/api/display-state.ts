@@ -1,4 +1,4 @@
-import { SUBSCRIPTION_STATUSES, type DisplayState } from "@mprelist/contracts";
+import { SUBSCRIPTION_STATUSES, isQuota, type DisplayState } from "@mprelist/contracts";
 
 import type { AccessToken } from "../auth/session";
 import type { Http } from "../auth/discovery";
@@ -99,6 +99,12 @@ const UNAVAILABLE: DisplayStateAnswer = { status: "unavailable" };
  * `features` is read as an object and not for its contents: no flag is defined
  * yet (`{}` on every tier in the catalog), and a client that started branching on
  * one before the contract names it would be guessing.
+ *
+ * **A quota of `null` is a value and not a hole** (T73, ADR-0029) — a tier with no
+ * cap. The two nullable fields are checked the same way and are always null
+ * together: one is the ceiling and the other is what is left under it. A parser
+ * that refused them would render "unavailable" to the users on the most generous
+ * plan in the catalog.
  */
 export function asDisplayState(body: unknown): DisplayState | null {
   if (typeof body !== "object" || body === null) return null;
@@ -112,18 +118,10 @@ export function asDisplayState(body: unknown): DisplayState | null {
   const features = fields["features"];
 
   if (!isSubscriptionStatus(status)) return null;
-  if (typeof quotaRemaining !== "number" || !Number.isInteger(quotaRemaining) || quotaRemaining < 0) {
-    return null;
-  }
+  if (!isQuota(quotaRemaining)) return null;
   // The grant, which is the other half of "2 of 3" (#41). Required like the rest:
   // a snapshot missing it would render a sentence with a hole where a number goes.
-  if (
-    typeof relistQuotaPerPeriod !== "number" ||
-    !Number.isInteger(relistQuotaPerPeriod) ||
-    relistQuotaPerPeriod < 0
-  ) {
-    return null;
-  }
+  if (!isQuota(relistQuotaPerPeriod)) return null;
   if (typeof resetAt !== "string" || resetAt.length === 0) return null;
   if (typeof features !== "object" || features === null || Array.isArray(features)) return null;
 

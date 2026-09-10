@@ -133,6 +133,15 @@ describe("saying what happened", () => {
     expect(asRemainingQuota(null)).toBeNull();
   });
 
+  it("but an explicit null quota is a tier with no cap rather than a body it could not read", () => {
+    // T73 (ADR-0029): there is nothing left of a grant with no ceiling, and the
+    // strip draws "Unlimited reposts" from exactly this.
+    expect(asRemainingQuota({ quotaRemaining: null, resetAt: "2026-09-14T08:31:22.101Z" })).toEqual({
+      quotaRemaining: null,
+      resetAt: "2026-09-14T08:31:22.101Z",
+    });
+  });
+
   it("gives up quietly when the backend is unreachable", async () => {
     // The relist already happened. A reservation nobody reports on is refunded by
     // reconciliation after a grace window (#24), and a late report still wins —

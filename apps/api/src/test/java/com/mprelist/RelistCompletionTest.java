@@ -115,6 +115,29 @@ class RelistCompletionTest {
 	}
 
 	/**
+	 * On an unlimited tier there is no number left to report, so the field is {@code null} rather than a
+	 * large number (T73, #160; ADR-0029) — and the body is still the two fields the contract names. The unit
+	 * is spent all the same: {@code SafetyPolicy} counts attempts and {@code RelistEvent} is the breakage
+	 * canary, and neither is unmetered because a plan is.
+	 */
+	@Test
+	void andOnAnUnlimitedTierWhatIsLeftIsNoNumberAtAll() {
+		Subscriber user = this.rows.entitledTo(null);
+		UUID authorized = authorize(user, "ad-1");
+
+		HttpResponse<String> reported = complete(user, authorized, "SUCCESS");
+
+		assertThat(reported.statusCode()).isEqualTo(200);
+		JsonNode left = Json.of(reported);
+		assertThat(left.get("quotaRemaining").isNull()).isTrue();
+		assertThat(OffsetDateTime.parse(left.get("resetAt").asString())).isEqualTo(this.rows.windowOf(user).end());
+		assertThat(left.size()).isEqualTo(2);
+		assertThat(this.rows.theOnlyReservationOf(user).get("status")).isEqualTo("SETTLED");
+		assertThat(this.rows.eventsOf(user)).singleElement()
+				.satisfies(event -> assertThat(event.get("outcome")).isEqualTo("SUCCESS"));
+	}
+
+	/**
 	 * And so does one that failed once the ad was already gone. {@code FAILED_AFTER_DELETE} is the worst thing
 	 * that can happen to a user and still costs them the unit: the destructive half of ADR-0003's delete-first
 	 * flow happened, and a quota that gave the unit back would let a broken relist loop burn a seller's

@@ -156,7 +156,7 @@ Mutation-verified — each of these was applied, observed, and reverted:
 what it has already applied, so a correction to that file once it has run anywhere is a new `V2` — never an
 edit to `V1`.
 
-Five migrations follow it, each named for what it adds rather than for the ticket that wanted it:
+Further migrations follow it, each named for what it adds rather than for the ticket that wanted it:
 `V2__seed_tier_catalog.sql` (the catalog, below), `V3__index_abandoned_reservations.sql` (the index #24's
 sweep reads — see [What nobody ever reports back](#what-nobody-ever-reports-back)),
 `V4__index_relists_by_when_they_were_taken.sql` (the one the pacing rail reads — see
@@ -167,6 +167,13 @@ Stripe's telling a subscription is, which is what makes a redelivered or overtak
 [Where a payment becomes an entitlement](#where-a-payment-becomes-an-entitlement)). Both index files carry the
 whole argument for why they do not collapse into V1's, which is the same argument twice: an index partial on a
 status serves only a statement that says something about status.
+
+`V7__tier_prices.sql` moves a tier's Stripe Price into a table of its own so a plan can be sold at several
+rhythms, and turns V5's check into the trigger that spans both. `V8__seed_bulk_entitlement.sql` writes the
+first feature flag anything reads. `V9__unlimited_reposts.sql` makes `relist_quota_per_period` nullable —
+`null` is unlimited, `0` still grants nothing ([ADR-0029](../../docs/adr/0029-unlimited-is-null-and-zero-still-grants-nothing.md))
+— and adds the trigger that says a published tier grants something, which is the rule the sync's auto-publish
+had to itself until now.
 
 > If startup fails with **`Migration checksum mismatch for migration version 1`**, your Postgres volume
 > predates the rename `keycloak_subject` → `idp_subject` in [#17](https://github.com/Shei254/marketplaats-extension/issues/17),
@@ -1146,9 +1153,18 @@ module is named for.
 { "subscriptionStatus": "ACTIVE",
   "tier": { "code": "free", "name": "Free" },
   "quotaRemaining": 2,
+  "relistQuotaPerPeriod": 3,
   "resetAt": "2026-09-14T08:31:22.101Z",
   "features": {} }
 ```
+
+**Both numbers are `null` on an unlimited tier** ([ADR-0029](../../docs/adr/0029-unlimited-is-null-and-zero-still-grants-nothing.md)),
+and always together: one is the ceiling and the other is what is left under it. That is the read side of the
+sentinel — `null` is unlimited, `0` still grants nothing — and the reason `Entitlement.relistsPerPeriod`,
+`RemainingQuota.quotaRemaining` and this body's two fields are all `Integer` rather than `int`. A `-1`
+sentinel would make `Math.max(0, -1 - held)` come out `0`, so the most generous tier in the catalog would
+refuse every repost while reading as a gate that works; a `null` cannot be silently arithmetically wrong,
+because the compiler names every reader instead.
 
 **`200` or `401`, and nothing between them.** Every user always has a subscription (ADR-0014), so there is
 nothing here to refuse: a payer whose plan lapsed and a free user with nothing left are both *shown* that,
@@ -1360,8 +1376,8 @@ is the whole reason the tag is the handle rather than a price id somebody pastes
 | | |
 |---|---|
 | A quota is never written | `relist_quota_per_period` appears only in the `insert`, and only as the `0` a draft starts at. The `do update` arm cannot raise or lower one, because it does not name the column. A Price tagged `pro` fills in the seeded row and leaves its 50 alone — the rule `V2__seed_tier_catalog.sql` already states for itself |
-| An unknown code drafts a tier | quota 0, `published = false`. A Price that exists before anybody has said what it grants sells nothing rather than selling everything |
-| Publication only ever rises | and only when a tier **with a quota** takes its **first** Price, which is what fills in the seeded `pro` and `power`. A later Price repoints the tier and leaves `published` alone, so a tier an operator took off sale does not come back on it because Stripe sent an update |
+| An unknown code drafts a tier | quota 0, `published = false`. A Price that exists before anybody has said what it grants sells nothing rather than selling everything. Still literally `0` and not the `null` ADR-0029 added: a draft is "nobody has said what this grants", and unlimited is somebody saying it |
+| Publication only ever rises | and only when a tier **that grants something** takes its **first** Price, which is what fills in the seeded `pro` and `power`. A later Price repoints the tier and leaves `published` alone, so a tier an operator took off sale does not come back on it because Stripe sent an update. "Grants something" is `> 0 or is null` since ADR-0029 — under the old `> 0` an unlimited tier would have been the one that never went on sale when its Price landed, precisely because it is the best one — and it is now the same condition `V9`'s trigger and `TierEdited.NothingToGrant` state, so the two publish paths agree |
 
 **A Price with no `tier_code` is not a plan.** Stripe Prices get created for one-offs, coupons and
 experiments, and a sync that adopted all of them would turn a billing experiment into a tier. The cost is the

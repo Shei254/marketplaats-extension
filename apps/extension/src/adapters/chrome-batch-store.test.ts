@@ -96,4 +96,13 @@ describe("what is not worth reading as a run", () => {
 
     expect(asBatchRun({ ...aRun(), quota })?.quota).toEqual(quota);
   });
+
+  // Including the one an unlimited tier reports (T73, ADR-0029), which is a null
+  // number rather than an unreadable one — dropping it would put a fraction back
+  // on a strip that has none.
+  it("and one with no number in it at all, which is a tier with no cap", () => {
+    const quota = { quotaRemaining: null, resetAt: "2026-10-01T00:00:00Z" };
+
+    expect(asBatchRun({ ...aRun(), quota })?.quota).toEqual(quota);
+  });
 });

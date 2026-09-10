@@ -32,15 +32,24 @@ import {
 
 const NOW = 1_700_000_000_000;
 
-function planWith(features: Record<string, unknown>, quotaRemaining = 50): DisplayState {
+function planWith(
+  features: Record<string, unknown>,
+  quotaRemaining: number | null = 50,
+  relistQuotaPerPeriod: number | null = 50,
+): DisplayState {
   return {
     subscriptionStatus: "ACTIVE",
     tier: { code: "pro", name: "Pro" },
     quotaRemaining,
-    relistQuotaPerPeriod: 50,
+    relistQuotaPerPeriod,
     resetAt: "2026-10-01T00:00:00Z",
     features,
   };
+}
+
+/** A plan with no repost cap at all (T73, ADR-0029) — both halves are null together. */
+function unlimitedPlanWith(features: Record<string, unknown>): DisplayState {
+  return planWith(features, null, null);
 }
 
 describe("what a plan lets somebody select", () => {
@@ -79,6 +88,24 @@ describe("what a plan lets somebody select", () => {
     expect(bulkFor(planWith({ bulk: true }, 7))).toEqual({ cap: 7, upTo: null });
     expect(bulkFor(planWith({ bulk: { upTo: 0 } }, 7))).toEqual({ cap: 7, upTo: null });
     expect(bulkFor(planWith({ bulk: { upTo: "ten" } }, 7))).toEqual({ cap: 7, upTo: null });
+  });
+
+  // On an unlimited tier the quota is not one of the two numbers any more, so the
+  // `min` has one operand and the plan's own number is the whole of the cap
+  // (T73, ADR-0029).
+  it("and on a tier with no cap it is whatever the flag sells", () => {
+    expect(bulkFor(unlimitedPlanWith({ bulk: { upTo: 10 } }))).toEqual({ cap: 10, upTo: 10 });
+  });
+
+  // Neither number caps it, and the honest cap is then no number at all — which
+  // is arithmetic rather than a sentinel: `Infinity` is right in every comparison
+  // this file makes of it, where a large finite stand-in would be a lie that bites
+  // at exactly the scale nobody tests at.
+  it("and nothing at all where the flag sells no number either", () => {
+    expect(bulkFor(unlimitedPlanWith({ bulk: true }))).toEqual({
+      cap: Number.POSITIVE_INFINITY,
+      upTo: null,
+    });
   });
 });
 
@@ -252,6 +279,16 @@ describe("ticking as much as the plan allows", () => {
   it("and the period's when that is the smaller one", () => {
     expect(describeCap({ cap: 3, upTo: 10 })).toContain("all the relists you have left");
   });
+
+  // Neither ran out, so there is no sentence to say — and saying one would name a
+  // number that is not stopping anything.
+  it("and nothing at all where neither of them is stopping anything", () => {
+    expect(describeCap({ cap: Number.POSITIVE_INFINITY, upTo: null })).toBeNull();
+  });
+
+  it("takes every ad when nothing caps the selection", () => {
+    expect(pickUpTo(["a", "b", "c"], Number.POSITIVE_INFINITY)).toEqual(["a", "b", "c"]);
+  });
 });
 
 describe("what the line over the list says", () => {
@@ -266,6 +303,14 @@ describe("what the line over the list says", () => {
   // for it — the long form belongs under the button, where there is room.
   it("or how many the period has left, when that is the smaller number", () => {
     expect(describeSelectAll(0, { cap: 3, upTo: 10 }, 40)).toEqual({ label: "Select all", hint: "3 left" });
+  });
+
+  // And no number at all where neither caps: the row would otherwise read
+  // "Infinity left", which is the one place an unbounded cap could reach a screen.
+  it("and no number at all where nothing caps it", () => {
+    const uncapped = { cap: Number.POSITIVE_INFINITY, upTo: null };
+    expect(describeSelectAll(0, uncapped, 40)).toEqual({ label: "Select all", hint: null });
+    expect(describeSelectAll(3, uncapped, 40)).toEqual({ label: "3 selected", hint: null });
   });
 
   // The count carries the cap once anything is ticked, and the hint gives way to
@@ -290,6 +335,17 @@ describe("what the line over the list says", () => {
   it("and names it again once the count is bigger than the list", () => {
     expect(describeSelectAll(5, { cap: 10, upTo: 10 }, 2)).toEqual({
       label: "5 of 10 selected",
+      hint: null,
+    });
+  });
+
+  // Except where the cap is unbounded, which is the same route with nothing to
+  // name: a search hiding part of an unlimited tier's selection was the one path
+  // that reached this line with `Infinity` in hand, and it read "5 of Infinity
+  // selected" (T73, ADR-0029).
+  it("but never names an unbounded one, however the count outgrew the list", () => {
+    expect(describeSelectAll(5, { cap: Number.POSITIVE_INFINITY, upTo: null }, 2)).toEqual({
+      label: "5 selected",
       hint: null,
     });
   });

@@ -26,6 +26,8 @@ import com.mprelist.catalog.TierEdit;
 import com.mprelist.catalog.TierEdited;
 import com.mprelist.catalog.TierEdits;
 
+import tools.jackson.databind.JsonNode;
+
 /**
  * {@code POST /api/admin/plans} — creating a plan without leaving this screen, and
  * {@code GET /api/admin/currencies}, which is what makes the form's currency list something Stripe said
@@ -154,6 +156,11 @@ class CreatePlans {
 			// Reported rather than swallowed, because unreachable is a claim and this is where it would fail.
 			case TierEdited.NoSuchTier ignored -> ResponseEntity.status(500).build();
 			case TierEdited.NothingToChargeAgainst ignored -> ResponseEntity.status(500).build();
+			// Unreachable like the two above it, and for a reason of its own: `asGrant` refuses a
+			// zero-grant plan that asked to be on sale before Stripe is touched (ADR-0029), so nothing that
+			// reaches here can be one. Reported rather than swallowed, because unreachable is a claim and
+			// this is where it would fail.
+			case TierEdited.NothingToGrant ignored -> ResponseEntity.status(500).build();
 		};
 	}
 
@@ -281,7 +288,7 @@ class CreatePlans {
 	 * act an operator had to remember — with a plan card offering no choice in between.
 	 */
 	record NewPlanRequest(String tierCode, String name, List<NewPriceRequest> prices,
-			Integer relistQuotaPerPeriod, Map<String, Object> features, Boolean published) {
+			JsonNode relistQuotaPerPeriod, Map<String, Object> features, Boolean published) {
 
 		/**
 		 * @param currency the catalog's, not the caller's (T63, #129). There is no currency on this record on
@@ -305,13 +312,34 @@ class CreatePlans {
 		/**
 		 * What the tier grants, which is the same shape the edit form sends — so a plan created here and one
 		 * edited afterwards go through one validation rather than two that could differ.
+		 *
+		 * <p>The quota is read by {@link AdministerTiers#quotaSent}, which is where ADR-0029's rule for the
+		 * write side lives: absent is a refusal, an explicit JSON {@code null} is unlimited. Read there
+		 * rather than here for the same reason this method exists at all — a plan created on this form and
+		 * one edited on the next screen should not be able to disagree about what a quota may say.
 		 */
 		TierEdit asGrant() {
 			if (this.relistQuotaPerPeriod == null || this.published == null) {
 				throw new IllegalArgumentException("A new plan states its quota and whether it is on sale");
 			}
-			return new TierEdit(this.name, this.relistQuotaPerPeriod,
+			TierEdit grant = new TierEdit(this.name, AdministerTiers.quotaSent(this.relistQuotaPerPeriod),
 					this.features == null ? Map.of() : this.features, this.published);
+			/*
+			 * A plan that grants nothing cannot be on sale (ADR-0029), and *this* is the route where that has
+			 * to be said before anything happens rather than after. The edit form's counterpart answers a
+			 * typed `NothingToGrant` at the end, which costs nothing there because nothing has been done
+			 * yet; here the same answer would arrive with a Stripe Product and its Prices already created,
+			 * as a 409 indistinguishable from the one that means "that code is taken" — so an operator would
+			 * rename and retry, and make a second Product.
+			 *
+			 * Answered as an unusable body instead, which is the order this class already keeps: everything
+			 * about the request before anything about our ability to act on it.
+			 */
+			if (grant.published() && grant.grantsNothing()) {
+				throw new IllegalArgumentException("A plan granting no reposts is not one to put on sale; "
+						+ "create it unpublished and say what it grants first");
+			}
+			return grant;
 		}
 
 	}

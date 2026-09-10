@@ -2,6 +2,7 @@ package com.mprelist.enforcement.internal;
 
 import org.springframework.stereotype.Service;
 
+import com.mprelist.catalog.Entitlement;
 import com.mprelist.catalog.TierCatalog;
 import com.mprelist.enforcement.Quotas;
 import com.mprelist.enforcement.RemainingQuota;
@@ -29,10 +30,19 @@ class QuotasFromReservations implements Quotas {
 		this.reservations = reservations;
 	}
 
+	/**
+	 * <strong>An unlimited tier skips the count</strong> (ADR-0029). {@link RemainingQuota#of} ignores
+	 * {@code held} when the grant is {@code null}, so the statement behind it would be a scan of this
+	 * period's reservations for a number nothing reads — on the gate's own path, for the users doing the
+	 * highest volume. Skipped here rather than inside the record, because this is the class that knows what
+	 * asking costs.
+	 */
 	@Override
 	public RemainingQuota leftFor(UserRef caller, Subscription plan) {
-		return RemainingQuota.of(this.tiers.entitlementOf(plan.tier()),
-				this.reservations.unitsHeldIn(caller, plan.period()), plan.period());
+		Entitlement granted = this.tiers.entitlementOf(plan.tier());
+		int held = granted.relistsPerPeriod() == null ? 0
+				: this.reservations.unitsHeldIn(caller, plan.period());
+		return RemainingQuota.of(granted, held, plan.period());
 	}
 
 	private final TierCatalog tiers;

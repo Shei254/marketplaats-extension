@@ -32,6 +32,19 @@ class EntitlementTest {
 		assertThatCode(() -> new Entitlement(0, 1, Map.of())).doesNotThrowAnyException();
 	}
 
+	/**
+	 * Unlimited, which is the third state ADR-0029 added and the reason this component is boxed. It is
+	 * {@code null} rather than a large number or a {@code -1}: {@code Math.max(0, -1 - held)} is {@code 0},
+	 * so a sentinel below zero would refuse every repost while reading as a gate that works, where a
+	 * {@code null} makes the compiler name every reader.
+	 */
+	@Test
+	void orUnlimitedOnesOfThem() {
+		Entitlement unlimited = new Entitlement(null, 1, Map.of());
+
+		assertThat(unlimited.relistsPerPeriod()).isNull();
+	}
+
 	/** Below it is not a smaller grant but an unwriteable row, so it is refused where it is built. */
 	@Test
 	void butNotFewerThanNone() {

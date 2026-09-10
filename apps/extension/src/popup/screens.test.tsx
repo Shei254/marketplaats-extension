@@ -1,8 +1,10 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import type { DisplayState } from "@mprelist/contracts";
+
 import { NOT_OPENING } from "./plans";
-import { OutdatedScreen, SignedInScreen, relistsLeft, resetsOn } from "./screens";
+import { OutdatedScreen, SignedInScreen, repostsLeft, resetsOn } from "./screens";
 
 const PLAN = {
   subscriptionStatus: "ACTIVE",
@@ -18,13 +20,13 @@ describe("what is left of the plan", () => {
     // "2" does not say whether that is nearly all of them or nearly none. The
     // denominator arrived with T32 (#41), which added `relistQuotaPerPeriod` to
     // `/api/me` for exactly this sentence.
-    expect(relistsLeft(2, 3)).toBe("2 of 3 relists left");
-    expect(relistsLeft(0, 3)).toBe("0 of 3 relists left");
+    expect(repostsLeft(2, 3)).toBe("2 of 3 reposts left");
+    expect(repostsLeft(0, 3)).toBe("0 of 3 reposts left");
   });
 
   it("agrees with the grant rather than the remainder", () => {
-    expect(relistsLeft(1, 3)).toBe("1 of 3 relists left");
-    expect(relistsLeft(1, 1)).toBe("1 of 1 relist left");
+    expect(repostsLeft(1, 3)).toBe("1 of 3 reposts left");
+    expect(repostsLeft(1, 1)).toBe("1 of 1 repost left");
   });
 });
 
@@ -42,10 +44,12 @@ describe("when the quota comes back", () => {
 });
 
 describe("the plan strip", () => {
-  const render = (quotaRemaining: number) =>
+  const render = (quotaRemaining: number) => renderPlan({ quotaRemaining });
+
+  const renderPlan = (plan: Partial<DisplayState>) =>
     renderToStaticMarkup(
       <SignedInScreen
-        plan={{ ...PLAN, quotaRemaining }}
+        plan={{ ...PLAN, ...plan }}
         onRefresh={() => {}}
         onSignOut={() => {}}
         onSeePlans={() => {}}
@@ -58,7 +62,7 @@ describe("the plan strip", () => {
   it("names the tier as the operator spells it, beside what is left", () => {
     const markup = render(2);
     expect(markup).toContain('<span class="popup-plan-name">Free</span>');
-    expect(markup).toContain("2 of 3 relists left");
+    expect(markup).toContain("2 of 3 reposts left");
     expect(markup).toContain("resets 14 Sep");
   });
 
@@ -83,6 +87,73 @@ describe("the plan strip", () => {
     // conversion click is next to the user's own locked ads.
     expect(render(0)).toContain("See plans");
     expect(render(2)).not.toContain("See plans");
+  });
+
+  describe("on a tier with no cap (T73, ADR-0029)", () => {
+    const unlimited = renderPlan({ quotaRemaining: null, relistQuotaPerPeriod: null });
+
+    it("says so instead of a fraction", () => {
+      expect(unlimited).toContain('<span class="popup-plan-name">Free</span>');
+      expect(unlimited).toContain("Unlimited reposts");
+      expect(unlimited).not.toContain("reposts left");
+    });
+
+    it("draws no bar, because a proportion needs a ceiling", () => {
+      // A permanently full bar is decoration shaped like data: identical after
+      // five hundred reposts and after none.
+      expect(unlimited).not.toContain("mp-meter");
+      expect(render(2)).toContain("mp-meter");
+    });
+
+    it("and no reset date, which would invite the reader to believe there is a limit", () => {
+      expect(unlimited).not.toContain("resets 14 Sep");
+    });
+
+    it("is never the spent strip, however much has been reposted", () => {
+      expect(unlimited).not.toContain("popup-plan--spent");
+      expect(unlimited).not.toContain("See plans");
+    });
+  });
+
+  describe("on a tier that grants nothing (T73, ADR-0029)", () => {
+    const nothing = renderPlan({ quotaRemaining: 0, relistQuotaPerPeriod: 0 });
+
+    it("reads as a plan without reposts rather than as one that has run out", () => {
+      expect(nothing).toContain("No reposts on this plan");
+      expect(nothing).not.toContain("0 of 0");
+    });
+
+    it("promises no date, because nothing comes back on it", () => {
+      // The prompt used to tell its holder their reposts "come back on 14 Sep"
+      // when they come back as 0. The strip's own "resets 14 Sep" is the same
+      // promise in fewer words, so it goes with it.
+      expect(nothing).not.toContain("resets 14 Sep");
+      expect(nothing).not.toContain("They come back");
+    });
+
+    it("says the same thing when a card is failing, because the grant is the reason", () => {
+      // Reachable the way ADR-0029 says it is: a tier may be zeroed under the
+      // people already on it, and one of them may have a failing card. "0 relists"
+      // beside a dunning prompt blames the card for a nothing the plan chose.
+      const failing = renderPlan({
+        quotaRemaining: 0,
+        relistQuotaPerPeriod: 0,
+        subscriptionStatus: "PAST_DUE",
+      });
+
+      expect(failing).toContain("No reposts on this plan");
+      expect(failing).not.toContain("0 relists");
+    });
+
+    it("still points at the plans, which is the one thing that changes it", () => {
+      expect(nothing).toContain("See plans");
+    });
+
+    it("and still wears the warning strip, because there is still nothing to spend", () => {
+      // Not exhausted, and exactly as unusable — a strip drawn as ordinary above a
+      // list of locked buttons is a screen that looks fine and is not.
+      expect(nothing).toContain("popup-plan--spent");
+    });
   });
 });
 

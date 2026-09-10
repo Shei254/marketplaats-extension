@@ -2,7 +2,7 @@ import { Badge, Button, Icon, IconButton, Meter, Note, Skeleton, Spinner } from 
 import type { DisplayState } from "@mprelist/contracts";
 import type { JSX, ReactNode } from "react";
 
-import { MANAGING, type Handoff } from "./plans";
+import { MANAGING, UNLIMITED_REPOSTS, type Handoff } from "./plans";
 
 
 /**
@@ -184,7 +184,13 @@ export function SignedInScreen({
   handoff: Handoff;
   busy: boolean;
 }): JSX.Element {
-  const spent = plan.quotaRemaining === 0;
+  // The three states a quota can be in, asked once and answered here rather than
+  // re-derived at each of the four places below that branch on them (ADR-0029).
+  // `unlimited` reads the grant and not the remainder: the two are null together,
+  // and the ceiling is the fact the screen is actually about.
+  const unlimited = plan.relistQuotaPerPeriod === null;
+  const grantsNothing = plan.relistQuotaPerPeriod === 0;
+  const spent = plan.quotaRemaining === 0 && !grantsNothing;
   const paymentFailing = !ALLOWED_STATUSES.includes(plan.subscriptionStatus);
   return (
     <>
@@ -203,30 +209,37 @@ export function SignedInScreen({
           </>
         }
       />
-      <div className={stripClass(spent, paymentFailing)}>
+      <div className={stripClass(spent || grantsNothing, paymentFailing)}>
         <div className="popup-plan-top">
           <span className="popup-plan-name">
             {plan.tier.name}
             {paymentFailing ? <Badge tone="err">payment failed</Badge> : null}
           </span>
-          <span className="popup-plan-left">
-            {paymentFailing
-              ? `${plan.relistQuotaPerPeriod} relist${plan.relistQuotaPerPeriod === 1 ? "" : "s"}`
-              : relistsLeft(plan.quotaRemaining, plan.relistQuotaPerPeriod)}
-          </span>
+          <span className="popup-plan-left">{grantLine(plan, paymentFailing)}</span>
         </div>
         {/* No bar while a card is failing, and no date either. A meter says how much
             is available and none of it is: the tier is still theirs (ADR-0018) but
             nothing can be spent until Stripe is paid, and the prompt below is what
-            says so. Drawing 41 of 50 there would be an invitation. */}
-        {paymentFailing ? null : (
+            says so. Drawing 41 of 50 there would be an invitation.
+
+            And none of either on an unlimited tier, for the opposite reason and
+            deliberately in the same shape (ADR-0029): a meter draws a proportion
+            and there is no ceiling to draw one against, so a permanently full bar
+            would be decoration shaped like data — identical after five hundred
+            reposts and after none. */}
+        {paymentFailing || unlimited ? null : (
           <Meter
-            value={plan.quotaRemaining}
-            max={plan.relistQuotaPerPeriod}
-            valueText={relistsLeft(plan.quotaRemaining, plan.relistQuotaPerPeriod)}
+            value={plan.quotaRemaining ?? 0}
+            max={plan.relistQuotaPerPeriod ?? 0}
+            valueText={grantLine(plan)}
           />
         )}
-        {paymentFailing || !resetsOn(plan.resetAt) ? null : (
+        {/* A date is what makes "you have none left" actionable, and it is only
+            true where something actually comes back. It says nothing on an
+            unlimited tier — it would invite the reader to believe there is a limit
+            — and it is a promise on a tier granting 0, where what comes back is 0
+            (ADR-0029). */}
+        {paymentFailing || unlimited || grantsNothing || !resetsOn(plan.resetAt) ? null : (
           <p className="popup-plan-foot">{resetsOn(plan.resetAt)}</p>
         )}
       </div>
@@ -236,6 +249,7 @@ export function SignedInScreen({
       {spent && !paymentFailing ? (
         <ExhaustedPrompt resetAt={plan.resetAt} onSeePlans={onSeePlans} />
       ) : null}
+      {grantsNothing && !paymentFailing ? <NoRepostsPrompt onSeePlans={onSeePlans} /> : null}
       {children}
     </>
   );
@@ -250,9 +264,54 @@ export function SignedInScreen({
  */
 const ALLOWED_STATUSES: readonly DisplayState["subscriptionStatus"][] = ["ACTIVE", "TRIALING"];
 
-function stripClass(spent: boolean, paymentFailing: boolean): string {
+/**
+ * Which of the three treatments the strip wears.
+ *
+ * `nothingToSpend` is wider than *spent* on purpose (ADR-0029): a tier granting 0
+ * is not an exhausted one and the words say so, but the user can do exactly as
+ * much on it — nothing — and a strip drawn as ordinary above a list of locked
+ * buttons is a screen that looks fine and is not.
+ */
+function stripClass(nothingToSpend: boolean, paymentFailing: boolean): string {
   if (paymentFailing) return "popup-plan popup-plan--failing";
-  return spent ? "popup-plan popup-plan--spent" : "popup-plan";
+  return nothingToSpend ? "popup-plan popup-plan--spent" : "popup-plan";
+}
+
+/**
+ * The right-hand half of the strip's top line: what this plan has left, in the
+ * one sentence its three-and-a-bit states each need (ADR-0029).
+ *
+ * Written once and read three times — the line itself, the meter's
+ * `aria-valuetext`, and the current-plan card on the plans screen — because a bar
+ * and its own screen-reader sentence saying different things is the bug the
+ * `valueText` prop exists to prevent, and because the plans screen describing the
+ * plan somebody is on differently from the screen they came from is the same bug
+ * one click further along.
+ *
+ * @param paymentFailing whether a card is currently failing, which is a fact about
+ * the strip rather than about the plan — the plans screen has its own dunning
+ * treatment and passes nothing
+ */
+export function grantLine(plan: DisplayState, paymentFailing = false): string {
+  // Unlimited first, and before the failing card: "Unlimited reposts" is what the
+  // tier grants, which is exactly what that branch says for a capped one.
+  if (plan.relistQuotaPerPeriod === null) return UNLIMITED_REPOSTS;
+  // **A tier granting 0 is not an exhausted one**, and "0 of 0 reposts left" reads
+  // as somebody who spent them. Nobody on this plan ever had any.
+  //
+  // Ahead of the failing card for the same reason unlimited is: both branches say
+  // what the tier grants, and this is the grant in words. A tier may be zeroed
+  // under the people already on it (ADR-0029), one of whom may have a card
+  // failing — and "0 relists" over a dunning prompt blames Stripe for a nothing
+  // the operator chose.
+  if (plan.relistQuotaPerPeriod === 0) return "No reposts on this plan";
+  // A card that is failing shows the grant rather than the remainder: the tier is
+  // still theirs (ADR-0018) and nothing of it can be spent, so a number that moved
+  // would be describing spending that cannot happen.
+  if (paymentFailing) {
+    return `${plan.relistQuotaPerPeriod} relist${plan.relistQuotaPerPeriod === 1 ? "" : "s"}`;
+  }
+  return repostsLeft(plan.quotaRemaining ?? 0, plan.relistQuotaPerPeriod);
 }
 
 /**
@@ -288,6 +347,36 @@ function ExhaustedPrompt({
         <p className="popup-prompt-copy">
           They come back {resetsOn(resetAt).replace("resets ", "on ") || "when the period rolls"}.
         </p>
+        <Button shape="rect" tone="primary" onClick={onSeePlans}>
+          See plans
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Shown on a tier that grants no reposts at all — which is not the same screen as
+ * one that has run out, and is the distinction ADR-0029 exists to make sayable.
+ *
+ * **No date, because nothing comes back.** {@link ExhaustedPrompt} above promises
+ * "they come back on 14 Sep", and on a tier granting 0 what comes back is 0 —
+ * which is a plan somebody has to change rather than a wait somebody has to sit
+ * out. So this one offers only the thing that would change it.
+ *
+ * The state is reachable two ways and neither is exotic: an operator withdrawing
+ * the free tier is a quota of 0 on the default one (ADR-0019), and every
+ * subscription that ends falls back there (ADR-0018).
+ */
+function NoRepostsPrompt({ onSeePlans }: { onSeePlans: () => void }): JSX.Element {
+  return (
+    <div className="popup-prompt">
+      <span className="popup-prompt-mark">
+        <Icon name="bolt" />
+      </span>
+      <div>
+        <p className="popup-prompt-title">This plan doesn’t include reposts</p>
+        <p className="popup-prompt-copy">A paid plan is what adds them.</p>
         <Button shape="rect" tone="primary" onClick={onSeePlans}>
           See plans
         </Button>
@@ -411,16 +500,22 @@ export function PlansScreen({
 }
 
 /**
- * "2 of 3 relists left" — the sentence the canvas draws, and the reason `/api/me`
+ * "2 of 3 reposts left" — the sentence the canvas draws, and the reason `/api/me`
  * grew a `relistQuotaPerPeriod` in T32 (#41).
  *
  * The pair is what makes it legible: the first number alone says nothing about
  * whether two is nearly all of them or nearly none. The plural agrees with the
- * grant rather than the remainder, so "1 of 3 relists left" reads correctly and a
- * one-relist tier still says "1 of 1 relist left".
+ * grant rather than the remainder, so "1 of 3 reposts left" reads correctly and a
+ * one-repost tier still says "1 of 1 repost left".
+ *
+ * **Users read "repost" and the code keeps "relist"** (ADR-0029). This one string
+ * came over with T73 rather than waiting for T74's sweep, because it would
+ * otherwise have sat one line from "Unlimited reposts". The wire field it reads is
+ * still `relistQuotaPerPeriod`, and deliberately so — the split is the same one the
+ * glossary draws between the brand name and `mprelist`.
  */
-export function relistsLeft(remaining: number, granted: number): string {
-  return `${remaining} of ${granted} relist${granted === 1 ? "" : "s"} left`;
+export function repostsLeft(remaining: number, granted: number): string {
+  return `${remaining} of ${granted} repost${granted === 1 ? "" : "s"} left`;
 }
 
 /**

@@ -19,7 +19,9 @@ MP sessions live only in the user's browser. Nothing here holds them server-side
   an `isDefault` flag, a `published` flag, and a nullable `stripePriceId`. Admin-managed; the free tier is
   an ordinary row with a null price (ADR-0014). A Tier is **not** a Plan — see below. A `price.created`
   webhook syncs one in on `metadata.tier_code`, unpublished and at quota 0 if the code is new, and never
-  overwrites a quota (ADR-0019).
+  overwrites a quota (ADR-0019). **The quota per period is nullable, and `null` is unlimited** — `0` keeps
+  meaning "grants nothing", which is what a draft is adopted at and what "no free tier" is said with
+  (ADR-0029).
 - **Plan** — a **Tier joined with the Stripe Price** its `stripePriceId` names: quota and flags ours,
   amount and currency and interval Stripe's. Derived, never stored — `GET /api/plans` composes it and caches
   the Stripe half. Only a *published* Tier with a price id is one, so the free tier is a Tier and never a
@@ -112,6 +114,9 @@ User 1───* MarktplaatsAccount   ── modelled, not yet realised (no stab
 - **There is always exactly one default Tier.** The partial index `tier_single_default` makes it at most one;
   `TierCatalog.defaultTier()` throwing makes it at least one. So "no free tier" is that tier's quota set to
   **0**, never the flag unset — which would provision nobody (ADR-0019).
+- **A published Tier grants something.** A quota of `0` and `published` is a row the schema refuses, at both
+  writers for the first time: the sync's auto-publish already checked it, and an operator could hand-publish
+  one until `V9` (ADR-0029). Unlimited — `null` — is not that: it grants everything.
 - **A subscription that ends is a downgrade, never a lockout.** Nobody who has paid ends up with less than
   somebody who never did (ADR-0018).
 - **A webhook is applied at most once, and never out of order.** Stripe delivers at least once and retries for

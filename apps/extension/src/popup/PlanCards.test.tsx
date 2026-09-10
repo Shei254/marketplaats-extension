@@ -113,7 +113,7 @@ describe("the plan they are already on", () => {
     // instead is the thing `/api/me` does know.
     const markup = render(ON_SALE);
 
-    expect(markup).toContain("0 of 3 relists left");
+    expect(markup).toContain("0 of 3 reposts left");
     expect(markup).not.toContain("€ 0,00");
   });
 

@@ -566,7 +566,7 @@ function TierRow({
     <tr data-draft={draft} data-open={open}>
       <td className="admin-code">{tier.tier.code}</td>
       <td>{tier.tier.name}</td>
-      <td className="admin-numeric">{tier.relistQuotaPerPeriod}</td>
+      <td className="admin-numeric">{quotaColumn(tier.relistQuotaPerPeriod)}</td>
       <td>
         {/* Every rhythm it is sold at (T62, #128) — monthly and annual Pro are one
             plan, so they are one row with two prices rather than two tiers. */}
@@ -675,14 +675,26 @@ function TierForm({
   onSave: (edit: TierEdit) => void;
 }): JSX.Element {
   const [name, setName] = useState(tier.tier.name);
-  const [quota, setQuota] = useState(String(tier.relistQuotaPerPeriod));
+  const [unlimited, setUnlimited] = useState(tier.relistQuotaPerPeriod === null);
+  // The number the field holds while it is *not* unlimited, kept across a tick and
+  // an untick so that changing your mind does not lose what you had typed.
+  const [quota, setQuota] = useState(String(tier.relistQuotaPerPeriod ?? 0));
   const features = useFeatures(tier.features);
   const [published, setPublished] = useState(tier.published);
   const [problem, setProblem] = useState<string | null>(null);
 
+  const grantsNothing = !unlimited && quotaTyped(quota) === 0;
+  // **Keyed on the checkbox rather than on the stored row**, because the submit
+  // below is: `published && !grantsNothing` refuses both directions, and a warning
+  // that only knew about one of them left the other silent. Ticking On sale on a
+  // draft — which is quota 0 by definition (ADR-0019), and so the commonest way to
+  // ask for this at all — saved with the box quietly back where it started, which
+  // is the "quietly corrected" ADR-0029 names as the thing not to do.
+  const wontSell = grantsNothing && published;
+
   const submit = (): void => {
-    const parsedQuota = Number(quota);
-    if (!Number.isInteger(parsedQuota) || parsedQuota < 0) {
+    const parsedQuota = unlimited ? null : quotaTyped(quota);
+    if (parsedQuota === undefined) {
       setProblem("Relists per period has to be a whole number, and not a negative one.");
       return;
     }
@@ -700,7 +712,12 @@ function TierForm({
       name: name.trim(),
       relistQuotaPerPeriod: parsedQuota,
       features: flags.features,
-      published,
+      // **Withdrawn in the same submit**, rather than sent to be refused. A
+      // published tier granting nothing is a `409` (ADR-0029), and since this is a
+      // whole `PUT`, zeroing and withdrawing are one request. Said on the form —
+      // `NewPlanForm`'s existing habit — because a round trip to be told what is
+      // already visible here is not an answer, it is a delay.
+      published: published && !grantsNothing,
     });
   };
 
@@ -727,11 +744,20 @@ function TierForm({
             id="tier-quota"
             type="number"
             min={0}
-            value={quota}
+            value={unlimited ? "" : quota}
+            disabled={unlimited}
             onChange={(event) => setQuota(event.target.value)}
           />
         </Field>
       </div>
+      {/* Ticked, the number above has nothing to say, so it is greyed rather than
+          left holding a value the save would ignore (ADR-0029). */}
+      <Checkbox
+        id="tier-unlimited"
+        label="Unlimited — no cap on how many reposts a period grants"
+        checked={unlimited}
+        onChange={(event) => setUnlimited(event.target.checked)}
+      />
       <FeaturesFieldset field={features} id="tier" />
       <Checkbox
         id="tier-published"
@@ -752,6 +778,39 @@ function TierForm({
           this number minus what they have spent, and never less than zero.
         </li>
       </ul>
+      {/* The two warnings ADR-0029 asks for, and they are warnings rather than
+          refusals for different reasons: one is a consequence this form then
+          carries out itself, and the other is a configuration somebody may
+          genuinely want. */}
+      {/* Two sentences, because they are two different events: one takes something
+          off sale that is on it, and the other declines to put something there. A
+          tier that was never on sale has nobody on it to reassure about, and
+          telling its operator what happens to "everybody already on it" would be
+          answering about a plan they have not sold yet. */}
+      {wontSell ? (
+        <Note tone="warn">
+          {tier.published ? (
+            <>
+              A plan that grants nothing cannot be sold, so saving this will also take{" "}
+              {tier.tier.name} <b>off sale</b>. Everybody already on it keeps the tier and has
+              nothing to spend until you raise this again.
+            </>
+          ) : (
+            <>
+              A plan that grants nothing cannot be sold, so saving this will <b>not</b> put{" "}
+              {tier.tier.name} on sale. Give it some reposts — or tick Unlimited — and it can go on
+              sale in the same save.
+            </>
+          )}
+        </Note>
+      ) : null}
+      {unlimited && tier.isDefault ? (
+        <Note tone="warn">
+          {tier.tier.name} is the <b>default tier</b>, so this gives unlimited reposts to every new
+          account — and to everybody whose subscription ends, since they fall back here. That is a
+          real configuration for a single-user deployment and a costly accident otherwise.
+        </Note>
+      ) : null}
       {problem ? <Note tone="error">{problem}</Note> : null}
       <div className="admin-form-actions">
         <Button shape="rect" tone={busy ? "busy" : "primary"} onClick={submit}>
@@ -814,6 +873,7 @@ function NewPlanForm({
   // what is being collected is a price list, and the submit below reads it as one.
   const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [quota, setQuota] = useState("0");
+  const [unlimited, setUnlimited] = useState(false);
   // A plan is created with its cap rather than created and then edited: the flags
   // used to be a hardcoded `{}` here, so setting one was a second act an operator
   // had to remember (T69).
@@ -867,8 +927,8 @@ function NewPlanForm({
       );
       return;
     }
-    const relists = Number(quota);
-    if (!Number.isInteger(relists) || relists < 0) {
+    const relists = unlimited ? null : quotaTyped(quota);
+    if (relists === undefined) {
       setProblem("Relists per period has to be a whole number, and not a negative one.");
       return;
     }
@@ -938,11 +998,18 @@ function NewPlanForm({
             id="plan-quota"
             type="number"
             min={0}
-            value={quota}
+            value={unlimited ? "" : quota}
+            disabled={unlimited}
             onChange={(e) => setQuota(e.target.value)}
           />
         </Field>
       </div>
+      <Checkbox
+        id="plan-unlimited"
+        label="Unlimited — no cap on how many reposts a period grants"
+        checked={unlimited}
+        onChange={(e) => setUnlimited(e.target.checked)}
+      />
       <FeaturesFieldset field={features} id="plan" />
       <ul className="admin-notes">
         {/* Shown, not chosen (T63, #129). Every tier is priced in what this Stripe
@@ -1213,9 +1280,37 @@ function listedPrices(names: string[]): string {
 }
 
 /**
+ * What a quota field says, read the one way both forms need it (T73, ADR-0029).
+ *
+ * **A blank field is `undefined` and not `0`.** `Number("") === 0`, so clearing the
+ * box used to submit a tier granting nothing — silently, at both call sites, and on
+ * the default tier that is ADR-0019's "there is no free tier" applied by accident.
+ * Three answers rather than two, because "nothing typed" and "zero typed" are
+ * different things an operator did.
+ *
+ * @returns the number, or `undefined` where the field says nothing usable.
+ * `null` is not one of these: unlimited is the checkbox beside the field, never a
+ * value typed into it
+ */
+function quotaTyped(typed: string): number | undefined {
+  if (typed.trim() === "") return undefined;
+  const quota = Number(typed);
+  return Number.isInteger(quota) && quota >= 0 ? quota : undefined;
+}
+
+/** What a tier's quota reads as in the table — a number, or the word for no cap. */
+function quotaColumn(quota: number | null): string {
+  return quota === null ? "Unlimited" : String(quota);
+}
+
+/**
  * A tier the Stripe sync invented from an unrecognised Price: quota 0, unbuyable,
  * and something an operator has to finish. The one row on this screen that is a job
  * rather than a fact.
+ *
+ * Still literally quota 0, and deliberately: a draft is "nobody has said what this
+ * grants" and unlimited is somebody saying it (ADR-0029), so a `null` here is a
+ * decision rather than a job.
  */
 function isDraft(tier: AdminTier): boolean {
   return !tier.published && tier.relistQuotaPerPeriod === 0 && tier.prices.length > 0;
@@ -1246,7 +1341,12 @@ function whyNotCreated(answer: CreateAnswer): string {
 function refusal(answer: EditAnswer): string {
   switch (answer.status) {
     case "unsellable":
-      return "That tier has no Stripe Price, so it cannot go on sale. Create one in Stripe tagged with its code.";
+      // Two facts behind one status since ADR-0029, and both are on the row the
+      // form is open over — so the sentence names them and the reload shows which.
+      return (
+        "That tier cannot go on sale: it either has no Stripe Price — create one in Stripe tagged " +
+        "with its code — or grants no reposts. Reload the catalog to see which."
+      );
     case "gone":
       return "No tier is stored under that code any more. Reload the catalog.";
     case "rejected":

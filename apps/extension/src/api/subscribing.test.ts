@@ -118,6 +118,14 @@ describe("reading the plans off the wire", () => {
     expect(asPlans({ plans: [PRO] })).toEqual([PRO]);
   });
 
+  // A published tier granting nothing is unwriteable (ADR-0029), so `null` on a
+  // card is the only other thing the number can be: unlimited.
+  it("reads a card with no cap as the null it is", () => {
+    const unlimited = { ...PRO, relistQuotaPerPeriod: null };
+
+    expect(asPlans({ plans: [unlimited] })).toEqual([unlimited]);
+  });
+
   it("refuses a card with a field missing, whichever one it is", () => {
     for (const broken of [
       { ...PRO, tier: undefined },

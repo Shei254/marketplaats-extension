@@ -136,6 +136,27 @@ class DisplayStateTest {
 	}
 
 	/**
+	 * <strong>Neither half of that pair on an unlimited tier</strong> (T73, #160; ADR-0029): both are
+	 * {@code null}, and always together — one is the ceiling and the other is what is left under it, so a
+	 * plan with no ceiling has neither. The popup draws the tier's name and "Unlimited reposts" from that,
+	 * with no bar and no date, because a bar needs a proportion and there is nothing to draw one against.
+	 */
+	@Test
+	void andNeitherOfThemOnATierWithNoCeiling() {
+		Subscriber user = aSubscriberEntitledTo(null);
+		assertThat(relist(user, "ad-1").statusCode()).isEqualTo(200);
+
+		JsonNode state = Json.of(displayStateOf(user));
+
+		assertThat(state.get("quotaRemaining").isNull()).isTrue();
+		assertThat(state.get("relistQuotaPerPeriod").isNull()).isTrue();
+		// The rest of the body is unchanged, so a client reading it has one field fewer to guess at rather
+		// than a different shape to branch on.
+		assertThat(state.get("resetAt").isNull()).isFalse();
+		assertThat(state.get("tier").get("code").asString()).isNotEmpty();
+	}
+
+	/**
 	 * What is left, not what the tier grants. A unit held is a unit spent until the extension says otherwise
 	 * (#23), so an in-flight relist is already missing from the number the popup renders — the same rule the
 	 * gate refuses by, which is what keeps a button locked while the quota beside it still reads three.
@@ -366,7 +387,8 @@ class DisplayStateTest {
 		return this.db.queryForMap("select code, name, relist_quota_per_period from tier where is_default");
 	}
 
-	private Subscriber aSubscriberEntitledTo(int relistsPerPeriod) {
+	/** @param relistsPerPeriod what a period grants, or {@code null} for unlimited (T73, ADR-0029) */
+	private Subscriber aSubscriberEntitledTo(Integer relistsPerPeriod) {
 		return this.rows.entitledTo(relistsPerPeriod);
 	}
 

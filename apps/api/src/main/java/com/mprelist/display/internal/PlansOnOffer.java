@@ -134,8 +134,12 @@ class PlansOnOffer {
 	 * One card. {@code maxMarktplaatsAccounts} is deliberately not on it — no tier sells more than one until
 	 * #47 finds a stable Marktplaats account identifier, so rendering it would be advertising something
 	 * nothing can yet tell apart.
+	 *
+	 * <p>{@code relistQuotaPerPeriod} is {@code null} on an unlimited tier (ADR-0029) and never {@code 0}: a
+	 * tier granting nothing cannot be published, so it cannot be one of these.
 	 */
-	record Plan(TierName tier, int relistQuotaPerPeriod, Map<String, Object> features, List<PlanPrice> prices) {
+	record Plan(TierName tier, Integer relistQuotaPerPeriod, Map<String, Object> features,
+			List<PlanPrice> prices) {
 	}
 
 	/**

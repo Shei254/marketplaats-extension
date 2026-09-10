@@ -118,7 +118,7 @@ export interface PriceLine {
 export function describePrice(ad: ListingSummary): PriceLine {
   switch (ad.priceType) {
     case "FIXED":
-      return { label: "Vraagprijs", amount: formatEuro(ad.priceCents), bidding: ad.biddingEnabled };
+      return { label: "", amount: formatEuro(ad.priceCents), bidding: ad.biddingEnabled };
     case "FAST_BID":
     case "MIN_BID":
       // **The chip and no number** (T67). This branch used to draw

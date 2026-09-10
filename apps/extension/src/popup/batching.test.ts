@@ -339,6 +339,17 @@ describe("what the line over the list says", () => {
     });
   });
 
+  // Except where the cap is unbounded, which is the same route with nothing to
+  // name: a search hiding part of an unlimited tier's selection was the one path
+  // that reached this line with `Infinity` in hand, and it read "5 of Infinity
+  // selected" (T73, ADR-0029).
+  it("but never names an unbounded one, however the count outgrew the list", () => {
+    expect(describeSelectAll(5, { cap: Number.POSITIVE_INFINITY, upTo: null }, 2)).toEqual({
+      label: "5 selected",
+      hint: null,
+    });
+  });
+
   // The silent failure this row was added for: a spent quota disabled every box on
   // the screen and put no sentence anywhere near them.
   it("says so outright when the period has nothing left", () => {

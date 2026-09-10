@@ -31,9 +31,14 @@ export interface BulkSelection {
    * flag sells no number. That is arithmetic and not a sentinel, which is the
    * distinction ADR-0029 draws about `-1`: every comparison in this file is
    * *correct* on it (`min`, `>=`, `<=`, `slice`), where a large finite stand-in
-   * would be a lie that bites at exactly the scale nobody tests at. The one place
-   * it could reach a screen is a template string, and both of those ask
-   * {@link describeCap} first.
+   * would be a lie that bites at exactly the scale nobody tests at.
+   *
+   * **Three places could print it, and each is guarded separately** — the two
+   * sentences ask {@link describeCap} and {@link shortCap}, which answer `null`
+   * where nothing caps; {@link describeSelectAll} has no such call and asks
+   * {@link Number.isFinite} itself. The first draft of this claimed the two
+   * sentences were all of them, and the count over a searched list printed
+   * "5 of Infinity selected" for as long as that sentence went unchecked.
    */
   cap: number;
   /** What the plan sells, for the sentence that explains a cap the quota set. */
@@ -247,6 +252,12 @@ export function describeSelectAll(
   // everything it holds — beside a Select all box that is, correctly, full —
   // is three controls telling the user three different stories about the same
   // screen, and the one that invents eight more ads is the one that is wrong.
+  //
+  // **An unbounded cap can never be met**, so it is never named (T73, ADR-0029).
+  // Asked first because the test above cannot answer it: `rowsShown <= Infinity`
+  // is true of every list, so a search hiding part of the selection fell straight
+  // through to the line below and read "5 of Infinity selected".
+  if (!Number.isFinite(bulk.cap)) return { label: `${count} selected`, hint: null };
   if (rowsShown <= bulk.cap && count <= rowsShown) return { label: `${count} selected`, hint: null };
   return { label: `${count} of ${bulk.cap} selected`, hint: null };
 }

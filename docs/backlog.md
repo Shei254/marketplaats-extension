@@ -960,12 +960,20 @@ every tier until T38. Nothing in Stripe changes: a quota was never Stripe's
   route answers `409` at the end. That route creates a Product first, so a refusal after it would arrive as a
   `409` indistinguishable from "that code is taken" — and an operator would rename, retry, and make a second
   Product.
+- **The zero-grant warning is two sentences and fires on the checkbox, not the stored row.** The ADR names
+  one: a published tier being zeroed, told it will be withdrawn. The submit refuses the other direction too
+  — ticking On sale on a draft, which is quota 0 by definition ([ADR-0019](adr/0019-plans-are-stripe-first-and-webhook-synced.md)) and so
+  the commoner way to ask for this at all — and keying the warning to the stored flag left that path saving
+  with the box quietly back where it started. Found by review. The second sentence says the tier will *not*
+  go on sale, because the withdrawal one would be describing subscribers a draft does not have.
 
 The strip's reset date goes with the prompt's on a zero-grant tier, which the ADR states only of the prompt:
 "resets 14 Sep" under "No reposts on this plan" is the same promise in fewer words. And the popup's bulk cap
 is `Infinity` where neither the quota nor the flag caps a selection — arithmetic rather than a sentinel, since
-every comparison over it is correct and the one template string that could have printed it asks `describeCap`
-first.
+every comparison over it is correct. Three places could print it and each is guarded separately; this first
+said "the one template string, and it asks `describeCap` first", which was wrong and was what stopped anybody
+reading the third. `describeSelectAll` counted a selection against the cap whenever a search hid part of it,
+and on an unlimited tier that read **"5 of Infinity selected"**. Found by review, fixed with the sentence.
 
 **Not walked against real ads.** Everything here is held by the three suites; the click-through scripts move
 with the copy but nobody has driven an unlimited tier through a real Marktplaats account.

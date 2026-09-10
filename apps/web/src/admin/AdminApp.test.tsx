@@ -605,6 +605,45 @@ describe("editing a tier", () => {
     });
   });
 
+  describe("and putting one that grants nothing on sale (T73, ADR-0029)", () => {
+    // The same rule met from the other side, and the commoner route: a draft is
+    // quota 0 by definition (ADR-0019), so ticking On sale on one is how an
+    // operator most often asks for a thing the API refuses.
+    it("warns before the save, rather than unticking the box behind them", async () => {
+      const s = stack({ tiers: () => json({ tiers: [DRAFT] }) });
+
+      await arrive(s);
+      await click("Edit");
+      await check("#tier-published");
+
+      expect(text()).toContain("not put starter on sale");
+    });
+
+    it("and says it in the tense of what has not happened yet", async () => {
+      // The withdrawal sentence would be a lie here: nothing is being taken off
+      // sale, because it was never on it.
+      const s = stack({ tiers: () => json({ tiers: [DRAFT] }) });
+
+      await arrive(s);
+      await click("Edit");
+      await check("#tier-published");
+
+      expect(text()).not.toContain("off sale");
+    });
+
+    it("and the save still leaves it off sale, which is what the warning said", async () => {
+      const s = stack({ tiers: () => json({ tiers: [DRAFT] }) });
+
+      await arrive(s);
+      await click("Edit");
+      await check("#tier-published");
+      await click("Save");
+      await until(() => s.calls.some((call) => call.method === "PUT"), "the save to reach the API");
+
+      expect(sentEdit(s)["published"]).toBe(false);
+    });
+  });
+
   it("says why a tier with no Price cannot go on sale, before the save rather than after", async () => {
     // The way out is Stripe's, so a form that only reported the `409` would send
     // an operator to look in the wrong place.

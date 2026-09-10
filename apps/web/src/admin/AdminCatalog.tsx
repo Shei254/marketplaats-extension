@@ -684,7 +684,13 @@ function TierForm({
   const [problem, setProblem] = useState<string | null>(null);
 
   const grantsNothing = !unlimited && quotaIn(quota) === 0;
-  const withdrawing = grantsNothing && tier.published;
+  // **Keyed on the checkbox rather than on the stored row**, because the submit
+  // below is: `published && !grantsNothing` refuses both directions, and a warning
+  // that only knew about one of them left the other silent. Ticking On sale on a
+  // draft — which is quota 0 by definition (ADR-0019), and so the commonest way to
+  // ask for this at all — saved with the box quietly back where it started, which
+  // is the "quietly corrected" ADR-0029 names as the thing not to do.
+  const wontSell = grantsNothing && published;
 
   const submit = (): void => {
     const parsedQuota = unlimited ? null : quotaIn(quota);
@@ -776,11 +782,26 @@ function TierForm({
           refusals for different reasons: one is a consequence this form then
           carries out itself, and the other is a configuration somebody may
           genuinely want. */}
-      {withdrawing ? (
+      {/* Two sentences, because they are two different events: one takes something
+          off sale that is on it, and the other declines to put something there. A
+          tier that was never on sale has nobody on it to reassure about, and
+          telling its operator what happens to "everybody already on it" would be
+          answering about a plan they have not sold yet. */}
+      {wontSell ? (
         <Note tone="warn">
-          A plan that grants nothing cannot be sold, so saving this will also take{" "}
-          {tier.tier.name} <b>off sale</b>. Everybody already on it keeps the tier and has nothing
-          to spend until you raise this again.
+          {tier.published ? (
+            <>
+              A plan that grants nothing cannot be sold, so saving this will also take{" "}
+              {tier.tier.name} <b>off sale</b>. Everybody already on it keeps the tier and has
+              nothing to spend until you raise this again.
+            </>
+          ) : (
+            <>
+              A plan that grants nothing cannot be sold, so saving this will <b>not</b> put{" "}
+              {tier.tier.name} on sale. Give it some reposts — or tick Unlimited — and it can go on
+              sale in the same save.
+            </>
+          )}
         </Note>
       ) : null}
       {unlimited && tier.isDefault ? (

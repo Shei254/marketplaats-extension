@@ -296,15 +296,21 @@ export function grantLine(plan: DisplayState, paymentFailing = false): string {
   // Unlimited first, and before the failing card: "Unlimited reposts" is what the
   // tier grants, which is exactly what that branch says for a capped one.
   if (plan.relistQuotaPerPeriod === null) return UNLIMITED_REPOSTS;
+  // **A tier granting 0 is not an exhausted one**, and "0 of 0 reposts left" reads
+  // as somebody who spent them. Nobody on this plan ever had any.
+  //
+  // Ahead of the failing card for the same reason unlimited is: both branches say
+  // what the tier grants, and this is the grant in words. A tier may be zeroed
+  // under the people already on it (ADR-0029), one of whom may have a card
+  // failing — and "0 relists" over a dunning prompt blames Stripe for a nothing
+  // the operator chose.
+  if (plan.relistQuotaPerPeriod === 0) return "No reposts on this plan";
   // A card that is failing shows the grant rather than the remainder: the tier is
   // still theirs (ADR-0018) and nothing of it can be spent, so a number that moved
   // would be describing spending that cannot happen.
   if (paymentFailing) {
     return `${plan.relistQuotaPerPeriod} relist${plan.relistQuotaPerPeriod === 1 ? "" : "s"}`;
   }
-  // **A tier granting 0 is not an exhausted one**, and "0 of 0 reposts left" reads
-  // as somebody who spent them. Nobody on this plan ever had any.
-  if (plan.relistQuotaPerPeriod === 0) return "No reposts on this plan";
   return repostsLeft(plan.quotaRemaining ?? 0, plan.relistQuotaPerPeriod);
 }
 

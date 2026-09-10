@@ -131,6 +131,20 @@ describe("the plan strip", () => {
       expect(nothing).not.toContain("They come back");
     });
 
+    it("says the same thing when a card is failing, because the grant is the reason", () => {
+      // Reachable the way ADR-0029 says it is: a tier may be zeroed under the
+      // people already on it, and one of them may have a failing card. "0 relists"
+      // beside a dunning prompt blames the card for a nothing the plan chose.
+      const failing = renderPlan({
+        quotaRemaining: 0,
+        relistQuotaPerPeriod: 0,
+        subscriptionStatus: "PAST_DUE",
+      });
+
+      expect(failing).toContain("No reposts on this plan");
+      expect(failing).not.toContain("0 relists");
+    });
+
     it("still points at the plans, which is the one thing that changes it", () => {
       expect(nothing).toContain("See plans");
     });

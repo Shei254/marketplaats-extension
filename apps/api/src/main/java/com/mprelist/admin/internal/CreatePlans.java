@@ -312,8 +312,7 @@ class CreatePlans {
 		/**
 		 * What the tier grants, which is the same shape the edit form sends — so a plan created here and one
 		 * edited afterwards go through one validation rather than two that could differ.
-		 */
-		/**
+		 *
 		 * <p>The quota is read by {@link AdministerTiers#quotaIn}, which is where ADR-0029's rule for the
 		 * write side lives: absent is a refusal, an explicit JSON {@code null} is unlimited. Read there
 		 * rather than here for the same reason this method exists at all — a plan created on this form and

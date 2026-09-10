@@ -170,7 +170,7 @@ class AdministerTiers {
 						+ "out the quota or the publication flag, and guessing either would change a plan "
 						+ "nobody asked to change");
 			}
-			return new TierEdit(this.name, quotaIn(this.relistQuotaPerPeriod),
+			return new TierEdit(this.name, quotaSent(this.relistQuotaPerPeriod),
 					this.features == null ? Map.of() : this.features, this.published);
 		}
 
@@ -187,7 +187,7 @@ class AdministerTiers {
 	 *
 	 * @param quota the node the field arrived as, never Java {@code null} — its callers have checked
 	 */
-	static Integer quotaIn(JsonNode quota) {
+	static Integer quotaSent(JsonNode quota) {
 		if (quota.isNull()) {
 			return null;
 		}

@@ -122,7 +122,7 @@ export function pickUpTo(listingIds: readonly string[], cap: number): string[] {
  * Asked in one place and answered in one place, because the two sentences built on
  * it — the long one under the button and the short one in the header — have to
  * agree about which number is biting or they are two screens describing different
- * accounts.
+ * accounts. {@link CAPPED_BY} carries the wording of both for the same reason.
  *
  * `null` is an unlimited tier whose flag sells no number (ADR-0029): the cap is
  * `Infinity`, nothing is stopping anything, and there is no sentence to say.
@@ -142,15 +142,30 @@ function whatCaps(bulk: BulkSelection): "plan" | "quota" | null {
  * as a number.
  */
 export function describeCap(bulk: BulkSelection): string | null {
-  switch (whatCaps(bulk)) {
-    case "plan":
-      return `Your plan reposts ${bulk.upTo} at a time.`;
-    case "quota":
-      return "That is all the relists you have left this period.";
-    case null:
-      return null;
-  }
+  const cause = whatCaps(bulk);
+  return cause === null ? null : CAPPED_BY[cause].long(bulk);
 }
+
+/**
+ * The two ways of saying each cause, side by side.
+ *
+ * **A table rather than the same switch written twice**, because the pair under one
+ * key is the thing that has to agree: the long sentence under the button and the
+ * short one in the header describe the same number biting, and when they lived in
+ * two functions a hundred lines apart, keeping them saying the same thing was
+ * nobody's job. {@link whatCaps} already made the *decision* one; this makes the
+ * wording one.
+ */
+const CAPPED_BY = {
+  plan: {
+    long: (bulk: BulkSelection) => `Your plan reposts ${bulk.upTo} at a time.`,
+    short: (bulk: BulkSelection) => `${bulk.upTo} at a time`,
+  },
+  quota: {
+    long: () => "That is all the relists you have left this period.",
+    short: (bulk: BulkSelection) => `${bulk.cap} left`,
+  },
+} as const;
 
 /**
  * Why no box on this list can be ticked at all, or nothing when they can.
@@ -268,14 +283,8 @@ export function describeSelectAll(
  * reached a screen, as "Infinity left".
  */
 function shortCap(bulk: BulkSelection): string | null {
-  switch (whatCaps(bulk)) {
-    case "plan":
-      return `${bulk.upTo} at a time`;
-    case "quota":
-      return `${bulk.cap} left`;
-    case null:
-      return null;
-  }
+  const cause = whatCaps(bulk);
+  return cause === null ? null : CAPPED_BY[cause].short(bulk);
 }
 
 /**

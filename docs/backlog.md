@@ -952,7 +952,7 @@ every tier until T38. Nothing in Stripe changes: a quota was never Stripe's
   a record component answers `Optional.empty()` for absent *and* for an explicit `null` under Jackson 3 —
   exactly the distinction wanted and exactly the one it cannot make. A `JsonNode` component arrives as a Java
   `null` when absent and a `NullNode` when written out, so that is what `TierEditRequest` and
-  `NewPlanRequest` hold, read through one `AdministerTiers.quotaIn`.
+  `NewPlanRequest` hold, read through one `AdministerTiers.quotaSent`.
 - **`409` on the admin `PUT` now means one thing said two ways** — nothing to charge for it, or nothing to
   get for the money — and the two are deliberately not told apart on the wire: a `reason` would be a second
   vocabulary on an API whose codes are about a *user*, and the screen sending it has both facts on the row.

@@ -66,7 +66,7 @@ public record CatalogEntry(TierName tier, Integer relistQuotaPerPeriod, Map<Stri
 			throw new IllegalArgumentException("A published tier has something to charge against; "
 					+ "tier_is_published_only_with_a_price refuses the row otherwise");
 		}
-		if (published && relistQuotaPerPeriod != null && relistQuotaPerPeriod == 0) {
+		if (published && TierEdit.grantsNothing(relistQuotaPerPeriod)) {
 			// V9's trigger, restated here for the same reason as the one above it (ADR-0029). It is a rule
 			// about *publishing* and not about what 0 means: 0 stays "grants nothing", and selling a tier
 			// that grants nothing is what is refused. Unlimited — null — passes, since it grants everything.

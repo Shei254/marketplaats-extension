@@ -70,4 +70,37 @@ public record TierEdit(String name, Integer relistQuotaPerPeriod, Map<String, Ob
 		features = Collections.unmodifiableMap(new LinkedHashMap<>(features));
 	}
 
+	/**
+	 * Whether a period on this tier grants no reposts at all (ADR-0029).
+	 *
+	 * <p><strong>Here because the publish rule has three layers and they must agree what "nothing" is.</strong>
+	 * {@code CatalogEntry}'s constructor, {@code TierRows.applyEdit} and {@code CreatePlans.asGrant} each
+	 * refuse a published tier that grants nothing, and each had written the comparison out for itself — in
+	 * three spellings, one of them an unboxing {@code ==}. Three copies of one rule about one field is the
+	 * set that drifts, and the way it drifts here is silent: every spelling agrees about {@code 0}, and the
+	 * one that unboxes throws on unlimited instead of answering false.
+	 *
+	 * <p><strong>It is not the rule, only half of it.</strong> The rule is
+	 * {@code published() && grantsNothing()} and is written that way at every site, because folding
+	 * {@code published} in would make this read as a statement about what {@code 0} means. It means what an
+	 * operator typed: a tier granting nothing is a legitimate row, and only selling one is refused (see
+	 * {@link TierEdited.NothingToGrant}).
+	 */
+	public boolean grantsNothing() {
+		return grantsNothing(this.relistQuotaPerPeriod);
+	}
+
+	/**
+	 * The same question of a bare quota, for the readers holding one outside a {@link TierEdit} —
+	 * {@code CatalogEntry}, which is the read side of the same row and cannot build an edit to ask.
+	 *
+	 * <p>{@code Integer.valueOf(0).equals(...)} rather than {@code quota == 0}, and that is the whole reason
+	 * this is a method: unlimited is {@code null} (ADR-0029), so the unboxing comparison throws a
+	 * {@link NullPointerException} on the most generous tier in the catalog — on a path whose job is to
+	 * decide whether that tier may be sold.
+	 */
+	public static boolean grantsNothing(Integer relistQuotaPerPeriod) {
+		return Integer.valueOf(0).equals(relistQuotaPerPeriod);
+	}
+
 }

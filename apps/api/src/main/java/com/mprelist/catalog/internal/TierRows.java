@@ -77,7 +77,7 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 		return this.db
 				.sql("select relist_quota_per_period, max_marktplaats_accounts, features::text from tier where id = ?")
 				.param(tier.id())
-				.query((row, number) -> new Entitlement(quotaIn(row),
+				.query((row, number) -> new Entitlement(quotaStored(row),
 						row.getInt("max_marktplaats_accounts"), flagsIn(row.getString("features"))))
 				.optional()
 				.orElseThrow(() -> new IllegalStateException("No tier carries the id " + tier.id() + ", so there is "
@@ -132,7 +132,7 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 				""")
 				.query((row, number) -> new SellablePlan(new TierName(row.getString("code"), row.getString("name")),
 						prices.getOrDefault(row.getObject("id", UUID.class), List.of()),
-						new Entitlement(quotaIn(row), row.getInt("max_marktplaats_accounts"),
+						new Entitlement(quotaStored(row), row.getInt("max_marktplaats_accounts"),
 								flagsIn(row.getString("features")))))
 				.list();
 	}
@@ -346,7 +346,7 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 		if (edit.published() && stored.get().prices().isEmpty()) {
 			return new TierEdited.NothingToChargeAgainst();
 		}
-		if (edit.published() && Integer.valueOf(0).equals(edit.relistQuotaPerPeriod())) {
+		if (edit.published() && edit.grantsNothing()) {
 			return new TierEdited.NothingToGrant();
 		}
 		this.db.sql("""
@@ -409,7 +409,7 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 
 	/** One row, read the one way — three statements above hand back an entry and all three mean this. */
 	private static CatalogEntry entry(ResultSet row, Map<UUID, List<TierPrice>> prices) throws SQLException {
-		return new CatalogEntry(new TierName(row.getString("code"), row.getString("name")), quotaIn(row),
+		return new CatalogEntry(new TierName(row.getString("code"), row.getString("name")), quotaStored(row),
 				flagsIn(row.getString("features")), row.getBoolean("published"), row.getBoolean("is_default"),
 				prices.getOrDefault(row.getObject("id", UUID.class), List.of()));
 	}
@@ -418,7 +418,7 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 	 * The quota column, boxed — {@code getInt} answers 0 for a SQL {@code null}, which is the one other value
 	 * in this column that means something (ADR-0029) and the reason every read of it goes through here.
 	 */
-	private static Integer quotaIn(ResultSet row) throws SQLException {
+	private static Integer quotaStored(ResultSet row) throws SQLException {
 		return row.getObject("relist_quota_per_period", Integer.class);
 	}
 

@@ -1,4 +1,4 @@
-import { SUBSCRIPTION_STATUSES, type DisplayState } from "@mprelist/contracts";
+import { SUBSCRIPTION_STATUSES, isQuota, type DisplayState } from "@mprelist/contracts";
 
 import type { AccessToken } from "../auth/session";
 import type { Http } from "../auth/discovery";
@@ -138,18 +138,6 @@ export function asDisplayState(body: unknown): DisplayState | null {
     resetAt,
     features: features as Record<string, unknown>,
   };
-}
-
-/**
- * A quota as this API sends one: a whole number that is not negative, or `null` for
- * a tier with no cap (ADR-0029).
- *
- * Both nullable fields go through it, so the third state cannot be handled in one
- * of them and forgotten in the other — which is a screen drawing "2 of null".
- */
-function isQuota(value: unknown): value is number | null {
-  if (value === null) return true;
-  return typeof value === "number" && Number.isInteger(value) && value >= 0;
 }
 
 function isSubscriptionStatus(value: unknown): value is DisplayState["subscriptionStatus"] {

@@ -6,9 +6,11 @@
  * `amount` here is in the currency's smallest unit, and `./money` is that unit
  * converted, said once rather than in each client (T66). `features` is an open
  * object whose one flag three separate readers had to agree about, and
- * `./features` is that agreement (T69; ADR-0026). They are the only runtime code
- * here that is not a list of the enum values the wire uses, and both are here for
- * the same reason: two copies of a rule about one field is the pair that drifts.
+ * `./features` is that agreement (T69; ADR-0026). A quota is nullable on four wire
+ * shapes and had five readers spelling that out four ways, and `./quota` is the one
+ * spelling (T73; ADR-0029). They are the only runtime code here that is not a list
+ * of the enum values the wire uses, and all three are here for the same reason: two
+ * copies of a rule about one field is the pair that drifts.
  *
  * Consumed as TypeScript source: both consumers bundle, so a build step here
  * would only produce a second artefact to keep in step.
@@ -69,3 +71,5 @@ export {
   inMajorUnits,
   majorUnitsOf,
 } from "./money";
+
+export { isQuota } from "./quota";

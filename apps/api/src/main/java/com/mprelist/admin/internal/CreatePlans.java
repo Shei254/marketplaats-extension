@@ -313,7 +313,7 @@ class CreatePlans {
 		 * What the tier grants, which is the same shape the edit form sends — so a plan created here and one
 		 * edited afterwards go through one validation rather than two that could differ.
 		 *
-		 * <p>The quota is read by {@link AdministerTiers#quotaIn}, which is where ADR-0029's rule for the
+		 * <p>The quota is read by {@link AdministerTiers#quotaSent}, which is where ADR-0029's rule for the
 		 * write side lives: absent is a refusal, an explicit JSON {@code null} is unlimited. Read there
 		 * rather than here for the same reason this method exists at all — a plan created on this form and
 		 * one edited on the next screen should not be able to disagree about what a quota may say.
@@ -322,7 +322,7 @@ class CreatePlans {
 			if (this.relistQuotaPerPeriod == null || this.published == null) {
 				throw new IllegalArgumentException("A new plan states its quota and whether it is on sale");
 			}
-			TierEdit grant = new TierEdit(this.name, AdministerTiers.quotaIn(this.relistQuotaPerPeriod),
+			TierEdit grant = new TierEdit(this.name, AdministerTiers.quotaSent(this.relistQuotaPerPeriod),
 					this.features == null ? Map.of() : this.features, this.published);
 			/*
 			 * A plan that grants nothing cannot be on sale (ADR-0029), and *this* is the route where that has
@@ -335,7 +335,7 @@ class CreatePlans {
 			 * Answered as an unusable body instead, which is the order this class already keeps: everything
 			 * about the request before anything about our ability to act on it.
 			 */
-			if (grant.published() && Integer.valueOf(0).equals(grant.relistQuotaPerPeriod())) {
+			if (grant.published() && grant.grantsNothing()) {
 				throw new IllegalArgumentException("A plan granting no reposts is not one to put on sale; "
 						+ "create it unpublished and say what it grants first");
 			}

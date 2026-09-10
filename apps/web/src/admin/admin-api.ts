@@ -1,3 +1,4 @@
+import { isQuota } from "@mprelist/contracts";
 import type {
   AdminTier,
   NewPlan,
@@ -279,9 +280,7 @@ export function asAdminTier(entry: unknown): AdminTier | null {
   // a parser that refused it would blank this screen over the one row an operator
   // most needs to see.
   const quota = fields["relistQuotaPerPeriod"];
-  if (quota !== null && (typeof quota !== "number" || !Number.isInteger(quota) || quota < 0)) {
-    return null;
-  }
+  if (!isQuota(quota)) return null;
 
   const features = fields["features"];
   if (typeof features !== "object" || features === null || Array.isArray(features)) return null;
@@ -295,7 +294,7 @@ export function asAdminTier(entry: unknown): AdminTier | null {
 
   return {
     tier: { code, name },
-    relistQuotaPerPeriod: quota as number | null,
+    relistQuotaPerPeriod: quota,
     features: features as Record<string, unknown>,
     published,
     isDefault,

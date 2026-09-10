@@ -1,4 +1,4 @@
-import type { Plan } from "@mprelist/contracts";
+import { isQuota, type Plan } from "@mprelist/contracts";
 
 import type { Http } from "../auth/discovery";
 import { DEFAULT_API_CONFIG, type ApiConfig } from "./api-config";
@@ -205,14 +205,7 @@ function asPlan(entry: unknown): Plan | null {
   // this number can be on a card: a published tier granting nothing is a row the
   // schema refuses, so `0` never reaches a plan screen.
   const relistQuotaPerPeriod = fields["relistQuotaPerPeriod"];
-  if (
-    relistQuotaPerPeriod !== null &&
-    (typeof relistQuotaPerPeriod !== "number" ||
-      !Number.isInteger(relistQuotaPerPeriod) ||
-      relistQuotaPerPeriod < 0)
-  ) {
-    return null;
-  }
+  if (!isQuota(relistQuotaPerPeriod)) return null;
 
   const features = fields["features"];
   if (typeof features !== "object" || features === null || Array.isArray(features)) return null;

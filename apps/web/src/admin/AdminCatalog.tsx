@@ -683,7 +683,7 @@ function TierForm({
   const [published, setPublished] = useState(tier.published);
   const [problem, setProblem] = useState<string | null>(null);
 
-  const grantsNothing = !unlimited && quotaIn(quota) === 0;
+  const grantsNothing = !unlimited && quotaTyped(quota) === 0;
   // **Keyed on the checkbox rather than on the stored row**, because the submit
   // below is: `published && !grantsNothing` refuses both directions, and a warning
   // that only knew about one of them left the other silent. Ticking On sale on a
@@ -693,7 +693,7 @@ function TierForm({
   const wontSell = grantsNothing && published;
 
   const submit = (): void => {
-    const parsedQuota = unlimited ? null : quotaIn(quota);
+    const parsedQuota = unlimited ? null : quotaTyped(quota);
     if (parsedQuota === undefined) {
       setProblem("Relists per period has to be a whole number, and not a negative one.");
       return;
@@ -927,7 +927,7 @@ function NewPlanForm({
       );
       return;
     }
-    const relists = unlimited ? null : quotaIn(quota);
+    const relists = unlimited ? null : quotaTyped(quota);
     if (relists === undefined) {
       setProblem("Relists per period has to be a whole number, and not a negative one.");
       return;
@@ -1292,7 +1292,7 @@ function listedPrices(names: string[]): string {
  * `null` is not one of these: unlimited is the checkbox beside the field, never a
  * value typed into it
  */
-function quotaIn(typed: string): number | undefined {
+function quotaTyped(typed: string): number | undefined {
   if (typed.trim() === "") return undefined;
   const quota = Number(typed);
   return Number.isInteger(quota) && quota >= 0 ? quota : undefined;

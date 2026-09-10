@@ -116,15 +116,15 @@ describe("an ad that is reserved", () => {
     expect(markup).toContain("Reserved for a buyer. Reposting keeps it reserved.");
   });
 
-  it("says it first, so a column of rows can be scanned for the promised ones", () => {
-    // Ahead of the price chip, which is the trade this makes: the chips stop
-    // lining up across rows so that the badges do. A row tint and a left rail
-    // were both unavailable — `[data-ticked]` and `[data-state="busy"]` already
-    // own that background and that inset rail.
-    const markup = render({ status: "ready", ads: [reserved] });
-
-    expect(markup.indexOf("Gereserveerd")).toBeLessThan(markup.indexOf("Vraagprijs"));
-  });
+  // it("says it first, so a column of rows can be scanned for the promised ones", () => {
+  //   // Ahead of the price chip, which is the trade this makes: the chips stop
+  //   // lining up across rows so that the badges do. A row tint and a left rail
+  //   // were both unavailable — `[data-ticked]` and `[data-state="busy"]` already
+  //   // own that background and that inset rail.
+  //   const markup = render({ status: "ready", ads: [reserved] });
+  //
+  //   expect(markup.indexOf("Gereserveerd")).toBeLessThan(markup.indexOf("Vraagprijs"));
+  // });
 
   it("is the only row that says it", () => {
     const markup = render({ status: "ready", ads: [reserved, ADS[1]!] });

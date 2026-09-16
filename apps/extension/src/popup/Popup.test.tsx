@@ -572,6 +572,86 @@ describe("a plan that cannot be relisted on", () => {
 
     expect(text()).toContain("Vintage Eames lounge chair");
   });
+
+  /**
+   * **Lock on the grant, never on the remainder** (T32, #41).
+   *
+   * The two states below are one HTTP refusal and two different screens, and the
+   * difference is which number moves without the user. A tier granting nothing is
+   * the Tier's own property — only an operator or a purchase changes it — so a
+   * button locked on it stays right. A spent period goes back up on its own: a
+   * `FAILED_BEFORE_DELETE` refunds its unit and so does reconciliation, and a
+   * button disabled on that is one a refund has already made wrong until somebody
+   * presses Vernieuwen.
+   */
+  describe("and which of them locks the buttons", () => {
+    /** The Repost buttons, found by the word on them rather than by position. */
+    const reposts = (): HTMLButtonElement[] =>
+      [...container.querySelectorAll("button")].filter(
+        (button) => readable(button.textContent) === "Herplaats",
+      );
+
+    it("locks every row on a tier that grants nothing, before anything is clicked", async () => {
+      // `click-through.md` slice D step 5 is this: the operator sets the default
+      // tier's quota to 0, a fresh user signs in, and every button is locked with
+      // a prompt. No error and no failed sign-in.
+      const { worker, asked } = fakeWorker([
+        { status: "ready", plan: { ...PLAN, relistQuotaPerPeriod: 0, quotaRemaining: 0 } },
+      ]);
+
+      await show(worker);
+
+      expect(reposts()).toHaveLength(ADS.length);
+      expect(reposts().every((button) => button.disabled)).toBe(true);
+      expect(text()).toContain("Dit abonnement bevat geen herplaatsingen");
+      expect(asked).not.toContain("relist");
+    });
+
+    it("and leaves them live when only the period is spent", async () => {
+      const { worker } = fakeWorker([{ status: "ready", plan: { ...PLAN, quotaRemaining: 0 } }]);
+
+      await show(worker);
+
+      expect(reposts().every((button) => button.disabled)).toBe(false);
+    });
+
+    it("stays locked on a zeroed tier whose card is also failing, with the strip saying why", async () => {
+      // Reachable and not exotic: an operator may zero a tier under the people
+      // already on it (ADR-0029) and one of them may have a card failing. The
+      // dunning prompt takes the prompt slot, so the sentence naming the plan is
+      // the strip's — which `grantLine` already puts ahead of the failing-card
+      // branch for this exact pair, so that "0 reposts" never blames Stripe for a
+      // nothing the operator chose.
+      const { worker } = fakeWorker([
+        {
+          status: "ready",
+          plan: {
+            ...PLAN,
+            relistQuotaPerPeriod: 0,
+            quotaRemaining: 0,
+            subscriptionStatus: "PAST_DUE",
+          },
+        },
+      ]);
+
+      await show(worker);
+
+      expect(reposts().every((button) => button.disabled)).toBe(true);
+      expect(text()).toContain("Geen herplaatsingen in dit abonnement");
+    });
+
+    it("locks nothing on an unlimited tier, where the grant is null rather than none", async () => {
+      // `null` is unlimited and `0` grants nothing (ADR-0029), and a falsy read of
+      // the grant would lock the most generous plan in the catalog.
+      const { worker } = fakeWorker([
+        { status: "ready", plan: { ...PLAN, relistQuotaPerPeriod: null, quotaRemaining: null } },
+      ]);
+
+      await show(worker);
+
+      expect(reposts().every((button) => button.disabled)).toBe(false);
+    });
+  });
 });
 
 describe("signed out", () => {

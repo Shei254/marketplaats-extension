@@ -2,7 +2,7 @@ import { Badge, Button, Icon, IconButton, Meter, Note, Skeleton, Spinner } from 
 import type { DisplayState } from "@mprelist/contracts";
 import type { JSX, ReactNode } from "react";
 
-import { MANAGING, UNLIMITED_REPOSTS, type Handoff } from "./plans";
+import { grantsNothing, MANAGING, UNLIMITED_REPOSTS, type Handoff } from "./plans";
 
 
 /**
@@ -185,13 +185,17 @@ export function SignedInScreen({
   handoff: Handoff;
   busy: boolean;
 }): JSX.Element {
-  // The three states a quota can be in, asked once and answered here rather than
-  // re-derived at each of the four places below that branch on them (ADR-0029).
-  // `unlimited` reads the grant and not the remainder: the two are null together,
-  // and the ceiling is the fact the screen is actually about.
+  // The three states a quota can be in, named rather than re-derived at each of
+  // the four places below that branch on them (ADR-0029). `unlimited` reads the
+  // grant and not the remainder: the two are null together, and the ceiling is the
+  // fact the screen is actually about.
+  //
+  // The middle one is `plans.ts`'s function since T32 (#41) and is called rather
+  // than copied into a local, so that this strip and the ad list beneath it have
+  // one spelling between them: a screen of dead buttons and the prompt explaining
+  // them must never disagree about whether the plan grants anything.
   const unlimited = plan.relistQuotaPerPeriod === null;
-  const grantsNothing = plan.relistQuotaPerPeriod === 0;
-  const spent = plan.quotaRemaining === 0 && !grantsNothing;
+  const spent = plan.quotaRemaining === 0 && !grantsNothing(plan);
   const paymentFailing = !ALLOWED_STATUSES.includes(plan.subscriptionStatus);
   return (
     <>
@@ -210,7 +214,7 @@ export function SignedInScreen({
           </>
         }
       />
-      <div className={stripClass(spent || grantsNothing, paymentFailing)}>
+      <div className={stripClass(spent || grantsNothing(plan), paymentFailing)}>
         <div className="popup-plan-top">
           <span className="popup-plan-name">
             {plan.tier.name}
@@ -240,7 +244,7 @@ export function SignedInScreen({
             unlimited tier — it would invite the reader to believe there is a limit
             — and it is a promise on a tier granting 0, where what comes back is 0
             (ADR-0029). */}
-        {paymentFailing || unlimited || grantsNothing || !resetsOn(plan.resetAt) ? null : (
+        {paymentFailing || unlimited || grantsNothing(plan) || !resetsOn(plan.resetAt) ? null : (
           <p className="popup-plan-foot">{resetsOn(plan.resetAt)}</p>
         )}
       </div>
@@ -250,7 +254,7 @@ export function SignedInScreen({
       {spent && !paymentFailing ? (
         <ExhaustedPrompt resetAt={plan.resetAt} onSeePlans={onSeePlans} />
       ) : null}
-      {grantsNothing && !paymentFailing ? <NoRepostsPrompt onSeePlans={onSeePlans} /> : null}
+      {grantsNothing(plan) && !paymentFailing ? <NoRepostsPrompt onSeePlans={onSeePlans} /> : null}
       {children}
     </>
   );

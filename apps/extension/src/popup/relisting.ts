@@ -72,18 +72,39 @@ export const PACING_NOTE =
   "Even wachten voor deze, zodat je herplaatsingen op klikken lijken en niet op een script.";
 
 /**
- * What a refusal says on the row, **provisionally**.
+ * What a refusal says on the row.
  *
- * The designed version of each of these is T32 (#41): the header's quota, a "See
- * plans" prompt beside an exhausted one, a live countdown on a cooldown, and the
- * Portal link on a failing card. What is here is one sentence each, so that a
- * refusal is legible now rather than a button that silently does nothing — the
- * canvas's QuotaExhausted, Cooldown and Dunning artboards are that ticket's.
+ * **It stopped being provisional with T32 (#41).** The designed treatments the
+ * first version of this deferred are all on the screen above the list now: the
+ * header's quota, a "Bekijk abonnementen" prompt beside a spent period, a live
+ * countdown on a cooldown, the Portal link on a failing card. What stays here is
+ * one sentence per reason, on the row the attempt was made from — a prompt at the
+ * top of the screen cannot say which ad it is about.
+ *
+ * @param grantsNothing whether the plan grants no reposts at all — `plans.ts`'s
+ * `grantsNothing`, read off `/api/me` rather than off the refusal, for the reason
+ * the `upgrade` case gives. A trailing boolean the way `grantLine` already takes
+ * `paymentFailing`, and for the same reason: what this needs is one fact about the
+ * plan, and handing it the whole `DisplayState` would invite it to start reading
+ * numbers it has no business in
  */
-export function refusalNote(locked: LockedState): string {
+export function refusalNote(locked: LockedState, grantsNothing: boolean): string {
   switch (locked.state) {
     case "upgrade":
-      return "Je hebt je limiet voor herplaatsingen in deze periode bereikt.";
+      // **The discriminator is the plan, and the denial is not asked.** `upgrade`
+      // carries a `resetAt` and a tier granting 0 has a real one — the period
+      // still rolls, it just rolls to 0 — so nothing in the payload tells "you
+      // have spent this period's reposts" from "this plan has none to spend".
+      // Both are one refusal to the backend and two different things to say.
+      //
+      // Splitting the copy is the move `not-in-plan` already makes below: the
+      // other sentence is true about something else, and showing it here answers
+      // a question nobody asked. The one it replaces was worse than irrelevant —
+      // it named a limit that was never reached, on a plan where nothing comes
+      // back next period either.
+      return grantsNothing
+        ? "Dit abonnement bevat geen herplaatsingen."
+        : "Je hebt je limiet voor herplaatsingen in deze periode bereikt.";
     case "cooldown":
       return locked.retryAfter === null
         ? "Geef Marktplaats even de tijd voordat je opnieuw herplaatst."

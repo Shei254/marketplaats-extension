@@ -137,7 +137,7 @@ quickly and watch the cooldown. → [script](click-through.md#slice-b--the-gate-
 The idle/busy/done/failed behaviour the POC popup has, including the one-relist-at-a-time lock that stops a
 distracted click fanning out into several deletes.
 
-#### [T32](https://github.com/Shei254/marketplaats-extension/issues/41) · Quota display and locked states · **S** · T17, T30b
+#### [T32](https://github.com/Shei254/marketplaats-extension/issues/41) · Quota display and locked states · **S** · T17, T30b · **shipped**
 Remaining quota and `resetAt` in the header; locked buttons carrying upgrade / update-card / cooldown per the
 reason code, with `retryAfter` rendered as a countdown.
 
@@ -169,8 +169,37 @@ tell the two apart. The row reads `relistQuotaPerPeriod` from `/api/me` to pick 
 `not-in-plan`: *"`upgrade` means 'you have spent this period's relists', which is a true sentence about a
 different thing, and showing it here would answer a question nobody asked."*
 
-**`click-through.md` step 5 of slice E already asserts the result** — *"every button is locked with an upgrade
-prompt. No error, no failed sign-in"* — so that step is what this ticket makes true, and it fails today.
+**`click-through.md` step 5 of slice D already asserts the result** — *"every button is locked with an upgrade
+prompt. No error, no failed sign-in"* — so that step is what this ticket makes true, and it failed until now.
+
+**Built as written.** The grant is one boolean handed down to `AdList` — the screen above holds the
+subscription, the list holds the order the ads are in, which is the division `selection.bulk` already keeps —
+and `grantsNothing` is named once in `plans.ts` so the strip, the prompt and the rows cannot spell it three
+ways. `refusalNote` takes it as a second argument and splits `upgrade` on it. Two things the ticket did not
+say, and the code decides: **a row holding a deleted ad keeps its Opnieuw**, which falls out of `locked`
+darkening only an *idle* button: finishing a relist whose delete already ran needs no fresh grant
+(`enforcement-contract.md`), and a lock that took that with it would strand somebody's listing inside the
+extension until they bought a plan. And **the row line is the refusal's, not a line under every row**: the bullet
+above asks for *"the row line naming the plan rather than a limit"*, and the limit sentence being replaced is
+`refusalNote`'s, so that is the one that moved. A locked idle row draws nothing — `NoRepostsPrompt` says it
+once directly above a list that is uniform when this is true, twenty copies of one sentence would be the
+third line per row that stops a 360px list being scannable, and Chrome draws no tooltip on a disabled control
+to hover instead.
+
+**Left alone deliberately:** the bulk cap is still `min(quotaRemaining, upTo)` (T68, ADR-0025), so on a spent
+period the tick boxes do go dead while the Repost buttons stay live. That is not the same question — a cap
+says how many of these may go in one batch, and `describeTick` names which of the two numbers is biting —
+and changing it is a decision about the selection, not about the lock.
+
+**Found, not decided: a failing card is the third case and this ticket did not rule on it.** `AdList`'s
+`locked` does not read `subscriptionStatus`, so on dunning every Repost button is live, the click is refused
+with `update-card`, and only then does the row go dark — the same shape the spent period keeps, and unlike a
+spent period it is not a number that moves on its own. Two reasons it was left: it is a state about Stripe
+rather than about the catalog, and the prompt is already there with the one button that fixes it. What is
+worth saying out loud is the pair — **zeroed tier + failing card**, which ADR-0029 says is reachable — where
+the buttons lock on the grant, the strip reads *"Geen herplaatsingen in dit abonnement"*, and the dunning
+prompt below still offers *"Werk je betaalgegevens bij om weer te kunnen herplaatsen"*, which on that plan
+would not. Pinned by a test so the state is known rather than accidental; the copy is a ticket of its own.
 
 ---
 

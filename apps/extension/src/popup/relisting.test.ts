@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import { refusalNote, refusedTone, rowStateFor } from "./relisting";
 
+/**
+ * The two plans a refusal can land on, named rather than passed as a bare `true`
+ * — `refusalNote(locked, true)` at a call site says nothing about what is true.
+ */
+const GRANTS_NOTHING = true;
+const CAPPED = false;
+
 const WIRE_ERROR = { code: "NO_MARKTPLAATS_TAB", message: "No marktplaats.nl tab is open" } as const;
 
 const QUOTA = { quotaRemaining: 1, resetAt: "2026-09-14T08:31:22.101Z" };
@@ -52,20 +59,51 @@ describe("what an outcome does to the row", () => {
 
 describe("what a refusal says", () => {
   it("has something for every locked state the gate can produce", () => {
-    // Provisional copy — the designed prompts are T32 (#41) — but a button that
-    // silently does nothing is not an acceptable intermediate state.
-    expect(refusalNote({ state: "upgrade", resetAt: null })).toContain("je limiet voor herplaatsingen");
-    expect(refusalNote({ state: "update-card" })).toContain("betaling");
+    // One sentence per reason the gate can produce, because a button that
+    // silently does nothing is not a state this screen may be in.
+    expect(refusalNote({ state: "upgrade", resetAt: null }, CAPPED)).toContain(
+      "je limiet voor herplaatsingen",
+    );
+    expect(refusalNote({ state: "update-card" }, CAPPED)).toContain("betaling");
     // Not the quota sentence: the two end at the same screen and say different
     // things about why you are looking at it.
-    expect(refusalNote({ state: "not-in-plan" })).toContain("bij je abonnement");
-    expect(refusalNote({ state: "not-in-plan" })).not.toContain("je limiet voor herplaatsingen");
-    expect(refusalNote({ state: "retry" })).toContain("Probeer het opnieuw");
+    expect(refusalNote({ state: "not-in-plan" }, CAPPED)).toContain("bij je abonnement");
+    expect(refusalNote({ state: "not-in-plan" }, CAPPED)).not.toContain("je limiet voor herplaatsingen");
+    expect(refusalNote({ state: "retry" }, CAPPED)).toContain("Probeer het opnieuw");
   });
 
   it("counts the seconds when it was given them, and does not invent them when it was not", () => {
-    expect(refusalNote({ state: "cooldown", retryAfter: 24 })).toContain("24s");
-    expect(refusalNote({ state: "cooldown", retryAfter: null })).not.toMatch(/\d/);
+    expect(refusalNote({ state: "cooldown", retryAfter: 24 }, CAPPED)).toContain("24s");
+    expect(refusalNote({ state: "cooldown", retryAfter: null }, CAPPED)).not.toMatch(/\d/);
+  });
+
+  it("tells a plan that grants nothing from one that has been spent (T32, #41)", () => {
+    // `upgrade` cannot tell the two apart and is not asked to: a zero-grant tier
+    // has a real `resetAt` — the period still rolls, it just rolls to 0 — so the
+    // discriminator is display state rather than the denial, and the row reads the
+    // grant off `/api/me` the way the strip above it already does.
+    const spent = refusalNote({ state: "upgrade", resetAt: "2026-09-14T08:31:22.101Z" }, CAPPED);
+    const nothing = refusalNote({ state: "upgrade", resetAt: "2026-09-14T08:31:22.101Z" }, GRANTS_NOTHING);
+
+    expect(spent).toContain("je limiet voor herplaatsingen");
+    // The sentence this ticket exists to delete: a limit that was never reached,
+    // on a plan where nothing comes back next period either.
+    expect(nothing).not.toContain("limiet");
+    expect(nothing).toContain("abonnement");
+  });
+
+  it("and says the same thing about every other refusal, whatever the grant is", () => {
+    // Splitting `upgrade` is a statement about that one reason. A cooldown is the
+    // rails, a failing card is Stripe, and neither becomes a different event
+    // because the tier grants nothing.
+    for (const state of [
+      { state: "cooldown", retryAfter: 24 },
+      { state: "update-card" },
+      { state: "not-in-plan" },
+      { state: "retry" },
+    ] as const) {
+      expect(refusalNote(state, GRANTS_NOTHING)).toBe(refusalNote(state, CAPPED));
+    }
   });
 
   it("shows a clock for a cooldown and a lock for everything else", () => {

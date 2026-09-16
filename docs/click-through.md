@@ -119,8 +119,10 @@ thread.
 4. Wait it out, then spend the remaining two.
    *Expect:* the header reads **`0 of 3`**.
 5. Click **Repost** again.
-   *Expect:* the button is **locked**, the ads are **still listed**, and the prompt is upgrade-shaped with
-   the reset date. The list staying visible is deliberate — it is the conversion surface.
+   *Expect:* the button is **live** before you press it — a spent period locks nothing, because that number
+   comes back without you (T32, #41) — and the press is **refused before anything is deleted**. The row then
+   goes dark and says which limit it hit, the ads are **still listed**, and the prompt above them is
+   upgrade-shaped with the reset date. The list staying visible is deliberate — it is the conversion surface.
 6. **Stop the API** and click **Repost**.
    *Expect:* refused, and **no ad is deleted**. Fail-closed means no relist without a fresh `200`.
 7. Restart the API. In `psql`, raise the free tier's quota to 5; reopen the popup.
@@ -269,6 +271,10 @@ URIs exactly, so sign-in lands on `/` and the page rewrites the address bar to `
 5. Sign in to the extension as a **fresh** user.
    *Expect:* they are provisioned, they see their ads, and every button is locked with an upgrade prompt.
    **No error, no failed sign-in.** This is "the admin decided there is no free tier".
+   *Check what locks it:* the buttons are dark **before anything is clicked** — nothing is sent and nothing
+   is refused (T32, #41). Put the quota back to 3, repost three times until the strip reads 0, and the
+   buttons are **live** again: a spent period is not a plan without reposts, and that number goes back up
+   without the user. The prompt above the list changes with it.
 6. Look for a way to unset `isDefault`.
    *Expect:* there isn't one. Only **Make default**, on the tiers that are not it — a catalog with no default
    provisions nobody, so the API offers no request that could produce one and the screen has no control for

@@ -20,8 +20,9 @@ feature*; it does not (and cannot) prevent a user relisting by other means (ADR-
 |---|---|---|---|
 | Signed out | Sign-in screen only | none | denied |
 | Signed in, quota remaining | Full: ads, search, quota | active buttons | allowed |
-| Signed in, quota exhausted | Full: ads, search | buttons **locked + upgrade** | denied |
-| Signed in, payment **failing** (dunning) | Full: ads, search | buttons **locked + "update your card"** | denied |
+| Signed in, quota **exhausted** | Full: ads, search, quota | buttons **stay active**; a click is refused, and the row then goes dark and says so | denied |
+| Signed in, tier **grants 0** | Full: ads, search, quota | buttons **locked before any click**, upgrade prompt above the list | denied |
+| Signed in, payment **failing** (dunning) | Full: ads, search | buttons **stay active**; a click is refused with **"update your card"**, Portal prompt above the list | denied |
 
 **Bulk repost is gated on the tier's own flag, not on quota** (ADR-0025). A signed-in user whose Entitlement
 carries no `bulk` sees the checkboxes drawn **disabled** beside a line pointing at Plans — a locked control
@@ -767,6 +768,15 @@ report still wins, above).
 | `429 RATE_LIMITED` | shown → cooldown timer (`retryAfter`) |
 | `401` / unreachable / timeout | shown → "unavailable, retry" (fail-closed) |
 | not signed in | sign-in screen; nothing injected |
+
+**One state is locked before the click, and it is not a spent quota** (T32, #41). A tier granting **0** —
+`relistQuotaPerPeriod === 0`, which is how "there is no free tier" is spelled (ADR-0019) — draws every Repost
+control disabled, so no fresh relist is ever attempted from it: nothing is sent and nothing is refused. A
+grant is the Tier's own and only an operator or a purchase moves it. `quotaRemaining === 0` is **not** locked
+on, because a `FAILED_BEFORE_DELETE` report and reconciliation both hand units back without the user acting;
+the control stays live and `429 QUOTA_EXCEEDED` refuses it, before any delete. A row already offering
+**Retry** keeps it under either lock — finishing a relist whose delete has run needs no fresh `200`, per the
+snapshot table above, and taking that away would leave the listing inside the extension.
 
 That mapping is a function rather than a habit: `apps/extension/src/gate/authorization-gate.ts` (T25, #34)
 turns an attempt into `proceed` or a locked state, and nothing else in the extension decides it. It reads the

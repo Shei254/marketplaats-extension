@@ -23,6 +23,7 @@ import { SearchBox } from "./SearchBox";
 import { ALL, noMatches, sameShowing, useSearchBox, type Showing } from "./searching";
 import { PlanCards } from "./PlanCards";
 import {
+  grantsNothing,
   handoffFailure,
   MANAGING,
   NOT_OPENING,
@@ -650,6 +651,17 @@ function body(screen: Screen, handlers: Handlers): JSX.Element {
                 : null
             }
             runStates={offerBulk ? rowStatesFor(run) : undefined}
+            // The one thing the list is told about the plan, and it is the grant
+            // rather than what is left of it (T32, #41). The screen above holds
+            // the subscription; this hands down the single fact the rows lock on.
+            //
+            // Unconditional, including while a card is failing — where the strip
+            // above carries the sentence rather than the prompt, because the
+            // dunning prompt has the prompt slot. `grantLine` already puts the
+            // zero-grant branch ahead of the failing-card one for exactly this
+            // pair (ADR-0029), so the plan is named there and the buttons agree
+            // with it.
+            grantsNothing={grantsNothing(screen.plan)}
           />
           {/* **Nothing at all while bulk is withdrawn** — and in particular not
               the locked line, which is written to make a free user want the

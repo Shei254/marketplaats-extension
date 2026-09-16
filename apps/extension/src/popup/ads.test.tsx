@@ -13,9 +13,15 @@ const ADS: ListingSummary[] = [
   { id: "m2", title: "Trek Marlin 7 mountainbike (M)", priceCents: 48_000, priceType: "FIXED", biddingEnabled: false, reserved: false },
 ];
 
-/** The list, rendered without any of its behaviour — that is `AdList.test.tsx`. */
+/**
+ * The list, rendered without any of its behaviour — that is `AdList.test.tsx`.
+ * On a plan that grants something, which is what every assertion in this file is
+ * about: how a row reads, not whether it can be pressed.
+ */
 const render = (view: Parameters<typeof AdList>[0]["view"]): string =>
-  renderToStaticMarkup(<AdList view={view} worker={{} as WorkerPort} onOutcome={() => {}} />);
+  renderToStaticMarkup(
+    <AdList view={view} worker={{} as WorkerPort} onOutcome={() => {}} grantsNothing={false} />,
+  );
 
 describe("the ads themselves", () => {
   it("are a row each, titled and priced", () => {

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WireRelistOutcome } from "../background/messages";
 import type { ListingSummary } from "../domain/types";
 import { AdList } from "./AdList";
+import type { RowState } from "./relisting";
 import type { WorkerPort } from "./screen";
 
 /**
@@ -73,9 +74,23 @@ afterEach(async () => {
 async function show(
   worker: WorkerPort,
   onOutcome: (outcome: WireRelistOutcome) => void = () => {},
+  /**
+   * The plan the list is drawn under, as the one fact it is given about it: the
+   * grant, and whether a run has already put something on a row. The default is
+   * a plan that grants something, which is every test written before T32 (#41).
+   */
+  plan: { grantsNothing?: boolean; runStates?: Record<string, RowState> } = {},
 ): Promise<void> {
   await act(async () => {
-    root.render(<AdList view={{ status: "ready", ads: ADS }} worker={worker} onOutcome={onOutcome} />);
+    root.render(
+      <AdList
+        view={{ status: "ready", ads: ADS }}
+        worker={worker}
+        onOutcome={onOutcome}
+        grantsNothing={plan.grantsNothing ?? false}
+        runStates={plan.runStates}
+      />,
+    );
   });
 }
 
@@ -414,5 +429,82 @@ describe("when the backend refuses", () => {
     await press(0);
 
     expect(buttons()[1]?.disabled).toBe(false);
+  });
+});
+
+/**
+ * Lock on the grant, never on the remainder (T32, #41).
+ *
+ * The list is told one thing about the plan and it is the ceiling, not what is
+ * left under it. A tier granting nothing is a property of the **Tier** — only an
+ * operator or a purchase moves it — so a button locked on it is a button that
+ * will still be right in a minute. A spent period is not: it goes back up without
+ * the holder acting, because a `FAILED_BEFORE_DELETE` refunds its unit and so does
+ * reconciliation.
+ */
+describe("a plan that grants no reposts at all", () => {
+  it("locks every row before anything is clicked, rather than after a round trip", async () => {
+    const { worker } = fakeWorker();
+
+    await show(worker, () => {}, { grantsNothing: true });
+
+    expect(buttons().every((button) => button.disabled)).toBe(true);
+    expect(buttons().every((button) => button.className.includes("mp-btn--locked"))).toBe(true);
+  });
+
+  it("so the click that used to cost a round trip cannot leave the popup", async () => {
+    // What it was refused with is `upgrade`, and the sentence it came back with —
+    // "you have reached your limit for this period" — is about a limit nobody on
+    // this plan ever had.
+    const { worker } = fakeWorker();
+
+    await show(worker, () => {}, { grantsNothing: true });
+    await press(0);
+
+    expect(worker.relist).not.toHaveBeenCalled();
+    expect(text()).not.toContain("je limiet voor herplaatsingen");
+  });
+
+  it("and leaves them live on a plan that has one, however little is left of it", async () => {
+    // The list is never told the remainder, which is the design: there is no
+    // number here that a refund could have moved since the popup opened.
+    const { worker } = fakeWorker();
+
+    await show(worker, () => {}, { grantsNothing: false });
+
+    expect(buttons().every((button) => button.disabled)).toBe(false);
+  });
+
+  it("never strands an ad the extension is holding, however little the tier grants", async () => {
+    // A `deleted` snapshot needs no fresh grant (`docs/enforcement-contract.md`):
+    // the ad is already gone and finishing the relist only puts it back. A lock
+    // that took Opnieuw with it would leave the listing inside the extension until
+    // somebody bought a plan.
+    const { worker } = fakeWorker();
+
+    await show(worker, () => {}, {
+      grantsNothing: true,
+      runStates: {
+        m1: { kind: "failed", tone: "warn", action: "retry", message: "Je advertentie is verwijderd" },
+      },
+    });
+    await press(0);
+
+    expect(worker.retry).toHaveBeenCalledWith("m1");
+    expect(worker.relist).not.toHaveBeenCalled();
+  });
+
+  it("names the plan rather than a limit when a refusal does land on a row", async () => {
+    // Reachable with the buttons locked: a batch run reports per row (T68, #147),
+    // and a stale popup can hold a refusal recorded before the tier was zeroed.
+    const { worker } = fakeWorker();
+
+    await show(worker, () => {}, {
+      grantsNothing: true,
+      runStates: { m1: { kind: "refused", locked: { state: "upgrade", resetAt: null } } },
+    });
+
+    expect(text()).toContain("Dit abonnement bevat geen herplaatsingen");
+    expect(text()).not.toContain("je limiet voor herplaatsingen");
   });
 });

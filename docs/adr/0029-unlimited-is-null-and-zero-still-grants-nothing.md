@@ -124,6 +124,11 @@ A tier granting 0 is not *exhausted*, and `ExhaustedPrompt` currently tells its 
 back on 14 Sep"* when they come back as 0. The strip reads "No reposts on this plan", the prompt drops the
 date and offers plans.
 
+**T32 (#41) carried that reading down to the buttons.** On a tier granting 0 every Repost control is locked
+before anything is clicked, and where a refusal still lands on a row it names the plan rather than a limit
+nobody reached. A *spent* period is deliberately not treated the same way, because that number goes back up
+without its holder acting — [ADR-0007](0007-quota-enforcement.md)'s 2026-09-16 refinement has the rule.
+
 ### The default tier may be unlimited, and is warned about
 
 Nothing forbids ticking it on the `isDefault` row, and forbidding it was rejected: a self-hosted single-user

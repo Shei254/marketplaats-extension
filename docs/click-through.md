@@ -560,3 +560,54 @@ number.
 **What this does not check:** that `upTo` holds against a caller who ignores it. It cannot — `authorize` sees
 one ad at a time and has nothing to count a batch with, which ADR-0025 records as a consequence rather than a
 gap to close.
+
+
+## After Go-Live · I can delete a plan (T77)
+
+**Proves:** a tier deleted here is deleted in Stripe too, that a deleted tier does not come back, that nobody
+is left paying for a plan that no longer exists, and that an emptied catalog says something true rather than
+"something went wrong".
+[ADR-0032](adr/0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md).
+
+> ⚠️ Steps 4 and 5 **cancel a real test-mode subscription** and leave an account on a different plan. A
+> throwaway test-mode customer, and a tier you are content to lose.
+
+> Needs `MPRELIST_STRIPE_SECRET_KEY` and a running `stripe listen` (see slice C). Without the key the rows
+> queue and drain nothing, which is step 7's case rather than a failure.
+
+1. In `/admin`, create a plan — **New plan**, any name, one rhythm — and press **Delete** in its row.
+   *Expect:* the panel says **"Nobody is on this tier, so nobody moves"** and asks for nothing — one click on
+   *Delete <name>* and it is gone. The warning is never skipped; the *typing* is what the consequence buys,
+   and there is none to buy here.
+2. Look at the Stripe dashboard, *Products*, with archived shown.
+   *Expect:* within a minute the Prices are **archived**, their `metadata.tier_code` is **gone**, and the
+   Product is archived too. The tag is the half that matters: archiving alone fires a `price.updated` that
+   still names the tier.
+3. Now edit one of those archived Prices in the Stripe dashboard — change its nickname and save.
+   *Expect:* the tier **does not come back** in `/admin`. Before this ticket it would have: `price.updated`
+   reaches the sync exactly like `price.created`, and the tag is what it adopts on. Check the API log for the
+   `is not a plan, so nothing was adopted` line.
+4. Put a test-mode subscriber on a paid tier (buy it from the extension with card `4242…`), then delete that
+   tier in `/admin`.
+   *Expect:* the confirmation panel opens and **names the numbers** — how many subscribers move and where,
+   and that **1 live Stripe subscription will be cancelled**. The Delete button stays locked until you type
+   the tier's name.
+5. Confirm it, then look at that customer in Stripe and at the extension popup for that account.
+   *Expect:* the subscription is **cancelled** in Stripe within a minute, and the popup shows the **default
+   tier** immediately — not at the end of the period they paid for. That loss is by design and is what the
+   panel said out loud; a refund is yours to issue in Stripe.
+6. Delete every tier, one at a time, ending with the default one. Then open the extension popup.
+   *Expect:* `/admin` says **there are no tiers** and that nobody can repost. The popup draws a screen saying
+   the plan is gone and that **retrying will not help** — not "unavailable, try again". Sign in as somebody
+   new while the catalog is empty: they are provisioned rather than refused, and get the same screen.
+7. Create a plan and press **Make default**.
+   *Expect:* every account, including the one from step 6 that never signed in again, is on it the moment the
+   button answers — the popup shows the new plan on its next open with no other action taken.
+8. **The stuck-row case.** Unset `MPRELIST_STRIPE_SECRET_KEY`, restart the API, and delete a tier that has
+   Prices.
+   *Expect:* the catalog is right at once, the API logs `no Stripe API key is configured, so nothing can be
+   torn down`, and `select * from stripe_cleanup where done_at is null` has the rows. Creating a plan under
+   that same code is refused by the sync until they drain — put the key back, restart, and watch them clear.
+
+**What this does not check:** that a tier with thousands of subscribers drains in a sensible time. That is
+ADR-0032's own "revisit if", and the point at which the confirmation's promise outruns what the job can do.

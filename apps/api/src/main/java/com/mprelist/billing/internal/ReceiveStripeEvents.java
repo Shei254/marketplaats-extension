@@ -94,6 +94,14 @@ class ReceiveStripeEvents {
 					+ "by another tier, and a Price belongs to one tier only. Nothing was changed. Point that "
 					+ "tier at a different Price first, or create a new Price for `{}`.", price.stripePriceId(),
 					price.tierCode(), price.tierCode());
+			// The expected answer for the minutes between a tier being deleted and its Prices being archived
+			// and untagged (T77, ADR-0032), and the whole reason adopting is refused then: this event is how a
+			// deleted tier came back at quota 0, which is a plan nobody can buy standing where one used to be.
+			// Noted rather than warned, because it stops on its own — the tear-down job frees the code.
+			case REFUSED_A_CODE_BEING_TORN_DOWN -> LOG.info("Stripe Price {} is tagged `{}`, a tier that was "
+					+ "deleted and whose Stripe objects are still being torn down, so nothing was adopted. The "
+					+ "code opens again once the last of that work is done.", price.stripePriceId(),
+					price.tierCode());
 		}
 	}
 

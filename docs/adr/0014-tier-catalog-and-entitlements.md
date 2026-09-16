@@ -157,3 +157,47 @@ rename stops being cosmetic. **The free tier itself stays a derived fact and gai
 with no price, the same shape as `isDefault` being the catalog's rather than the row's — and "at most one of
 it" needs no constraint, because no creation path can make a second.
 
+
+## Amended by ADR-0032 (2026-09-16)
+
+**"Every user always has a Subscription" narrows to "every user always has a subscription _row_", and this is
+the largest thing this decision has given up.**
+[ADR-0032](0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md) makes every tier deletable —
+including the `isDefault` one, and including the last — so `subscription.tier_id` becomes nullable with the
+foreign key set to `on delete set null`. The invariant this ADR built on survives in its useful half: there is
+still exactly one row per user, it is still created in first login's own transaction, and
+`SUBSCRIPTION_INACTIVE` still cannot mean "never signed up". What it loses is the second half, that the row
+always resolves to a grant.
+
+**"No code ever asks *is this user free?*" still holds. A second question appears beside it.** The gate does
+not branch on whether somebody is paying, and none of this changes that; what four readers now have to answer
+is whether there is a tier at all. `Subscription.tier()` becomes an `Optional<TierId>` rather than a nullable
+component precisely so the compiler names those four — `DisplayStates`, `QuotasFromReservations`,
+`RelistGate`, `SubscriptionRows` — instead of each of them remembering.
+
+**"A catalog with no default cannot provision anybody" stops being true, deliberately.** The amendment above
+called `tier_single_default` the thing that makes the answer at most one row and `defaultTier()` the thing
+that makes it at least one; the second is withdrawn. `defaultTier()` answers an `Optional`,
+`ProvisionOnFirstLogin` stops throwing and writes a tier-less row, and `PUT /api/admin/tiers/{code}/default`
+adopts every orphan in its own transaction — which is precise rather than convenient, since a subscription is
+tier-less *only* while no default exists and that route is the sole writer of the flag.
+
+**"Removing the free tier is a data migration" — refined twice, and now answered a third way.** This ADR said
+unset `isDefault` and migrate the rows; the 2026-08-20 amendment corrected that to a quota of `0` on the
+default tier, which stands and is still the right way to withdraw the free grant while keeping everyone
+provisioned. Deleting the row is now *also* possible, and is a different act with a different meaning: the
+quota-`0` spelling keeps a tier for everyone to sit on, and the delete does not.
+
+**Deleting a tier reaches into Stripe, which this ADR's split predicted and did not describe.** "Two systems
+to keep in sync" was named as the cost of owning the catalog, and the sync has only ever run one way — a
+Price arrives, a tier is drafted. A delete has to run the other way, because a Price that outlives its tier
+still carries `metadata.tier_code` and the next `price.updated` re-adopts it. So the delete archives and
+untags every Price and archives the Product. **Money stays Stripe's**: live subscriptions are cancelled so
+nobody is billed for a tier that is gone, and **no refund is ever issued from here**, which is this line drawn
+exactly where this ADR drew it.
+
+**The deferral this ADR opened is closed at last, in one direction only.** What happens to existing
+subscribers when a tier changes underneath them: for a quota edit it is still nothing — `quotaRemaining`
+clamps at zero, no proration, no notification. For a *deletion* it is now stated: they move to the default
+tier in the delete's own transaction, or to no tier where there is no default, and any payer among them loses
+the remainder of a period they paid for because the source of their entitlement is gone.

@@ -135,11 +135,19 @@ wrong person is *told* so rather than shown an empty catalog and a row of `403`s
 the one thing that helps, which is signing in as somebody else. Without that button, slice D's step 2 is a
 trap with no way out.
 
-**What the screen will not offer**: creating a tier, deleting one, or typing a Stripe Price id. A plan is
-created by tagging a Price in Stripe and the sync drafts the row (ADR-0019); a tier is retired by unpublishing
-it, since a subscription references its tier behind a foreign key; and the amount is Stripe's and immutable.
-`isDefault` is a **move, never a toggle** — the API offers no request that leaves the catalog without a
-default, so there is no control here that could ask for one.
+**What the screen will not offer**: typing a Stripe Price id, or editing an amount — the amount is Stripe's
+and immutable, and repricing is a new tagged Price the sync repoints the tier onto (ADR-0019). `isDefault` is
+a **move, never a toggle** — the API offers no request that *clears* the flag, so there is no control here
+that could ask for one.
+
+**A tier can be deleted here** (T77,
+[ADR-0032](../../docs/adr/0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md)), and **every**
+tier can — the default and the last included. This sentence used to rule it out, on the grounds that a tier is
+retired by unpublishing it since a subscription references its tier behind a foreign key, which was a foreign
+key speaking rather than anything an operator would recognise. The confirmation quantifies what is about to
+happen — how many subscribers move and where, how many live Stripe subscriptions get cancelled — and asks for
+the tier's name to be typed **only** when real payers will be cancelled, so undoing a plan created a minute
+ago stays one click.
 
 **A plan can be created here** (T61, #127), which amends ADR-0019 in the direction that ADR's own *Revisit
 if* pointed. The form creates the Stripe Product and Price and then the tier, in one submit — and says on its

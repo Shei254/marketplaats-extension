@@ -1,5 +1,7 @@
 package com.mprelist.subscription;
 
+import java.util.Optional;
+
 import com.mprelist.catalog.TierId;
 
 /**
@@ -16,14 +18,27 @@ import com.mprelist.catalog.TierId;
  * {@code catalog}'s to answer — {@code TierCatalog.entitlementOf(tier)} — which is the seam that keeps this
  * module out of the {@code tier} table and #22's gate is where the two meet.
  *
- * @param tier the tier this subscription is on, as the {@code tier_id} foreign key names it
+ * <p><strong>And since T77 the reference may be to nothing</strong>
+ * (<a href="../../../../../../../docs/adr/0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md">ADR-0032</a>).
+ * Every tier is deletable including the default and the last, so {@code subscription.tier_id} is nullable and
+ * a row may for a while name no plan at all. ADR-0014's "every user always has a Subscription" narrows to
+ * "every user always has a subscription <em>row</em>", and this record is where that narrowing is felt.
+ *
+ * @param tier the tier this subscription is on, as the {@code tier_id} foreign key names it, or empty where
+ * the column is null. <strong>An {@link Optional} rather than a nullable component</strong>, and that is
+ * T70's argument about {@code BulkSelection.cap} applied where it is cheap: a nullable field compiles just as
+ * happily at the site that forgets it, and this one is read on the authorize path. Written this way the
+ * compiler names all four production readers — {@code DisplayStates}, {@code QuotasFromReservations},
+ * {@code RelistGate} and {@code SubscriptionRows} — instead of each of them having to remember. It is empty
+ * exactly one way: the tier they were on was deleted and there was no other default to move them to, which is
+ * the {@code NO_TIER} denial of {@code docs/enforcement-contract.md}
  * @param status Stripe's status, normalized. {@link SubscriptionStatus#allowsRelisting()} is what the gate asks
  * of it; every user always has a subscription (ADR-0014), so a free user is {@link SubscriptionStatus#ACTIVE}
  * here and is denied — if at all — by quota
  * @param period the quota window this subscription's usage is counted in. Copied from Stripe for a payer and
  * rolled monthly from provisioning for a free user, which is what makes it answerable for everybody
  */
-public record Subscription(TierId tier, SubscriptionStatus status, QuotaPeriod period) {
+public record Subscription(Optional<TierId> tier, SubscriptionStatus status, QuotaPeriod period) {
 
 	/**
 	 * The check constraints of {@code V1__baseline_schema.sql}, restated where a subscription is built rather
@@ -33,7 +48,8 @@ public record Subscription(TierId tier, SubscriptionStatus status, QuotaPeriod p
 	 */
 	public Subscription {
 		if (tier == null) {
-			throw new IllegalArgumentException("A subscription names the tier it is on; tier_id is not null");
+			throw new IllegalArgumentException("A subscription either names a tier or names none; null is a "
+					+ "third answer nothing here knows how to read");
 		}
 		if (status == null) {
 			throw new IllegalArgumentException("A subscription carries one of the seven normalized statuses");

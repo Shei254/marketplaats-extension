@@ -175,3 +175,40 @@ Two are corrected because they are about to be wrong, and one because it is **al
 A third tier-creation path appears — at which point "at most one free tier" stops being a consequence of the
 routes and has to become a constraint — or a user-to-tier admin route is ever built, which is the one thing
 that would make a second priceless tier reachable and grandfathering worth its permanent row.
+
+## Partly reversed by ADR-0032 (2026-09-16), the same day
+
+**"Deliberately not built: a delete route" is built.**
+[ADR-0032](0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md) makes every tier deletable, the
+free one included. This is a reversal rather than a refinement, and the honest reading of it is that the
+argument above was **right about the question it was asked**: the free tier has every user on it, a foreign
+key with no delete rule refuses the drop, and deleting the default takes sign-in down with it. Every one of
+those sentences is still true of the schema as this ADR found it. Asked of the catalog as a whole rather than
+of the free tier, the answer came out the other way — because what made deletion look impossible was a
+foreign key and a throwing lookup, which are ours to change, rather than anything an operator would
+recognise as a rule about plans.
+
+**What the later ADR had to spend to get there** is exactly what this one declined to spend on one row:
+`subscription.tier_id` becomes nullable, ADR-0014's "every user always has a Subscription" narrows to "a
+subscription *row*", a `NO_TIER` denial is added to a frozen contract, and a durable queue is introduced for
+the Stripe half. Weighed against setting the free tier, that price was not worth paying and this ADR's
+rejection stands as written for that purpose.
+
+**Two sentences here become false, and are corrected rather than left as a dated record**, because they are
+claims about what the code permits rather than about what was decided:
+
+- *"An operator never creates or deletes one; they **edit** the row `V2__seed_tier_catalog.sql` left them."*
+  They still never create one — both creation paths require a price, which is untouched — but they may now
+  delete it. A deployment can end up with no free tier by deleting it as well as by setting its quota to `0`,
+  and the two are different acts: the quota spelling keeps a row for everybody to sit on.
+- **"At most one free tier" is still unsayable, and for one fewer reason.** The argument above rests on both
+  creation paths requiring a price *and* on nothing deleting. Only the first half survives, and it is the half
+  that was doing the work: a second free tier still cannot be made, because nothing can make a priceless tier
+  at all.
+
+**The `code` rule is untouched and gains a second consumer.** A code moves exactly while the tier has no
+`tier_price` row, which is what stops a rename splitting a tier in two through `metadata.tier_code`. ADR-0032
+faces the same Stripe-holds-a-copy problem from the other end — a *deleted* tier whose Prices still carry the
+tag is re-adopted as a draft — and answers it by clearing the tag rather than by leaving it, which is the
+retagging this ADR weighed and rejected for a rename. It is affordable there and was not here: a delete has
+nothing left to half-fail *into*, since the tier is already gone and the queue retries per object.

@@ -49,6 +49,13 @@ export type BatchStopReason =
   /** The backend could not be reached, or refused with something this build cannot read. */
   | "unavailable"
   /**
+   * `NO_TIER` — there is no plan on this account at all (T77, ADR-0032). Its own
+   * reason rather than `unavailable`, because that one's sentence is "try again"
+   * and this is the case the code was added to stop a client saying it about:
+   * nothing is down, and an operator rather than the user is who resolves it.
+   */
+  | "no-tier"
+  /**
    * One of the user's ads is deleted and not back (`failed-recoverable`).
    * <strong>The run stops at once</strong>, which is the strictest rule here:
    * nothing may start a second delete over an unresolved one.
@@ -251,6 +258,8 @@ function stopFor(locked: LockedState): BatchStopReason {
       return "dunning";
     case "not-in-plan":
       return "not-in-plan";
+    case "no-tier":
+      return "no-tier";
     default:
       // "retry" — the backend could not be reached, or refused with a code this
       // build has never heard of. Fail-closed reads both as "we were turned away",

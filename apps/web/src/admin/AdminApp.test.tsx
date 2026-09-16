@@ -28,6 +28,8 @@ const PRO: AdminTier = {
   published: true,
   isDefault: false,
   prices: [{ stripePriceId: "price_pro", interval: "month" }],
+  subscribers: 0,
+  payingSubscribers: 0,
 };
 
 const FREE: AdminTier = {
@@ -37,6 +39,9 @@ const FREE: AdminTier = {
   published: false,
   isDefault: true,
   prices: [],
+  // The default tier, with people on it and nobody paying — every free tier (T77).
+  subscribers: 12,
+  payingSubscribers: 0,
 };
 
 const DRAFT: AdminTier = {
@@ -46,6 +51,8 @@ const DRAFT: AdminTier = {
   published: false,
   isDefault: false,
   prices: [{ stripePriceId: "price_starter", interval: "month" }],
+  subscribers: 0,
+  payingSubscribers: 0,
 };
 
 /** A tier with no repost cap (T73, ADR-0029) — the third thing a quota can say. */
@@ -56,6 +63,8 @@ const UNLIMITED: AdminTier = {
   published: true,
   isDefault: false,
   prices: [{ stripePriceId: "price_power", interval: "month" }],
+  subscribers: 0,
+  payingSubscribers: 0,
 };
 
 /** A Price in Stripe carrying no `tier_code`, which is what the second page lists. */
@@ -74,6 +83,7 @@ interface Backend {
   prices?: () => Response;
   write?: () => Response;
   order?: () => Response;
+  remove?: () => Response;
   currency?: () => Response;
   create?: () => Response;
   addPrice?: () => Response;
@@ -90,6 +100,9 @@ function stack(backend: Backend = {}) {
         : json({ access_token: tokenFor(backend.roles ?? ["ADMIN"]) });
     }
     if (url.endsWith("/api/admin/tiers")) return (backend.tiers ?? (() => json({ tiers: [FREE, PRO] })))();
+    if ((init?.method ?? "GET") === "DELETE") {
+      return (backend.remove ?? (() => json({ tiers: [FREE] })))();
+    }
     if (url.endsWith("/api/admin/tiers/order")) {
       return (backend.order ?? (() => json({ tiers: [PRO, FREE] })))();
     }
@@ -1018,6 +1031,171 @@ describe("moving the default", () => {
   });
 });
 
+describe("deleting a tier", () => {
+  it("is offered on every row, including the default one and the last one", async () => {
+    // Every tier is deletable (T77, ADR-0032). The narrower designs — refuse the
+    // default, soft-delete behind a flag — are rejected in the ADR on the same
+    // point: they make an operator's own catalog something the data model has an
+    // opinion about.
+    const s = stack();
+
+    await arrive(s);
+
+    expect([...container.querySelectorAll("button")].filter(
+      (candidate) => candidate.textContent?.trim() === "Delete",
+    )).toHaveLength(2);
+  });
+
+  it("always says what it is about to cost before it does anything", async () => {
+    // "A quantified warning always" (ADR-0032). The panel is never skipped, because
+    // an operator should not learn what a delete costs by having already done it.
+    const s = stack();
+
+    await arrive(s);
+    await clickInRowFor("pro", "Delete");
+
+    expect(text()).toContain("Deleting Pro");
+    expect(s.calls.some((call) => call.method === "DELETE")).toBe(false);
+  });
+
+  it("and goes on one click where nobody is on the tier and nobody pays for it", async () => {
+    // A draft the sync invented, or a plan created thirty seconds ago — the friction
+    // T61 existed to remove. The panel says there is nothing to lose and asks for
+    // nothing: the escalation is the typed name, and it is not owed here.
+    const s = stack();
+
+    await arrive(s);
+    await clickInRowFor("pro", "Delete");
+
+    expect(text()).toContain("Nobody is on this tier");
+    expect(button("Delete Pro").disabled).toBe(false);
+
+    await click("Delete Pro");
+    await until(() => s.calls.some((call) => call.method === "DELETE"), "the delete to reach the API");
+
+    expect(s.calls.find((call) => call.method === "DELETE")?.url).toBe(
+      "http://localhost:8080/api/admin/tiers/pro",
+    );
+  });
+
+  it("and says where subscribers move, and how many", async () => {
+    // Quantified rather than generic: "are you sure?" is a sentence somebody clicks
+    // through, and "12 subscribers move to Free" is one they read. FREE has twelve
+    // people on it and nobody paying.
+    const s = stack();
+
+    await arrive(s);
+    await clickInRowFor("free", "Delete");
+
+    expect(text()).toContain("Deleting Free");
+    expect(text()).toContain("12 subscribers");
+    expect(s.calls.some((call) => call.method === "DELETE")).toBe(false);
+  });
+
+  it("and says that this one is the default, so new accounts land on nothing", async () => {
+    const s = stack();
+
+    await arrive(s);
+    await clickInRowFor("free", "Delete");
+
+    expect(text()).toContain("This is the default tier");
+  });
+
+  it("and names where they land, read off the catalog rather than described as a rule", async () => {
+    // The API moves them to whichever tier holds the flag, and this screen is
+    // holding every row — so it can say the name instead of the rule.
+    const s = stack({ tiers: () => json({ tiers: [{ ...FREE, isDefault: true }, { ...PRO, subscribers: 4 }] }) });
+
+    await arrive(s);
+    await clickInRowFor("pro", "Delete");
+
+    expect(text()).toContain("4 subscribers move to Free");
+  });
+
+  it("and warns loudest when there is nowhere for them to land", async () => {
+    // The state `NO_TIER` exists to describe: those accounts are on no plan until an
+    // operator makes a tier the default, at which point every one of them is adopted.
+    const s = stack({ tiers: () => json({ tiers: [{ ...PRO, isDefault: true, subscribers: 4 }] }) });
+
+    await arrive(s);
+    await clickInRowFor("pro", "Delete");
+
+    expect(text()).toContain("left on no tier at all");
+    expect(text()).toContain("This is the last tier in the catalog");
+  });
+
+  it("asks for the tier's name only when live payers will be cancelled", async () => {
+    // Friction tracking consequence. This is the one outcome here that costs
+    // somebody money and cannot be undone from this screen.
+    const s = stack({
+      tiers: () => json({ tiers: [FREE, { ...PRO, subscribers: 9, payingSubscribers: 3 }] }),
+    });
+
+    await arrive(s);
+    await clickInRowFor("pro", "Delete");
+
+    expect(text()).toContain("3 live Stripe subscriptions will be cancelled");
+    expect(button("Delete Pro").disabled).toBe(true);
+    expect(s.calls.some((call) => call.method === "DELETE")).toBe(false);
+  });
+
+  it("and lets it through once the name matches", async () => {
+    const s = stack({
+      tiers: () => json({ tiers: [FREE, { ...PRO, subscribers: 9, payingSubscribers: 3 }] }),
+    });
+
+    await arrive(s);
+    await clickInRowFor("pro", "Delete");
+    await type(".admin-form input", "Pro");
+    await click("Delete Pro");
+    await until(() => s.calls.some((call) => call.method === "DELETE"), "the delete to reach the API");
+
+    expect(s.calls.find((call) => call.method === "DELETE")?.url).toBe(
+      "http://localhost:8080/api/admin/tiers/pro",
+    );
+  });
+
+  it("draws an emptied catalog as the state it is, rather than as a blank table", async () => {
+    // An empty catalog is reachable on purpose and is an outage for every user, so
+    // the screen says so — and says the way out, which is New plan rather than undo.
+    const s = stack({ tiers: () => json({ tiers: [PRO] }), remove: () => json({ tiers: [] }) });
+
+    await arrive(s);
+    await clickInRowFor("pro", "Delete");
+    await click("Delete Pro");
+    await until(() => text().includes("There are no tiers"), "the empty catalog to be drawn");
+
+    expect(text()).toContain("nobody can repost");
+  });
+
+  it("and says out loud when a delete left the catalog with no default", async () => {
+    // The one outcome worth naming after the fact: everybody on that tier, and every
+    // new account, is on no plan until a tier is made the default.
+    const s = stack({
+      tiers: () => json({ tiers: [{ ...FREE, isDefault: true }, PRO] }),
+      remove: () => json({ tiers: [{ ...PRO, isDefault: false }] }),
+    });
+
+    await arrive(s);
+    await clickInRowFor("free", "Delete");
+    await click("Delete Free");
+    await until(() => text().includes("no default tier"), "the note to say what happened");
+
+    expect(text()).toContain("make one the default");
+  });
+
+  it("reloads on a 404, because the catalog this tab holds is wrong about more than the row", async () => {
+    const s = stack({ remove: () => new Response(null, { status: 404 }) });
+
+    await arrive(s);
+    await clickInRowFor("pro", "Delete");
+    await click("Delete Pro");
+    await until(() => text().includes("deleted somewhere else"), "the refusal to be said");
+
+    expect(text()).toContain("reloaded");
+  });
+});
+
 describe("the order the plans are read in", () => {
   it("moves the row and sends the whole catalog rather than one row's index", async () => {
     // A sequence, never a per-row number: moving a tier moves others, so the order
@@ -1371,7 +1549,11 @@ describe("creating a plan from the screen", () => {
     expect(text()).toContain("Amount must be at least 50 cents");
   });
 
-  it("and says a code is taken rather than repointing the tier that has it", async () => {
+  it("and names every reason the code could be refused, since the status tells them apart", async () => {
+    // One `409`, three facts, no `reason` on the wire — the same bargain the edit
+    // form's refusal makes. The third is T77's (ADR-0032) and is the only one that
+    // clears on its own, which is why it is named rather than folded into "taken":
+    // an operator told "pick another name" would rename a plan they could have had.
     const s = stack({ create: () => new Response(null, { status: 409 }) });
 
     await arrive(s);
@@ -1379,9 +1561,10 @@ describe("creating a plan from the screen", () => {
     await type("#plan-name", "Pro");
     await type("#plan-amount-month", "5.00");
     await click("Create in Stripe");
-    await until(() => text().includes("already uses that code"), "the clash to be reported");
+    await until(() => text().includes("cannot be filed"), "the clash to be reported");
 
-    expect(text()).toContain("Codes are permanent");
+    expect(text()).toContain("another tier already uses the code");
+    expect(text()).toContain("still being removed from Stripe");
   });
 
   it("files a plan under a code made from its name, and shows it while it is typed", async () => {

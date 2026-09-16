@@ -115,6 +115,11 @@ export function refusalNote(locked: LockedState, grantsNothing: boolean): string
       return "Meerdere tegelijk herplaatsen hoort niet bij je abonnement.";
     case "update-card":
       return "Je betaling is niet gelukt, dus herplaatsen is gepauzeerd.";
+    case "no-tier":
+      // Says what happened and that waiting is the whole of what there is to do —
+      // which is the sentence the code was added to make sayable (T77, ADR-0032).
+      // No "try again": nothing is down and no retry changes the answer.
+      return "Er staat nu geen abonnement op dit account, dus herplaatsen is gepauzeerd.";
     case "retry":
       return "Je abonnement kon niet worden gecontroleerd, dus er is niets herplaatst. Probeer het opnieuw.";
   }

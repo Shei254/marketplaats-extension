@@ -1,10 +1,13 @@
 package com.mprelist.display.internal;
 
+import java.util.Optional;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.mprelist.catalog.Entitlement;
 import com.mprelist.catalog.TierCatalog;
+import com.mprelist.catalog.TierId;
 import com.mprelist.enforcement.Quotas;
 import com.mprelist.enforcement.RemainingQuota;
 import com.mprelist.identity.UserRef;
@@ -15,11 +18,13 @@ import com.mprelist.subscription.Subscriptions;
  * What the caller is shown: their plan as {@code subscription} holds it, what that tier is called and grants
  * as {@code catalog} answers, and what the period has left as {@code enforcement} counts it.
  *
- * <p><strong>Four modules and no decision.</strong> Every value here is somebody else's answer, asked in the
- * one order that keeps them consistent, and nothing is computed on the way — which is the difference between
- * this and the gate. A display that did arithmetic of its own would be a second opinion about a quota, and
- * the popup showing "1 relist left" beside a button the gate refuses is exactly the bug
- * {@link RemainingQuota} exists to make unreachable.
+ * <p><strong>Four modules and one decision, which used to be none.</strong> Every value here is somebody
+ * else's answer, asked in the one order that keeps them consistent, and nothing is computed on the way —
+ * which is the difference between this and the gate. The decision T77 added is not arithmetic either: a
+ * subscription that names no tier has nothing for the three reads below to be about, and this is where that
+ * is noticed rather than where a {@code null} would be rendered as a plan with holes in it. A display that
+ * did arithmetic of its own would be a second opinion about a quota, and the popup showing "1 relist left"
+ * beside a button the gate refuses is exactly the bug {@link RemainingQuota} exists to make unreachable.
  *
  * <p><strong>Transactional, though it grants nothing.</strong> {@code Subscriptions.currentFor} is
  * {@code MANDATORY} — it locks the caller's row and rolls a free window that has closed, and both are only
@@ -52,12 +57,20 @@ class DisplayStates {
 	 * answer safe to hand out: there is no parameter here for anybody to put somebody else's id in.
 	 */
 	@Transactional
-	DisplayState forCaller(UserRef caller) {
+	Shown forCaller(UserRef caller) {
 		Subscription plan = this.subscriptions.currentFor(caller);
+		// Before the quota and before either read of the tier, because all three are questions about a tier
+		// and this caller is on none (T77, ADR-0032). Their status is still perfectly true and is deliberately
+		// not shown alone: a body carrying `subscriptionStatus` and four nulls is a plan with holes in it,
+		// and the holes are the numbers.
+		Optional<TierId> tier = plan.tier();
+		if (tier.isEmpty()) {
+			return new Shown.NoTier();
+		}
 		RemainingQuota left = this.quotas.leftFor(caller, plan);
-		Entitlement granted = this.tiers.entitlementOf(plan.tier());
-		return new DisplayState(plan.status(), this.tiers.nameOf(plan.tier()), left.quotaRemaining(),
-				granted.relistsPerPeriod(), left.resetAt(), granted.features());
+		Entitlement granted = this.tiers.entitlementOf(tier.get());
+		return new Shown.Plan(new DisplayState(plan.status(), this.tiers.nameOf(tier.get()),
+				left.quotaRemaining(), granted.relistsPerPeriod(), left.resetAt(), granted.features()));
 	}
 
 	private final Subscriptions subscriptions;

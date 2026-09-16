@@ -62,3 +62,25 @@ status `active`.** The ex-customer becomes a free user again.
 ## Revisit if
 Fallback becomes a farming route — cancel, get three free, resubscribe — which at three relists a month it
 is not, but at a larger default quota it could be.
+
+## Refined by ADR-0032 (2026-09-16)
+
+**"The default tier" may now be nothing, and the fallback has to answer for that.**
+[ADR-0032](0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md) makes every tier deletable, so
+`TierCatalog.defaultTier()` answers an `Optional` and `SubscriptionRows.ended()` — the one statement this ADR
+is — can find no tier to fall back to. Where it does, nothing here changes: status `active`, our own window
+rolled from the anchor, `stripe_subscription_id` cleared and `stripe_customer_id` kept, exactly as written
+above. Where it does not, the row falls back to **no tier**, keeping both Stripe ids' treatment and the window
+identical, and the holder is denied `NO_TIER` until a default exists again — at which point
+`PUT /api/admin/tiers/{code}/default` adopts them.
+
+**This ADR's mechanism is what a tier deletion reuses, rather than something the delete reimplements.**
+Deleting a tier cancels every live Stripe subscription on it, and each `customer.subscription.deleted` that
+comes back lands here. So a subscriber whose plan was deleted takes the same path as a subscriber who
+cancelled: it is the same event from their side, and the copy they see — the free tier's `QUOTA_EXCEEDED` and
+the plan cards, never the 402 — is the copy this ADR already chose for them.
+
+**"A user who cancels mid-period keeps what they paid for" does not survive a deletion, and that asymmetry is
+deliberate.** Stripe ends a cancellation at period end, which is what makes the sentence above true. A deleted
+tier ends at the moment of the delete, because the row the entitlement is read from is gone and there is
+nowhere to keep it. The operator is told so before they confirm, and any refund is theirs to issue in Stripe.

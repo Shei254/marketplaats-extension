@@ -1,5 +1,7 @@
 package com.mprelist.admin.internal;
 
+import static com.mprelist.admin.internal.AdministerTiers.tierFiledUnder;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -20,11 +22,14 @@ import com.mprelist.billing.PlanCreation;
 import com.mprelist.billing.PlanRhythm;
 import com.mprelist.billing.StripeAccountFacts;
 import com.mprelist.billing.StripePlans;
+import com.mprelist.catalog.CatalogEntry;
 import com.mprelist.catalog.PriceAdoptions;
 import com.mprelist.catalog.TaggedPrice;
 import com.mprelist.catalog.TierEdit;
 import com.mprelist.catalog.TierEdited;
 import com.mprelist.catalog.TierEdits;
+import com.mprelist.catalog.TierTeardown;
+import com.mprelist.subscription.TierSubscribers;
 
 import tools.jackson.databind.JsonNode;
 
@@ -72,11 +77,23 @@ import tools.jackson.databind.JsonNode;
 @RestController
 class CreatePlans {
 
-	CreatePlans(StripePlans stripe, PriceAdoptions adoptions, TierEdits catalog, StripeAccountFacts account) {
+	/**
+	 * @param subscribers only so that the {@code AdminTier} this answers with is the same shape
+	 * {@code AdministerTiers} answers with, counts included (T77). A plan created a moment ago has nobody on
+	 * it; a tier gaining a second rhythm may have thousands, and a body that left the fields out would be a
+	 * second shape for one type
+	 * @param teardown asked one question, before Stripe is touched: whether a deleted tier under this code is
+	 * still being torn down (T77, ADR-0032). Creating one then would make Stripe objects the {@code adopt}
+	 * behind them declines
+	 */
+	CreatePlans(StripePlans stripe, PriceAdoptions adoptions, TierEdits catalog, StripeAccountFacts account,
+			TierSubscribers subscribers, TierTeardown teardown) {
 		this.stripe = stripe;
 		this.adoptions = adoptions;
 		this.catalog = catalog;
 		this.account = account;
+		this.subscribers = subscribers;
+		this.teardown = teardown;
 	}
 
 	/**
@@ -127,9 +144,17 @@ class CreatePlans {
 		// which a plan named "Order" derives, and any spelling a path segment cannot carry. The row either
 		// would make is one `AdministerTiers` can never address — so it is refused here rather than created
 		// and then found uneditable, which is a Stripe Product and its Prices for a tier nobody can touch.
+		//
+		// And a code whose *deleted* tier is still being torn down joins both (T77, ADR-0032), for a version
+		// of the same reason that is sharper because it is silent. The catalog holds no row under it, so the
+		// clause above passes; `adopt` then refuses it — that is the whole point of the refusal — and the
+		// `apply` behind it would answer `NoSuchTier`, which this method reports as a 500 having already made
+		// a Stripe Product and a tagged Price per rhythm. The operator would be left with Stripe objects no
+		// cleanup row covers, under a code they cannot yet use. Asked before Stripe is touched, it is one
+		// more 409 and one more sentence on a screen that is already holding the catalog.
 		if (AdministerTiers.thisApiCouldNotAddressATierFiledUnder(grant.code())
-				|| this.catalog.everyTier().stream()
-						.anyMatch(tier -> tier.tier().code().equals(grant.code()))) {
+				|| this.teardown.isBeingTornDown(grant.code())
+				|| tierFiledUnder(this.catalog, grant.code()).isPresent()) {
 			return ResponseEntity.status(409).build();
 		}
 
@@ -158,7 +183,7 @@ class CreatePlans {
 		}
 		return switch (this.catalog.apply(plan.tierCode(), grant)) {
 			case TierEdited.Applied applied ->
-				ResponseEntity.status(201).body(AdministerTiers.asAdminTier(applied.tier()));
+				ResponseEntity.status(201).body(withCounts(applied.tier()));
 			// Both unreachable: the adopt above has just written the row, and wrote a price id with it.
 			// Reported rather than swallowed, because unreachable is a claim and this is where it would fail.
 			case TierEdited.NoSuchTier ignored -> ResponseEntity.status(500).build();
@@ -223,21 +248,19 @@ class CreatePlans {
 		for (PlanCreation.CreatedPrice one : created.prices()) {
 			this.adoptions.adopt(new TaggedPrice(code, one.stripePriceId(), one.interval(), null));
 		}
-		return this.catalog.everyTier().stream()
-				.filter(tier -> tier.tier().code().equals(code))
-				.findFirst()
-				.map(AdministerTiers::asAdminTier)
+		return tierFiledUnder(this.catalog, code)
+				.map(this::withCounts)
 				.<ResponseEntity<?>>map(ResponseEntity::ok)
 				.orElseGet(() -> ResponseEntity.status(500).build());
 	}
 
+	private AdministerTiers.AdminTier withCounts(CatalogEntry entry) {
+		return AdministerTiers.withCounts(entry, this.subscribers);
+	}
+
 	/** The tier's current name, or {@code null} where no tier carries that code. */
 	private String nameOf(String code) {
-		return this.catalog.everyTier().stream()
-				.filter(tier -> tier.tier().code().equals(code))
-				.map(tier -> tier.tier().name())
-				.findFirst()
-				.orElse(null);
+		return tierFiledUnder(this.catalog, code).map(tier -> tier.tier().name()).orElse(null);
 	}
 
 	/**
@@ -375,6 +398,10 @@ class CreatePlans {
 	private final TierEdits catalog;
 
 	private final StripeAccountFacts account;
+
+	private final TierSubscribers subscribers;
+
+	private final TierTeardown teardown;
 
 	static final String PLANS = "/api/admin/plans";
 

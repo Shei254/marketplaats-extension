@@ -35,6 +35,7 @@ import {
 import { LOADING, screenFor, type Screen, type WorkerPort } from "./screen";
 import {
   LoadingScreen,
+  NoTierScreen,
   OutdatedScreen,
   PlansScreen,
   SignedInScreen,
@@ -616,6 +617,11 @@ function body(screen: Screen, handlers: Handlers): JSX.Element {
       // No retry button, deliberately: nothing this popup can do makes an old build
       // acceptable, and a button that cannot work is worse than none (T43, #52).
       return <OutdatedScreen />;
+    case "no-tier":
+      // No retry button for a sharper version of the same reason (T77, ADR-0032):
+      // an operator has to make a tier the default, and nothing this user does
+      // brings that forward.
+      return <NoTierScreen />;
     case "signed-in": {
       const running = run !== null && run.stop === null;
       return (

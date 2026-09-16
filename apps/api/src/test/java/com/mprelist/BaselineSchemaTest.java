@@ -51,9 +51,11 @@ class BaselineSchemaTest {
 				"select table_name from information_schema.tables where table_schema = 'public'", String.class);
 
 		// `tier_price` joined them at T62 (#128), when a tier stopped being sold at one price and the column
-		// that held it became a table of its own.
+		// that held it became a table of its own. `stripe_cleanup` joined them at T77 (ADR-0032) and is this
+		// application's first durable work queue: what a deleted tier still owes Stripe, captured in the
+		// transaction that deletes it because a moment later none of those ids can be re-derived.
 		assertThat(tables).containsExactlyInAnyOrder("app_user", "tier", "tier_price", "subscription",
-				"usage_reservation", "relist_event", "flyway_schema_history");
+				"usage_reservation", "relist_event", "stripe_cleanup", "flyway_schema_history");
 	}
 
 	@Test
@@ -313,14 +315,34 @@ class BaselineSchemaTest {
 						.hasMessageContaining("subscription_period_runs_forward");
 	}
 
-	/** Retiring a tier is the data migration ADR-0014 says it is, not a delete that orphans subscribers. */
+	/**
+	 * A tier with subscribers <strong>can</strong> be deleted, and what it leaves behind is a row naming no
+	 * tier rather than a row pointing at nothing (T77, V11,
+	 * <a href="../../../../docs/adr/0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md">ADR-0032</a>).
+	 *
+	 * <p>This test asserted the opposite until T77, and the sentence it carried — "retiring a tier is the
+	 * data migration ADR-0014 says it is" — is the one V1 wrote beside the column and `/admin` repeated as
+	 * the reason it had no delete button. What changed the answer is not that the foreign key got easier: it
+	 * is that since T61 a plan is one submit, so a typo is a permanent row in a catalog whose whole audience
+	 * is one operator.
+	 *
+	 * <p><strong>{@code set null} rather than {@code cascade}</strong>, which is the half this asserts. The
+	 * subscription row survives because it holds {@code stripe_customer_id} — what makes resubscribing the
+	 * same customer buying again (ADR-0018) — and {@code created_at}, the anchor every later {@code resetAt}
+	 * is rolled from. Cascading would move a returning subscriber's every future window to the day an
+	 * operator tidied the catalog.
+	 */
 	@Test
-	void aTierWithSubscribersCannotBeDeleted() {
+	void aTierWithSubscribersIsDeletableAndLeavesThemNamingNoTier() {
 		UUID tier = tier();
-		subscription(user(), tier, "active");
+		UUID account = user();
+		subscription(account, tier, "active");
 
-		assertThatThrownBy(() -> db.update("delete from tier where id = ?", tier))
-				.isInstanceOf(DataIntegrityViolationException.class).hasMessageContaining("subscription_tier_id_fkey");
+		db.update("delete from tier where id = ?", tier);
+
+		assertThat(db.queryForMap("select tier_id, created_at from subscription where app_user_id = ?", account))
+				.containsEntry("tier_id", null)
+				.containsKey("created_at");
 	}
 
 	/**

@@ -19,8 +19,11 @@ import java.util.Map;
  * tag on the Price, written once in Stripe and read by the sync (T51, #82). An operator who could type the id
  * here would be typing it twice, and the second copy is the one that drifts.
  * <li><strong>No {@code isDefault}.</strong> It is not a property of one tier but of the catalog — exactly one
- * row carries it — so it moves rather than toggles, and {@link TierEdits#makeDefault(String)} is the whole of
- * how. A boolean here could be set to false on the only tier that has it, which takes down every new sign-in.
+ * row carries it, or since T77 none — so it moves rather than toggles, and
+ * {@link TierEdits#makeDefault(String)} is the whole of how. A boolean here could be set to false on the only
+ * tier that has it, and the point is that nothing on this API can ask for that: a catalog reaches no default
+ * by a tier being <em>deleted</em> (ADR-0032), which is a deliberate act with a confirmation in front of it
+ * rather than a field somebody left out of a form.
  * <li><strong>A {@code code}, and it is the one field here that is only sometimes editable</strong> (T76,
  * ADR-0031). It used to be absent, for three reasons: "the stable handle everything references (ADR-0014):
  * the seed upserts on it, the Price is tagged with it, and a subscription's tier is found through it". The

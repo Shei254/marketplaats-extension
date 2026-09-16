@@ -51,6 +51,33 @@ export const DENIAL_REASONS = [
    * a click. The endpoint that will send it is #147.
    */
   "BULK_NOT_ENTITLED",
+  /**
+   * The caller's subscription names no tier, so there is nothing to read a
+   * plan, a grant or a reset date out of (T77, ADR-0032).
+   *
+   * **Reachable exactly one way**: an operator deleted the tier this person was
+   * on and the catalog had no default to move them to — the default tier
+   * itself, or the last tier there is. Their subscription row survives with
+   * their billing history and their window anchor, and one
+   * `PUT /api/admin/tiers/{code}/default` adopts them and everybody like them
+   * at once. So it is a state to describe rather than an error to retry.
+   *
+   * **Answered by `GET /api/me` as well as by the gate**, which is the half
+   * that makes it worth being a code. Every other non-`200` on `/api/me` is
+   * read as `unavailable`, so a denial sent only to `authorize` would reach
+   * nobody: the popup says "unavailable, retry" first, and the user never
+   * presses the button that had the honest answer behind it.
+   *
+   * **Above `SUBSCRIPTION_INACTIVE` in the gate's order**, and deliberately. A
+   * mirrored status is still perfectly true of somebody whose tier was deleted,
+   * so answering "your payment lapsed" would be the one denial in this contract
+   * that points at the wrong person.
+   *
+   * It is not `NO_PLAN`: a **Plan** is a Tier joined with its Stripe Prices
+   * (ADR-0019, `docs/glossary.md`), so a free user has a Tier and has never had
+   * a Plan — `NO_PLAN` would be true of them on a good day.
+   */
+  "NO_TIER",
   /** This period's relists are spent. Carries `resetAt`, which is when they come back. */
   "QUOTA_EXCEEDED",
   /** Too fast for the pacing rails (ADR-0008). Carries `retryAfter`, in whole seconds. */
@@ -69,6 +96,12 @@ export type Denial =
   | { reason: "SUBSCRIPTION_INACTIVE" }
   /** Adds nothing: what to do about it is the plan screen, which needs no field to find. */
   | { reason: "BULK_NOT_ENTITLED" }
+  /**
+   * Adds nothing, and for a stronger reason than the one above it: what to do
+   * about this is not the user's to do at all. An operator makes a tier the
+   * default, and everybody naming none is adopted onto it.
+   */
+  | { reason: "NO_TIER" }
   | { reason: "QUOTA_EXCEEDED"; resetAt: string }
   /** Whole seconds, rounded up, named after HTTP's own `Retry-After` and carried in the body rather than the header of that name. */
   | { reason: "RATE_LIMITED"; retryAfter: number };
@@ -373,8 +406,37 @@ export interface AdminTier {
   features: Record<string, unknown>;
   /** Whether a buyer may choose it. False on every draft, and on the free tier for good. */
   published: boolean;
-  /** Whether new accounts are provisioned onto it. Exactly one tier carries it. */
+  /**
+   * Whether new accounts are provisioned onto it. **At most one tier carries
+   * it, and since T77 possibly none**: every tier is deletable including the
+   * one holding the flag (ADR-0032), and a catalog with no default is a state
+   * rather than corruption — new accounts are provisioned naming no tier and
+   * denied `NO_TIER` until an operator moves the flag somewhere.
+   */
   isDefault: boolean;
+  /**
+   * How many accounts are on this tier — how many rows a delete moves to the
+   * default tier (T77, ADR-0032).
+   *
+   * **For a confirmation to be quantified rather than generic.** "This will
+   * move 412 subscribers" is a sentence an operator can act on; "are you sure?"
+   * is one they click through.
+   */
+  subscribers: number;
+  /**
+   * How many of those Stripe is currently billing — how many live subscriptions
+   * a delete cancels.
+   *
+   * **The irreversible half, and the only number `/admin` escalates on.** These
+   * people lose the remainder of a period they paid for, and any refund is the
+   * operator's to issue in Stripe (ADR-0014). So the confirmation asks for the
+   * tier's name to be typed when this is above zero and takes one click when it
+   * is not, which keeps undoing a plan created a minute ago as cheap as it
+   * should be.
+   *
+   * Always at most `subscribers`, and `0` on every free tier and every draft.
+   */
+  payingSubscribers: number;
   /**
    * Every Stripe Price it is sold at, cheapest rhythm first, and empty for a tier
    * sold at none — the free tier, and any whose Price has not been created yet.
@@ -427,6 +489,12 @@ export interface NewPrice {
  * same sequence `GET /api/plans` renders the published subsequence of, so the list
  * arranged here and the cards a buyer reads cannot disagree. A tier the sync drafts
  * is appended, so it arrives last until somebody moves it.
+ *
+ * **Also the body of `PUT /api/admin/tiers/order` and of
+ * `DELETE /api/admin/tiers/{code}`** (T77, ADR-0032), which both change the catalog
+ * rather than one row: the delete removes a row, may leave the default badge
+ * nowhere at all, and can leave this list *empty* — which is a state and not a
+ * failure, and the one a `NO_TIER` denial is answered from.
  */
 export interface AdminTiers {
   tiers: AdminTier[];
@@ -454,8 +522,11 @@ export interface AdminTiers {
  * what editing it does; no `stripePriceId`, because the tag on the Price is the
  * only link and a second copy is the one that drifts; and no `isDefault`, which is
  * a property of the catalog rather than of one row —
- * `PUT /api/admin/tiers/{code}/default` moves it, and there is deliberately no way
- * to ask for a catalog with no default at all.
+ * `PUT /api/admin/tiers/{code}/default` moves it, and there is deliberately no
+ * request on this API that *clears* it. Since T77 a catalog can still end up with
+ * no default, by deleting the tier holding it (ADR-0032) — which is a deliberate
+ * act with a quantified confirmation in front of it rather than a field somebody
+ * left out of a form.
  *
  * **`code` is here and is conditional** (ADR-0031). It may change exactly while
  * the tier has no Stripe Price: once it has one, Stripe holds a copy of the code in

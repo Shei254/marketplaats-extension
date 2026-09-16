@@ -302,6 +302,47 @@ class RelistAuthorizationTest {
 	}
 
 	/**
+	 * A caller whose subscription names no tier is refused before anything about them is read (T77,
+	 * ADR-0032).
+	 *
+	 * <p>Every check below this one is a question about a tier — the quota is its grant, {@code bulk} is one
+	 * of its flags — so there is nothing for them to read and no honest answer for them to give. The
+	 * reservation assertion is the one that matters: a refusal must not cost the unit it refused to let them
+	 * spend, and this refusal happens before the gate has looked at a window at all.
+	 */
+	@Test
+	void aCallerWhoseTierWasDeletedIsRefusedBeforeAnythingAboutTheirPlanIsRead() {
+		Subscriber user = aSubscriberEntitledTo(3);
+		this.rows.hasNoTier(user);
+
+		HttpResponse<String> refused = authorize(user, "ad-1");
+
+		assertThat(refused.statusCode()).isEqualTo(403);
+		assertThat(Json.of(refused).get("reason").asString()).isEqualTo("NO_TIER");
+		// It carries nothing, for BULK_NOT_ENTITLED's reason and a stronger one: what to do about this is not
+		// this user's to do at all.
+		assertThat(Json.of(refused).propertyNames()).containsExactly("reason");
+		assertThat(this.rows.reservationsOf(user)).isEmpty();
+	}
+
+	/**
+	 * And above the status, which is where the ordering earns itself.
+	 *
+	 * <p>A mirrored status is still true of somebody whose tier was deleted, so the other order would answer
+	 * {@code SUBSCRIPTION_INACTIVE} — telling a user their card is failing when what happened is that an
+	 * operator deleted their plan. That is the one denial in this contract that would point at the wrong
+	 * person, which is the argument for putting {@code NO_TIER} above a check that would otherwise fire first.
+	 */
+	@Test
+	void andAboveTheStatusCheckThatWouldOtherwiseBlameTheirCard() {
+		Subscriber user = aSubscriberEntitledTo(3);
+		itsStatusIs(user, "past_due");
+		this.rows.hasNoTier(user);
+
+		assertThat(Json.of(authorize(user, "ad-1")).get("reason").asString()).isEqualTo("NO_TIER");
+	}
+
+	/**
 	 * A lapsed payer is told their subscription stopped, not that they are out of quota — and this is the test
 	 * of the order, since they are out of quota too. The other way round they would be shown an upgrade prompt
 	 * for a plan they are no longer paying for, and the one thing they can act on would be the thing they were

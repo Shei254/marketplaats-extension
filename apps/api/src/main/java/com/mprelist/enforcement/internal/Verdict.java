@@ -5,6 +5,7 @@ import java.time.OffsetDateTime;
 import java.util.UUID;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.mprelist.enforcement.ReasonCode;
 
 /**
  * What the gate answers: an authorization, or a refusal carrying the reason the extension renders. Sealed, so
@@ -56,11 +57,15 @@ sealed interface Verdict {
 	record Refused(ReasonCode reason, OffsetDateTime resetAt, Long retryAfter) implements Verdict {
 
 		/**
-		 * A code that adds nothing — {@link ReasonCode#SUBSCRIPTION_INACTIVE} and, since #147,
-		 * {@link ReasonCode#BULK_NOT_ENTITLED}: what to do about either is a screen, and a screen needs no
-		 * field to find. The second was declared here before anything sent it and is now sent by the gate,
-		 * which is the sealing working — a new code brought a field of its own rather than a shape of its own,
-		 * and this one brought neither.
+		 * A code that adds nothing — {@link ReasonCode#SUBSCRIPTION_INACTIVE}, since #147
+		 * {@link ReasonCode#BULK_NOT_ENTITLED}, and since T77 {@link ReasonCode#NO_TIER}: what to do about any
+		 * of them is a screen, and a screen needs no field to find. The second was declared here before
+		 * anything sent it and is now sent by the gate, which is the sealing working — a new code brought a
+		 * field of its own rather than a shape of its own, and neither of the two since has brought either.
+		 *
+		 * <p>{@code NO_TIER} carries nothing for a stronger reason than the other two, and it is worth saying:
+		 * theirs is that the field would be redundant, and this one's is that there is no screen either. What
+		 * fixes it is an operator making a tier the default (ADR-0032).
 		 */
 		static Refused because(ReasonCode reason) {
 			return new Refused(reason, null, null);

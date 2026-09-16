@@ -13,6 +13,8 @@ const PRO: AdminTier = {
   published: true,
   isDefault: false,
   prices: [{ stripePriceId: "price_pro", interval: "month" }],
+  subscribers: 0,
+  payingSubscribers: 0,
 };
 
 interface Call {
@@ -197,6 +199,36 @@ describe("moving the default", () => {
   });
 });
 
+describe("deleting a tier", () => {
+  it("sends a DELETE and reads the whole catalog back", async () => {
+    // The catalog rather than the row (T77, ADR-0032): a delete removes a row, can
+    // move the default badge to nowhere, and can empty the list. A screen that
+    // removed one row and hoped would be holding a default flag that is gone.
+    const { client, calls } = api(() => json({ tiers: [PRO] }));
+
+    await expect(client.remove("free")).resolves.toEqual({ status: "deleted", tiers: [PRO] });
+    expect(calls[0]?.method).toBe("DELETE");
+    expect(calls[0]?.url).toBe("http://localhost:8080/api/admin/tiers/free");
+    expect(calls[0]?.body).toBeUndefined();
+  });
+
+  it("reads an emptied catalog as an answer rather than as a failure", async () => {
+    // The state the whole ADR is about. A reader that refused an empty list would
+    // blank the one screen an operator needs to get out of it.
+    const { client } = api(() => json({ tiers: [] }));
+
+    await expect(client.remove("free")).resolves.toEqual({ status: "deleted", tiers: [] });
+  });
+
+  it("has one refusal, and it can only mean the row was already gone", async () => {
+    // Every tier is deletable, so there is no state of the catalog the API declines
+    // to produce — which leaves a `404` with exactly one reading.
+    const { client } = api(() => new Response(null, { status: 404 }));
+
+    await expect(client.remove("free")).resolves.toEqual({ status: "gone" });
+  });
+});
+
 describe("setting the order the plans are read in", () => {
   const FREE: AdminTier = {
     tier: { code: "free", name: "Free" },
@@ -205,6 +237,8 @@ describe("setting the order the plans are read in", () => {
     published: false,
     isDefault: true,
     prices: [],
+    subscribers: 0,
+    payingSubscribers: 0,
   };
 
   it("puts the whole catalog, by code, in one request", async () => {

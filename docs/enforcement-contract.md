@@ -47,9 +47,16 @@ conversion surface available. The login gate is a product decision, not a securi
   `Subscription` record with a normalized status. Entitlements come from **our** `Tier` table (ADR-0014).
 - **Allowed** statuses: `active`, `trialing`. **Denied**: `past_due`, `canceled`, `unpaid`, `incomplete`,
   `incomplete_expired`.
-- **Every user always has a Subscription** (ADR-0014): first login auto-provisions one on the `isDefault`
-  tier with status `active`. "No subscription" is not a reachable state, so free users are denied by
-  `QUOTA_EXCEEDED`, never by `SUBSCRIPTION_INACTIVE`.
+- **Every user always has a subscription _row_** (ADR-0014, narrowed by
+  [ADR-0032](adr/0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md)): first login
+  auto-provisions one on the `isDefault` tier with status `active`. "No subscription" is still not a reachable
+  state, so free users are denied by `QUOTA_EXCEEDED`, never by `SUBSCRIPTION_INACTIVE`.
+- **The row may name no tier.** Since T77 every tier is deletable, including the default and the last, so
+  `subscription.tier_id` is nullable (`on delete set null`) and a catalog with no default is a supported
+  state rather than corruption. A subscription in it is denied **`NO_TIER`** — on `/api/me` as well as on the
+  gate — and is repaired for everybody at once by `PUT /api/admin/tiers/{code}/default`, which adopts every
+  orphan in its own transaction. It is reachable exactly one way: an operator deleted the tier somebody was
+  on and there was no default to move them to.
 - **A terminal end falls back to the default tier** (ADR-0018). `canceled` and `incomplete_expired`, and a
   trial or period ending unpaid, move the row to the `isDefault` tier with status `active` and the period
   back to our monthly roll; `stripeCustomerId` is kept and `stripeSubscriptionId` cleared. **Dunning does
@@ -306,7 +313,7 @@ what every other answer in this document is read from.
   to do, meant a failing card left the row saying `ACTIVE` and the subscriber went on relisting while Stripe
   retried it.
 
-### The admin API — `GET /api/admin/tiers`, `PUT …/{code}`, `PUT …/{code}/default`, `PUT …/order`, `GET /api/admin/prices`
+### The admin API — `GET /api/admin/tiers`, `PUT …/{code}`, `DELETE …/{code}`, `PUT …/{code}/default`, `PUT …/order`, `GET /api/admin/prices`
 Consumed by `apps/web`'s `/admin` (T54, #85) and by nothing the extension runs. Its audience is an operator
 rather than a subscriber, which is why none of its answers carries a `reason`: those codes are statements
 about a *user*, and nothing here is about one.
@@ -352,8 +359,12 @@ about a *user*, and nothing here is about one.
 - **What it cannot change is the decision** (ADR-0019): not the amount or interval, because Stripe Prices are
   immutable and a field called "amount" would be lying about what editing it does; not `stripePriceId`,
   because the `metadata.tier_code` tag on the Price is the only link and a second copy is the one that drifts.
-  There is also no create and no delete — a plan is created by tagging a Price in Stripe and a tier is retired
-  by unpublishing it, since a subscription references its tier behind a foreign key.
+  Creating is not this route's either, and is no longer nobody's: `POST /api/admin/plans` (T61) makes the
+  Stripe Product and Prices and then calls the same `adopt` the webhook does, so the `tier` table still has
+  exactly one writer of its Stripe columns. Deleting is `DELETE …/{code}` below (T77,
+  [ADR-0032](adr/0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md)) — this bullet used to say a
+  tier is retired by unpublishing it, since a subscription references its tier behind a foreign key, and that
+  is the sentence that ADR reversed.
 - **`code` is on the body and is conditionally editable**
   ([ADR-0031](adr/0031-the-free-tier-is-the-one-without-a-price.md)). It may move exactly while the tier has
   no `tier_price` row — in practice the **free tier** and nothing else — because beyond that Stripe holds a
@@ -377,11 +388,18 @@ about a *user*, and nothing here is about one.
   than the new number simply has none left until it rolls. No proration and no notification (ADR-0014,
   amended).
 - **`PUT /api/admin/tiers/{code}/default` → `200`** moves the flag to that tier. **A move, never a toggle** —
-  and that is the design rather than an API style. The catalog must carry exactly one default: `defaultTier()`
-  throws when no row does and provisioning catches nothing, so a catalog with none takes down every new
-  sign-in and the operator who caused it sees nothing wrong. Expressed this way there is no request that can
-  leave the catalog without one. Naming the tier that already holds it is idempotent. **"No free tier" is not
-  this route** — it is a quota of `0` on whichever tier is the default (ADR-0019).
+  and that is the design rather than an API style: no request anybody can send leaves the catalog without one.
+  Naming the tier that already holds it is idempotent. **"No free tier" is not this route** — it is a quota of
+  `0` on whichever tier is the default (ADR-0019).
+- **It also adopts every orphan** (T77,
+  [ADR-0032](adr/0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md)): every subscription with a
+  null `tier_id` is pointed at the new default in the same transaction. Precise rather than convenient — a
+  subscription is tier-less *only* because no default existed, and this route is the sole writer of the flag,
+  so it is the only moment that stops being true. Everybody heals at once, including users who never sign in
+  again, and nothing on the authorize path changes. **What this bullet used to say — that a catalog with no
+  default takes down every new sign-in — is no longer true and was the reason the flag could only move.**
+  Provisioning now writes a tier-less row instead of throwing, which is what makes a deleted last tier a state
+  rather than an outage.
 - **`PUT /api/admin/tiers/order` → `200`** sets the **Catalog order** (T75,
   [ADR-0030](adr/0030-the-catalog-order-is-the-operators.md)) — `{ "codes": ["free", "pro", "power"] }`, the
   whole catalog in the order the plan cards should read. **A sequence, never a per-row index**, and for
@@ -405,6 +423,41 @@ about a *user*, and nothing here is about one.
   and of every fixture too.
 - **`400` with an empty body** for a body naming no `codes` at all. Not an empty catalog: the ordering that
   would otherwise be read out of it — none of the tiers, in no order — is not something any screen means.
+- **`DELETE /api/admin/tiers/{code}` → `200`** removes a tier, and **every tier is removable** — the default
+  one and the last one included (T77,
+  [ADR-0032](adr/0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md)). **`404`** means no tier is
+  stored under that code, and it is the only refusal: there is no state of the catalog this route declines to
+  produce. A tier coded `order` is deletable although it is not editable, since `PUT …/order` takes the
+  literal and this does not.
+- **The `200` carries the whole catalog**, the same **AdminTiers** body the `GET` and `PUT …/order` answer
+  with, read back inside the write's transaction — the screen has rows to remove, positions to redraw and
+  possibly a default flag to move.
+- **What one delete does, in one Postgres transaction:** every subscription on the tier moves to the
+  **Default tier**; where the tier *being* deleted is the default, or is the last one, they are left with no
+  tier at all (`on delete set null`) and are denied `NO_TIER` until a default exists again. The `tier_price`
+  rows cascade. The Stripe work is **enqueued, not performed** — see below.
+- **A payer loses the remainder of a period they paid for**, and this is the one consequence the screen has to
+  say out loud. The row their entitlement was read from is gone and there is nowhere to keep it, so they drop
+  to the default tier at once rather than at period end — unlike a cancellation, which ADR-0018 lets run to
+  the end of the window. No refund is issued from here; money is decided in Stripe (ADR-0014).
+- **Stripe is reconciled by a queue, drained by a scheduled job.** Per tier: cancel every live Stripe
+  subscription on it, archive **and untag** every Price (`active=false` with `metadata[tier_code]` cleared, in
+  one `price.update`), archive the Product. One queue row per call, each with its own attempt count and last
+  error, so a subscription Stripe refuses forever does not block the Price archiving behind it. **The work is
+  captured in the delete's transaction, never re-derived** — afterwards `tier_price` has cascaded, the Product
+  id was never stored, and the ex-subscribers are indistinguishable from any other deletion's orphans.
+- **Archiving is what deleting means in Stripe.** There is no delete for a Price at all, and a Product that
+  ever held one cannot be deleted either. **Clearing the tag is the half that is not optional**: archiving
+  alone fires a `price.updated` still carrying `metadata.tier_code`, and the sync would draft the tier
+  straight back. Cleared, the tag reads as absent, so the event the clearing itself fires is a no-op.
+- **The sync refuses a code that is still being torn down.** While any queue row for a code is unfinished,
+  `price.created` and `price.updated` naming it are ignored rather than adopted — which closes the window
+  between the row disappearing and its Prices being untagged, without burning the code permanently. It frees
+  when the last row is done.
+- **`AdminTier` carries subscriber counts** so the confirmation can be quantified: how many move, and how many
+  live Stripe subscriptions will be cancelled. `/admin` requires the tier's name to be typed **only when that
+  second number is above zero** — friction tracking consequence, so undoing a plan created a minute ago stays
+  one click and cancelling strangers' subscriptions cannot be done by reflex.
 - **`GET /api/admin/prices` → `200`:** the active Stripe Prices carrying no `tier_code`, newest first, at most
   a hundred — `{ "prices": [ { "id", "nickname", "amount", "currency", "interval" } ] }`. It exists because
   the failure it reports is silent: a Price created without the tag produces a plan screen without that plan
@@ -425,8 +478,9 @@ that ADR's own "revisit if" anticipated. Same audience and same guard as the adm
   disagree about what a quota may say.
 - **A plan granting nothing and asking to be on sale is a `400` here**, where the edit route answers `409`.
   The difference is when: this route creates a Stripe Product before it writes anything, so a refusal at the
-  end would arrive as a `409` indistinguishable from "that code is taken" — and an operator would rename,
-  retry, and make a second Product. `409` on this route keeps meaning exactly one thing.
+  end would arrive as a `409` and an operator would rename, retry, and make a second Product. **Everything
+  this route refuses, it refuses before it touches Stripe** — that is the rule, and it is what the `409`
+  below is held to as well.
 - **`prices` is every rhythm the plan is sold at, stated together** — `[{ amount, interval }]`, at least one
   and never the same `interval` twice. Monthly and annual are one plan a buyer picks a rhythm for, so both
   amounts are written where the plan is created; a rhythm named twice is two answers to one question and is a
@@ -446,8 +500,16 @@ that ADR's own "revisit if" anticipated. Same audience and same guard as the adm
 - **The amount is still not editable, anywhere.** It is written once, into the system that owns it. Repricing
   is done in Stripe: a new Price tagged with the same code repoints the tier through the sync, and everybody
   already subscribed keeps the amount they signed up at.
-- **`409` with an empty body** when a tier already uses that code. Adopting it instead would repoint that
-  tier's Price — right for a webhook, wrong for a button labelled *New plan*.
+- **`409` with an empty body** when the code cannot be filed under, which since T77 is three facts: a tier
+  already uses it (adopting instead would repoint that tier's Price — right for a webhook, wrong for a button
+  labelled *New plan*); no route could name it again (the reserved `order`, or a spelling a path segment
+  cannot carry — T76, [ADR-0031](adr/0031-the-free-tier-is-the-one-without-a-price.md)); or **a tier deleted
+  under it is still being torn down in Stripe**
+  ([ADR-0032](adr/0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md)). The third is the only one
+  that clears on its own, and it has to be asked *here* rather than discovered later: the catalog holds no row
+  under a deleted code, so without it the create would make a Product and a tagged Price per rhythm and only
+  then meet the `adopt` that refuses the code — leaving an operator with Stripe objects no cleanup row covers.
+  The screen names all three, since no `reason` travels on this status.
 - **`422` with `{ "problem": "…" }`** when Stripe refuses, and this is **the one body in this API that is a
   sentence rather than a code**. "Amount must be at least 50 cents for usd" is not something a status can
   convey and is exactly what the operator must change. The field is deliberately **not** `reason`: that word
@@ -510,10 +572,20 @@ that ADR's own "revisit if" anticipated. Same audience and same guard as the adm
   somebody is free to change and stops matching the day they do; given only the code, it renders `power` to a
   human or keeps a second catalog of labels ours never reaches. So both travel and which is which is stated
   here rather than guessed at each reader.
-- **`200` is the only answer other than `401`.** Every user always has a subscription (ADR-0014), so there is
-  nothing here to refuse: a lapsed payer and a user with nothing left are both *shown* their state, and being
-  turned away is the job of the call that grants something. A caller refused here would have no way to tell a
-  lapsed plan from a backend that is down, which is the same fail-closed display the last bullet asks for.
+- **`200`, `401`, and since T77 one denial.** Every user always has a subscription *row*, so almost nothing
+  here is refusable: a lapsed payer and a user with nothing left are both *shown* their state, and being
+  turned away is the job of the call that grants something. The exception is a subscription that names **no
+  tier**, which answers `403 NO_TIER`
+  ([ADR-0032](adr/0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md)) — there is no tier to
+  read a name, a grant or a `resetAt` out of, so every field below but `subscriptionStatus` would have to be
+  invented.
+- **It is answered here and not only at the gate, and that is the point of adding a code at all.**
+  `display-state.ts` maps every non-`200` to `unavailable` except `401` (signed-out) and `426` (outdated), so
+  a denial sent only to `authorize` would reach nobody: the popup would say "unavailable, retry" first and the
+  user would never press the button that had the honest answer behind it. The popup gains a third status
+  beside those two, which is the shape `426` already set the precedent for — read by code, never by prose.
+  **A caller refused for any other reason** would have no way to tell a lapsed plan from a backend that is
+  down, which is the same fail-closed display the last bullet asks for.
 - **It grants nothing and spends nothing.** No token, no `jti`, no expiry, and no reservation is taken — a
   popup opened five times is five of these calls, and one that cost a unit would empty a free tier by being
   looked at. It carries no cooldown either: the pacing rails answer with a `retryAfter` at the moment of
@@ -549,6 +621,7 @@ that ADR's own "revisit if" anticipated. Same audience and same guard as the adm
   | Check | Fail response |
   |---|---|
   | Valid Keycloak token | `401 UNAUTHENTICATED` |
+  | The subscription names a tier | `403 NO_TIER` |
   | Subscription status is Allowed | `402 SUBSCRIPTION_INACTIVE` |
   | `batch` asked for, and Entitlement carries **no** `bulk` | `403 BULK_NOT_ENTITLED` |
   | Entitlement quota remaining this period | `429 QUOTA_EXCEEDED` (+ `resetAt`) |
@@ -560,6 +633,22 @@ that ADR's own "revisit if" anticipated. Same audience and same guard as the adm
   permitted — the same status the resource server already answers an ADMIN-less caller with, and told apart
   from it by the rule the denial shape states: **the presence of `reason` means the gate turned you away.**
   That `403` carries no body and this one does.
+
+  **`NO_TIER` sits above status, and carries nothing**
+  ([ADR-0032](adr/0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md)). Every check below it
+  reads the tier — the quota is the tier's grant, `bulk` is one of its flags — so there is nothing for them to
+  read and no honest answer for them to give. Status is *above* it in the row and below it here deliberately:
+  a mirrored status is still true of a tier-less subscriber, and telling a user their card is failing when
+  what happened is that their plan was deleted would be the one denial in this contract that points at the
+  wrong person. It carries no field for the same reason `BULK_NOT_ENTITLED` does not: what to do about it is
+  not the user's to do.
+
+  **It is not a `503`, and that was argued.** The empty-bodied `503` `GET /api/plans` answers when Stripe
+  cannot be reached is the nearest precedent, and the rule behind it — *the codes are statements about the
+  user, and this is one about our ability to answer at all* — arguably covers an emptied catalog too. It was
+  rejected because the sentence a client renders for it is "unavailable, retry", which is false: no retry
+  fixes this. The cost accepted in exchange is that a build installed before T77 renders an unknown code as
+  "something went wrong, try again" until it updates.
 
   **How many at once is not this endpoint's to say.** `features.bulk` carries `{"upTo": N}`, and nothing here
   can count a selection — a batch arrives one ad at a time. So the API enforces *whether* and the popup

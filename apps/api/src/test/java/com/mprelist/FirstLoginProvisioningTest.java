@@ -238,25 +238,35 @@ class FirstLoginProvisioningTest {
 	}
 
 	/**
-	 * The invariant, asserted where it could actually break rather than only on the happy path: an account is
-	 * provisioned in the transaction that provisions its subscription, so a catalog that cannot supply a tier
-	 * leaves <strong>no account behind at all</strong>. The caller sees the failure and their next request
-	 * tries again; what they never become is a signed-up user with nothing to spend, which is the state every
-	 * reader of a subscription would then have to be written to survive.
+	 * A catalog with no default tier provisions the account anyway, and the subscription names no tier (T77,
+	 * <a href="../../../../docs/adr/0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md">ADR-0032</a>).
+	 *
+	 * <p><strong>This asserted the opposite until T77</strong>, and the invariant it was defending is not the
+	 * one that changed. An account is still provisioned in the transaction that provisions its subscription —
+	 * that is what the assertions below say, and it is why nobody ever becomes a signed-up user with no row
+	 * for a reader of one to survive. What changed is that the row may name nothing yet: an empty catalog is
+	 * reachable on purpose now, and refusing to create accounts while an operator is in one would turn a
+	 * deleted tier into a sign-in outage nothing on their screen explains.
+	 *
+	 * <p>What those accounts are answered is {@code NO_TIER}, and what repairs them is
+	 * {@code PUT /api/admin/tiers/{code}/default}, which adopts every orphan at once —
+	 * {@code TierDeletionTest} walks both.
 	 *
 	 * <p>The catalog is put back by hand rather than by a rollback, since the application writes on its own
 	 * connection and would not see one.
 	 */
 	@Test
-	void aCatalogWithNoDefaultTierProvisionsNobodyAtAll() {
+	void aCatalogWithNoDefaultTierStillProvisionsAnAccountAndLeavesItNamingNoTier() {
 		String subject = somebodyNew();
 		this.db.update("update tier set is_default = false");
 		try {
-			HttpResponse<String> failed = get(ACCOUNT, IDP.token(claims -> claims.subject(subject)));
+			HttpResponse<String> provisioned = get(ACCOUNT, IDP.token(claims -> claims.subject(subject)));
 
-			assertThat(failed.statusCode()).isEqualTo(500);
-			assertThat(accountsFor(subject)).isEmpty();
-			assertThat(subscriptions()).isEmpty();
+			assertThat(provisioned.statusCode()).isEqualTo(200);
+			assertThat(accountsFor(subject)).containsExactly(userRefIn(provisioned));
+			assertThat(this.db.queryForObject(
+					"select tier_id from subscription where app_user_id = ?", UUID.class,
+					userRefIn(provisioned).id())).isNull();
 		}
 		finally {
 			this.db.update("update tier set is_default = true where code = 'free'");

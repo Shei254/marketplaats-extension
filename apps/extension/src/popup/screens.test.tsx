@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { DisplayState } from "@mprelist/contracts";
 
 import { NOT_OPENING } from "./plans";
-import { OutdatedScreen, SignedInScreen, repostsLeft, resetsOn } from "./screens";
+import { NoTierScreen, OutdatedScreen, SignedInScreen, repostsLeft, resetsOn } from "./screens";
 
 const PLAN = {
   subscriptionStatus: "ACTIVE",
@@ -174,5 +174,33 @@ describe("the update screen", () => {
 
   it("says the ads are untouched, which is what somebody locked out most needs to read", () => {
     expect(markup).toContain("Er is niets gewijzigd op Marktplaats");
+  });
+});
+
+describe("the no-plan screen", () => {
+  const markup = renderToStaticMarkup(<NoTierScreen />);
+
+  it("says the plan is gone rather than that something went wrong", () => {
+    // T77 (ADR-0032). The backend answered promptly and truthfully, so the one
+    // thing this must not do is describe an outage — which is what every build
+    // shipped before this one renders for the same denial.
+    expect(markup).toContain("geen abonnement");
+    expect(markup).not.toContain("Probeer het zo opnieuw");
+  });
+
+  it("offers no button, because retrying is the one thing that cannot help", () => {
+    // Sharper than the update screen's version of this: there the user can act and
+    // it simply is not "try again", and here there is nothing for either of them to
+    // do — an operator makes a tier the default and everybody is adopted at once.
+    expect(markup).not.toContain("<button");
+    expect(markup).toContain("opnieuw proberen helpt niet");
+  });
+
+  it("says the ads are untouched, like every other screen somebody is locked out of", () => {
+    expect(markup).toContain("Er is niets gewijzigd op Marktplaats");
+  });
+
+  it("sells nothing, because the catalog it would point at may be empty", () => {
+    expect(markup).not.toContain("Bekijk abonnementen");
   });
 });

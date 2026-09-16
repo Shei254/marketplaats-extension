@@ -24,11 +24,11 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0011](0011-repository-layout.md) | Repository layout — monorepo, one deployable per workspace | Accepted |
 | [0012](0012-backend-modular-monolith.md) | Backend — modular monolith (Spring Modulith), hexagonal modules | Accepted |
 | [0013](0013-remote-client-configuration.md) | Remote client configuration for the internal-API layer | Accepted, refined by 0024 |
-| [0014](0014-tier-catalog-and-entitlements.md) | Tier catalog & entitlements ours, keyed to Stripe Prices | Accepted, refines 0006, refined by 0026, 0029, 0030 and 0031 |
+| [0014](0014-tier-catalog-and-entitlements.md) | Tier catalog & entitlements ours, keyed to Stripe Prices | Accepted, refines 0006, refined by 0026, 0029, 0030 and 0031, amended by 0032 |
 | [0015](0015-frozen-internal-api-golden-tests.md) | Internal-API layer frozen by golden-payload tests | Accepted |
 | [0016](0016-vertical-slices-and-review-gates.md) | Iteration 1 cut into vertical slices, each ending at a manual review | Accepted |
 | [0017](0017-web-surface-and-subscribing.md) | One web app, loginless public routes; subscribing starts in the popup | Accepted, amends 0011, refined by 0023 |
-| [0018](0018-lapse-falls-back-to-the-default-tier.md) | A subscription that ends falls back to the default tier | Accepted, refines 0014 |
+| [0018](0018-lapse-falls-back-to-the-default-tier.md) | A subscription that ends falls back to the default tier | Accepted, refines 0014, refined by 0032 |
 | [0019](0019-plans-are-stripe-first-and-webhook-synced.md) | Plans created in Stripe, synced to the Tier catalog by webhook | Accepted, refines 0014, refined by 0029 and 0031 |
 | [0020](0020-deployment.md) | Deployed as four containers on one host, from a second compose file | Accepted, amended by 0023 |
 | [0021](0021-design-system-stays-ours.md) | The design system stays ours, and stays a CSS string | Accepted, refines 0016 |
@@ -41,7 +41,8 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0028](0028-a-repost-puts-back-what-it-can.md) | A repost puts back what it can, and says what it cannot | Accepted, refines 0002 |
 | [0029](0029-unlimited-is-null-and-zero-still-grants-nothing.md) | Unlimited is `null`, and zero still grants nothing | Accepted, refines 0014 and 0019 |
 | [0030](0030-the-catalog-order-is-the-operators.md) | The catalog order is the operator's, and it is one sequence | Accepted, refines 0014 |
-| [0031](0031-the-free-tier-is-the-one-without-a-price.md) | The free tier is the one without a price, and an operator edits it | Accepted, refines 0014 and 0019 |
+| [0031](0031-the-free-tier-is-the-one-without-a-price.md) | The free tier is the one without a price, and an operator edits it | Accepted, refines 0014 and 0019, partly reversed by 0032 |
+| [0032](0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md) | Every tier is deletable, and an empty catalog is a state | Accepted, amends 0014, refines 0018, partly reverses 0031 |
 
 **Amended by the 2026-08-13 session:** 0006 (Stripe narrowed to money + lifecycle), 0007 (gating depth,
 `/api/me` display state, `marktplaatsAccountId` dropped), 0009 (monorepo, React popup, Options page removed).
@@ -151,6 +152,23 @@ rejected because raising the free grant should reach the people already on it, w
 nothing). What was actually missing was one field — `code`, editable exactly while a tier has no Price to
 freeze it in Stripe — and one sentence in `TierEdit` that was never true: a subscription's tier is found by
 uuid, not by code.
+
+**Amended by the 2026-09-16 deletion session, later the same day:**
+[0032](0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md) reverses the delete route
+[0031](0031-the-free-tier-is-the-one-without-a-price.md) had just ruled out, and the reversal is not a
+contradiction: that rejection was an argument about the **free** tier, in a session about the free tier, and
+it is still correct about it. Asked of the catalog as a whole the answer came out the other way, because what
+made deletion look impossible was a foreign key rather than anything an operator would recognise. The session
+opened on symmetry — `/admin` creates and cannot delete — which is the ground this repository has refused
+three times, and what survived the pressing was T61: creating a tier is one click now, so a typo is a
+permanent row. Getting there cost [0014](0014-tier-catalog-and-entitlements.md)'s central invariant, which
+narrows from "every user always has a Subscription" to "every user always has a subscription *row*" — the
+largest thing this repo has given up, argued at length there. Two facts nobody had written down turned up on
+the way and are the reason the ticket is not small: a deleted tier **comes back**, because the Stripe Prices
+outlive it still carrying `metadata.tier_code` and `price.updated` re-adopts them; and archiving a Price
+stops new purchases while existing subscriptions **keep billing**, so a delete that only tidied the catalog
+would charge people for a plan that is gone. Stripe has no delete for a Price at all — verified against
+`stripe-java:29.2.0` rather than assumed — so archiving is what the word means there.
 
 See also [../domain-model.md](../domain-model.md), [../glossary.md](../glossary.md) and
 [../enforcement-contract.md](../enforcement-contract.md).

@@ -89,14 +89,54 @@ public interface TierEdits {
 	Optional<List<CatalogEntry>> reorder(List<String> codes);
 
 	/**
+	 * Delete the tier stored under {@code code}, and answer with the catalog that is left (T77,
+	 * <a href="../../../../../../../docs/adr/0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md">ADR-0032</a>).
+	 *
+	 * <p><strong>Every tier is deletable, the default one and the last one included</strong>, which is that
+	 * ADR's first decision and the one everything else in it pays for. The narrower answers — refuse the
+	 * default and make an operator move the flag first, or soft-delete behind a {@code retired_at} — were
+	 * weighed and both fail on the same point: they make an operator's own catalog something the data model
+	 * has an opinion about. So an empty catalog is reachable, and it is <strong>a state and not
+	 * corruption</strong>.
+	 *
+	 * <p><strong>What this method does not do is as decided as what it does.</strong> It does not move
+	 * subscribers and it does not cancel anything in Stripe. Both are true of a delete and neither is this
+	 * module's: {@code subscription} owns the rows the people are in, and Stripe is {@code billing}'s. They
+	 * are composed with this in one transaction by {@code admin}, which is the module allowed to know about
+	 * more than one of them — see {@code CatalogAndSubscribers}. What is this module's, and is here, is the
+	 * {@code tier} row itself, the {@code tier_price} rows that cascade with it (V7), and the
+	 * {@link TierTeardown} rows that capture the Stripe work before either disappears.
+	 *
+	 * <p><strong>Deleting a code nothing is stored under is not a refusal.</strong> The caller that has an
+	 * operator to answer has already read the row — it needs the tier's Prices to enqueue the tear-down —
+	 * so a second existence check here would be a second opinion about a question already asked, and the
+	 * {@code 404} is answered where the lookup happened. What this promises is that afterwards no tier
+	 * carries that code.
+	 *
+	 * @param code the tier to delete
+	 * @return the catalog as it now stands, in the Catalog order — the same list {@link #everyTier()} gives,
+	 * read back inside the write's own transaction, because the screen has rows to remove, positions to
+	 * redraw and possibly a default flag that is no longer anywhere
+	 */
+	List<CatalogEntry> delete(String code);
+
+	/**
 	 * Make this tier the one new accounts are provisioned onto.
 	 *
-	 * <p><strong>A move, never a toggle, and that is the whole design of it.</strong> The catalog must carry
-	 * exactly one default: {@link TierCatalog#defaultTier()} throws when no row does and
-	 * {@code ProvisionOnFirstLogin} catches nothing, so a catalog with none takes down every new sign-in — and
-	 * the operator who caused it would see nothing wrong on their own screen. Expressed as "make this one the
-	 * default" rather than as a boolean per tier, there is no request that can leave the catalog with none, so
-	 * the invariant needs no refusal to defend it and no test to prove the refusal works.
+	 * <p><strong>A move, never a toggle, and that is still the whole design of it</strong> — though not
+	 * quite for the reason it was. This used to say that a catalog with no default takes down every new
+	 * sign-in, because {@link TierCatalog#defaultTier()} threw and {@code ProvisionOnFirstLogin} caught
+	 * nothing. Since T77 neither is true: the default may be deleted, provisioning writes a tier-less row,
+	 * and those accounts are denied {@code NO_TIER} rather than refused at the door. What survives is the
+	 * shape — expressed as "make this one the default" there is no request anybody can send that <em>clears</em>
+	 * the flag, so the one way to reach a catalog with no default is to delete the tier holding it, which is
+	 * a deliberate act with a confirmation in front of it.
+	 *
+	 * <p><strong>It is also what heals the orphans</strong>, and that is composed on top of this rather than
+	 * done here for {@link #delete(String)}'s reason: a tier-less subscription is {@code subscription}'s row.
+	 * A subscription names no tier <em>only</em> because no default existed, and this is the sole writer of
+	 * the flag — so the moment it runs is the only moment that stops being true, and everybody on the wrong
+	 * side of it heals at once, including users who never sign in again.
 	 *
 	 * <p>Naming the tier that already holds it is allowed and changes nothing, which is what makes a form that
 	 * submits every field safe to submit twice.

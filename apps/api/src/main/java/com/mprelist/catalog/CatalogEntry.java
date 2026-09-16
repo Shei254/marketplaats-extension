@@ -28,6 +28,10 @@ import java.util.Map;
  * <p>{@code maxMarktplaatsAccounts} is absent too. Every tier grants one until #47 finds a stable Marktplaats
  * account identifier, so a column for it would be a form field for a constant.
  *
+ * @param id the row's own id, which is here for exactly one reason and says so: {@code subscription} counts
+ * its rows by {@code tier_id} (T77), and a count keyed on anything else would need that module to read the
+ * {@code tier} table. Nothing renders it and nothing addresses a tier by it — every route, every request and
+ * every wire body uses {@code code}, which is the stable handle ADR-0014 makes the thing anything references
  * @param tier the pair every surface carries: the stable handle and the display text
  * @param relistQuotaPerPeriod what a period grants. **Zero is a coherent answer**, and on the default tier it
  * is how ADR-0019 says "there is no free tier" — every new user is still provisioned and every relist is
@@ -42,10 +46,13 @@ import java.util.Map;
  * the free tier, and any tier whose Price has not been created in Stripe yet. Several since T62 (#128), where
  * monthly and annual are one plan rather than two
  */
-public record CatalogEntry(TierName tier, Integer relistQuotaPerPeriod, Map<String, Object> features,
+public record CatalogEntry(TierId id, TierName tier, Integer relistQuotaPerPeriod, Map<String, Object> features,
 		boolean published, boolean isDefault, java.util.List<TierPrice> prices) {
 
 	public CatalogEntry {
+		if (id == null) {
+			throw new IllegalArgumentException("A catalog entry is a row, and a row has an id");
+		}
 		if (tier == null) {
 			throw new IllegalArgumentException("A catalog entry names its tier");
 		}

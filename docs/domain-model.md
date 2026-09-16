@@ -35,7 +35,11 @@ MP sessions live only in the user's browser. Nothing here holds them server-side
 - **Subscription** — the User's current standing: a reference to a Tier, a normalized status mirrored from
   Stripe via webhooks, and `periodStart`/`periodEnd`. Stripe is the source of truth for **status and
   lifecycle**; the Tier and its limits are ours. **Every User always has one** — first login
-  auto-provisions onto the default Tier, so "no subscription" is not a reachable state. When Stripe reports a
+  auto-provisions onto the default Tier, so "no subscription" is not a reachable state. **The reference to a
+  Tier may be empty** since T77 ([ADR-0032](adr/0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md)):
+  every Tier is deletable including the default and the last, so a Subscription whose Tier was deleted with
+  no default to move it to names none, and is denied `NO_TIER` until an operator makes a Tier the default.
+  The row itself survives — it is what keeps the billing history and the window anchor. When Stripe reports a
   **terminal** end the webhook returns it to the default Tier, `active`, with the period back on our monthly
   roll; **dunning** does not (ADR-0018). `SUBSCRIPTION_INACTIVE` therefore means a failing card and nothing
   else.
@@ -115,15 +119,23 @@ User 1───* MarktplaatsAccount   ── modelled, not yet realised (no stab
    returns the updated quota.
 
 ## Invariants
-- **Every User has exactly one current Subscription.** "No subscription" is unreachable; free users hold an
-  `active` Subscription on the default Tier. Nothing in the code branches on "is this user free?".
-- **There is always exactly one default Tier.** The partial index `tier_single_default` makes it at most one;
-  `TierCatalog.defaultTier()` throwing makes it at least one. So "no free tier" is that tier's quota set to
-  **0**, never the flag unset — which would provision nobody (ADR-0019).
+- **Every User has exactly one current Subscription _row_.** "No subscription" is unreachable; free users
+  hold an `active` Subscription on the default Tier. Nothing in the code branches on "is this user free?".
+  **What the row may not name is a Tier** (T77, ADR-0032), which is the one way ADR-0014's invariant narrowed:
+  `Subscription.tier()` is an `Optional` so the compiler names every reader, and the four that exist branch on
+  it rather than each remembering to.
+- **At most one Tier is the default, and possibly none.** The partial index `tier_single_default` makes it at
+  most one; nothing has ever made it at least one, and until T77 nothing needed to — no operation could clear
+  the flag, because none could delete a row. Deleting the Tier that holds it is the first that can, so
+  `TierCatalog.defaultTier()` is an `Optional` and an empty catalog is a state rather than corruption:
+  provisioning writes a Tier-less row, and `PUT /api/admin/tiers/{code}/default` adopts every orphan in one
+  statement. "No free tier" is still that tier's quota set to **0**, never the flag unset (ADR-0019) — there
+  is no request on this API that clears it.
 - **There is exactly one free Tier, and nothing enforces it.** *Free* is derived — the Tier with no
   `tier_price` row — rather than flagged, the same shape as `isDefault` (ADR-0031). Both creation paths
-  require a price (`NewPlanInStripe` refuses an empty rhythm list; the sync adopts a Tier *from* a Price) and
-  nothing deletes, so a second one is unsayable rather than forbidden. It is today also the default Tier, and
+  require a price (`NewPlanInStripe` refuses an empty rhythm list; the sync adopts a Tier *from* a Price), so a
+  second one is unsayable rather than forbidden. Deleting one is now possible (T77) and does not change that:
+  a delete removes Tiers, and only a *creation* could make a second priceless one. It is today also the default Tier, and
   the two are different claims about one row: *free* is about having no price, *default* about where new
   accounts land.
 - **A published Tier grants something.** A quota of `0` and `published` is a row the schema refuses, at both

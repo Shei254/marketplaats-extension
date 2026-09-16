@@ -209,9 +209,9 @@ These invariants are in the schema rather than in a service, so no module can wr
 |---|---|---|
 | At most one tier is the default | partial unique index `tier_single_default` | `aSecondDefaultTierIsRejected`, and `butTheCatalogMayHoldAnyNumberOfTiersThatAreNotTheDefault` for the *partial* |
 | A user has at most one subscription | `subscription.app_user_id` unique | `aUserHasAtMostOneSubscription` |
-| …and at least one | not the schema's to hold — [first login](#first-login) provisions it in the transaction that creates the user | `aCatalogWithNoDefaultTierProvisionsNobodyAtAll` |
+| …and at least one | not the schema's to hold — [first login](#first-login) provisions it in the transaction that creates the user | `aCatalogWithNoDefaultTierStillProvisionsAnAccountAndLeavesItNamingNoTier` |
 | Status is one of the seven the contract normalizes to | check constraint | `aSubscriptionCarriesOneOfTheSevenNormalizedStatuses`, `andAStatusOutsideTheSevenIsRejected` |
-| A tier with subscribers cannot be dropped | foreign key, no delete rule | `aTierWithSubscribersCannotBeDeleted` |
+| A tier with subscribers is dropped, and they are orphaned rather than deleted with it | foreign key, `on delete set null` (V11, T77) | `aTierWithSubscribersIsDeletableAndLeavesThemNamingNoTier` |
 | A reservation is reported on at most once | `relist_event.reservation_id` unique | `aReservationIsReportedOnAtMostOnce` |
 | A resolved reservation says when it resolved, and only a resolved one does | paired check constraint | `aResolvedReservationSaysWhenItWasResolved`, `aRefundedReservationSaysWhenItWasResolvedToo`, `aReservationStillHoldingItsUnitHasNoResolvedAt` |
 
@@ -341,12 +341,15 @@ this tier called" — and `stripe_price_id`, which is
 [#29](https://github.com/Shei254/marketplaats-extension/issues/29)'s — arrive with the tickets that have
 somewhere to put them, on this same interface.
 
-**A tier that is not there throws**, like `defaultTier()` and for a sharper reason. A subscription references
-its tier behind a foreign key with no delete rule, so a row cannot go out from under a subscriber; an id that
-resolves to nothing came from somewhere this module never wrote it. The `Optional` that reported it would
-reach a gate whose job is to fail closed, which would deny that caller with `QUOTA_EXCEEDED` —
-**indistinguishable from an ordinary exhausted user**, which is how a catalog fault comes to look like the
-product working.
+**A tier that is not there throws**, which `defaultTier()` stopped doing in T77 and this did not — because
+the two absences are different. A missing default is a catalog an operator emptied
+([ADR-0032](../../docs/adr/0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md)); an id that
+resolves to nothing came from somewhere this module never wrote it. A tier *can* now go out from under a
+subscriber, and what happens then is that their `tier_id` becomes null (`on delete set null`) and
+`Subscription.tier()` — an `Optional` — is what stops it arriving here as an id at all. The `Optional` this
+would otherwise return would reach a gate whose job is to fail closed, which would deny that caller with
+`QUOTA_EXCEEDED` — **indistinguishable from an ordinary exhausted user**, which is how a catalog fault comes
+to look like the product working.
 
 **Flags arrive as data, values and all.** `features` is a JSON object rather than a set of names precisely so
 a flag can later carry one ("bulk, up to 20 at a time"), so resolution parses it into a `Map<String, Object>`
@@ -648,6 +651,7 @@ did. Quota is per user.
 
 ```
 200  { "authToken": "<JWT>", "expiresAt": "…", "jti": "…" }   and one unit of quota is gone
+403  { "reason": "NO_TIER" }                                  their tier was deleted, and no default took them
 402  { "reason": "SUBSCRIPTION_INACTIVE" }                    a payer whose subscription stopped
 403  { "reason": "BULK_NOT_ENTITLED" }                        a batch from a plan that does not include one
 429  { "reason": "QUOTA_EXCEEDED", "resetAt": "…" }           the period's relists are spent
@@ -1753,12 +1757,15 @@ charge against. Hiding them here too would leave an operator with no way to reac
 exists for. There is **no amount** on any row either: money is Stripe's, and an operator locked out of their
 own catalog during a Stripe outage would be locked out of the one tool that could work around it.
 
-**`isDefault` moves rather than toggling, and that is the design rather than an API style.** The catalog must
-carry exactly one default: `TierCatalog.defaultTier()` throws when no row does and `ProvisionOnFirstLogin`
-catches nothing, so a catalog with none takes down every new sign-in — and the operator who caused it would
-see nothing wrong on their own screen. Written as `PUT …/{code}/default`, there is no request anybody can send
-that leaves the catalog without one, so the invariant needs no refusal to defend it and no test to prove the
-refusal works. The alternative — a boolean on the edit body, refused when it would clear the last one — is a
+**`isDefault` moves rather than toggling, and that is the design rather than an API style.** Written as
+`PUT …/{code}/default`, there is no request anybody can send that *clears* the flag, so the invariant needs no
+refusal to defend it and no test to prove the refusal works. The reason used to be sharper and is not any more:
+a catalog with no default took down every new sign-in, because `TierCatalog.defaultTier()` threw and
+`ProvisionOnFirstLogin` caught nothing. T77
+([ADR-0032](../../docs/adr/0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md)) made both false on
+purpose — provisioning writes a tier-less row and those accounts are denied `NO_TIER` — which is what turns a
+deleted last tier from an outage into a state. The route also **adopts every orphan** as it moves the flag,
+since it is the only moment "no default exists" stops being true. The alternative — a boolean on the edit body, refused when it would clear the last one — is a
 status, a message and a test, all to guard something that can simply be made unsayable. Two statements in one
 transaction rather than `set is_default = (code = ?)`, because `tier_single_default` is a plain partial unique
 index and is checked row by row as a statement proceeds.

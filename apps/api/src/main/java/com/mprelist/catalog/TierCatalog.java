@@ -25,25 +25,38 @@ public interface TierCatalog {
 	 * The tier every new account is provisioned onto: the one row carrying {@code is_default}, which
 	 * {@code V2__seed_tier_catalog.sql} makes Free and an operator may move to another tier at any time.
 	 *
-	 * <p>Throws rather than returning an empty {@link java.util.Optional}, and that is the point of it.
-	 * ADR-0014 makes "every user always has a Subscription" an invariant, so a catalog with no default is a
-	 * deployment that cannot provision anybody — a state to fail on, not one for each caller to branch on and
-	 * get differently wrong. The partial unique index {@code tier_single_default} is what makes the answer at
-	 * most one row; this is what makes it at least one.
+	 * <p><strong>An {@link Optional} since T77, and it used to throw.</strong> The sentence here said that a
+	 * catalog with no default is "a deployment that cannot provision anybody — a state to fail on, not one for
+	 * each caller to branch on and get differently wrong", and that was true for as long as nothing could
+	 * delete a tier. ADR-0032 makes every tier deletable including the last, so an empty catalog is now
+	 * reachable on purpose: <strong>a state and not corruption</strong>. The partial unique index
+	 * {@code tier_single_default} still makes the answer at most one row; nothing has ever made it at least
+	 * one, and now nothing pretends to.
 	 *
-	 * @throws IllegalStateException if no tier carries the flag
+	 * <p>What the two callers do with an empty answer is the whole of what that costs, and neither of them
+	 * branches wrongly for want of an exception: {@code ProvisionOnFirstLogin} writes a subscription naming no
+	 * tier, and {@code SubscriptionRows.ended()} leaves a cancelled subscriber naming none. Both are then
+	 * denied {@code NO_TIER} — a code that says what happened — rather than being refused by a {@code 500} on
+	 * the way in.
+	 *
+	 * @return the default tier, or nothing where the catalog holds no tier carrying the flag — which is an
+	 * emptied catalog, and a catalog whose default was the tier just deleted
 	 */
-	TierId defaultTier();
+	Optional<TierId> defaultTier();
 
 	/**
 	 * What a tier grants whoever is on it: the {@link Entitlement} #22 checks a relist against and #26 renders.
 	 *
-	 * <p>Throws for a tier that is not there, for the same reason {@link #defaultTier()} does. A subscription
-	 * holds its tier behind a foreign key with no delete rule, so a row cannot go out from under a subscriber
-	 * — an id that resolves to nothing came from somewhere this module never wrote it, and the empty
-	 * {@link java.util.Optional} that reported it would most likely be read as "no quota" by a gate whose job
-	 * is to fail closed. That denial is indistinguishable from an ordinary exhausted user, which is how a
-	 * catalog fault would come to look like the product working.
+	 * <p>Throws for a tier that is not there, which {@link #defaultTier()} stopped doing in T77 and this did
+	 * not — because the two absences are different. A missing default is a catalog an operator emptied; a
+	 * {@link TierId} that resolves to nothing is an id this module never issued. Since ADR-0032 a tier
+	 * <em>can</em> go out from under a subscriber, and what happens then is that their {@code tier_id} becomes
+	 * null ({@code on delete set null}) and they are denied {@code NO_TIER} before anything reaches here —
+	 * {@link com.mprelist.subscription.Subscription#tier()} is an {@link java.util.Optional}, so the compiler
+	 * is what stops a deleted tier arriving as an id. The empty answer this would otherwise give is the one
+	 * a gate whose job is to fail closed would most likely read as "no quota", and that denial is
+	 * indistinguishable from an ordinary exhausted user — which is how a catalog fault comes to look like the
+	 * product working.
 	 *
 	 * @param tier the tier to resolve, as named by a subscription or by {@link #defaultTier()}
 	 * @throws IllegalStateException if no tier carries that id
@@ -59,9 +72,10 @@ public interface TierCatalog {
 	 * on the authorize path and has no use for display text: an entitlement that also carried a label would
 	 * make every relist fetch two columns nothing checks. This is the display path and is not the hot one.
 	 *
-	 * <p>Throws for a tier that is not there, for {@link #defaultTier()}'s reason and one of its own: the
-	 * caller of this holds a subscription that names the tier, so an id resolving to nothing is a foreign key
-	 * that cannot happen rather than an empty answer to render as a blank plan.
+	 * <p>Throws for a tier that is not there, for {@link #entitlementOf(TierId)}'s reason and one of its own:
+	 * the caller of this holds a subscription that <em>names</em> a tier, and since T77 naming one is a thing
+	 * a subscription may not do — so an id that arrives here and resolves to nothing is one this module never
+	 * issued, rather than an empty answer to render as a blank plan.
 	 *
 	 * @param tier the tier to name, as a subscription names it
 	 * @throws IllegalStateException if no tier carries that id

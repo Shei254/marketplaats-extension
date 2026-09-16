@@ -13,9 +13,9 @@ import type { AdminConfig } from "./admin-config";
 import type { Http } from "./discovery";
 
 /**
- * The routes the admin corner is made of (T54, #85): the catalog, an edit, the move
- * that says which tier new accounts start on, the sequence they are all read in
- * (T75, #164), and the Stripe Prices nobody tagged.
+ * The routes the admin corner is made of (T54, #85): the catalog, an edit, a delete
+ * (T77), the move that says which tier new accounts start on, the sequence they are
+ * all read in (T75, #164), and the Stripe Prices nobody tagged.
  *
  * **Every answer is a value and nothing throws**, which is the arrangement the
  * extension's own clients keep: this surface has a screen for each outcome and no
@@ -54,6 +54,25 @@ export type PricesAnswer = { status: "ready"; prices: UntaggedPrice[] } | Refusa
  * is a claim and not a fact.
  */
 export type EditAnswer = { status: "saved"; tier: AdminTier } | WriteRefusal;
+
+/**
+ * What came of deleting a tier (T77, ADR-0032).
+ *
+ * `deleted` carries the whole catalog as the API now holds it, for `ordered`'s
+ * reason and one more of its own: a delete can move the default badge, and can
+ * leave the list **empty** — which is a state and not a failure, and is what the
+ * screen has to be able to draw.
+ *
+ * `gone` is the API's `404` and its only refusal: **every tier is deletable**, the
+ * default one and the last one included, so there is no state of the catalog this
+ * route declines to produce. A `404` therefore means one thing — the row was
+ * already gone when this tab asked — and the answer is a reload rather than a
+ * sentence about what a tier may be.
+ */
+export type DeleteAnswer =
+  | { status: "deleted"; tiers: AdminTier[] }
+  | { status: "gone" }
+  | Refusal;
 
 /**
  * What came of setting the Catalog order (T75, #164).
@@ -128,7 +147,13 @@ export class AdminApi {
   /**
    * Make this tier the one new accounts are provisioned onto. **A move, never a
    * toggle** — the API offers no way to unset it, so there is no request this
-   * screen could send that leaves the catalog without a default (ADR-0019).
+   * screen could send that *clears* the flag (ADR-0019). Deleting the tier holding
+   * it can still leave the catalog without a default (T77, ADR-0032), which is a
+   * deliberate act with a quantified confirmation in front of it.
+   *
+   * **It is also what heals an emptied catalog**: every subscription naming no tier
+   * is adopted onto the new default in the same transaction, so everybody is on a
+   * plan again the moment this answers — including the accounts that never sign in.
    */
   async makeDefault(code: string): Promise<EditAnswer> {
     return this.write(`/api/admin/tiers/${encodeURIComponent(code)}/default`, undefined);
@@ -158,6 +183,33 @@ export class AdminApi {
     }
     const tiers = asAdminTiers(answer.body);
     return tiers ? { status: "ordered", tiers } : UNAVAILABLE;
+  }
+
+  /**
+   * Delete a tier — **any tier**, the default one and the last one included (T77,
+   * [ADR-0032]).
+   *
+   * **Its own request rather than through `write`**, for `order`'s reason: the
+   * answer is the whole catalog rather than one row, and its `404` means something
+   * this screen acts on differently from an edit's. Nothing else about it is
+   * special — no body, and one refusal.
+   *
+   * What happens to the people on the tier and to Stripe is the API's, and is not
+   * instant: subscribers move to the default tier (or to no tier, if this *was* the
+   * default) inside the same transaction, and the Stripe work — cancelling live
+   * subscriptions, archiving and untagging every Price, archiving the Product — is
+   * queued and drained by a scheduled job. So the catalog is right the moment this
+   * answers, and the two systems agree shortly afterwards.
+   */
+  async remove(code: string): Promise<DeleteAnswer> {
+    const answer = await this.call(`/api/admin/tiers/${encodeURIComponent(code)}`, {
+      method: "DELETE",
+    });
+    if (answer.status !== "ok") {
+      return answer.refusal.status === "gone" ? { status: "gone" } : readRefusal(answer.refusal);
+    }
+    const tiers = asAdminTiers(answer.body);
+    return tiers ? { status: "deleted", tiers } : UNAVAILABLE;
   }
 
   /**
@@ -339,6 +391,14 @@ export function asAdminTier(entry: unknown): AdminTier | null {
   const prices = asTierPrices(fields["prices"]);
   if (!prices) return null;
 
+  // The two counts a delete confirmation is quantified from (T77, ADR-0032).
+  // Required like every other field, and for this screen's standing reason: the row
+  // that survived a half-read looks complete, and here the missing number is the one
+  // that decides whether an irreversible button asks for anything.
+  const subscribers = asCount(fields["subscribers"]);
+  const payingSubscribers = asCount(fields["payingSubscribers"]);
+  if (subscribers === null || payingSubscribers === null) return null;
+
   return {
     tier: { code, name },
     relistQuotaPerPeriod: quota,
@@ -346,7 +406,14 @@ export function asAdminTier(entry: unknown): AdminTier | null {
     published,
     isDefault,
     prices,
+    subscribers,
+    payingSubscribers,
   };
+}
+
+/** A count of people: a whole number, never negative. */
+function asCount(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
 }
 
 /**

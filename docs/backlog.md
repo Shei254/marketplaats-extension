@@ -753,7 +753,8 @@ together in the 2026-09-05 grilling and are written down together for that reaso
 feature. T69 came out of the 2026-09-06 session and is the operator's half of what T68 sold. **T70 is the
 2026-09-07 session taking T68's screen back off** for the length of go-live
 ([ADR-0027](adr/0027-the-popup-stops-offering-bulk-repost.md)) — which is why the section reads as a feature
-that shipped, gained an operator control, and currently cannot be reached. **T73 and T74 are the
+that shipped, gained an operator control, and currently cannot be reached. **T77 is the 2026-09-16 deletion session**, which asked for a delete button
+and left with ADR-0014's central invariant narrowed. **T73 and T74 are the
 2026-09-10 session**, which came in asking for a tier with no repost cap and left with a sentinel
 placement ([ADR-0029](adr/0029-unlimited-is-null-and-zero-still-grants-nothing.md)), a publish rule that
 closes a gap nobody had noticed, and the vocabulary defect found underneath the new copy.
@@ -1184,6 +1185,109 @@ Stripe Product for a row nothing could then edit. `AdminTierTest`'s fixture also
 the seeded catalog by deleting every row whose code was not one of the three, which was the same statement as
 "restore" only for as long as a code could not move, and would now delete a renamed free tier along with the
 default flag and every later test's sign-in. It reads the three ids once and puts the codes back on them.
+
+
+#### T77 · Every tier is deletable · **L** · T53, T54, T61, T62, T76 · **shipped**
+*No issue filed — this came in as "the admin has no way to delete tiers" and is written down here where every
+other decision is.* [ADR-0032](adr/0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md) carries
+the argument.
+
+The session opened on symmetry — `/admin` creates and cannot delete — which this repo has refused three times
+as a reason to build anything, and the argument that survived is about **T61**: creating a tier is one submit
+now, so a typo, a wrong rhythm or a plan made against the wrong account is a permanent row in a catalog whose
+whole audience is one operator. **T76 ruled a delete route out the same morning and was right about the
+question it asked** — the free tier has every user on it — and asked of the catalog as a whole the answer came
+out the other way, because what made deletion look impossible was a foreign key and a throwing lookup rather
+than anything an operator would recognise.
+
+**Two things nobody had written down, found on the way, and they are why this is an L rather than an S.**
+A deleted tier **comes back**: `StripeEvent.isAboutAPrice()` is true for `price.updated` as well as
+`price.created`, `tier_price` cascades but the Stripe Prices do not, and the next update on one re-adopts
+`metadata.tier_code` as a fresh draft — as a `LOG.warn` nobody reads. And **archiving a Price does not stop
+the billing**: it stops new purchases, so a delete that only tidied the catalog would leave real customers
+paying monthly for a tier that is gone.
+
+**Schema** — one migration.
+- `subscription.tier_id` **nullable**, foreign key rebuilt `on delete set null`. A row with no tier keeps
+  `stripe_customer_id` (a returning payer stays the same customer) and `created_at` (the anchor every future
+  `resetAt` is rolled from), which is why the row survives rather than being deleted.
+- `stripe_cleanup` — **one row per outstanding Stripe call**: `tier_code`, `kind`
+  (`cancel_subscription` | `archive_price` | `archive_product`), `stripe_id`, `attempts`, `last_error`,
+  `done_at`. One stuck object does not block the rest.
+
+**API**
+- `DELETE /api/admin/tiers/{code}` → the whole **AdminTiers** body, read back in the write's transaction, like
+  `PUT …/order`. **`404` is the only refusal** — every tier is deletable, the default and the last included.
+  A tier coded `order` is deletable though not editable, since `PUT …/order` takes the literal and this does
+  not.
+- In one transaction: subscribers move to the default tier (or to no tier where the deleted row *is* the
+  default, or is the last); `tier_price` cascades; the Stripe work is **enqueued from the ids while they still
+  exist**, never re-derived afterwards.
+- A `@Scheduled` drain — `ReservationReconciliation` is the precedent. Per tier: cancel each live Stripe
+  subscription, archive **and untag** each Price (`active=false` + `metadata[tier_code]=""`, one call),
+  archive the Product (a `retrieve` per Price to learn the id — it was never stored).
+- **`PriceAdoptions.adopt` refuses a code with unfinished cleanup rows**, which closes the resurrection window
+  without burning the code for good.
+- **`TierCatalog.defaultTier()` → `Optional`**; `ProvisionOnFirstLogin` stops throwing and writes a tier-less
+  row; `SubscriptionRows.ended()` falls back to no tier where there is no default (ADR-0018, refined).
+- **`PUT …/{code}/default` adopts every orphan** in its own transaction — the sole writer of the flag, so the
+  only moment "no default exists" stops being true.
+- **`Subscription.tier()` becomes `Optional<TierId>`**, so the compiler names all four readers —
+  `DisplayStates`, `QuotasFromReservations`, `RelistGate`, `SubscriptionRows` — rather than each remembering.
+  T70's argument about `BulkSelection.cap`, applied where it is cheap.
+- **`AdminTier` gains subscriber counts**: how many move, and how many live Stripe subscriptions get
+  cancelled.
+
+**Contracts** — `DENIAL_REASONS` gains **`NO_TIER`** and `Denial` gains `{ reason: "NO_TIER" }`, carrying
+nothing. **Not `NO_PLAN`**: a **Plan** is a Tier joined with a Price, so a free user has a Tier and has never
+had a Plan. It states a condition rather than a cause, like every code beside it.
+
+**Extension** — `display-state.ts` gains `{ status: "no-tier" }` beside `signed-out` and `outdated`, and the
+popup draws a real sentence for it. **This is the half that makes the code worth its contract change**: every
+other non-`200` maps to `unavailable`, so a denial sent only to the gate would be read by nobody.
+
+**`apps/web`** — a Delete on each row, a quantified confirmation naming how many subscribers move, how many
+Stripe subscriptions are cancelled, and that this is the default tier if it is. **Typing the tier's name is
+required only when live payers will be cancelled** — friction tracking consequence, so undoing a plan made a
+minute ago stays one click.
+
+**Two comments that are already wrong and go with the work.** `AdministerTiers`' *"What it deliberately cannot
+do: create a tier, delete one, or set a price"* and `AdminCatalog.tsx`'s *"What it will not offer: creating a
+tier, deleting one…"* — T61 shipped creation and neither was updated, so "the API refuses it" had stopped
+being the reason before this ticket touched anything. A third goes with them and is accurate until this
+ships: `AdministerTiers`' *"a catalog with none takes down every new sign-in"*, which is the argument for
+`isDefault` moving rather than toggling. The move survives — nothing here adds a request that clears the flag
+— but the consequence it names stops being true the moment provisioning writes a tier-less row.
+
+**Costs accepted, written down so they are not later read as oversights.** A build installed before this
+renders `NO_TIER` as "something went wrong, try again" until it updates — the trap `BULK_NOT_ENTITLED`'s
+docstring exists to record. Deleting the last tier takes the product down for every user until a new default
+exists, by design. A payer drops to the default the instant the row goes, losing the remainder of a period
+they paid for, and any refund is the operator's to issue in Stripe. `stripe_cleanup` is this app's first
+durable work queue, and a row Stripe refuses forever is one somebody has to notice.
+
+**Click-through:** `docs/click-through.md` § *After Go-Live · I can delete a plan*. Create a plan, delete it,
+confirm the row and its Stripe Product and Prices are gone or archived; edit one of those archived Prices in
+the Stripe dashboard and confirm the tier does **not** come back; delete a tier with a live test-mode
+subscriber and watch them land on the default with the subscription cancelled; delete every tier and confirm
+the popup says something true rather than "unavailable"; make a tier the default and watch the orphans
+reattach.
+
+**Where it landed, where the ticket reads differently from the code.** Two, both about placement rather than
+about what was decided. The `stripe_cleanup` queue is **`catalog`'s table**, not `billing`'s: `adopt` has to
+read it on the hot path to refuse a code still being torn down, and asking that across a module boundary
+would invert the dependency `billing → catalog` that the boundary check already enforces — so the ids live
+beside the tier codes they are keyed on and `billing` owns only the calls (`TearDownDeletedTiers`). And the
+delete itself is composed in **`admin`** (`CatalogAndSubscribers`), because one transaction spans
+`catalog`'s rows and `subscription`'s and neither module may reach into the other; `TierEdits.delete` is the
+catalog's half alone. **`POST /api/admin/plans` had to learn the refusal too**, which the ticket did not name and which the code
+review found: the catalog holds no row under a deleted code, so the create's existing `409` passed, Stripe
+made a Product and tagged Prices, and the `adopt` behind them then refused the code — a `500` on a branch
+commented *"both unreachable"*, and Stripe objects no cleanup row covers. So `TierTeardown.isBeingTornDown` is
+on the port rather than private to the table (two callers ask it), and the create's `409` now means three
+facts rather than two. `ReasonCode` moved out of `enforcement/internal` for a third, smaller reason:
+`NO_TIER` is the first code answered by a route the gate does not own, so `display` needed the word and a
+second spelling of it would be a string nothing compares to anything.
 
 
 ---

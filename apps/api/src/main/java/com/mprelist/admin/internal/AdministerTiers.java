@@ -2,11 +2,13 @@ package com.mprelist.admin.internal;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -19,6 +21,9 @@ import com.mprelist.catalog.CatalogEntry;
 import com.mprelist.catalog.TierEdit;
 import com.mprelist.catalog.TierEdited;
 import com.mprelist.catalog.TierEdits;
+import com.mprelist.catalog.TierId;
+import com.mprelist.subscription.SubscriberCount;
+import com.mprelist.subscription.TierSubscribers;
 
 import tools.jackson.databind.JsonNode;
 
@@ -31,30 +36,52 @@ import tools.jackson.databind.JsonNode;
  * none of them can forget to. What a caller without the role gets is the resource server's own {@code 403},
  * pinned by {@code AdminGuardTest}.
  *
- * <p><strong>Four routes, and two of them are here because a catalog is not a bag of rows.</strong> Listing
- * and editing are what a catalog screen needs; {@code PUT …/default} is separate because the default tier is
- * a property of the <em>catalog</em> rather than of one row. Exactly one tier carries it, and a catalog with
- * none takes down every new sign-in — {@code TierCatalog.defaultTier()} throws and
- * {@code ProvisionOnFirstLogin} catches nothing. Written as "make this one the default", there is no request
- * anybody can send that leaves the catalog with none. The alternative — a boolean on the edit body, refused
- * when it would clear the last one — needs a refusal, a status for it, a message for it and a test that the
- * refusal works, all to defend something that can simply be made unsayable.
+ * <p><strong>Five routes, and three of them are here because a catalog is not a bag of rows.</strong> Listing,
+ * editing and deleting are what a catalog screen needs; {@code PUT …/default} is separate because the default
+ * tier is a property of the <em>catalog</em> rather than of one row. Written as "make this one the default",
+ * there is no request anybody can send that <em>clears</em> the flag — the alternative, a boolean on the edit
+ * body refused when it would clear the last one, needs a refusal, a status for it, a message for it and a test
+ * that the refusal works, all to defend something that can simply be made unsayable.
  *
- * <p>{@code PUT …/order} is the fourth and is separate for exactly the same reason (T75, #164, ADR-0030):
+ * <p>This paragraph used to give a second reason — that a catalog with no default takes down every new
+ * sign-in, since {@code TierCatalog.defaultTier()} threw and {@code ProvisionOnFirstLogin} caught nothing —
+ * and T77 made that false on purpose. Provisioning now writes a tier-less row and those accounts are denied
+ * {@code NO_TIER}, which is what turns a deleted last tier from an outage into a state. The route's shape
+ * survives its reason, and gains a second job: it is the only moment "no default exists" stops being true, so
+ * it adopts every orphan as it moves the flag.
+ *
+ * <p>{@code PUT …/order} is the fifth and is separate for exactly the same reason (T75, #164, ADR-0030):
  * moving a tier moves others, so the order is the catalog's and not a field on {@link TierEdit}. It carries
  * the whole sequence, so one drag is one request and there is no half-applied order for a failed third call
  * to leave behind.
  *
- * <p><strong>What it deliberately cannot do:</strong> create a tier, delete one, or set a price. A tier is
- * created by tagging a Stripe Price with its code (ADR-0019) and the sync drafts the row; nothing here
- * deletes, because a subscription references its tier behind a foreign key and the way to retire a plan is to
- * unpublish it and let its subscribers finish. The amount is Stripe's and immutable.
+ * <p><strong>What this controller does not do, and why each one is different.</strong> It does not
+ * <em>create</em> a tier and that is no longer a statement about the screen: {@code CreatePlans} beside it
+ * owns {@code POST /api/admin/plans} (T61), and the row is still made by {@code PriceAdoptions.adopt} — the
+ * webhook's own call — so there remains exactly one writer of the {@code tier} table's Stripe columns
+ * (ADR-0019). It does not set an <em>amount</em>, which is Stripe's and immutable. Deleting used to be the
+ * third of these, on the grounds that a subscription references its tier behind a foreign key so the way to
+ * retire a plan is to unpublish it, and
+ * <a href="../../../../../../../../docs/adr/0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md">ADR-0032</a>
+ * decided the other way: <strong>every tier is deletable, the default one and the last one included</strong>.
+ * What made it look impossible was a foreign key and a throwing lookup rather than anything an operator would
+ * recognise, and what it cost to change was a nullable {@code subscription.tier_id}, a {@code NO_TIER} denial
+ * and a queue for the Stripe half.
  */
 @RestController
 class AdministerTiers {
 
-	AdministerTiers(TierEdits catalog) {
+	/**
+	 * @param subscribers asked one thing: how many people are on each tier, and how many of those Stripe is
+	 * billing. It is what lets the delete confirmation be quantified rather than generic, which is the whole
+	 * of ADR-0032's "the friction tracks the consequence"
+	 * @param withSubscribers the two writes that are also writes to a subscription — see
+	 * {@link CatalogAndSubscribers}, which is where the transaction spanning both modules lives
+	 */
+	AdministerTiers(TierEdits catalog, TierSubscribers subscribers, CatalogAndSubscribers withSubscribers) {
 		this.catalog = catalog;
+		this.subscribers = subscribers;
+		this.withSubscribers = withSubscribers;
 	}
 
 	/**
@@ -67,7 +94,7 @@ class AdministerTiers {
 	 */
 	@GetMapping(path = TIERS)
 	Tiers everyTier() {
-		return new Tiers(this.catalog.everyTier().stream().map(AdministerTiers::asAdminTier).toList());
+		return asTiers(this.catalog.everyTier(), this.subscribers.countsByTier());
 	}
 
 	/**
@@ -122,7 +149,8 @@ class AdministerTiers {
 			return ResponseEntity.status(409).build();
 		}
 		return switch (this.catalog.apply(code, edit)) {
-			case TierEdited.Applied applied -> ResponseEntity.ok(asAdminTier(applied.tier()));
+			case TierEdited.Applied applied ->
+				ResponseEntity.ok(withCounts(applied.tier(), this.subscribers));
 			case TierEdited.NoSuchTier ignored -> ResponseEntity.notFound().build();
 			case TierEdited.NothingToChargeAgainst ignored -> ResponseEntity.status(409).build();
 			case TierEdited.NothingToGrant ignored -> ResponseEntity.status(409).build();
@@ -141,8 +169,46 @@ class AdministerTiers {
 	 */
 	@PutMapping(path = TIERS + "/{code}/default")
 	ResponseEntity<AdminTier> makeDefault(@PathVariable String code) {
-		return this.catalog.makeDefault(code)
-				.map(AdministerTiers::asAdminTier)
+		return this.withSubscribers.makeDefault(code)
+				.map(tier -> withCounts(tier, this.subscribers))
+				.map(ResponseEntity::ok)
+				.orElseGet(() -> ResponseEntity.notFound().build());
+	}
+
+	/**
+	 * Delete a tier — <strong>any tier, the default one and the last one included</strong> (T77,
+	 * <a href="../../../../../../../../docs/adr/0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md">ADR-0032</a>).
+	 *
+	 * <p><strong>{@code 404} is the only refusal, and that is a claim rather than an omission.</strong> There
+	 * is no state of the catalog this route declines to produce: not one with no default, not an empty one.
+	 * The two narrower designs — refuse the default and make the operator move the flag first, or soft-delete
+	 * behind a {@code retired_at} — are weighed in the ADR and rejected on the same point, that they make an
+	 * operator's own catalog something the data model has an opinion about.
+	 *
+	 * <p><strong>A tier coded {@code order} is deletable although it is not editable</strong>, which is the
+	 * one place the reserved code stops mattering: {@link #reorder} is mapped on the literal
+	 * {@code PUT …/tiers/order} and this is a {@code DELETE}, so nothing collides. A row that could be created
+	 * (by a hand-tagged Stripe Price — {@link #edit} and {@link CreatePlans} both refuse to file one there)
+	 * and never addressed again can at least be removed.
+	 *
+	 * <p><strong>The answer is the whole catalog</strong>, the same body {@link #everyTier()} and
+	 * {@link #reorder} give. A row has gone, the positions around it have not been renumbered but read
+	 * differently, and the default badge may now be nowhere at all — so the screen reconciles against what was
+	 * stored rather than removing a row and hoping.
+	 *
+	 * <p>The <em>rows</em> are read inside the write's own transaction and the <em>counts</em> are a second
+	 * read after it, which is deliberate rather than an oversight. A count taken inside would be no more
+	 * authoritative a moment later — somebody signing in is a new subscriber either way — and getting it there
+	 * would mean the catalog's transaction reaching into {@code subscription}'s table, which is the one thing
+	 * {@link CatalogAndSubscribers} exists so that neither module has to do.
+	 *
+	 * <p>What happens to the people on it and to Stripe is {@link CatalogAndSubscribers}, which is where the
+	 * transaction that spans both modules lives.
+	 */
+	@DeleteMapping(path = TIERS + "/{code}")
+	ResponseEntity<Tiers> delete(@PathVariable String code) {
+		return this.withSubscribers.delete(code)
+				.map(left -> asTiers(left, this.subscribers.countsByTier()))
 				.map(ResponseEntity::ok)
 				.orElseGet(() -> ResponseEntity.notFound().build());
 	}
@@ -180,7 +246,7 @@ class AdministerTiers {
 			return ResponseEntity.badRequest().build();
 		}
 		return this.catalog.reorder(request.codes())
-				.map(tiers -> new Tiers(tiers.stream().map(AdministerTiers::asAdminTier).toList()))
+				.map(tiers -> asTiers(tiers, this.subscribers.countsByTier()))
 				.map(ResponseEntity::ok)
 				.orElseGet(() -> ResponseEntity.status(409).build());
 	}
@@ -193,9 +259,21 @@ class AdministerTiers {
 	 * its own rows on something that changes under it. Since T76 the code is not quite immovable either — it
 	 * follows the name on a tier no Price has frozen (ADR-0031) — which is why every write here answers with
 	 * the row as stored: a screen that kept its own copy of the code would be holding the old one.
+	 *
+	 * <p><strong>The two counts are T77's, and they are here so that a confirmation can be quantified</strong>
+	 * (ADR-0032). A delete has two consequences and only one of them is irreversible: {@code subscribers} is
+	 * how many rows move to the default tier, and {@code payingSubscribers} is how many live Stripe
+	 * subscriptions get cancelled — people who lose the remainder of a period they paid for. {@code /admin}
+	 * requires the tier's name to be typed only when the second is above zero, so undoing a plan created a
+	 * minute ago stays one click and cancelling strangers' subscriptions cannot be done by reflex.
+	 *
+	 * <p>They are the first fields here that are about <em>people</em> rather than about the row, which is
+	 * why they are counts rather than anything resembling a list. There is no route on this API that names a
+	 * subscriber, and a screen that could see one would be a screen that could come to act on one.
 	 */
 	record AdminTier(TierNameOnTheWire tier, Integer relistQuotaPerPeriod, Map<String, Object> features,
-			boolean published, boolean isDefault, List<TierPriceOnTheWire> prices) {
+			boolean published, boolean isDefault, List<TierPriceOnTheWire> prices, int subscribers,
+			int payingSubscribers) {
 	}
 
 	/**
@@ -305,16 +383,70 @@ class AdministerTiers {
 		return RESERVED_CODE.equals(code) || !ROUTABLE_CODE.matcher(code).matches();
 	}
 
-	/** Package-visible: {@code CreatePlans} answers with the same shape, read back the same way. */
-	static AdminTier asAdminTier(CatalogEntry entry) {
+	/**
+	 * One tier and its counts, on the wire. Package-visible: {@link CreatePlans} answers with the same shape,
+	 * read back the same way.
+	 *
+	 * @param count how many subscribers this tier has, or {@link SubscriberCount#NOBODY} for a tier nobody is
+	 * on — which is what the count query answers by leaving the row out rather than by returning a zero
+	 */
+	static AdminTier asAdminTier(CatalogEntry entry, SubscriberCount count) {
 		return new AdminTier(new TierNameOnTheWire(entry.tier().code(), entry.tier().name()),
 				entry.relistQuotaPerPeriod(), entry.features(), entry.published(), entry.isDefault(),
 				entry.prices().stream()
 						.map(price -> new TierPriceOnTheWire(price.stripePriceId(), price.interval()))
-						.toList());
+						.toList(),
+				count.subscribers(), count.payingSubscribers());
+	}
+
+	/**
+	 * The whole catalog on the wire, counts joined on in memory.
+	 *
+	 * <p>One count query for the list rather than one per row, which is what {@link TierSubscribers} answers
+	 * in a single {@code group by} — and it is the whole of why {@link CatalogEntry} carries its row's id.
+	 */
+	static Tiers asTiers(List<CatalogEntry> entries, Map<TierId, SubscriberCount> counts) {
+		return new Tiers(entries.stream()
+				.map(entry -> asAdminTier(entry, counts.getOrDefault(entry.id(), SubscriberCount.NOBODY)))
+				.toList());
+	}
+
+	/**
+	 * One tier on the wire, counted — for the writes that answer with a row rather than with the catalog.
+	 *
+	 * <p>A second count query rather than a number the write worked out for itself. It is one {@code group by}
+	 * over a table of one row per account, on a screen nobody is waiting on, and the alternative is a write
+	 * path that has to remember to keep a count in step with what it just changed.
+	 *
+	 * <p>Package-visible and {@code static} because {@link CreatePlans} answers with the same shape and was
+	 * spelling this out for itself — two copies of "which count belongs to which row" is the pair that drifts,
+	 * and the one that drifts silently, since both would still compile and still send a number.
+	 */
+	static AdminTier withCounts(CatalogEntry entry, TierSubscribers subscribers) {
+		return asAdminTier(entry, subscribers.countsByTier().getOrDefault(entry.id(), SubscriberCount.NOBODY));
+	}
+
+	/**
+	 * One tier out of the catalog, by the code it is filed under.
+	 *
+	 * <p>A filter over {@link TierEdits#everyTier()} rather than a read of its own, and here rather than at
+	 * each caller: this module asks it four times now — to name a tier being priced, to answer with one after
+	 * a price lands, to refuse a creation whose code is taken, and to find the row a delete is about — and
+	 * four spellings of {@code code().equals(code)} is the set that drifts. Not on {@link TierEdits} itself,
+	 * because the catalog is a handful of rows this module already reads whole and a lookup there would be a
+	 * fourth port method for a {@code stream().filter()}.
+	 */
+	static Optional<CatalogEntry> tierFiledUnder(TierEdits catalog, String code) {
+		return catalog.everyTier().stream()
+				.filter(entry -> entry.tier().code().equals(code))
+				.findFirst();
 	}
 
 	private final TierEdits catalog;
+
+	private final TierSubscribers subscribers;
+
+	private final CatalogAndSubscribers withSubscribers;
 
 	static final String TIERS = "/api/admin/tiers";
 

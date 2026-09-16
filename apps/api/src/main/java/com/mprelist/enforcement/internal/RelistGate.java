@@ -11,7 +11,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.mprelist.catalog.Entitlement;
 import com.mprelist.catalog.TierCatalog;
+import com.mprelist.catalog.TierId;
 import com.mprelist.enforcement.Quotas;
+import com.mprelist.enforcement.ReasonCode;
 import com.mprelist.enforcement.RemainingQuota;
 import com.mprelist.identity.UserRef;
 import com.mprelist.subscription.Subscription;
@@ -55,6 +57,8 @@ class RelistGate {
 	 * <p><strong>The order is the contract and not an implementation detail.</strong> A lapsed payer who is also
 	 * out of quota is told their subscription lapsed, because that is the one of the two they can do something
 	 * about; the other way round they would be shown an upgrade prompt for a plan they are no longer paying for.
+	 * {@code NO_TIER} joined the top of that order in T77 and is the one check here that is not about the
+	 * caller at all — it is about the catalog, and everything below it needs a tier to read.
 	 * The token was checked before any of this — the filter chain refuses a call carrying none, so a caller who
 	 * reaches here is already named (#19), and asking for their {@link UserRef} is what has already provisioned
 	 * the account and the subscription this reads (#20).
@@ -74,6 +78,16 @@ class RelistGate {
 	@Transactional
 	Verdict authorize(UserRef caller, AdId adId, boolean batch) {
 		Subscription plan = this.subscriptions.currentFor(caller);
+		// First, and above the status, which is the contract's order and ADR-0032's argument (T77). Every
+		// check below this one reads the tier — the quota is its grant, `bulk` is one of its flags — so a
+		// subscription naming none leaves them nothing to read and no honest answer to give. Above the
+		// *status* in particular because a mirrored status is still true of somebody whose tier was deleted:
+		// answering SUBSCRIPTION_INACTIVE would tell them their card is failing, which is the one denial in
+		// this contract that would point at the wrong person.
+		Optional<TierId> tier = plan.tier();
+		if (tier.isEmpty()) {
+			return Verdict.Refused.because(ReasonCode.NO_TIER);
+		}
 		if (!plan.status().allowsRelisting()) {
 			return Verdict.Refused.because(ReasonCode.SUBSCRIPTION_INACTIVE);
 		}
@@ -87,7 +101,7 @@ class RelistGate {
 		// subtraction it owns — a second primary-key lookup inside a transaction that is already holding this
 		// caller's row, which is a cheaper thing than an interface widened so that two questions could share
 		// one read and then have to be asked in the order that sharing implied.
-		if (batch && !this.tiers.entitlementOf(plan.tier()).grants(Entitlement.BULK)) {
+		if (batch && !this.tiers.entitlementOf(tier.get()).grants(Entitlement.BULK)) {
 			return Verdict.Refused.because(ReasonCode.BULK_NOT_ENTITLED);
 		}
 		// Refused on the same arithmetic /complete answers with, and taken from the same place: the number the

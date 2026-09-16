@@ -94,6 +94,29 @@ mprelist:
     # Stripe calls on a screen somebody is waiting on. Unset or unreachable costs the sentence and
     # never the cards.
     payment-method-cache: 15m
+    # T77 (ADR-0032): the Stripe half of a deleted tier — cancel every live subscription on it, archive and
+    # untag every Price, archive the Product. The row goes immediately and these are enqueued with it, because
+    # N Stripe calls inside one HTTP request is a request that times out halfway through cancelling
+    # strangers' subscriptions.
+    #
+    # Both stated here with no fallback, like `mprelist.reconciliation` below and for the same reason: the
+    # wrong value is silent in both directions, and a job nobody configured is a catalog Stripe never catches
+    # up with.
+    teardown:
+      # How often the queue is drained. A fixed delay, so a slow run delays the next rather than overlapping
+      # it, and it fires once at startup — which is what drains whatever accumulated while nothing was
+      # running.
+      #
+      # A minute rather than the reconciliation's five, because the window this closes is the one in which a
+      # `price.updated` could resurrect the tier that was just deleted. The sync refuses that code while any
+      # of these rows is outstanding, so nothing is *wrong* in the meantime; what a shorter interval buys is
+      # that the code frees again promptly, which is what an operator who deleted a plan and wants to recreate
+      # it is waiting on.
+      interval: 1m
+      # How many calls one run makes. It bounds how much of somebody else's rate limit a single afternoon's
+      # tidying can spend at once: deleting a tier with two thousand subscribers is two thousand
+      # cancellations, and Stripe would rather have them spread out than all at once.
+      batch: 25
 
   # #36: what the extension should do differently from what it was built to do (ADR-0013) — Marktplaats's
   # internal paths, how the CSRF token is found, and the gap the client leaves between two relists.

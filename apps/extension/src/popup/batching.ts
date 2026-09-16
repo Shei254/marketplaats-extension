@@ -437,6 +437,10 @@ export function describeStop(reason: BatchStopReason): string | null {
       return "Meerdere tegelijk herplaatsen hoort niet bij je abonnement, dus de rest is niet gestart.";
     case "unavailable":
       return "Je abonnement kon niet worden gecontroleerd, dus de rest is niet gestart. Probeer het opnieuw.";
+    case "no-tier":
+      // Deliberately without "probeer het opnieuw", unlike the line above it: the
+      // backend answered, and no retry changes the answer (T77, ADR-0032).
+      return "Er staat nu geen abonnement op dit account, dus de rest is niet gestart.";
     case "ad-down":
       // The one stop that is about an ad rather than about the account, and the
       // one where the user has something to do on a specific row.

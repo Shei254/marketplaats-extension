@@ -458,9 +458,14 @@ class AdminTierTest {
 	}
 
 	/**
-	 * Which is the whole design of it: there is no request that leaves the catalog without one. A catalog with
-	 * no default takes down every new sign-in — {@code TierCatalog.defaultTier()} throws and
-	 * {@code ProvisionOnFirstLogin} catches nothing — and the operator who caused it would see nothing wrong.
+	 * Which is the whole design of it: there is no request on this route that <em>clears</em> the flag, so
+	 * three of them in a row leave the catalog with exactly one default rather than with none.
+	 *
+	 * <p>The reason used to be sharper. A catalog with no default took down every new sign-in, because
+	 * {@code TierCatalog.defaultTier()} threw and {@code ProvisionOnFirstLogin} caught nothing — and T77
+	 * (ADR-0032) made both false on purpose, so that a deliberately emptied catalog is a state rather than an
+	 * outage. The shape of this route survives its reason; what a catalog reaches no default <em>by</em> is a
+	 * delete, which {@code TierDeletionTest} owns.
 	 */
 	@Test
 	void andThereIsNoWayToAskForACatalogWithNoDefaultAtAll() {

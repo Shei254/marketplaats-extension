@@ -68,6 +68,11 @@ public interface SubscriptionMirror {
 	 * for three months with strictly less than a stranger who never paid, since the gate checks status before
 	 * quota and would deny every relist for ever.
 	 *
+	 * <p><strong>Where there is no default tier, the fallback lands on none</strong> (T77, ADR-0032) — which
+	 * is ADR-0018 refined rather than reversed. An event Stripe must be allowed to deliver is not one to
+	 * refuse over the state of our own catalog, so the row is written with a null tier and its holder is
+	 * denied {@code NO_TIER} until an operator makes a tier the default.
+	 *
 	 * <p>The customer id is <strong>kept</strong> and the subscription id <strong>cleared</strong>, which is
 	 * the pairing that makes resubscribing one billing history rather than two: {@code OpenCheckout} passes
 	 * that customer back to Stripe, and the Portal (T21, #31) points at the half our row still names.

@@ -13,6 +13,15 @@
  * {@link com.mprelist.subscription.SubscriptionMirror} — what Stripe says about a subscription, turned into
  * the plan somebody is on.
  *
+ * <p>Since T77 there is a third port, {@link com.mprelist.subscription.TierSubscribers}, and it is what a
+ * catalog edit does to the people in this table (ADR-0032): a tier being deleted moves everybody off it, and
+ * a default flag arriving somewhere adopts everybody who was left naming nothing. Nothing on it is about one
+ * user — every method takes a tier — which is what makes it safe to publish at all, and both of its writes
+ * are composed with {@code catalog}'s own half in one transaction by {@code admin}. The column behind it is
+ * {@code tier_id}, which V11 makes nullable: "every user always has a Subscription" narrows to "every user
+ * always has a subscription <em>row</em>", and {@link com.mprelist.subscription.Subscription#tier()} is an
+ * {@code Optional} so that the compiler names every reader rather than each of them remembering.
+ *
  * <p>The mirror is a second port rather than more methods on {@code Subscriptions}, for the reason
  * {@code catalog} keeps {@code PriceAdoptions} apart from {@code TierCatalog}: one is read by the gate on
  * every relist and the other is written to by a webhook. It is also where ADR-0018 lives — a subscription

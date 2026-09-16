@@ -113,7 +113,9 @@ class TierEntitlementTest {
 	 */
 	@Test
 	void andTheTierEveryNewAccountLandsOnGrantsWhatTheCatalogSaysItDoes() {
-		Entitlement free = this.catalog.entitlementOf(this.catalog.defaultTier());
+		// `orElseThrow` rather than a get, and it is a claim about the seed rather than a convenience: since
+		// T77 a catalog may have no default at all (ADR-0032), and this one ships with one.
+		Entitlement free = this.catalog.entitlementOf(this.catalog.defaultTier().orElseThrow());
 
 		assertThat(free.relistsPerPeriod()).isEqualTo(quotaOfTheDefaultTier());
 		assertThat(free.maxMarktplaatsAccounts()).isPositive();
@@ -121,8 +123,9 @@ class TierEntitlementTest {
 
 	/**
 	 * A {@link TierId} naming no row is not an entitlement of nothing, and it is not an empty {@code Optional}
-	 * for the caller to guess at either. Every id this module hands out is a primary key, and a subscription
-	 * holds one behind a foreign key with no delete rule — so a tier that cannot be found means the id came
+	 * for the caller to guess at either. Every id this module hands out is a primary key, and a tier deleted out
+	 * from under a subscriber leaves their {@code tier_id} null rather than dangling (T77, V11) — so a tier
+	 * that cannot be found here means the id came
 	 * from somewhere the catalog never wrote, and denying that caller their quota silently is the one answer
 	 * that would hide it.
 	 */

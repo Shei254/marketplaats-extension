@@ -30,6 +30,27 @@ public enum Adoption {
 	 * a fault to retry: {@code tier.stripe_price_id} is unique, so taking it would mean quietly leaving the
 	 * first tier unsellable. Nothing is written, and the caller is the one that has to make it visible.
 	 */
-	LEFT_TO_THE_TIER_THAT_HOLDS_IT
+	LEFT_TO_THE_TIER_THAT_HOLDS_IT,
+
+	/**
+	 * A tier under that code was deleted and its Stripe objects are still being torn down, so nothing was
+	 * adopted (T77, ADR-0032).
+	 *
+	 * <p><strong>This closes the window a delete opens, and the window is real.</strong> The row goes at once
+	 * while its Prices are still alive in Stripe and still tagged {@code metadata.tier_code}; the drain then
+	 * archives and untags each of them, and until it has, any {@code price.updated} on one — an operator
+	 * editing it, or Stripe emitting one for reasons of its own — would draft the deleted tier straight back
+	 * at quota 0, filed last, as a log line nobody is reading.
+	 *
+	 * <p><strong>Scoped to that window and not to the code.</strong> A table of dead codes the sync declines
+	 * for ever was weighed and rejected in the ADR: an operator who deletes a plan and recreates it under the
+	 * same name is doing something ordinary. This frees the moment the code's last {@code stripe_cleanup} row
+	 * is done.
+	 *
+	 * <p>An operator's to notice rather than to act on, like {@link #DRAFTED_A_TIER} and unlike
+	 * {@link #LEFT_TO_THE_TIER_THAT_HOLDS_IT}: it is the expected answer for the seconds or minutes between a
+	 * delete and its drain, and it stops on its own.
+	 */
+	REFUSED_A_CODE_BEING_TORN_DOWN
 
 }

@@ -141,6 +141,37 @@ distracted click fanning out into several deletes.
 Remaining quota and `resetAt` in the header; locked buttons carrying upgrade / update-card / cooldown per the
 reason code, with `retryAfter` rendered as a countdown.
 
+**What locks, decided 2026-09-16.** `AdList`'s `locked` is computed from serialisation, cooldown and
+batch-frozen — quota is not an input — so on a tier granting nothing every Repost button is live, costs a
+round trip to be refused, and shows *"Je hebt je limiet voor herplaatsingen in deze periode bereikt"*: a
+sentence about a limit that was never reached, on a plan where nothing comes back next period. The rule is
+**lock on the grant, never on the remainder**:
+
+- **`relistQuotaPerPeriod === 0`** — the button is disabled, `tone="locked"`, with the row line naming the
+  plan rather than a limit, and `NoRepostsPrompt` already above it offering plans. Safe to lock on because it
+  is a property of the **Tier**: nothing the holder does moves it, only an operator or a purchase.
+- **`quotaRemaining === 0` with a grant above it** — the button **stays live** and the backend refuses. This
+  number goes *up* without the user acting: a `FAILED_BEFORE_DELETE` report refunds its unit and so does
+  **Reconciliation**, so a disabled button here is one a refund has already made wrong until somebody presses
+  Refresh.
+
+This is the **Display state** used for copy and for a control's appearance and never for a decision, which is
+the line [ADR-0007](adr/0007-quota-enforcement.md) draws — `authorize` is still the only thing that grants,
+and it refuses *before* any delete, so a click that gets through costs nothing but a round trip. It is the
+same treatment the bulk checkbox already gets ([ADR-0025](adr/0025-bulk-repost-is-entitled-queued-and-paced-wider.md)):
+*"The free tier sees a control it cannot use, deliberately … the difference between a feature a free user
+knows to want and one they never learn exists."*
+
+**The discriminator is display state, not the denial.** `LockedState`'s `upgrade` carries `resetAt` and a
+zero-grant tier has a real one — the period still rolls, it just rolls to 0 — so the denial payload cannot
+tell the two apart. The row reads `relistQuotaPerPeriod` from `/api/me` to pick the sentence, the way
+`screens.tsx` already does for the strip. Splitting the copy is the same move `LockedState` makes for
+`not-in-plan`: *"`upgrade` means 'you have spent this period's relists', which is a true sentence about a
+different thing, and showing it here would answer a question nobody asked."*
+
+**`click-through.md` step 5 of slice E already asserts the result** — *"every button is locked with an upgrade
+prompt. No error, no failed sign-in"* — so that step is what this ticket makes true, and it fails today.
+
 ---
 
 ### Slice C · I can pay, and it unlocks

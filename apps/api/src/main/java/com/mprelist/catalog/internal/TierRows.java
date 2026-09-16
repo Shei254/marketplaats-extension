@@ -351,9 +351,21 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 	 * writer including this one; the checks exist so that the one writer with a human in front of it can say
 	 * what happened.
 	 *
+	 * <p><strong>The code moves only where nothing else holds a copy of it</strong> (T76, ADR-0031), and the
+	 * guard is the tier's own price list rather than a query of its own: a {@code tier_price} row means Stripe
+	 * carries the code as {@code metadata.tier_code}, which is what {@link #adopt} finds the tier by. The
+	 * {@code stored} entry above has already read the prices, so "has a Price" is the same fact the publish
+	 * check one line down is asking about — read once and asked twice rather than two statements that could
+	 * come to disagree.
+	 *
+	 * <p>Both code checks are made before the publish ones because they are about <em>which row this is</em>
+	 * rather than about what it may be sold for: an edit that moves a frozen code is refused whether or not
+	 * it also tried to put the tier on sale, and being told the sellable thing first would send an operator to
+	 * fix the wrong half of their form.
+	 *
 	 * <p>Read back inside the same transaction rather than assembled from the request, so the answer is the
 	 * row — including the {@code stripe_price_id} the operator did not send and the {@code is_default} this
-	 * does not touch.
+	 * does not touch. Read back by the code the edit <em>asked for</em>, since that is where the row now is.
 	 */
 	@Override
 	@Transactional
@@ -362,7 +374,17 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 		if (stored.isEmpty()) {
 			return new TierEdited.NoSuchTier();
 		}
-		if (edit.published() && stored.get().prices().isEmpty()) {
+		boolean moving = !edit.code().equals(code);
+		if (moving && !stored.get().isFree()) {
+			return new TierEdited.CodeFrozenByAPrice();
+		}
+		// Any row under the asked-for code is another tier's, because this branch is only reached where the
+		// two codes differ. `tier.code` is unique, so the alternative to answering here is the constraint
+		// failing under the route as a 500.
+		if (moving && entryFor(edit.code()).isPresent()) {
+			return new TierEdited.CodeTakenByAnotherTier();
+		}
+		if (edit.published() && stored.get().isFree()) {
 			return new TierEdited.NothingToChargeAgainst();
 		}
 		if (edit.published() && edit.grantsNothing()) {
@@ -370,19 +392,21 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 		}
 		this.db.sql("""
 				update tier
-				   set name = :name,
+				   set code = :newCode,
+				       name = :name,
 				       relist_quota_per_period = :quota,
 				       features = cast(:features as jsonb),
 				       published = :published
 				 where code = :code
 				""")
+				.param("newCode", edit.code())
 				.param("name", edit.name())
 				.param("quota", edit.relistQuotaPerPeriod())
 				.param("features", JSON.writeValueAsString(edit.features()))
 				.param("published", edit.published())
 				.param("code", code)
 				.update();
-		return new TierEdited.Applied(entryFor(code).orElseThrow());
+		return new TierEdited.Applied(entryFor(edit.code()).orElseThrow());
 	}
 
 	/**

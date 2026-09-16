@@ -155,9 +155,16 @@ export const SUBSCRIPTION_STATUSES = [
 export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
 
 /**
- * A tier in both its spellings. `code` is the stable handle an admin edit never
- * moves; `name` is display text an operator may rewrite at any time — so a client
- * brands a plan by `name` and branches on `code`, and never the other way round.
+ * A tier in both its spellings. `code` is the handle; `name` is display text an
+ * operator may rewrite at any time — so a client brands a plan by `name` and
+ * branches on `code`, and never the other way round.
+ *
+ * **`code` is stable once there is a Price to freeze it** (ADR-0031). On a tier
+ * with none — the free tier, and nothing else in practice — an edit re-derives it
+ * from the name, because Stripe holds the only other copy and a priceless tier has
+ * given it none. So a client still branches on `code` rather than on `name`, and
+ * still compares it to another `code` rather than to a literal: every comparison in
+ * this repository already does (`PlanCards.tsx`, `AdminCatalog.tsx`).
  */
 export interface TierName {
   code: string;
@@ -445,26 +452,62 @@ export interface AdminTiers {
  * What is **not** here is the decision (ADR-0019): no amount or interval, because
  * Stripe Prices are immutable and a field called "amount" would be lying about
  * what editing it does; no `stripePriceId`, because the tag on the Price is the
- * only link and a second copy is the one that drifts; no `code`, which is the
- * stable handle everything references; and no `isDefault`, which is a property of
- * the catalog rather than of one row — `PUT /api/admin/tiers/{code}/default` moves
- * it, and there is deliberately no way to ask for a catalog with no default at all.
+ * only link and a second copy is the one that drifts; and no `isDefault`, which is
+ * a property of the catalog rather than of one row —
+ * `PUT /api/admin/tiers/{code}/default` moves it, and there is deliberately no way
+ * to ask for a catalog with no default at all.
  *
- * **`409` means one thing said two ways**: this tier cannot go on sale as
+ * **`code` is here and is conditional** (ADR-0031). It may change exactly while
+ * the tier has no Stripe Price: once it has one, Stripe holds a copy of the code in
+ * `metadata.tier_code` and renaming underneath it would leave the tier holding
+ * Prices that name something else — the next `price.updated` adopting the old code
+ * as a fresh draft, which is the tier split in two by a rename. In practice that
+ * means the **free tier** and nothing else. It is still never *typed*: the screen
+ * derives it from the name (`tier-code.ts`), so an unchanged name sends back the
+ * code that is already stored and the field is inert on every other row.
+ *
+ * **`409` means one thing said four ways**: the catalog cannot hold this tier as
  * described. Either there is nothing to charge for it — no Stripe Price, and the
  * way out is Stripe's, create one tagged with the tier's code — or there is nothing
- * to get for the money, a quota of `0` (ADR-0029). `404` means no tier is stored
- * under that code. Both carry an empty body: the screen that sends this shows both
- * facts on the row it is editing, and a `reason` would be a second vocabulary on an
- * API whose codes are statements about a *user*.
+ * to get for the money, a quota of `0` (ADR-0029), or the code moved on a tier a
+ * Price has frozen, or the code it moved to is one another tier already holds.
+ * `404` means no tier is stored under that code. All carry an empty body: the
+ * screen that sends this shows every one of those facts on the catalog it is
+ * holding, and a `reason` would be a second vocabulary on an API whose codes are
+ * statements about a *user*.
  */
 export interface TierEdit {
+  /**
+   * The handle the tier is filed under, derived from the name and never typed.
+   *
+   * Stated on every edit like every other field, and on all but one row it is the
+   * code that was already stored — a `PUT` is whole, so "unchanged" is said by
+   * sending it back rather than by leaving it out. Sending a *different* one is
+   * refused with a `409` unless the tier has no Price (ADR-0031).
+   */
+  code: string;
   name: string;
   /** The number, or `null` for unlimited. Never absent — see above. */
   relistQuotaPerPeriod: number | null;
   features: Record<string, unknown>;
   published: boolean;
 }
+
+/**
+ * The one code no tier may be filed under, because `PUT /api/admin/tiers/order` is
+ * mapped on that path segment (T76, ADR-0031).
+ *
+ * **A fact about this API's routing table, not about deriving a code.** Spring
+ * prefers the literal over `{code}`, so a tier filed under it is one no request
+ * could ever name again — including to undo it. Unreachable by anybody until a
+ * *name* derived a code; `tierCodeFrom("Order")` is right to answer `order`, and it
+ * is the screens and the routes that know it must not be stored.
+ *
+ * Here rather than in `apps/web`, because both write routes refuse it and so do
+ * both forms: one literal, read by everything that has to know, is the shape
+ * ADR-0026 settled on for a value spelled in more than one place.
+ */
+export const RESERVED_TIER_CODE = "order";
 
 /**
  * `PUT /api/admin/tiers/order` — the sequence the plan cards are read in (T75,

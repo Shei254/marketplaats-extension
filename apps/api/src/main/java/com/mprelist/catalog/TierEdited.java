@@ -3,10 +3,18 @@ package com.mprelist.catalog;
 /**
  * What came of an operator's edit (T53, #84).
  *
- * <p>Four answers and no exceptions, for {@code Checkout}'s reason one module over: the caller turns each
+ * <p>Six answers and no exceptions, for {@code Checkout}'s reason one module over: the caller turns each
  * into a status, and the difference matters to somebody looking at a form. One is the row as it now stands,
- * one is a code nothing is stored under, and two are tiers that cannot be sold — one because there is
- * nothing to charge for it, one because there is nothing to get for the money.
+ * one is a code nothing is stored under, two are tiers that cannot be sold — one because there is nothing to
+ * charge for it, one because there is nothing to get for the money — and two are codes the catalog cannot
+ * file this tier under (T76, ADR-0031).
+ *
+ * <p><strong>The last four are one sentence to the route and four to the reader here.</strong>
+ * {@code AdministerTiers} answers {@code 409} to all of them with an empty body — "the catalog cannot hold
+ * this tier as described" — because they are one recovery to the only caller, which is to look at the
+ * catalog it is holding. They stay four types because the screen's own checks are written against four
+ * different facts, and a single {@code Refused} would make this module the one place that had forgotten
+ * which.
  */
 public sealed interface TierEdited {
 
@@ -49,6 +57,42 @@ public sealed interface TierEdited {
 	 * {@code curl} — which should be told they are wrong rather than quietly corrected.
 	 */
 	record NothingToGrant() implements TierEdited {
+	}
+
+	/**
+	 * The edit would move the code of a tier that has a Stripe Price (T76, ADR-0031).
+	 *
+	 * <p><strong>Frozen by Stripe rather than by us.</strong> A Price carries the code in
+	 * {@code metadata.tier_code} and that copy is how {@code PriceAdoptions} finds the tier again. Renaming
+	 * underneath it would leave the tier holding Prices that name something else, and the next
+	 * {@code price.updated} would adopt the old code as a <em>new draft tier</em> — one tier split in two by
+	 * a rename, with subscribers on the half nobody is looking at.
+	 *
+	 * <p>Retagging every Price in the same operation was weighed and rejected in the ADR: a local commit plus
+	 * N Stripe calls half-fails into exactly the split it is trying to prevent, and the sync cannot read a
+	 * catalog in that state.
+	 *
+	 * <p>So the code moves exactly where nothing has a copy of it — a tier with no {@code tier_price} row,
+	 * which in practice is the free tier and nothing else. Answered rather than thrown for
+	 * {@link NothingToChargeAgainst}'s reason: the form knows which rows these are and shows the code as
+	 * fixed text on the rest, so what reaches this is a stale tab, a script or a hand-run {@code curl}.
+	 */
+	record CodeFrozenByAPrice() implements TierEdited {
+	}
+
+	/**
+	 * The edit would file this tier under a code another tier already holds (T76, ADR-0031).
+	 *
+	 * <p>{@code tier.code} is unique, so the alternative to answering this is a
+	 * {@code DataIntegrityViolationException} under the route — a {@code 500} where what is wanted is an
+	 * operator being told that the name they typed derives to a code the catalog is already using. Renaming
+	 * the free tier to "Pro" derives {@code pro}, which is the whole of how this is reached: nobody types a
+	 * code, so nobody collides on purpose.
+	 *
+	 * <p>Auto-suffixing to {@code pro-2} was rejected in the ADR as the "quietly corrected" ADR-0029 names as
+	 * the thing not to do. The form refuses it before the submit; this is the backstop.
+	 */
+	record CodeTakenByAnotherTier() implements TierEdited {
 	}
 
 }

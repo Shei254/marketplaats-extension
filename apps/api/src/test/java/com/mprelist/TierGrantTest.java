@@ -53,11 +53,11 @@ class TierGrantTest {
 	@Test
 	void andSaysNothingAboutWhetherItIsOnSale() {
 		assertThat(edit(0).grantsNothing()).isTrue();
-		assertThat(new TierEdit("Draft", 0, Map.of(), false).grantsNothing()).isTrue();
+		assertThat(new TierEdit("draft", "Draft", 0, Map.of(), false).grantsNothing()).isTrue();
 	}
 
 	private static TierEdit edit(Integer quota) {
-		return new TierEdit("Pro", quota, Map.of(), true);
+		return new TierEdit("pro", "Pro", quota, Map.of(), true);
 	}
 
 }

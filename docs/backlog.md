@@ -1100,6 +1100,63 @@ side is `AdminTierTest`'s new section, `BaselineSchemaTest` on the column and th
 `PlansTest` on the cards following the catalog.
 
 
+#### T76 · The free tier is one an operator can name · **S** · T53, T54, T73, T75 · **shipped**
+"How is an admin meant to set the free tier" had no answer written down, and working it out found that most
+of one already existed. [ADR-0031](adr/0031-the-free-tier-is-the-one-without-a-price.md) is the decision.
+Name, quota, feature flags and position have been editable since T54; **the code has not**, so every
+deployment calls its free tier `free` because `V2__seed_tier_catalog.sql` said so in August.
+
+**No migration, no column, no constraint.** A tier is free exactly when it has no `tier_price` row — derived,
+like `isDefault` is derived, and for the same reason a `featured` boolean was refused in ADR-0030. "At most
+one free tier" needs nothing enforcing it: `NewPlanInStripe` refuses an empty rhythm list in its constructor
+and the sync adopts a tier *from* a Price, so neither creation path can make a second one.
+
+**`TierEdit` gains `code`**, accepted exactly while `not exists (select 1 from tier_price where tier_id = ?)`.
+Beyond that the code is in Stripe as `metadata.tier_code` and a rename would leave the tier holding Prices
+that name something else — the next `price.updated` would adopt the old code as a fresh draft, splitting the
+tier in two. Retagging the Prices in the same operation was weighed and rejected: a local commit plus N
+Stripe calls half-fails into exactly that split.
+
+**The code is derived from the name, never typed** — `tierCodeFrom` already exists, already normalises, and
+`tier-code.ts`'s "nobody types a tier code any more" stays intact. The cost is accepted and stated in the ADR:
+on this one row, renaming stops being cosmetic. The form prints the derived code while it is being typed, the
+way `NewPlanForm` does.
+
+**Three collisions, refused on the form before submit** — a code the catalog holds, a name deriving to
+nothing, and the reserved literal **`order`**, which `AdministerTiers` currently dismisses with "Nothing
+creates one" and which a *name* can now create. A tier coded `order` is the one row that can never be edited
+again, including to undo it. The API keeps a `409` as the backstop, and its sentence broadens from "this tier
+cannot go on sale as described" to "the catalog cannot hold this tier as described" — still one empty body,
+still one recovery (reload).
+
+**The Prices button on the free tier's row warns and then allows**, naming both consequences: it is the tier
+every new account lands on and every ended subscription falls back to, and adding a price freezes its code
+permanently. Refusing it on the `isDefault` row was weighed and rejected — it would force a default-tier swap
+that hands new accounts a paid tier for free while it happens.
+
+**One comment is corrected because it is already wrong.** `TierEdit`'s "No `code` … a subscription's tier is
+found through it" is false and was when written: `subscription.tier_id` is a uuid and `TierRows` looks the
+tier up by it, reading the code *out* of the row. Nothing finds a tier by code except the admin routes, by
+path.
+
+**Not in it:** a delete route (the free tier has every user on it and `subscription.tier_id` carries no delete
+rule, so it is deletable only before the first sign-in — and deleting the default takes sign-in down), a
+second free tier, grandfathering, any user-to-tier admin route, and `max_marktplaats_accounts`.
+
+**Click-through:** rename the free tier in `/admin` and watch its code follow on the row; reopen the popup and
+see the new name on the plan strip; try naming it after an existing plan and after `order`, and be refused
+without a round trip; add a price to it and read the warning.
+
+**Built as written, with one addition.** The reserved literal is refused by the **API** as well as by both
+forms, in the same `409` and with its reason stated where the collision lives: `AdministerTiers` owns the
+routing table, `TierEdits` knows nothing about one, so the check is on the route rather than in the catalog.
+`POST /api/admin/plans` refuses it too — a plan named "Order" derived it before T76 and would have created a
+Stripe Product for a row nothing could then edit. `AdminTierTest`'s fixture also changed shape: it restored
+the seeded catalog by deleting every row whose code was not one of the three, which was the same statement as
+"restore" only for as long as a code could not move, and would now delete a renamed free tier along with the
+default flag and every later test's sign-in. It reads the three ids once and puts the codes back on them.
+
+
 ---
 
 ## Deferred

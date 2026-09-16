@@ -24,12 +24,12 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0011](0011-repository-layout.md) | Repository layout — monorepo, one deployable per workspace | Accepted |
 | [0012](0012-backend-modular-monolith.md) | Backend — modular monolith (Spring Modulith), hexagonal modules | Accepted |
 | [0013](0013-remote-client-configuration.md) | Remote client configuration for the internal-API layer | Accepted, refined by 0024 |
-| [0014](0014-tier-catalog-and-entitlements.md) | Tier catalog & entitlements ours, keyed to Stripe Prices | Accepted, refines 0006, refined by 0026, 0029 and 0030 |
+| [0014](0014-tier-catalog-and-entitlements.md) | Tier catalog & entitlements ours, keyed to Stripe Prices | Accepted, refines 0006, refined by 0026, 0029, 0030 and 0031 |
 | [0015](0015-frozen-internal-api-golden-tests.md) | Internal-API layer frozen by golden-payload tests | Accepted |
 | [0016](0016-vertical-slices-and-review-gates.md) | Iteration 1 cut into vertical slices, each ending at a manual review | Accepted |
 | [0017](0017-web-surface-and-subscribing.md) | One web app, loginless public routes; subscribing starts in the popup | Accepted, amends 0011, refined by 0023 |
 | [0018](0018-lapse-falls-back-to-the-default-tier.md) | A subscription that ends falls back to the default tier | Accepted, refines 0014 |
-| [0019](0019-plans-are-stripe-first-and-webhook-synced.md) | Plans created in Stripe, synced to the Tier catalog by webhook | Accepted, refines 0014, refined by 0029 |
+| [0019](0019-plans-are-stripe-first-and-webhook-synced.md) | Plans created in Stripe, synced to the Tier catalog by webhook | Accepted, refines 0014, refined by 0029 and 0031 |
 | [0020](0020-deployment.md) | Deployed as four containers on one host, from a second compose file | Accepted, amended by 0023 |
 | [0021](0021-design-system-stays-ours.md) | The design system stays ours, and stays a CSS string | Accepted, refines 0016 |
 | [0022](0022-the-plan-screen-names-the-payment-methods.md) | The plan screen names the payment methods, read from Stripe | Accepted, refines 0006 |
@@ -41,6 +41,7 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0028](0028-a-repost-puts-back-what-it-can.md) | A repost puts back what it can, and says what it cannot | Accepted, refines 0002 |
 | [0029](0029-unlimited-is-null-and-zero-still-grants-nothing.md) | Unlimited is `null`, and zero still grants nothing | Accepted, refines 0014 and 0019 |
 | [0030](0030-the-catalog-order-is-the-operators.md) | The catalog order is the operator's, and it is one sequence | Accepted, refines 0014 |
+| [0031](0031-the-free-tier-is-the-one-without-a-price.md) | The free tier is the one without a price, and an operator edits it | Accepted, refines 0014 and 0019 |
 
 **Amended by the 2026-08-13 session:** 0006 (Stripe narrowed to money + lifecycle), 0007 (gating depth,
 `/api/me` display state, `marktplaatsAccountId` dropped), 0009 (monorepo, React popup, Options page removed).
@@ -138,6 +139,18 @@ and says why: the only unwriteable spelling of "positions are distinct" needs th
 [0019](0019-plans-are-stripe-first-and-webhook-synced.md)'s trigger work already rejected as a test that
 passes having checked nothing.
 [T75](https://github.com/Shei254/marketplaats-extension/issues/164) is the ticket.
+
+**Amended by the 2026-09-16 free-tier session:** [0031](0031-the-free-tier-is-the-one-without-a-price.md)
+answers a question that had never been asked out loud — *how is an admin meant to set the free tier* — and
+the answer turned out to be mostly "they already can, and nothing says so". The session's value is what it
+ruled out on the way: a create route (both creation paths refuse a tier with no price, in the constructor and
+by construction, so a second free tier is already unsayable and needs no constraint); a delete route (the free
+tier has every user on it and `subscription.tier_id` carries no delete rule, so it can be deleted only before
+the first sign-in, and doing so takes sign-in down with it); and grandfathering (it works today and was
+rejected because raising the free grant should reach the people already on it, which editing the row does for
+nothing). What was actually missing was one field — `code`, editable exactly while a tier has no Price to
+freeze it in Stripe — and one sentence in `TierEdit` that was never true: a subscription's tier is found by
+uuid, not by code.
 
 See also [../domain-model.md](../domain-model.md), [../glossary.md](../glossary.md) and
 [../enforcement-contract.md](../enforcement-contract.md).

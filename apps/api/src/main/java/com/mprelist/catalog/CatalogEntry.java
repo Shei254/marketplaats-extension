@@ -77,4 +77,25 @@ public record CatalogEntry(TierName tier, Integer relistQuotaPerPeriod, Map<Stri
 		prices = java.util.List.copyOf(prices);
 	}
 
+	/**
+	 * Whether this is a tier nobody can buy — the <strong>free tier</strong> (T76, ADR-0031).
+	 *
+	 * <p><strong>Derived, never declared</strong>, which is the whole of that ADR's first decision: free is
+	 * "has no {@code tier_price} row" and not a flag, the same way {@code isDefault} is a fact about the
+	 * catalog rather than a property of a row and {@code grantsNothing()} above is a rule spelled once rather
+	 * than three times. "At most one" needs no constraint either — both creation paths require a price, so a
+	 * second is unsayable rather than forbidden.
+	 *
+	 * <p><strong>It is also exactly the condition the code may move under</strong>, and that is not a
+	 * coincidence: a tier with no Price has given Stripe no copy of its code to disagree with. So
+	 * {@code TierRows.apply} asks this twice — once for the rename and once for the publish — where it used
+	 * to ask an empty list two questions it could not tell apart by name.
+	 *
+	 * <p>Not the same claim as {@code isDefault}, which is where new accounts land. They are one row today
+	 * and two facts always.
+	 */
+	public boolean isFree() {
+		return this.prices.isEmpty();
+	}
+
 }

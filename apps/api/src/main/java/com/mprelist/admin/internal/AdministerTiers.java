@@ -2,6 +2,7 @@ package com.mprelist.admin.internal;
 
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -74,16 +75,37 @@ class AdministerTiers {
 	 *
 	 * <p>A {@code PUT} rather than a {@code PATCH} because the body is total over what may be changed: every
 	 * field is sent every time, so there is no "absent or null" question for a reader to answer differently
-	 * from the next one, and the form on the other side (T54, #85) is holding all four values anyway.
+	 * from the next one, and the form on the other side (T54, #85) is holding every one of them anyway. That
+	 * includes {@code code} since T76: an edit that is not moving it says so by sending back the one it was
+	 * given, which is a thing a {@code PATCH} could not tell from silence.
 	 *
-	 * <p>{@code 409} is the one refusal, and it means one thing said two ways: <strong>this tier cannot go on
-	 * sale as described</strong> — either there is nothing to charge for it (no Stripe Price) or nothing to
-	 * get for the money (a quota of 0, ADR-0029). It carries an empty body like every other non-denial
-	 * {@code 4xx} here, and the two are not told apart on the wire: a {@code reason} would be a second
-	 * vocabulary on an API whose codes are statements about a *user*, and the screen that sends this shows
-	 * both facts on the row it is editing. The form warns and withdraws the tier itself rather than sending
-	 * a publish it knows will be refused, so what reaches this is a stale tab, a script or a hand-run
-	 * {@code curl} — which should be told they are wrong rather than quietly corrected.
+	 * <p><strong>{@code 409} is the one refusal, and since T76 it means one thing said four ways: the catalog
+	 * cannot hold this tier as described.</strong> It was "this tier cannot go on sale as described" and
+	 * covered two — nothing to charge for it (no Stripe Price) and nothing to get for the money (a quota of 0,
+	 * ADR-0029). ADR-0031 adds the two a movable {@code code} brings: a code moved on a tier a Price has
+	 * frozen, and a code another tier already holds. The sentence broadens rather than the cases getting
+	 * statuses of their own, because all four are one event to the only caller — the screen is stale, reload
+	 * — which is the argument {@link #reorder} already uses to fold a {@code 404} into its {@code 409}.
+	 *
+	 * <p>It carries an empty body like every other non-denial {@code 4xx} here, and the four are not told
+	 * apart on the wire: a {@code reason} would be a second vocabulary on an API whose codes are statements
+	 * about a *user*, and the screen that sends this is holding the whole catalog and can see every one of
+	 * those facts for itself. The form warns, withdraws the tier itself, and refuses a colliding code before
+	 * submit rather than sending a write it knows will be refused — so what reaches this is a stale tab, a
+	 * script or a hand-run {@code curl}, which should be told they are wrong rather than quietly corrected.
+	 *
+	 * <p><strong>The fifth and sixth are this route's own rather than the catalog's</strong> (ADR-0031), and
+	 * both say the same thing: <em>this API could store that tier and never address it again</em>.
+	 * {@link #reorder} owns {@code /api/admin/tiers/order}, so a tier filed under {@code order} is lost to
+	 * this API — including to undo it. A code carrying anything but {@code [a-z0-9-]} is lost the same way: a
+	 * {@code /} is a path segment Spring refuses to decode into a {@code @PathVariable} at all. Nothing but a
+	 * name could reach either — {@code tierCodeFrom} derives {@code order} from "Order", and derives nothing
+	 * else that is unroutable — which is exactly what T76 made possible and what this closes.
+	 *
+	 * <p>{@link TierEdits} is told about neither, because a routing table is not something a catalog knows
+	 * about. And both are asked <strong>only of an edit that is moving the code</strong>: a tier whose code
+	 * arrived from a hand-typed Stripe tag may be spelled anything at all, and a guard that refused to store
+	 * it again would be a row this screen could no longer edit — the exact failure it is here to prevent.
 	 */
 	@PutMapping(path = TIERS + "/{code}", consumes = MediaType.APPLICATION_JSON_VALUE)
 	ResponseEntity<AdminTier> edit(@PathVariable String code, @RequestBody TierEditRequest request) {
@@ -92,15 +114,20 @@ class AdministerTiers {
 			edit = request.asEdit();
 		}
 		catch (IllegalArgumentException unusable) {
-			// A name that is blank or a quota below zero: a body this API could read and could not use, which
-			// is the same `400` an unparseable one gets rather than a state to store.
+			// A name or a code that is blank, or a quota below zero: a body this API could read and could not
+			// use, which is the same `400` an unparseable one gets rather than a state to store.
 			return ResponseEntity.badRequest().build();
+		}
+		if (!edit.code().equals(code) && thisApiCouldNotAddressATierFiledUnder(edit.code())) {
+			return ResponseEntity.status(409).build();
 		}
 		return switch (this.catalog.apply(code, edit)) {
 			case TierEdited.Applied applied -> ResponseEntity.ok(asAdminTier(applied.tier()));
 			case TierEdited.NoSuchTier ignored -> ResponseEntity.notFound().build();
 			case TierEdited.NothingToChargeAgainst ignored -> ResponseEntity.status(409).build();
 			case TierEdited.NothingToGrant ignored -> ResponseEntity.status(409).build();
+			case TierEdited.CodeFrozenByAPrice ignored -> ResponseEntity.status(409).build();
+			case TierEdited.CodeTakenByAnotherTier ignored -> ResponseEntity.status(409).build();
 		};
 	}
 
@@ -126,9 +153,13 @@ class AdministerTiers {
 	 *
 	 * <p><strong>A literal segment where {@code {code}} would match, which is a collision worth naming.</strong>
 	 * Spring prefers the exact pattern, so this handler and not {@link #edit} takes {@code /api/admin/tiers/order}
-	 * — at the cost of a tier coded {@code order} being uneditable through this API. Nothing creates one: a code
-	 * is derived from a plan's name in {@code /admin} or typed into a Stripe Price's {@code metadata.tier_code},
-	 * and the operator who managed both would find out on the first save rather than silently.
+	 * — at the cost of a tier coded {@code order} being uneditable through this API. This used to say "nothing
+	 * creates one", which was thin then and is false since T76: a code is derived from a plan's name, so naming
+	 * a plan "Order" makes one. {@link #edit} now refuses to file a tier under it, and the two forms in
+	 * {@code /admin} refuse it before the submit. What is still unguarded is a Stripe Price hand-tagged
+	 * {@code metadata.tier_code = order}, which the sync adopts like any other — the webhook takes what Stripe
+	 * says, and a catalog that refused rows it had already been told about would be a worse failure than one
+	 * uneditable row.
 	 *
 	 * <p><strong>{@code 409} with an empty body is the one refusal, and it means the screen is stale.</strong>
 	 * A code nothing is stored under, a tier the list forgot and a code sent twice are one event to the only
@@ -157,9 +188,11 @@ class AdministerTiers {
 	/**
 	 * One tier as the admin screen renders it.
 	 *
-	 * <p>{@code tier} carries both spellings for the reason {@code /api/me} does: {@code code} is the stable
-	 * handle an edit never moves and {@code name} is text an operator is about to rewrite, so a client that
-	 * had only the second would key its own rows on something that changes under it.
+	 * <p>{@code tier} carries both spellings for the reason {@code /api/me} does: {@code code} is the handle
+	 * and {@code name} is text an operator is about to rewrite, so a client that had only the second would key
+	 * its own rows on something that changes under it. Since T76 the code is not quite immovable either — it
+	 * follows the name on a tier no Price has frozen (ADR-0031) — which is why every write here answers with
+	 * the row as stored: a screen that kept its own copy of the code would be holding the old one.
 	 */
 	record AdminTier(TierNameOnTheWire tier, Integer relistQuotaPerPeriod, Map<String, Object> features,
 			boolean published, boolean isDefault, List<TierPriceOnTheWire> prices) {
@@ -200,8 +233,8 @@ class AdministerTiers {
 	 * field is absent and as a {@code NullNode} when it is written out, which is the two facts kept apart by
 	 * the type system rather than by a convention.
 	 */
-	record TierEditRequest(String name, JsonNode relistQuotaPerPeriod, Map<String, Object> features,
-			Boolean published) {
+	record TierEditRequest(String code, String name, JsonNode relistQuotaPerPeriod,
+			Map<String, Object> features, Boolean published) {
 
 		TierEdit asEdit() {
 			if (this.relistQuotaPerPeriod == null || this.published == null) {
@@ -209,7 +242,11 @@ class AdministerTiers {
 						+ "out the quota or the publication flag, and guessing either would change a plan "
 						+ "nobody asked to change");
 			}
-			return new TierEdit(this.name, quotaSent(this.relistQuotaPerPeriod),
+			// A missing `code` is refused by `TierEdit`'s own constructor rather than defaulted to the path's,
+			// which is the same rule the quota and the flag get one line up: a `PUT` that guessed a field
+			// would be storing something nobody stated. It is not the same field as the path's — that one
+			// says which row, this one says where the row goes (T76, ADR-0031).
+			return new TierEdit(this.code, this.name, quotaSent(this.relistQuotaPerPeriod),
 					this.features == null ? Map.of() : this.features, this.published);
 		}
 
@@ -250,6 +287,24 @@ class AdministerTiers {
 		return quota.asInt();
 	}
 
+	/**
+	 * Whether a tier filed under this code would be one no request to this API could ever name again
+	 * (T76, ADR-0031).
+	 *
+	 * <p>Two ways, and the second is the shape rather than the value: {@link #reorder} is mapped on the
+	 * literal {@code order}, and a code outside {@code [a-z0-9-]} cannot survive the round trip through a
+	 * path segment — a {@code /} most obviously, which Spring will not decode into a {@code @PathVariable}
+	 * even encoded. Package-visible because {@link CreatePlans} has to ask it of a code being created, for
+	 * the same reason and about the same routes.
+	 *
+	 * <p>It is a question about <em>this API</em> and not about the catalog, which is why it lives here and
+	 * why {@code tier-code.ts} does not answer it either: {@code tierCodeFrom("Order")} is right to say
+	 * {@code order}.
+	 */
+	static boolean thisApiCouldNotAddressATierFiledUnder(String code) {
+		return RESERVED_CODE.equals(code) || !ROUTABLE_CODE.matcher(code).matches();
+	}
+
 	/** Package-visible: {@code CreatePlans} answers with the same shape, read back the same way. */
 	static AdminTier asAdminTier(CatalogEntry entry) {
 		return new AdminTier(new TierNameOnTheWire(entry.tier().code(), entry.tier().name()),
@@ -262,6 +317,20 @@ class AdministerTiers {
 	private final TierEdits catalog;
 
 	static final String TIERS = "/api/admin/tiers";
+
+	/**
+	 * The one code this API cannot address a tier by, because {@link #reorder} is mapped on it.
+	 *
+	 * <p>Package-visible so {@link CreatePlans} refuses it on the way in too: a plan named "Order" derives it,
+	 * and the two routes that can file a tier under a code should not disagree about which one is a trap.
+	 */
+	static final String RESERVED_CODE = "order";
+
+	/**
+	 * What a code may be spelled with for a path to carry it — the same shape {@code tierCodeFrom} produces,
+	 * stated here because this is the side that would be unable to address the row otherwise.
+	 */
+	private static final Pattern ROUTABLE_CODE = Pattern.compile("[a-z0-9-]+");
 
 }
 

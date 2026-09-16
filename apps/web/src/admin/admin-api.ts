@@ -39,14 +39,19 @@ export type PricesAnswer = { status: "ready"; prices: UntaggedPrice[] } | Refusa
 /**
  * What came of writing.
  *
- * `unsellable` is the API's `409`, and since ADR-0029 it means one thing said two
- * ways — **this tier cannot go on sale as described**: either there is nothing to
- * charge for it (no Stripe Price, and the way out is Stripe's — create one tagged
- * with the tier's code) or nothing to get for the money (a quota of 0). Both forms
- * warn before they send, so what reaches this is a stale tab. `rejected` is a
- * `400`,
- * which for a form that always sends every field should be unreachable and is
- * rendered rather than swallowed, because unreachable is a claim and not a fact.
+ * `conflicted` is the API's `409`, and since ADR-0031 it means one thing said four
+ * ways — **the catalog cannot hold this tier as described**: nothing to charge for
+ * it (no Stripe Price, and the way out is Stripe's — create one tagged with the
+ * tier's code), nothing to get for the money (a quota of 0), a code moved on a tier
+ * a Price has frozen, or a code another tier already holds. It was `unsellable` and
+ * covered the first two; the name moved with the meaning rather than staying a
+ * label that was right about half of what it now carries.
+ *
+ * **The form checks every one of them first**, because it is holding the whole
+ * catalog and the API deliberately sends no `reason` — so what reaches this is a
+ * stale tab. `rejected` is a `400`, which for a form that always sends every field
+ * should be unreachable and is rendered rather than swallowed, because unreachable
+ * is a claim and not a fact.
  */
 export type EditAnswer = { status: "saved"; tier: AdminTier } | WriteRefusal;
 
@@ -58,7 +63,7 @@ export type EditAnswer = { status: "saved"; tier: AdminTier } | WriteRefusal;
  * dropped. `stale` is the API's `409` and is the only refusal with an instruction
  * in it: the list this screen sent was not the catalog's set, which means a tier
  * arrived or left while the page was open — reload and try again. It is a
- * *different sentence* from the edit form's `unsellable`, which is the same status
+ * *different sentence* from the edit form's `conflicted`, which is the same status
  * meaning something else entirely, and that is why this answer does not reuse it.
  */
 export type OrderAnswer =
@@ -74,7 +79,7 @@ export type OrderAnswer =
 type WriteRefusal =
   | Refusal
   | { status: "gone" }
-  | { status: "unsellable" }
+  | { status: "conflicted" }
   | { status: "rejected" };
 
 /**
@@ -138,7 +143,7 @@ export class AdminApi {
    * `isDefault` has a route of its own. Sent whole, one drag is one write and there
    * is no half-applied order for a failed third call to leave behind.
    *
-   * The `409` becomes `stale` rather than the `unsellable` the shared reader would
+   * The `409` becomes `stale` rather than the `conflicted` the shared reader would
    * make of it: on this route it means the list was not the catalog's set, which is
    * a reload rather than a sentence about what a tier may be sold for.
    */
@@ -149,7 +154,7 @@ export class AdminApi {
       headers: { "content-type": "application/json" },
     });
     if (answer.status !== "ok") {
-      return answer.refusal.status === "unsellable" ? { status: "stale" } : readRefusal(answer.refusal);
+      return answer.refusal.status === "conflicted" ? { status: "stale" } : readRefusal(answer.refusal);
     }
     const tiers = asAdminTiers(answer.body);
     return tiers ? { status: "ordered", tiers } : UNAVAILABLE;
@@ -268,7 +273,7 @@ export class AdminApi {
     if (response.status === 401) return { status: "refused", refusal: { status: "signed-out" } };
     if (response.status === 403) return { status: "refused", refusal: { status: "forbidden" } };
     if (response.status === 404) return { status: "refused", refusal: { status: "gone" } };
-    if (response.status === 409) return { status: "refused", refusal: { status: "unsellable" } };
+    if (response.status === 409) return { status: "refused", refusal: { status: "conflicted" } };
     if (response.status === 400) return { status: "refused", refusal: { status: "rejected" } };
     if (!response.ok) return { status: "refused", refusal: UNAVAILABLE };
     return { status: "ok", body: await response.json().catch(() => null) };

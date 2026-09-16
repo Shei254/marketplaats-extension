@@ -21,13 +21,26 @@ import java.util.Map;
  * <li><strong>No {@code isDefault}.</strong> It is not a property of one tier but of the catalog — exactly one
  * row carries it — so it moves rather than toggles, and {@link TierEdits#makeDefault(String)} is the whole of
  * how. A boolean here could be set to false on the only tier that has it, which takes down every new sign-in.
- * <li><strong>No {@code code}.</strong> It is the stable handle everything references (ADR-0014): the seed
- * upserts on it, the Price is tagged with it, and a subscription's tier is found through it. Renaming it would
- * silently unadopt the Price.
+ * <li><strong>A {@code code}, and it is the one field here that is only sometimes editable</strong> (T76,
+ * ADR-0031). It used to be absent, for three reasons: "the stable handle everything references (ADR-0014):
+ * the seed upserts on it, the Price is tagged with it, and a subscription's tier is found through it". The
+ * third was never true — {@code subscription.tier_id} is a uuid and {@code TierRows} looks a tier up by it,
+ * reading the code <em>out</em> of the row; nothing finds a tier by code but the admin routes, which are
+ * keyed on it by path. The second is the real one, and it is conditional: once a tier has a
+ * {@code tier_price} row, Stripe holds a copy in {@code metadata.tier_code}, and renaming underneath it
+ * would leave the tier holding Prices that name something else — the next {@code price.updated} adopting the
+ * old code as a fresh draft, which is the tier split in two by a rename. A tier with no Price has given
+ * Stripe no copy and nothing freezes it, which is why the code moves exactly there — in practice the
+ * <strong>free tier</strong> and nothing else, whose code is otherwise whatever
+ * {@code V2__seed_tier_catalog.sql} chose. The guard is {@link TierEdits#apply}'s, not this record's: what a
+ * code may become is a question about the catalog, and this type holds one tier's worth of intent.
  * </ul>
  *
  * <p><strong>Whole rather than partial</strong>, which is why the route that takes one is a {@code PUT}: every
- * field is stated on every edit, and the form on the other side (T54, #85) is holding all four values anyway.
+ * field is stated on every edit, and the form on the other side (T54, #85) is holding every one of them
+ * anyway. {@code code} is the field that makes the totality worth restating: sending back the code already
+ * stored is how an edit says it is not moving one, which is a thing a {@code PATCH} could not distinguish
+ * from silence.
  *
  * <p><strong>One field answers "absent" and "null" differently, and it is the only one</strong> (ADR-0029).
  * That rule used to be stated as "so there is no 'absent or null' question to answer differently at each
@@ -37,6 +50,10 @@ import java.util.Map;
  * shape ({@code AdministerTiers.TierEditRequest}), not here — by the time an edit is one of these, the field
  * has been stated.
  *
+ * @param code the handle the tier is filed under, <strong>derived from the name and never typed</strong>
+ * (see {@code tier-code.ts}). Stated on every edit like every other field, so on all but one row it is the
+ * code that is already stored: a {@code PUT} is whole, and "unchanged" is said by sending it back rather
+ * than by leaving it out
  * @param name display text, an operator's to rewrite at any time (ADR-0014). Never compared, only rendered
  * @param relistQuotaPerPeriod what a period grants, or {@code null} for unlimited (ADR-0029). **Lowering it
  * under existing subscribers is allowed** and
@@ -48,10 +65,16 @@ import java.util.Map;
  * see {@link TierEdited.NothingToChargeAgainst} — and so is publishing one that grants nothing, see
  * {@link TierEdited.NothingToGrant}
  */
-public record TierEdit(String name, Integer relistQuotaPerPeriod, Map<String, Object> features,
+public record TierEdit(String code, String name, Integer relistQuotaPerPeriod, Map<String, Object> features,
 		boolean published) {
 
 	public TierEdit {
+		if (code == null || code.isBlank()) {
+			// `tier.code` is not null and is what the row is addressed by. A blank one arrives from a name
+			// with no letter or digit anywhere in it — "!!!" derives to nothing — which the form refuses on
+			// its own side, so this is the backstop and not the message anybody reads.
+			throw new IllegalArgumentException("A tier is filed under something; an empty code is not one");
+		}
 		if (name == null || name.isBlank()) {
 			// `tier.name` is not null, and a tier called nothing is one an operator cannot find again in
 			// their own list. Blank is refused here rather than stored, unlike the read side — which renders
@@ -66,6 +89,7 @@ public record TierEdit(String name, Integer relistQuotaPerPeriod, Map<String, Ob
 			throw new IllegalArgumentException("A tier granting no flags grants an empty set of them; "
 					+ "tier.features is not null and defaults to {}");
 		}
+		code = code.strip();
 		name = name.strip();
 		features = Collections.unmodifiableMap(new LinkedHashMap<>(features));
 	}

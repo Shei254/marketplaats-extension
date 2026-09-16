@@ -134,3 +134,26 @@ express the thing an operator actually wants to say, which is *which plan to put
 `PUT /api/admin/tiers/order` carrying the whole sequence, and it is deliberately not a field on `TierEdit`
 for the reason `isDefault` is not one: moving a tier moves others, so it is a property of the catalog rather
 than of a row.
+
+## Amended by ADR-0031 (2026-09-16)
+
+**The code stops being unconditionally immovable.**
+[ADR-0031](0031-the-free-tier-is-the-one-without-a-price.md) makes `tier.code` editable exactly while the tier
+has no `tier_price` row — in practice the **free tier** and nothing else. The split this ADR draws is
+untouched: what a tier is called and what it is filed under are as much ours as its quota, and nothing in
+Stripe changes to set one.
+
+**What it corrects is a reason rather than a rule.** This ADR made `code` the thing everything references, and
+the three grounds given for that were the seed upserting on it, the Price being tagged with it, and a
+subscription's tier being found through it. The third was never true — `subscription.tier_id` is a uuid and
+`TierRows` reads the code *out* of the row — and the second is conditional, because a tier with no Price has
+given Stripe no copy to disagree with. Only where a Price holds one is the code frozen, and there it is frozen
+harder than this ADR said: renaming underneath it would have the next `price.updated` adopt the old code as a
+fresh draft, splitting one tier in two.
+
+**"Admin-managed" now includes the handle, and still not by typing one.** The code is derived from the name
+(`tier-code.ts`), so the two cannot disagree; the form prints it while it moves, because on that one row a
+rename stops being cosmetic. **The free tier itself stays a derived fact and gains no flag** — it is the tier
+with no price, the same shape as `isDefault` being the catalog's rather than the row's — and "at most one of
+it" needs no constraint, because no creation path can make a second.
+

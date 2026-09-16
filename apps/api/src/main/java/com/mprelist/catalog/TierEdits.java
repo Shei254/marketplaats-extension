@@ -47,9 +47,17 @@ public interface TierEdits {
 	 * carries the row as it now stands rather than the request echoed back, so a client renders what was
 	 * stored rather than what it hoped would be.
 	 *
-	 * @param code the stable handle, which this never changes
-	 * @param edit the whole editable half of the row
-	 * @return applied, or which of the two ways it could not be
+	 * <p><strong>{@code code} names the row and {@code edit.code()} says where it should be filed</strong>,
+	 * and they are the same string on every edit but one (T76, ADR-0031). They may differ exactly while the
+	 * tier has no {@code tier_price} row: beyond that Stripe holds a copy of the code on every Price and the
+	 * sync reads it back, so moving ours would split one tier in two on the next {@code price.updated}. In
+	 * practice the tier that qualifies is the free one and there is only ever one of it — which is derived
+	 * from the price list rather than flagged, and needs no constraint because no creation path can make a
+	 * second (ADR-0031).
+	 *
+	 * @param code the handle the row is stored under now, which is how it is found
+	 * @param edit the whole editable half of the row, including the handle it should be stored under next
+	 * @return applied, or which of the four ways it could not be
 	 */
 	TierEdited apply(String code, TierEdit edit);
 

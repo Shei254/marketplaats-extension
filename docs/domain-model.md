@@ -24,7 +24,10 @@ MP sessions live only in the user's browser. Nothing here holds them server-side
   (ADR-0029). **Every Tier also carries a place in the Catalog order** — the sequence an operator arranges in
   `/admin`, which the plan cards are read in (T75, ADR-0030). The place is the *catalog's* and not the row's:
   it is set by `PUT /api/admin/tiers/order` carrying every code at once, never on the Tier's own edit, and it
-  travels on no wire contract in either direction.
+  travels on no wire contract in either direction. **Its `code` is editable exactly while it has no Price** —
+  in practice the free tier and nothing else (T76, ADR-0031): beyond that Stripe holds a copy as
+  `metadata.tier_code` and the sync reads it back, so moving ours would split one Tier in two. Nobody types
+  one either way; `/admin` derives it from the name.
 - **Plan** — a **Tier joined with the Stripe Price** its `stripePriceId` names: quota and flags ours,
   amount and currency and interval Stripe's. Derived, never stored — `GET /api/plans` composes it and caches
   the Stripe half. Only a *published* Tier with a price id is one, so the free tier is a Tier and never a
@@ -117,6 +120,12 @@ User 1───* MarktplaatsAccount   ── modelled, not yet realised (no stab
 - **There is always exactly one default Tier.** The partial index `tier_single_default` makes it at most one;
   `TierCatalog.defaultTier()` throwing makes it at least one. So "no free tier" is that tier's quota set to
   **0**, never the flag unset — which would provision nobody (ADR-0019).
+- **There is exactly one free Tier, and nothing enforces it.** *Free* is derived — the Tier with no
+  `tier_price` row — rather than flagged, the same shape as `isDefault` (ADR-0031). Both creation paths
+  require a price (`NewPlanInStripe` refuses an empty rhythm list; the sync adopts a Tier *from* a Price) and
+  nothing deletes, so a second one is unsayable rather than forbidden. It is today also the default Tier, and
+  the two are different claims about one row: *free* is about having no price, *default* about where new
+  accounts land.
 - **A published Tier grants something.** A quota of `0` and `published` is a row the schema refuses, at both
   writers for the first time: the sync's auto-publish already checked it, and an operator could hand-publish
   one until `V9` (ADR-0029). Unlimited — `null` — is not that: it grants everything.

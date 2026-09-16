@@ -2,6 +2,7 @@ import {
   amountInMinorUnits,
   decimalsIn,
   inMajorUnits,
+  RESERVED_TIER_CODE,
   type AdminTier,
   type NewPlan,
   type NewPrice,
@@ -115,9 +116,12 @@ export function AdminCatalog({
    * What a write did, said in the operator's own terms.
    *
    * The refusals are the API's four, and each is a different instruction: a `409`
-   * means go and create a Price in Stripe, a `404` means the catalog moved under
-   * this screen, a `400` should be unreachable for a form that sends every field,
-   * and `signed-out` is the only one that is not a sentence but a redirect.
+   * means the catalog cannot hold the tier as described — four facts behind one
+   * status since ADR-0031, which is why `refusal` names all four rather than
+   * sending an operator to Stripe for the one it used to mean — a `404` means the
+   * catalog moved under this screen, a `400` should be unreachable for a form that
+   * sends every field, and `signed-out` is the only one that is not a sentence but
+   * a redirect.
    */
   const applied = useCallback(
     async (answer: EditAnswer, what: string): Promise<void> => {
@@ -395,6 +399,10 @@ function Tiers({
         <TierForm
           key={editing.tier.code}
           tier={editing}
+          // The whole catalog, because a derived code can collide with one of the
+          // others and this screen is already holding every one of them (ADR-0031).
+          // Asking the API would be a round trip to be told what is on the page.
+          catalog={catalog.tiers}
           busy={busy}
           onCancel={() => onOpen(null)}
           onSave={(edit) => onSave(editing.tier.code, edit)}
@@ -880,14 +888,30 @@ function FormPanel({
  * **"On sale" is refused by the API for a tier with no Price**, and the hint says
  * so before the save rather than after: the way out is Stripe's, and a form that
  * only reported the `409` would be sending an operator to look in the wrong place.
+ *
+ * **The code follows the name on a tier no Price has frozen** (T76, ADR-0031) —
+ * which is the free tier and, in practice, nothing else. It is derived rather than
+ * typed, for `tier-code.ts`'s reason, and printed while it moves, because on this
+ * one row renaming stops being cosmetic: the tier's own admin path and the
+ * `tier.code` in `/api/me` both follow it. Everywhere else the code is shown as the
+ * fixed thing it is, and the form sends back the one it was given.
+ *
+ * **The three collisions are refused here, before the submit.** A code the catalog
+ * already holds, the reserved literal `order`, and a name that derives to nothing.
+ * The screen is holding the whole catalog, so it can check all three without
+ * asking, and the API's `409` carries no `reason` to tell them apart with anyway —
+ * which is the same bargain `NewPlanForm` and the zero-grant warning already make.
  */
 function TierForm({
   tier,
+  catalog,
   busy,
   onCancel,
   onSave,
 }: {
   tier: AdminTier;
+  /** Every tier there is, which is what makes a collision answerable without a round trip. */
+  catalog: AdminTier[];
   busy: boolean;
   onCancel: () => void;
   onSave: (edit: TierEdit) => void;
@@ -900,6 +924,15 @@ function TierForm({
   const features = useFeatures(tier.features);
   const [published, setPublished] = useState(tier.published);
   const [problem, setProblem] = useState<string | null>(null);
+
+  // **Stripe holds the only other copy, so a Price is what freezes it** (ADR-0031).
+  // Read off the row rather than off a flag: "free" is not stored anywhere, it is
+  // "has no price", the same way `isDefault` is the catalog's rather than the row's.
+  const frozen = !isFree(tier);
+  const code = frozen ? tier.tier.code : tierCodeFrom(name);
+  // A half-cleared name derives to nothing, which is a refusal on submit and not a
+  // move to warn about — so the sentence below waits until there is a code to name.
+  const moving = code !== "" && code !== tier.tier.code;
 
   const grantsNothing = !unlimited && quotaTyped(quota) === 0;
   // **Keyed on the checkbox rather than on the stored row**, because the submit
@@ -925,8 +958,17 @@ function TierForm({
       setProblem("A tier needs a name — it is what you will look for in this list.");
       return;
     }
+    const collision = whyThisCodeWillNotDo(code, tier, catalog);
+    if (collision) {
+      setProblem(collision);
+      return;
+    }
     setProblem(null);
     onSave({
+      // The code the name derives to, or the one this row already has where a Price
+      // has frozen it. Sent either way, because the `PUT` is whole: "not moving it"
+      // is said by stating it, not by leaving it out.
+      code,
       name: name.trim(),
       relistQuotaPerPeriod: parsedQuota,
       features: flags.features,
@@ -943,15 +985,34 @@ function TierForm({
     <FormPanel
       title={`Editing ${tier.tier.name}`}
       lede={
-        <>
-          The tier stored under <code>{tier.tier.code}</code>. Its price is Stripe&apos;s and is not
-          edited here.
-        </>
+        frozen ? (
+          <>
+            The tier stored under <code>{tier.tier.code}</code>. Its price is Stripe&apos;s and is not
+            edited here.
+          </>
+        ) : (
+          <>
+            The tier stored under <code>{tier.tier.code}</code>. It has no Stripe price, so the code
+            follows the name — see below.
+          </>
+        )
       }
       onCancel={onCancel}
     >
       <div className="admin-form-grid">
-        <Field label="Name" hint="Display text, and yours to rewrite.">
+        <Field
+          label="Name"
+          hint={
+            frozen ? (
+              "Display text, and yours to rewrite."
+            ) : (
+              <>
+                Display text — and on this tier the code too. Filed under{" "}
+                <code className="mp-code">{code || "…"}</code>.
+              </>
+            )
+          }
+        >
           <Input id="tier-name" value={name} onChange={(event) => setName(event.target.value)} />
         </Field>
         <Field
@@ -984,7 +1045,7 @@ function TierForm({
         onChange={(event) => setPublished(event.target.checked)}
       />
       <ul className="admin-notes">
-        {tier.prices.length === 0 ? (
+        {isFree(tier) ? (
           <li>
             This tier has no Stripe price, so it cannot go on sale. Add one with <b>Prices</b> on its
             row, or create it in Stripe tagged <code>metadata.tier_code = {tier.tier.code}</code> —
@@ -995,6 +1056,19 @@ function TierForm({
           Lowering the quota under existing subscribers is allowed: what is left of their period is
           this number minus what they have spent, and never less than zero.
         </li>
+        {frozen ? (
+          <li>
+            Filed under <code>{tier.tier.code}</code>, and it stays there: Stripe holds the same code
+            on this tier&apos;s {tier.prices.length === 1 ? "price" : "prices"} and that is how the
+            sync finds it again. Renaming is display text only.
+          </li>
+        ) : (
+          <li>
+            This tier has no Stripe price, so nothing holds a second copy of its code and the code
+            follows the name. Everybody on it stays on it — a subscription points at the row, not at
+            the code.
+          </li>
+        )}
       </ul>
       {/* The two warnings ADR-0029 asks for, and they are warnings rather than
           refusals for different reasons: one is a consequence this form then
@@ -1020,6 +1094,14 @@ function TierForm({
               sale in the same save.
             </>
           )}
+        </Note>
+      ) : null}
+      {moving ? (
+        <Note tone="warn">
+          Saving files this tier under <code>{code}</code> instead of{" "}
+          <code>{tier.tier.code}</code>. Nobody moves — a subscription points at the row — but{" "}
+          <code>tier.code</code> in <code>/api/me</code> changes, and so does this tier&apos;s own
+          address in this screen.
         </Note>
       ) : null}
       {unlimited && tier.isDefault ? (
@@ -1122,6 +1204,14 @@ function NewPlanForm({
     // already visible on this form.
     if (!tierCode) {
       setProblem("A name needs a letter or a digit in it: the code the plan is filed under is made from it.");
+      return;
+    }
+    // And never the reserved one (ADR-0031). The API refuses it too, but as the
+    // same `409` a taken code gets — which would tell an operator "a tier already
+    // uses that code" about a tier that does not exist, after creating a Stripe
+    // Product for a row nothing could then edit.
+    if (tierCode === RESERVED_TIER_CODE) {
+      setProblem(whyTheReservedCodeWillNotDo("plan"));
       return;
     }
     // In RHYTHMS' order, so the cheapest rhythm is first however the fields were
@@ -1354,6 +1444,21 @@ function NewPriceForm({
           one it already sells at creates a replacement price — which is the only way to reprice,
           because Stripe prices cannot be edited.
         </li>
+        {isFree(tier) ? (
+          // The free tier is the one with no price (ADR-0031), so this button on this
+          // row is the one click that ends that. Warned rather than refused: an
+          // operator may genuinely want to start charging for what was free, and
+          // refusing here would force them through a default-tier swap that hands new
+          // accounts a paid tier for nothing while it happens.
+          <li>
+            <b>This is the one tier nobody can buy, and adding a price ends that.</b>
+            {tier.isDefault
+              ? " It is the tier every new account is provisioned onto, and the one an ended subscription falls back to."
+              : ""}{" "}
+            Its code also becomes permanent: Stripe will hold <code>{code}</code> on the price, and
+            that copy is how the sync finds this tier again.
+          </li>
+        ) : null}
         {replacing ? (
           <li>
             <b>Everybody already subscribed keeps the price they signed up at.</b> That is what
@@ -1535,6 +1640,23 @@ function isDraft(tier: AdminTier): boolean {
 }
 
 /**
+ * The tier nobody can buy — the **free tier** (T76, ADR-0031).
+ *
+ * **Derived, never declared**: free is "has no Stripe price", not a flag, the same
+ * way `isDraft` above is three columns rather than a column. Named because this
+ * screen asks it for three different reasons — whether the code may follow the
+ * name, why "on sale" cannot be ticked, and what a price would end — and three
+ * spellings of `prices.length === 0` is the set that drifts.
+ *
+ * **Not the same claim as `isDefault`**, which is where new accounts land. One row
+ * today, two facts always. Rendering the price column is neither and stays a
+ * length check: that one is "nothing to list", not "free".
+ */
+function isFree(tier: AdminTier): boolean {
+  return tier.prices.length === 0;
+}
+
+/**
  * The sequence with one code moved to where another one is (T75, #164).
  *
  * **The dropped row takes the target's place and everything else closes up**, which
@@ -1610,15 +1732,65 @@ function whyNotCreated(answer: CreateAnswer): string {
   }
 }
 
+/**
+ * Why a derived code cannot be stored, or `null` where it can (T76, ADR-0031).
+ *
+ * **Three collisions, and two of them are reachable by ordinary naming** now that a
+ * name derives a code. Answered here rather than by the API, which sends one `409`
+ * for all of them and no `reason` to tell them apart — and which this screen can
+ * pre-empt, because it is holding every tier there is.
+ *
+ * Auto-suffixing to `pro-2` was rejected in the ADR as the "quietly corrected"
+ * ADR-0029 names as the thing not to do, and it does nothing for `order` at all.
+ */
+function whyThisCodeWillNotDo(code: string, tier: AdminTier, catalog: AdminTier[]): string | null {
+  if (code === tier.tier.code) return null;
+  if (!code) {
+    // "!!!" derives to nothing, and the code is what the tier is filed under. The
+    // same sentence `NewPlanForm` says, because it is the same fact about a name.
+    return "A name needs a letter or a digit in it: the code this tier is filed under is made from it.";
+  }
+  if (code === RESERVED_TIER_CODE) {
+    // `PUT /api/admin/tiers/order` is the route that sets the Catalog order, and
+    // Spring prefers the literal — so a tier filed under it is the one row that
+    // could never be edited again, including to undo this.
+    return whyTheReservedCodeWillNotDo("tier");
+  }
+  const taken = catalog.find((other) => other.tier.code === code);
+  if (taken) {
+    return `That name is filed under “${code}”, which ${taken.tier.name} already uses. Codes are one per tier.`;
+  }
+  return null;
+}
+
+/**
+ * Why the reserved code cannot be stored, said once for the two forms that can
+ * derive it (T76, ADR-0031).
+ *
+ * The literal is `packages/contracts`' — it is a fact about the API's routing
+ * table, not about deriving a code, and `tierCodeFrom` is right to answer `order`
+ * for "Order". Both write routes refuse it too; this is what stops an operator
+ * getting there.
+ */
+function whyTheReservedCodeWillNotDo(what: string): string {
+  return (
+    `A ${what} filed under “${RESERVED_TIER_CODE}” is one this screen could never open again — that ` +
+    "address already belongs to the catalog's own order. Pick another name."
+  );
+}
+
 /** What each refusal means to the person looking at the form. */
 function refusal(answer: EditAnswer): string {
   switch (answer.status) {
-    case "unsellable":
-      // Two facts behind one status since ADR-0029, and both are on the row the
-      // form is open over — so the sentence names them and the reload shows which.
+    case "conflicted":
+      // Four facts behind one status since ADR-0031, and every one of them is in
+      // the catalog this screen is holding — so the sentence names them and the
+      // reload shows which. The form checks all four first, so arriving here means
+      // this tab is out of date.
       return (
-        "That tier cannot go on sale: it either has no Stripe Price — create one in Stripe tagged " +
-        "with its code — or grants no reposts. Reload the catalog to see which."
+        "The catalog cannot hold that tier as described: it has no Stripe Price to go on sale " +
+        "against, or grants no reposts, or its code moved on a tier a Price has frozen, or the " +
+        "code it moved to is one another tier holds. Reload the catalog to see which."
       );
     case "gone":
       return "No tier is stored under that code any more. Reload the catalog.";

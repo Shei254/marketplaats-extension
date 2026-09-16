@@ -7,8 +7,10 @@ import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,6 +20,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
@@ -63,11 +66,24 @@ class AdminTierTest {
 	 * The seeded catalog, restored — this suite shares a database with whichever others share its
 	 * configuration, and both it and they edit these rows. Everything below is asserted against the three the
 	 * seed leaves behind rather than against whatever the last suite happened to write.
+	 *
+	 * <p><strong>By id rather than by code, since T76 (ADR-0031).</strong> This used to delete every row whose
+	 * code was not one of the seeded three, which was the same statement for as long as a code could not move.
+	 * A test that renames {@code free} to {@code gratis} now leaves a row that statement would delete — taking
+	 * the free tier, the default flag and every later test's sign-in with it. The three ids are read once, on
+	 * the first of these in the JVM and so before any test has renamed anything, and every run after that puts
+	 * the seed's codes back on the rows that have always been them.
 	 */
 	@BeforeEach
 	void theSeededCatalogAndNothingElse() {
 		this.rows = new Subscribers(this.db, IDP, "admin-suite-");
 		this.rows.nobodyHasRelistedYet();
+		if (SEEDED.isEmpty()) {
+			this.db.query("select id, code from tier where code in ('free', 'pro', 'power')",
+					(RowCallbackHandler) row -> SEEDED.put(row.getString("code"),
+							row.getObject("id", UUID.class)));
+		}
+		SEEDED.forEach((code, id) -> this.db.update("update tier set code = ? where id = ?", code, id));
 		this.db.update("delete from tier where code not in ('free', 'pro', 'power')");
 		TierPrices.nothingIsPriced(this.db);
 		this.db.update("update tier set features = '{}'::jsonb");
@@ -157,7 +173,7 @@ class AdminTierTest {
 	@Test
 	void anEditChangesTheQuotaTheNameAndTheFlags() {
 		HttpResponse<String> edited = put("/api/admin/tiers/pro",
-				"{\"name\":\"Pro plus\",\"relistQuotaPerPeriod\":75,\"features\":{\"bulk\":true},"
+				"{\"code\":\"pro\",\"name\":\"Pro plus\",\"relistQuotaPerPeriod\":75,\"features\":{\"bulk\":true},"
 						+ "\"published\":false}");
 
 		assertThat(edited.statusCode()).isEqualTo(200);
@@ -172,7 +188,7 @@ class AdminTierTest {
 	void andAnswersWithTheRowRatherThanTheRequest() {
 		TierPrices.soldByTheMonth(this.db, "pro", "price_pro");
 
-		JsonNode answered = Json.of(put("/api/admin/tiers/pro", edit(20, true)));
+		JsonNode answered = Json.of(put("/api/admin/tiers/pro", edit("pro", 20, true)));
 
 		assertThat(answered.get("tier").get("code").asString()).isEqualTo("pro");
 		assertThat(answered.get("prices").get(0).get("stripePriceId").asString()).isEqualTo("price_pro");
@@ -191,17 +207,187 @@ class AdminTierTest {
 	@Test
 	void andTheFlagsComeBackAsTheColumnHoldsThem() {
 		JsonNode answered = Json.of(put("/api/admin/tiers/pro",
-				"{\"name\":\"Pro\",\"relistQuotaPerPeriod\":50,\"features\":{\"zzz\":1,\"a\":2,\"mm\":3},"
+				"{\"code\":\"pro\",\"name\":\"Pro\",\"relistQuotaPerPeriod\":50,\"features\":{\"zzz\":1,\"a\":2,\"mm\":3},"
 						+ "\"published\":false}"));
 
 		assertThat(answered.get("features").toString()).isEqualTo("{\"a\":2,\"mm\":3,\"zzz\":1}");
 	}
 
-	/** The code is the stable handle and an edit never moves it — everything references a tier through it. */
+	/**
+	 * And the code, which is the field T76 added and the only one that is not always editable (ADR-0031).
+	 *
+	 * <p>Asserted on a tier with no Price because that is the condition — the seed's {@code free} row is the
+	 * one that qualifies on a real deployment, and {@code nothingIsPriced} makes every row here one. What
+	 * moves is the row itself: the same tier, addressed by a new handle, with its subscribers untouched
+	 * because they hold a uuid.
+	 */
 	@Test
-	void andNeverTheCode() {
-		put("/api/admin/tiers/pro", "{\"code\":\"professional\",\"name\":\"Pro\","
-				+ "\"relistQuotaPerPeriod\":50,\"features\":{},\"published\":false}");
+	void andTheCodeItselfOnATierNoPriceHasFrozen() {
+		assertThat(put("/api/admin/tiers/free", renamed("gratis", "Gratis", 3)).statusCode()).isEqualTo(200);
+
+		assertThat(codesIn(Json.of(get(TIERS)).get("tiers"))).containsExactly("gratis", "pro", "power");
+		assertThat(tierNamed("gratis").get("tier").get("name").asString()).isEqualTo("Gratis");
+	}
+
+	/** And the answer is the row where it now is, not a 404 for the code the request was addressed to. */
+	@Test
+	void andAnswersAsTheTierItNowIs() {
+		JsonNode answered = Json.of(put("/api/admin/tiers/free", renamed("gratis", "Gratis", 3)));
+
+		assertThat(answered.get("tier").get("code").asString()).isEqualTo("gratis");
+		assertThat(answered.get("isDefault").asBoolean()).isTrue();
+	}
+
+	/**
+	 * And nobody on it moves, which is the whole reason this is safe: a subscription holds {@code tier_id},
+	 * a uuid, and {@code TierRows} looks the tier up by it — reading the code <em>out</em> of the row.
+	 * {@code TierEdit} used to claim "a subscription's tier is found through it", which was false when it was
+	 * written (ADR-0031).
+	 */
+	@Test
+	void andNobodyOnItIsMovedByTheRename() {
+		Subscriber user = this.rows.entitledTo(3);
+		String code = (String) this.rows.tierOf(user).get("code");
+
+		assertThat(put("/api/admin/tiers/" + code, renamed(code + "-renamed", "Renamed", 3)).statusCode())
+				.isEqualTo(200);
+
+		assertThat(displayStateOf(user).get("tier").get("code").asString()).isEqualTo(code + "-renamed");
+		assertThat(quotaRemainingOf(user)).isEqualTo(3);
+	}
+
+	/**
+	 * But a tier with a Price is frozen, and Stripe is the reason rather than us (ADR-0031). The Price
+	 * carries the code as {@code metadata.tier_code}, which is what the sync finds the tier by — so a rename
+	 * underneath it would have the next {@code price.updated} adopt the old code as a fresh draft, splitting
+	 * one tier into two with the subscribers on the half nobody is looking at.
+	 */
+	@Test
+	void butNotOnOneAPriceHasFrozen() {
+		TierPrices.soldByTheMonth(this.db, "pro", "price_pro");
+
+		HttpResponse<String> refused = put("/api/admin/tiers/pro", renamed("professional", "Pro", 50));
+
+		assertThat(refused.statusCode()).isEqualTo(409);
+		assertThat(refused.body()).isEmpty();
+		assertThat(codesIn(Json.of(get(TIERS)).get("tiers"))).containsExactly("free", "pro", "power");
+	}
+
+	/** And a refused rename is not a partial edit: the name and the quota it also carried stayed put. */
+	@Test
+	void andTheFrozenRefusalChangedNothingElseEither() {
+		TierPrices.soldByTheMonth(this.db, "pro", "price_pro");
+
+		put("/api/admin/tiers/pro", renamed("professional", "Professional", 999));
+
+		assertThat(tierNamed("pro").get("tier").get("name").asString()).isEqualTo("Pro");
+		assertThat(tierNamed("pro").get("relistQuotaPerPeriod").asInt()).isEqualTo(50);
+	}
+
+	/**
+	 * A code another tier already holds is the second refusal, and nobody types one to reach it: renaming the
+	 * free tier to "Pro" derives {@code pro}. Answered rather than left to the unique index, which would
+	 * arrive under the route as a {@code 500}.
+	 */
+	@Test
+	void norOntoACodeAnotherTierAlreadyHolds() {
+		HttpResponse<String> refused = put("/api/admin/tiers/free", renamed("pro", "Pro", 3));
+
+		assertThat(refused.statusCode()).isEqualTo(409);
+		assertThat(refused.body()).isEmpty();
+		assertThat(codesIn(Json.of(get(TIERS)).get("tiers"))).containsExactly("free", "pro", "power");
+	}
+
+	/**
+	 * Nor onto {@code order}, which is the one code this API could store and could never address again:
+	 * {@code PUT /api/admin/tiers/order} is the reorder route, and Spring prefers the literal. Refused by the
+	 * route rather than by the catalog, because a routing table is not something {@code TierEdits} knows
+	 * about — and reachable at all only because a <em>name</em> now derives a code ("Order" does).
+	 */
+	@Test
+	void norOntoTheOneCodeThisApiCouldNeverAddressAgain() {
+		HttpResponse<String> refused = put("/api/admin/tiers/free", renamed("order", "Order", 3));
+
+		assertThat(refused.statusCode()).isEqualTo(409);
+		assertThat(codesIn(Json.of(get(TIERS)).get("tiers"))).containsExactly("free", "pro", "power");
+	}
+
+	/** And a plan cannot be created under it either, which would be a Stripe Product for an unreachable row. */
+	@Test
+	void andNoPlanIsCreatedUnderItEither() {
+		assertThat(post(PLANS, newPlan("order")).statusCode()).isEqualTo(409);
+
+		assertThat(codesIn(Json.of(get(TIERS)).get("tiers"))).containsExactly("free", "pro", "power");
+	}
+
+	/**
+	 * Nor onto a code no path could carry back, which is the same trap one spelling over: a {@code /} is a
+	 * segment Spring will not decode into a {@code @PathVariable} even encoded, so the row would be as lost
+	 * as one filed under {@code order}. The form cannot reach this — {@code tierCodeFrom} answers either
+	 * {@code [a-z0-9-]+} or nothing — so this is the backstop for a script.
+	 */
+	@Test
+	void norOntoACodeNoPathCouldCarryBack() {
+		assertThat(put("/api/admin/tiers/free", renamed("a/b", "A B", 3)).statusCode()).isEqualTo(409);
+		assertThat(put("/api/admin/tiers/free", renamed("Gratis", "Gratis", 3)).statusCode()).isEqualTo(409);
+
+		assertThat(codesIn(Json.of(get(TIERS)).get("tiers"))).containsExactly("free", "pro", "power");
+	}
+
+	/**
+	 * But a tier already filed under an odd code stays editable, which is why the shape is asked only of a
+	 * <em>move</em>. A code arrives from {@code metadata.tier_code} as whatever somebody typed in Stripe, and
+	 * a guard that refused to store it again would make that row the one nothing could ever fix.
+	 */
+	@Test
+	void butATierAlreadyFiledUnderOneStaysEditable() {
+		this.db.update("insert into tier (code, name, relist_quota_per_period, max_marktplaats_accounts) "
+				+ "values ('Odd_Code', 'Odd', 5, 1)");
+
+		assertThat(put("/api/admin/tiers/Odd_Code", edit("Odd_Code", 9, false)).statusCode()).isEqualTo(200);
+
+		assertThat(this.db.queryForObject("select relist_quota_per_period from tier where code = 'Odd_Code'",
+				Integer.class)).isEqualTo(9);
+	}
+
+	/** And a plan is not created under one either, for the reason it is not created under {@code order}. */
+	@Test
+	void andNoPlanIsCreatedUnderOneOfThoseEither() {
+		assertThat(post(PLANS, newPlan("Not A Code")).statusCode()).isEqualTo(409);
+
+		assertThat(codesIn(Json.of(get(TIERS)).get("tiers"))).containsExactly("free", "pro", "power");
+	}
+
+	/**
+	 * Naming the code it already has is not a move, so nothing about it is checked — which is what makes a
+	 * form that sends every field safe to submit against a priced tier at all.
+	 */
+	@Test
+	void andSendingBackTheCodeItAlreadyHasIsNotAMove() {
+		TierPrices.soldByTheMonth(this.db, "pro", "price_pro");
+
+		assertThat(put("/api/admin/tiers/pro", edit("pro", 75, false)).statusCode()).isEqualTo(200);
+
+		assertThat(tierNamed("pro").get("relistQuotaPerPeriod").asInt()).isEqualTo(75);
+	}
+
+	/**
+	 * And leaving the code out is forgetting it rather than asking for the path's, which is the rule every
+	 * other field on this body keeps: a {@code PUT} that guessed one would be storing something nobody stated.
+	 */
+	@Test
+	void andLeavingTheCodeOutIsA400RatherThanTheOneInThePath() {
+		HttpResponse<String> refused = put("/api/admin/tiers/pro",
+				"{\"name\":\"Pro\",\"relistQuotaPerPeriod\":50,\"features\":{},\"published\":true}");
+
+		assertThat(refused.statusCode()).isEqualTo(400);
+		assertThat(tierNamed("pro").get("published").asBoolean()).isFalse();
+	}
+
+	/** As is a blank one, which is what a name with no letter or digit in it derives to. */
+	@Test
+	void andSoIsACodeThatIsBlank() {
+		assertThat(put("/api/admin/tiers/pro", renamed("", "Pro", 50)).statusCode()).isEqualTo(400);
 
 		assertThat(codesIn(Json.of(get(TIERS)).get("tiers"))).containsExactly("free", "pro", "power");
 	}
@@ -211,7 +397,7 @@ class AdminTierTest {
 	void andNeverTheStripePrice() {
 		TierPrices.soldByTheMonth(this.db, "pro", "price_pro");
 
-		put("/api/admin/tiers/pro", "{\"name\":\"Pro\",\"relistQuotaPerPeriod\":50,\"features\":{},"
+		put("/api/admin/tiers/pro", "{\"code\":\"pro\",\"name\":\"Pro\",\"relistQuotaPerPeriod\":50,\"features\":{},"
 				+ "\"published\":false,\"prices\":[{\"stripePriceId\":\"price_somebody_typed\"}]}");
 
 		assertThat(pricesOf("pro")).containsExactly("price_pro:month");
@@ -219,7 +405,7 @@ class AdminTierTest {
 
 	@Test
 	void aTierNobodyStoredIsNotOneToEdit() {
-		HttpResponse<String> refused = put("/api/admin/tiers/nonesuch", edit(10, false));
+		HttpResponse<String> refused = put("/api/admin/tiers/nonesuch", edit("nonesuch", 10, false));
 
 		assertThat(refused.statusCode()).isEqualTo(404);
 		assertThat(refused.body()).isEmpty();
@@ -231,10 +417,10 @@ class AdminTierTest {
 	void aTierWithAPriceCanBePutOnSaleAndTakenBackOff() {
 		TierPrices.soldByTheMonth(this.db, "pro", "price_pro");
 
-		assertThat(put("/api/admin/tiers/pro", edit(50, true)).statusCode()).isEqualTo(200);
+		assertThat(put("/api/admin/tiers/pro", edit("pro", 50, true)).statusCode()).isEqualTo(200);
 		assertThat(tierNamed("pro").get("published").asBoolean()).isTrue();
 
-		assertThat(put("/api/admin/tiers/pro", edit(50, false)).statusCode()).isEqualTo(200);
+		assertThat(put("/api/admin/tiers/pro", edit("pro", 50, false)).statusCode()).isEqualTo(200);
 		assertThat(tierNamed("pro").get("published").asBoolean()).isFalse();
 	}
 
@@ -245,7 +431,7 @@ class AdminTierTest {
 	 */
 	@Test
 	void butATierWithNoPriceCannotBePutOnSaleAtAll() {
-		HttpResponse<String> refused = put("/api/admin/tiers/pro", edit(50, true));
+		HttpResponse<String> refused = put("/api/admin/tiers/pro", edit("pro", 50, true));
 
 		assertThat(refused.statusCode()).isEqualTo(409);
 		assertThat(refused.body()).isEmpty();
@@ -254,7 +440,7 @@ class AdminTierTest {
 	/** And nothing else in the row moved either — a refused edit is not a partial one. */
 	@Test
 	void andTheRefusedEditChangedNothing() {
-		put("/api/admin/tiers/pro", "{\"name\":\"Renamed\",\"relistQuotaPerPeriod\":999,\"features\":{},"
+		put("/api/admin/tiers/pro", "{\"code\":\"pro\",\"name\":\"Renamed\",\"relistQuotaPerPeriod\":999,\"features\":{},"
 				+ "\"published\":true}");
 
 		JsonNode pro = tierNamed("pro");
@@ -307,7 +493,7 @@ class AdminTierTest {
 	 */
 	@Test
 	void andNoFreeTierIsAQuotaOfZeroOnTheDefaultOne() {
-		assertThat(put("/api/admin/tiers/free", edit(0, false)).statusCode()).isEqualTo(200);
+		assertThat(put("/api/admin/tiers/free", edit("free", 0, false)).statusCode()).isEqualTo(200);
 
 		assertThat(tierNamed("free").get("relistQuotaPerPeriod").asInt()).isZero();
 		assertThat(defaultTiers()).containsExactly("free");
@@ -321,7 +507,7 @@ class AdminTierTest {
 	 */
 	@Test
 	void aTierMayGrantUnlimitedReposts() {
-		assertThat(put("/api/admin/tiers/pro", editUnlimited(false)).statusCode()).isEqualTo(200);
+		assertThat(put("/api/admin/tiers/pro", editUnlimited("pro", false)).statusCode()).isEqualTo(200);
 
 		assertThat(tierNamed("pro").get("relistQuotaPerPeriod").isNull()).isTrue();
 		assertThat(this.db.queryForObject("select relist_quota_per_period from tier where code = 'pro'",
@@ -337,9 +523,9 @@ class AdminTierTest {
 	 */
 	@Test
 	void andLeavingTheQuotaOutIsStillForgettingItRatherThanAskingForUnlimited() {
-		assertThat(put("/api/admin/tiers/pro", "{\"name\":\"Pro\",\"relistQuotaPerPeriod\":null,"
+		assertThat(put("/api/admin/tiers/pro", "{\"code\":\"pro\",\"name\":\"Pro\",\"relistQuotaPerPeriod\":null,"
 				+ "\"features\":{},\"published\":false}").statusCode()).isEqualTo(200);
-		assertThat(put("/api/admin/tiers/pro", "{\"name\":\"Pro\",\"features\":{},\"published\":false}")
+		assertThat(put("/api/admin/tiers/pro", "{\"code\":\"pro\",\"name\":\"Pro\",\"features\":{},\"published\":false}")
 				.statusCode()).isEqualTo(400);
 
 		// The refused one changed nothing, so the tier is still the unlimited one the first call made.
@@ -349,7 +535,7 @@ class AdminTierTest {
 	/** And a quota that is neither a whole number nor null is a body this API can read and cannot use. */
 	@Test
 	void andAQuotaThatIsNeitherANumberNorNullIsNotAnEdit() {
-		assertThat(put("/api/admin/tiers/pro", "{\"name\":\"Pro\",\"relistQuotaPerPeriod\":\"lots\","
+		assertThat(put("/api/admin/tiers/pro", "{\"code\":\"pro\",\"name\":\"Pro\",\"relistQuotaPerPeriod\":\"lots\","
 				+ "\"features\":{},\"published\":false}").statusCode()).isEqualTo(400);
 		assertThat(tierNamed("pro").get("relistQuotaPerPeriod").asInt()).isEqualTo(50);
 	}
@@ -363,7 +549,7 @@ class AdminTierTest {
 	void aTierGrantingNothingCannotBePutOnSale() {
 		TierPrices.soldByTheMonth(this.db, "pro", "price_pro");
 
-		HttpResponse<String> refused = put("/api/admin/tiers/pro", edit(0, true));
+		HttpResponse<String> refused = put("/api/admin/tiers/pro", edit("pro", 0, true));
 
 		assertThat(refused.statusCode()).isEqualTo(409);
 		assertThat(refused.body()).isEmpty();
@@ -377,7 +563,7 @@ class AdminTierTest {
 	void butAnUnlimitedOneCan() {
 		TierPrices.soldByTheMonth(this.db, "pro", "price_pro");
 
-		assertThat(put("/api/admin/tiers/pro", editUnlimited(true)).statusCode()).isEqualTo(200);
+		assertThat(put("/api/admin/tiers/pro", editUnlimited("pro", true)).statusCode()).isEqualTo(200);
 
 		assertThat(tierNamed("pro").get("published").asBoolean()).isTrue();
 		assertThat(tierNamed("pro").get("relistQuotaPerPeriod").isNull()).isTrue();
@@ -393,7 +579,7 @@ class AdminTierTest {
 		String code = (String) this.rows.tierOf(user).get("code");
 		this.rows.unitHeldBy(user, Subscribers.now().minusMinutes(1));
 
-		assertThat(put("/api/admin/tiers/" + code, editUnlimited(false)).statusCode()).isEqualTo(200);
+		assertThat(put("/api/admin/tiers/" + code, editUnlimited(code, false)).statusCode()).isEqualTo(200);
 
 		assertThat(displayStateOf(user).get("quotaRemaining").isNull()).isTrue();
 		assertThat(displayStateOf(user).get("relistQuotaPerPeriod").isNull()).isTrue();
@@ -413,7 +599,7 @@ class AdminTierTest {
 		this.rows.unitHeldBy(user, Subscribers.now().minusMinutes(1));
 		this.rows.unitHeldBy(user, Subscribers.now().minusMinutes(1));
 
-		assertThat(put("/api/admin/tiers/" + code, edit(1, false)).statusCode()).isEqualTo(200);
+		assertThat(put("/api/admin/tiers/" + code, edit(code, 1, false)).statusCode()).isEqualTo(200);
 
 		assertThat(quotaRemainingOf(user)).isZero();
 	}
@@ -425,7 +611,7 @@ class AdminTierTest {
 		String code = (String) this.rows.tierOf(user).get("code");
 		this.rows.unitHeldBy(user, Subscribers.now().minusMinutes(1));
 
-		put("/api/admin/tiers/" + code, edit(10, false));
+		put("/api/admin/tiers/" + code, edit(code, 10, false));
 
 		assertThat(quotaRemainingOf(user)).isEqualTo(9);
 	}
@@ -479,7 +665,7 @@ class AdminTierTest {
 	@Test
 	void andEveryTierCarriesAPlaceIncludingTheOnesNobodyCanBuy() {
 		put(ORDER, order("free", "power", "pro"));
-		put("/api/admin/tiers/pro", edit(50, false));
+		put("/api/admin/tiers/pro", edit("pro", 50, false));
 
 		// Unpublishing Pro moved it nowhere: the order is the catalog's own and not a property of what is on
 		// sale this afternoon.
@@ -550,17 +736,21 @@ class AdminTierTest {
 	void anEditThatLeavesOutAFieldItCouldChangeIsNotOne() {
 		// Guessing either would change a plan nobody asked to change: a missing `published` would unpublish it
 		// and a missing quota would strip it.
-		assertThat(put("/api/admin/tiers/pro", "{\"name\":\"Pro\",\"features\":{}}").statusCode()).isEqualTo(400);
-		assertThat(put("/api/admin/tiers/pro", "{\"name\":\"Pro\",\"relistQuotaPerPeriod\":5}").statusCode())
+		assertThat(put("/api/admin/tiers/pro", "{\"code\":\"pro\",\"name\":\"Pro\",\"features\":{}}")
+				.statusCode()).isEqualTo(400);
+		assertThat(put("/api/admin/tiers/pro", "{\"code\":\"pro\",\"name\":\"Pro\",\"relistQuotaPerPeriod\":5}")
+				.statusCode())
 				.isEqualTo(400);
 	}
 
 	@Test
 	void andNeitherIsATierCalledNothingOrOneGrantingLessThanNothing() {
-		assertThat(put("/api/admin/tiers/pro", "{\"name\":\"  \",\"relistQuotaPerPeriod\":5,\"features\":{},"
-				+ "\"published\":false}").statusCode()).isEqualTo(400);
-		assertThat(put("/api/admin/tiers/pro", "{\"name\":\"Pro\",\"relistQuotaPerPeriod\":-1,\"features\":{},"
-				+ "\"published\":false}").statusCode()).isEqualTo(400);
+		assertThat(put("/api/admin/tiers/pro", "{\"code\":\"pro\",\"name\":\"  \","
+				+ "\"relistQuotaPerPeriod\":5,\"features\":{},\"published\":false}").statusCode())
+				.isEqualTo(400);
+		assertThat(put("/api/admin/tiers/pro", "{\"code\":\"pro\",\"name\":\"Pro\","
+				+ "\"relistQuotaPerPeriod\":-1,\"features\":{},\"published\":false}").statusCode())
+				.isEqualTo(400);
 	}
 
 	@Test
@@ -582,7 +772,8 @@ class AdminTierTest {
 	@Test
 	void noneOfThisIsReachableWithoutTheAdminRole() {
 		assertThat(getAs(TIERS, IDP.token()).statusCode()).isEqualTo(403);
-		assertThat(putAs("/api/admin/tiers/pro", edit(1, false), IDP.token()).statusCode()).isEqualTo(403);
+		assertThat(putAs("/api/admin/tiers/pro", edit("pro", 1, false), IDP.token()).statusCode())
+				.isEqualTo(403);
 		assertThat(putAs("/api/admin/tiers/pro/default", null, IDP.token()).statusCode()).isEqualTo(403);
 		assertThat(putAs(ORDER, order("power", "pro", "free"), IDP.token()).statusCode()).isEqualTo(403);
 		assertThat(getAs(PRICES, IDP.token()).statusCode()).isEqualTo(403);
@@ -590,7 +781,7 @@ class AdminTierTest {
 
 	@Test
 	void andAnEditThatWasRefusedNeverRan() {
-		putAs("/api/admin/tiers/pro", edit(999, false), IDP.token());
+		putAs("/api/admin/tiers/pro", edit("pro", 999, false), IDP.token());
 
 		assertThat(tierNamed("pro").get("relistQuotaPerPeriod").asInt()).isEqualTo(50);
 	}
@@ -806,7 +997,7 @@ class AdminTierTest {
 	void andItMayBePutOnSaleOnTheStrengthOfEither() {
 		TierPrices.soldAt(this.db, "pro", "price_pro_yearly", "year");
 
-		assertThat(put("/api/admin/tiers/pro", edit(50, true)).statusCode()).isEqualTo(200);
+		assertThat(put("/api/admin/tiers/pro", edit("pro", 50, true)).statusCode()).isEqualTo(200);
 		assertThat(tierNamed("pro").get("published").asBoolean()).isTrue();
 	}
 
@@ -891,15 +1082,27 @@ class AdminTierTest {
 		return "{\"codes\":[\"" + String.join("\",\"", codes) + "\"]}";
 	}
 
-	private static String edit(int quota, boolean published) {
-		return "{\"name\":\"Pro\",\"relistQuotaPerPeriod\":" + quota + ",\"features\":{},\"published\":"
-				+ published + "}";
+	/**
+	 * An edit that leaves the tier filed where it is, which is what every edit but one is (T76, ADR-0031).
+	 *
+	 * <p>The code is stated rather than left out: the {@code PUT} is whole, so "not moving it" is said by
+	 * sending back the code the path already names. A body without one is a {@code 400}, pinned below.
+	 */
+	private static String edit(String code, int quota, boolean published) {
+		return "{\"code\":\"" + code + "\",\"name\":\"Pro\",\"relistQuotaPerPeriod\":" + quota
+				+ ",\"features\":{},\"published\":" + published + "}";
 	}
 
 	/** The same body with the quota written out as an explicit JSON {@code null} — unlimited (ADR-0029). */
-	private static String editUnlimited(boolean published) {
-		return "{\"name\":\"Pro\",\"relistQuotaPerPeriod\":null,\"features\":{},\"published\":"
-				+ published + "}";
+	private static String editUnlimited(String code, boolean published) {
+		return "{\"code\":\"" + code + "\",\"name\":\"Pro\",\"relistQuotaPerPeriod\":null,"
+				+ "\"features\":{},\"published\":" + published + "}";
+	}
+
+	/** An edit that files the tier under a different code — the free tier's rename, and nothing else. */
+	private static String renamed(String to, String name, int quota) {
+		return "{\"code\":\"" + to + "\",\"name\":\"" + name + "\",\"relistQuotaPerPeriod\":" + quota
+				+ ",\"features\":{},\"published\":false}";
 	}
 
 	// --- the calls themselves -------------------------------------------------------------------------------------
@@ -962,6 +1165,15 @@ class AdminTierTest {
 	private JdbcTemplate db;
 
 	private Subscribers rows;
+
+	/**
+	 * The seed's three rows, by the code it filed them under — read once and then used to put them back.
+	 *
+	 * <p>Static because it outlives one test and one instance, and empty until the first fixture run: a
+	 * Testcontainers Postgres is fresh per JVM, and nothing in this application renames a tier except the
+	 * route this suite is about.
+	 */
+	private static final Map<String, UUID> SEEDED = new LinkedHashMap<>();
 
 	private static final String TIERS = "/api/admin/tiers";
 

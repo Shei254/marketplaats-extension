@@ -1195,7 +1195,8 @@ reason that type exists. The port **takes the `Subscription` its caller has alre
 is not a third lock on that row and not a third chance to roll a closed window — and the number and the
 `resetAt` beside it provably describe one period.
 
-**The tier travels in both of its spellings.** `code` is the handle an admin edit never moves; `name` is
+**The tier travels in both of its spellings.** `code` is the handle, stable once a Price holds a copy of it
+— which is every tier but the free one, where an edit re-derives it from the name (T76, ADR-0031); `name` is
 display text an operator may rewrite at any time. A client given only the name brands a plan by text somebody
 is free to change; given only the code it renders `power` to a human, or keeps a second catalog of labels
 ours never reaches. `TierName` is `catalog`'s, on the interface `Entitlement` came in on, and is read by a
@@ -1769,6 +1770,23 @@ operator to go and create a Price in Stripe. So the check is made before the upd
 place in `TierRows` that duplicates a constraint, and the constraint stays: it is what makes the rule true of
 every writer including this one.
 
+**And since T76 it means four things rather than two**
+([ADR-0031](../../docs/adr/0031-the-free-tier-is-the-one-without-a-price.md)). `TierEdit` carries a `code`,
+editable exactly while the tier has no `tier_price` row — in practice the **free tier**, which is the one
+without a price and is not a flag anywhere. So the edit route also refuses a code moved on a tier a Price has
+frozen (`CodeFrozenByAPrice`: Stripe holds a copy as `metadata.tier_code`, and a rename underneath it would
+have the next `price.updated` adopt the old code as a fresh draft — one tier split in two) and a code another
+tier already holds (`CodeTakenByAnotherTier`, rather than letting the unique index arrive as a `500`). One
+sentence covers all four — *the catalog cannot hold this tier as described* — because they are one recovery to
+the only caller, which is to look at the catalog it is holding.
+
+**The reserved literal is the route's own, not the catalog's.** `PUT /api/admin/tiers/order` is mapped on a
+path segment where `{code}` would match, so a tier filed under `order` could never be addressed again —
+including to undo it. `AdministerTiers` refuses it in the same `409`; `TierEdits` is not told, because a
+routing table is not something the catalog knows about. A code whose shape no path could carry is refused
+beside it, and only when the edit is *moving* one — an odd code that arrived from a Stripe tag stays editable
+by being sent back unchanged.
+
 **Lowering a quota under subscribers writes nothing to anybody's row.** What is left of a period is the grant
 minus what has been spent, clamped at zero (`RemainingQuota`), so the arithmetic follows the edit by itself —
 which is why there is no proration, no notification and nothing to undo. This resolves the last item under
@@ -1843,9 +1861,11 @@ Stripe's `price.created` then arrives and finds the row already right, which is 
 documented to be. A useful consequence: **a plan can be created with nothing forwarding webhooks at all**, so
 `stripe listen` being down is no longer the difference between a working screen and a mystery.
 
-**A code the catalog already holds is refused before Stripe is asked.** The upsert's ordinary behaviour is to
-repoint that tier's Price — right for a webhook and quite wrong for a button labelled *New plan*: every
-current subscriber would keep paying the old amount while the tier advertised a new one.
+**A code the catalog already holds is refused before Stripe is asked**, and so is the reserved `order`
+(ADR-0031). The upsert's ordinary behaviour is to repoint that tier's Price — right for a webhook and quite
+wrong for a button labelled *New plan*: every current subscriber would keep paying the old amount while the
+tier advertised a new one. `order` is refused in the same breath because a plan named "Order" derives it, and
+creating one is a Stripe Product and its Prices for a row nothing could then edit.
 
 **`422` carries a sentence, and it is the only one in this API that does.** Everywhere else a `4xx` that is
 not a denial carries nothing, because the status is the whole of the message. Stripe's refusals are not like

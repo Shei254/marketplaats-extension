@@ -122,7 +122,14 @@ class CreatePlans {
 		// "create" mean create. Without it the adopt below would repoint an existing tier's Price — the
 		// upsert's ordinary behaviour, correct for a webhook and quite wrong for a button labelled New plan:
 		// every current subscriber would keep paying the old amount while the tier advertised the new one.
-		if (this.catalog.everyTier().stream().anyMatch(tier -> tier.tier().code().equals(request.tierCode()))) {
+		//
+		// A code no route could name again joins it in the same 409 (T76, ADR-0031): the reserved `order`,
+		// which a plan named "Order" derives, and any spelling a path segment cannot carry. The row either
+		// would make is one `AdministerTiers` can never address — so it is refused here rather than created
+		// and then found uneditable, which is a Stripe Product and its Prices for a tier nobody can touch.
+		if (AdministerTiers.thisApiCouldNotAddressATierFiledUnder(grant.code())
+				|| this.catalog.everyTier().stream()
+						.anyMatch(tier -> tier.tier().code().equals(grant.code()))) {
 			return ResponseEntity.status(409).build();
 		}
 
@@ -161,6 +168,11 @@ class CreatePlans {
 			// reaches here can be one. Reported rather than swallowed, because unreachable is a claim and
 			// this is where it would fail.
 			case TierEdited.NothingToGrant ignored -> ResponseEntity.status(500).build();
+			// Unreachable because this creation states one code and uses it twice: `asGrant` puts
+			// `tierCode` on the edit and the call above addresses the row by the same string, so nothing
+			// here is ever moving a code (T76, ADR-0031). Reported for the same reason as the three above.
+			case TierEdited.CodeFrozenByAPrice ignored -> ResponseEntity.status(500).build();
+			case TierEdited.CodeTakenByAnotherTier ignored -> ResponseEntity.status(500).build();
 		};
 	}
 
@@ -322,7 +334,8 @@ class CreatePlans {
 			if (this.relistQuotaPerPeriod == null || this.published == null) {
 				throw new IllegalArgumentException("A new plan states its quota and whether it is on sale");
 			}
-			TierEdit grant = new TierEdit(this.name, AdministerTiers.quotaSent(this.relistQuotaPerPeriod),
+			TierEdit grant = new TierEdit(this.tierCode, this.name,
+					AdministerTiers.quotaSent(this.relistQuotaPerPeriod),
 					this.features == null ? Map.of() : this.features, this.published);
 			/*
 			 * A plan that grants nothing cannot be on sale (ADR-0029), and *this* is the route where that has

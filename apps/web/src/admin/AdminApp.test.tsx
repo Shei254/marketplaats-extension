@@ -535,7 +535,16 @@ describe("editing a tier", () => {
     const sent = JSON.parse(put?.body ?? "{}") as Record<string, unknown>;
     // Quota 0 on the default tier is how ADR-0019 says "there is no free tier".
     expect(sent["relistQuotaPerPeriod"]).toBe(0);
-    expect(Object.keys(sent).sort()).toEqual(["features", "name", "published", "relistQuotaPerPeriod"]);
+    // `code` among them since T76 (ADR-0031): a whole `PUT` says "not moving it" by
+    // sending back the code it was given, which is what this row does.
+    expect(Object.keys(sent).sort()).toEqual([
+      "code",
+      "features",
+      "name",
+      "published",
+      "relistQuotaPerPeriod",
+    ]);
+    expect(sent["code"]).toBe("free");
   });
 
   it("refuses a blank quota rather than reading it as zero", async () => {
@@ -575,7 +584,13 @@ describe("editing a tier", () => {
       // write side of ADR-0029 rests on.
       const sent = sentEdit(s);
       expect(sent["relistQuotaPerPeriod"]).toBeNull();
-      expect(Object.keys(sent).sort()).toEqual(["features", "name", "published", "relistQuotaPerPeriod"]);
+      expect(Object.keys(sent).sort()).toEqual([
+        "code",
+        "features",
+        "name",
+        "published",
+        "relistQuotaPerPeriod",
+      ]);
     });
 
     it("and greys the number, because there is no longer a number to type", async () => {
@@ -695,9 +710,122 @@ describe("editing a tier", () => {
     await arrive(s);
     await click("Edit");
     await click("Save");
-    await until(() => text().includes("cannot go on sale"), "the API's refusal to be reported");
+    await until(() => text().includes("cannot hold that tier"), "the API's refusal to be reported");
 
-    expect(text()).toContain("cannot go on sale");
+    // One status for four facts since ADR-0031, and the form names all four: the
+    // API sends no `reason`, and the recovery is the same for every one of them.
+    expect(text()).toContain("no Stripe Price");
+    expect(text()).toContain("a Price has frozen");
+  });
+
+  /**
+   * The free tier is the one with no Stripe Price (T76, ADR-0031), and the code is
+   * the field an operator could not set until now. `FREE` is priceless here, which
+   * is what makes it the row these are about — nothing is flagged.
+   */
+  describe("and renaming the one tier no Price has frozen (T76, ADR-0031)", () => {
+    it("files it under the new name, because nothing holds a second copy of the code", async () => {
+      const s = stack();
+
+      await arrive(s);
+      await click("Edit");
+      await type("#tier-name", "Gratis");
+      await click("Save");
+      await until(() => s.calls.some((call) => call.method === "PUT"), "the save to reach the API");
+
+      // Addressed by where it is, and filed under where it is going.
+      expect(sentEdit(s)["code"]).toBe("gratis");
+      expect(s.calls.find((call) => call.method === "PUT")?.url).toContain("/tiers/free");
+    });
+
+    it("prints the code while it is being typed, because the rename is not cosmetic here", async () => {
+      // Derived is not the same as secret, and it is least secret in the moment it
+      // changes: this is the one row where a label edit moves `/api/me`'s payload.
+      const s = stack();
+
+      await arrive(s);
+      await click("Edit");
+      await type("#tier-name", "Zakelijk Groeiën");
+
+      expect(text()).toContain("zakelijk-groeien");
+    });
+
+    it("and says what moving it does, rather than letting it happen quietly", async () => {
+      const s = stack();
+
+      await arrive(s);
+      await click("Edit");
+      await type("#tier-name", "Gratis");
+
+      expect(text()).toContain("Nobody moves");
+    });
+
+    it("refuses a name another tier is already filed under, without a round trip", async () => {
+      // "Pro" derives `pro`, which the catalog holds. Said here because the screen
+      // is holding every tier and the API's `409` carries no `reason` to tell the
+      // four things it means apart.
+      const s = stack();
+
+      await arrive(s);
+      await click("Edit");
+      await type("#tier-name", "Pro");
+      await click("Save");
+
+      expect(text()).toContain("Pro already uses");
+      expect(s.calls.some((call) => call.method === "PUT")).toBe(false);
+    });
+
+    it("refuses the one name whose code this screen could never open again", async () => {
+      // `PUT /api/admin/tiers/order` is the Catalog order's route and Spring prefers
+      // the literal, so a tier filed under `order` is uneditable — including to undo
+      // it. Unreachable until a *name* could derive a code.
+      const s = stack();
+
+      await arrive(s);
+      await click("Edit");
+      await type("#tier-name", "Order");
+      await click("Save");
+
+      expect(text()).toContain("could never open again");
+      expect(s.calls.some((call) => call.method === "PUT")).toBe(false);
+    });
+
+    it("refuses a name with nothing in it to make a code from", async () => {
+      const s = stack();
+
+      await arrive(s);
+      await click("Edit");
+      await type("#tier-name", "!!!");
+      await click("Save");
+
+      expect(text()).toContain("a letter or a digit");
+      expect(s.calls.some((call) => call.method === "PUT")).toBe(false);
+    });
+
+    it("but leaves the code alone on a tier a Price has frozen, and sends it back unchanged", async () => {
+      // Stripe holds the code as `metadata.tier_code` and the sync finds the tier by
+      // it, so renaming underneath would split one tier in two on the next
+      // `price.updated`. `PRO` has a price; the field is display text again.
+      const s = stack({ tiers: () => json({ tiers: [PRO] }) });
+
+      await arrive(s);
+      await click("Edit");
+      await type("#tier-name", "Pro Plus");
+      await click("Save");
+      await until(() => s.calls.some((call) => call.method === "PUT"), "the save to reach the API");
+
+      expect(sentEdit(s)["code"]).toBe("pro");
+      expect(sentEdit(s)["name"]).toBe("Pro Plus");
+    });
+
+    it("and says so on the row, rather than leaving the operator to find out", async () => {
+      const s = stack({ tiers: () => json({ tiers: [PRO] }) });
+
+      await arrive(s);
+      await click("Edit");
+
+      expect(text()).toContain("it stays there");
+    });
   });
 
   it("refuses flags that are not a JSON object, rather than sending them", async () => {
@@ -1285,6 +1413,24 @@ describe("creating a plan from the screen", () => {
     expect(s.calls.some((call) => call.url.endsWith("/api/admin/plans"))).toBe(false);
   });
 
+  it("and refuses the one name whose plan could never be edited afterwards", async () => {
+    // "Order" derives `order`, and `PUT /api/admin/tiers/order` is the Catalog
+    // order's route (ADR-0031). Creating one is a Stripe Product for a row nothing
+    // can then touch, so it is refused before Stripe is asked for anything.
+    const s = stack();
+
+    await arrive(s);
+    await click("New plan");
+    await type("#plan-name", "Order");
+    await type("#plan-amount-month", "5.00");
+    await click("Create in Stripe");
+
+    // The same sentence the edit form says, because it is the same fact: the
+    // literal is `packages/contracts`' and the wording is one function's.
+    expect(text()).toContain("could never open again");
+    expect(s.calls.some((call) => call.url.endsWith("/api/admin/plans"))).toBe(false);
+  });
+
   it("will not create anything when Stripe cannot say what it may be priced in", async () => {
     // Offering a guess here is offering a currency the account cannot settle in.
     const s = stack({ currency: () => new Response(null, { status: 503 }) });
@@ -1371,6 +1517,35 @@ describe("a plan sold at more than one rhythm", () => {
 
     expect(text()).toContain("keeps the price they signed up at");
     expect(text()).toContain("Replace in Stripe");
+  });
+
+  /**
+   * Pricing the free tier is the one click that ends its freeness, and it is
+   * allowed (T76, ADR-0031). Refusing it on the `isDefault` row was weighed and
+   * rejected: an operator may genuinely want to start charging for what was free,
+   * and refusing would force them through a default-tier swap that hands new
+   * accounts a paid tier for nothing while it happens.
+   */
+  it("warns before pricing the one tier nobody can buy, and still offers to", async () => {
+    const s = stack();
+
+    await arrive(s);
+    await clickInRowFor("free", "Prices");
+
+    expect(text()).toContain("adding a price ends that");
+    // Both consequences, because they are two different facts about the same row.
+    expect(text()).toContain("every new account is provisioned onto");
+    expect(text()).toContain("becomes permanent");
+    expect(button("Add in Stripe").disabled).toBe(false);
+  });
+
+  it("and says nothing of the sort on a tier that is already sold", async () => {
+    const s = stack();
+
+    await arrive(s);
+    await clickInRowFor("pro", "Prices");
+
+    expect(text()).not.toContain("adding a price ends that");
   });
 });
 

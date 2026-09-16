@@ -324,6 +324,24 @@ URIs exactly, so sign-in lands on `/` and the page rewrites the address bar to `
    reloaded. The new draft is now in the table, at the **bottom**. One refusal for "a tier you did not list",
    "a code that is not there" and "a code twice", because all three mean the same thing to this screen: what
    it is holding is stale.
+9h. **Rename the free tier** (T76, [ADR-0031](adr/0031-the-free-tier-is-the-one-without-a-price.md)). Click
+   **Edit** on the row with no price and type *Gratis* into Name.
+   *Expect:* the hint under the field reads **Filed under `gratis`** while you type, and a warning says
+   saving moves the code and that nobody on the tier moves with it. Save, and the **Code** column on the row
+   says `gratis`. Then **reopen the popup**: the plan strip says Gratis, and the account is still on the same
+   tier with the same quota — a subscription points at the row, not at the code.
+   *Then try three names that cannot work:* **Pro** (a code the catalog already holds), **Order** (the one
+   code `PUT /api/admin/tiers/order` has taken, so a tier filed under it could never be opened again) and
+   **!!!** (nothing to make a code from). Each is refused on the form with no request sent — watch the
+   network tab and see nothing leave.
+   *And on any other row:* open **Edit** on Pro and rename it. The code does not move and the notes say why
+   — Stripe holds the same code on its price and that copy is how the sync finds the tier again.
+9i. Click **Prices** on the free tier.
+   *Expect:* before any amount is typed, the form says this is the one tier nobody can buy, that it is the
+   tier every new account is provisioned onto, and that its code becomes permanent. **It still lets you do
+   it** — an operator may genuinely want to start charging for what was free, and refusing would force a
+   default-tier swap that hands new accounts a paid tier for nothing while it happens. Add a price, then
+   reopen **Edit**: the name field is display text again and the code is fixed.
 10. Reprice: in Stripe, create a **new** Price tagged with an existing tier's code.
    *Expect:* the tier repoints, the plan cards show the new amount, and anybody already subscribed keeps
    paying the old one — which is Stripe's immutability, not a bug. Force a failed payment on one of them and

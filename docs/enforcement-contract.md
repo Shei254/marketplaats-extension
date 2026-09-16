@@ -339,10 +339,10 @@ about a *user*, and nothing here is about one.
   one act: create a Price tagged with the tier's code. Adding lands beside the existing rhythms; repricing
   replaces that rhythm's and leaves the others alone, and **everybody already subscribed keeps the Price they
   bought**. `404` for a code nothing is stored under, `422` with `{ problem }` carrying Stripe's own words.
-- **`PUT /api/admin/tiers/{code}`** takes a **TierEdit** — `{ name, relistQuotaPerPeriod, features, published }`
-  — and answers `200` with the row as stored. A `PUT` because the body is *total* over what may change: a body
-  leaving out `relistQuotaPerPeriod` or `published` is a `400` rather than a default, since guessing either
-  changes a plan nobody asked to change.
+- **`PUT /api/admin/tiers/{code}`** takes a **TierEdit** — `{ code, name, relistQuotaPerPeriod, features,
+  published }` — and answers `200` with the row as stored. A `PUT` because the body is *total* over what may
+  change: a body leaving out `code`, `relistQuotaPerPeriod` or `published` is a `400` rather than a default,
+  since guessing any of them changes a plan nobody asked to change.
 - **One field answers "absent" and "null" differently, and it is the only one on this API**
   ([ADR-0029](adr/0029-unlimited-is-null-and-zero-still-grants-nothing.md)). The rule everywhere else — and
   the one this route used to state — is that there is no "absent or null" question, because `null` means *you
@@ -350,17 +350,27 @@ about a *user*, and nothing here is about one.
   **leaving `relistQuotaPerPeriod` out is a `400`; sending it as an explicit JSON `null` is unlimited.**
 - **What it cannot change is the decision** (ADR-0019): not the amount or interval, because Stripe Prices are
   immutable and a field called "amount" would be lying about what editing it does; not `stripePriceId`,
-  because the `metadata.tier_code` tag on the Price is the only link and a second copy is the one that drifts;
-  not `code`, the stable handle everything references. There is also no create and no delete — a plan is
-  created by tagging a Price in Stripe and a tier is retired by unpublishing it, since a subscription
-  references its tier behind a foreign key.
-- **`409` with an empty body** means one thing said two ways: **this tier cannot go on sale as described.**
-  Either there is nothing to charge for it — no Stripe Price, which `V7`'s trigger refuses — or nothing to get
-  for the money, a quota of `0`, which `V9`'s does (ADR-0029). The two are not told apart on the wire: a
-  `reason` here would be a second vocabulary on an API whose codes are statements about a *user*, and the
-  screen that sends this has both facts on the row it is editing. `/admin` warns and withdraws the tier
-  itself, so what reaches this refusal is a stale tab, a script or a hand-run `curl` — which are told they are
-  wrong rather than quietly corrected. **`404`** means no tier is stored under that code.
+  because the `metadata.tier_code` tag on the Price is the only link and a second copy is the one that drifts.
+  There is also no create and no delete — a plan is created by tagging a Price in Stripe and a tier is retired
+  by unpublishing it, since a subscription references its tier behind a foreign key.
+- **`code` is on the body and is conditionally editable**
+  ([ADR-0031](adr/0031-the-free-tier-is-the-one-without-a-price.md)). It may move exactly while the tier has
+  no `tier_price` row — in practice the **free tier** and nothing else — because beyond that Stripe holds a
+  copy as `metadata.tier_code` and the sync reads it back, so a rename underneath it would have the next
+  `price.updated` adopt the old code as a fresh draft and split one tier in two. The path names the row; the
+  body says where it goes, and on every other tier the two are the same string. Nobody types one: `/admin`
+  derives it from the name and prints it while it is being typed.
+- **`409` with an empty body** means one thing said four ways: **the catalog cannot hold this tier as
+  described.** There is nothing to charge for it — no Stripe Price, which `V7`'s trigger refuses — or nothing
+  to get for the money, a quota of `0`, which `V9`'s does (ADR-0029), or the code moved on a tier a Price has
+  frozen, or the code it moved to is one another tier holds. A fifth is this route's own rather than the
+  catalog's: the literal **`order`**, which `PUT /api/admin/tiers/order` is mapped on, so a tier filed under
+  it could never be addressed again. None are told apart on the wire: a `reason` here would be a second
+  vocabulary on an API whose codes are statements about a *user*, and the screen that sends this is holding
+  the whole catalog and can see every one of those facts. `/admin` warns, withdraws the tier itself, and
+  refuses a colliding code before submit, so what reaches this refusal is a stale tab, a script or a hand-run
+  `curl` — which are told they are wrong rather than quietly corrected. **`404`** means no tier is stored
+  under that code.
 - **Lowering a quota under existing subscribers is allowed** and writes nothing to anybody's row: what is left
   of a period is the grant minus what has been spent, clamped at zero, so somebody who has already used more
   than the new number simply has none left until it rolls. No proration and no notification (ADR-0014,
@@ -492,8 +502,10 @@ that ADR's own "revisit if" anticipated. Same audience and same guard as the adm
   `subscriptionStatus` is one of the seven normalized statuses, spelled in the same screaming case as the
   reason codes and the outcomes, so a client reads one convention across this API.
 - **`tier` carries both spellings**, and that is the one place the shipped shape says more than the field list
-  above. `code` is the stable handle an admin edit never moves; `name` is display text an operator may rewrite
-  at any time (ADR-0014). Given only the name, a client deciding "is this the free plan" branches on text
+  above. `code` is the handle; `name` is display text an operator may rewrite at any time (ADR-0014). The code
+  is stable once a Price holds a copy of it, which is every tier but the free one — there an edit re-derives
+  it from the name (ADR-0031), so a client compares code to code and never to a literal. Given only the name,
+  a client deciding "is this the free plan" branches on text
   somebody is free to change and stops matching the day they do; given only the code, it renders `power` to a
   human or keeps a second catalog of labels ours never reaches. So both travel and which is which is stated
   here rather than guessed at each reader.

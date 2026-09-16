@@ -24,6 +24,7 @@ export {
   CSRF_MODES,
   DENIAL_REASONS,
   RELIST_OUTCOMES,
+  RESERVED_TIER_CODE,
   SUBSCRIPTION_STATUSES,
   type AdminTier,
   type AdminTiers,

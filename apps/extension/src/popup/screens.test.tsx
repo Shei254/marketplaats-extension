@@ -1,9 +1,10 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import type { DisplayState } from "@mprelist/contracts";
+import type { DisplayState, Plan } from "@mprelist/contracts";
 
-import { NOT_OPENING } from "./plans";
+import { PlanCards } from "./PlanCards";
+import { NOT_OPENING, type PlansView } from "./plans";
 import { NoTierScreen, OutdatedScreen, SignedInScreen, repostsLeft, resetsOn } from "./screens";
 
 const PLAN = {
@@ -178,7 +179,19 @@ describe("the update screen", () => {
 });
 
 describe("the no-plan screen", () => {
-  const markup = renderToStaticMarkup(<NoTierScreen />);
+  const PRO: Plan = {
+    tier: { code: "pro", name: "Pro" },
+    relistQuotaPerPeriod: 50,
+    features: {},
+    prices: [{ amount: 999, currency: "eur", interval: "month" }],
+  };
+  const noTier = (view: PlansView): string =>
+    renderToStaticMarkup(
+      <NoTierScreen view={view}>
+        <PlanCards view={view} current={null} handoff={NOT_OPENING} onUpgrade={() => {}} onRetry={() => {}} />
+      </NoTierScreen>,
+    );
+  const markup = noTier({ status: "ready", plans: [PRO], paymentMethods: [] });
 
   it("says the plan is gone rather than that something went wrong", () => {
     // T77 (ADR-0032). The backend answered promptly and truthfully, so the one
@@ -188,12 +201,41 @@ describe("the no-plan screen", () => {
     expect(markup).not.toContain("Probeer het zo opnieuw");
   });
 
-  it("offers no button, because retrying is the one thing that cannot help", () => {
-    // Sharper than the update screen's version of this: there the user can act and
-    // it simply is not "try again", and here there is nothing for either of them to
-    // do — an operator makes a tier the default and everybody is adopted at once.
-    expect(markup).not.toContain("<button");
-    expect(markup).toContain("opnieuw proberen helpt niet");
+  it("offers the catalog, because subscribing is the one thing that does help", () => {
+    // This reverses T77's original reading of the screen, and the reason it can is
+    // that T77's own argument against it was conditional: pointing somebody at the
+    // cards "would be offering a catalog that may be empty". Where it is not
+    // empty, buying a plan is precisely the user's way out — and it is *their* way
+    // out rather than a wait on an operator, which is what the old screen said.
+    expect(markup).toContain("Pro");
+    expect(markup).toContain("popup-plan-card");
+    expect(markup).toContain("<button");
+  });
+
+  it("and marks no card as the one they are on, because they are on none", () => {
+    // The whole state is "this account has no tier", so a Huidig badge would be a
+    // claim the screen exists to deny — and `CurrentPlanCard` would have nothing
+    // to draw a grant line from.
+    expect(markup).not.toContain("Huidig");
+    expect(markup).not.toContain("Je abonnement");
+  });
+
+  it("but says to wait when the catalog really is empty, offering no button", () => {
+    // The state T77 was right about, and the reason the cards are conditional
+    // rather than unconditional: deleting the last tier is a supported act, and
+    // then there is genuinely nothing for either of them to do. This is the only
+    // branch where "opnieuw proberen helpt niet" is still true.
+    const empty = noTier({ status: "ready", plans: [], paymentMethods: [] });
+
+    expect(empty).toContain("opnieuw proberen helpt niet");
+    expect(empty).not.toContain("<button");
+    expect(empty).not.toContain("popup-plan-card");
+  });
+
+  it("and says nothing about waiting while there is something to buy", () => {
+    // The two halves are exclusive. Telling somebody to sit tight directly above a
+    // row of buy buttons is the screen contradicting itself.
+    expect(markup).not.toContain("opnieuw proberen helpt niet");
   });
 
   it("says the ads are untouched, like every other screen somebody is locked out of", () => {

@@ -36,8 +36,15 @@ export function PlanCards({
   onRetry,
 }: {
   view: PlansView;
-  /** The plan they are on, so the card they already hold can say so. */
-  current: DisplayState;
+  /**
+   * The plan they are on, so the card they already hold can say so — and `null`
+   * where they are on none at all (T77, ADR-0032).
+   *
+   * A tier-less account is not "on the free tier" and must not be drawn as though
+   * it were: there is no name to print and no grant to describe, so the whole
+   * question of which card is theirs has no answer rather than a default one.
+   */
+  current: DisplayState | null;
   /** Which card, if any, is busy opening a tab — and what stopped the last one. */
   handoff: Handoff;
   onUpgrade: (tierCode: string, interval: string) => void;
@@ -58,7 +65,9 @@ export function PlanCards({
   }
 
   const onSale = view.plans;
-  const holdsOneOnSale = onSale.some((plan) => plan.tier.code === current.tier.code);
+  // On no tier there is nothing to hold, so the inert card above the row is
+  // skipped for the opposite reason to "they already hold one that is on sale".
+  const holdsOneOnSale = current === null || onSale.some((plan) => plan.tier.code === current.tier.code);
   return (
     <div className="popup-plans">
       {holdsOneOnSale ? null : <CurrentPlanCard current={current} />}
@@ -66,7 +75,7 @@ export function PlanCards({
         <PlanCard
           key={plan.tier.code}
           plan={plan}
-          current={plan.tier.code === current.tier.code}
+          current={plan.tier.code === current?.tier.code}
           handoff={handoff}
           onUpgrade={onUpgrade}
         />

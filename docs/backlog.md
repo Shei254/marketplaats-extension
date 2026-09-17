@@ -1339,6 +1339,110 @@ facts rather than two. `ReasonCode` moved out of `enforcement/internal` for a th
 second spelling of it would be a string nothing compares to anything.
 
 
+#### T78 · A stranded account is shown the catalog, not a wait · **S** · T77, T52 · **shipped**
+*No issue filed — this came in as "instead of showing a user that message, they should be shown subscription
+tiers that they could subscribe to" and is written down here where every other decision is.*
+
+T77 shipped `NoTierScreen` with a stated rule: *"It says nothing about paying, deliberately. A subscriber
+whose plan was deleted has had their Stripe subscription cancelled, and pointing them at the plan cards at
+this moment would be offering a catalog that **may** be empty."*
+
+**That argument is conditional and the screen was not.** A tier-less subscription is reachable two ways
+([ADR-0032](adr/0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md)) — an operator deletes the
+**default** tier, or deletes the **last** one — and only the second empties the catalog. In the first there are
+published tiers sitting on sale the whole time, and the screen told somebody who could fix their own problem
+in one click to wait for a stranger. Worse, it told them *"dit lost zich vanzelf op"* about a state that
+resolves only when an operator happens to act.
+
+**So the branch is on what `GET /api/plans` answers, not on the denial.** Something on sale: the cards, and
+none of the waiting copy — telling somebody to sit tight directly above a row of buy buttons is the screen
+contradicting itself. Nothing on sale: T77's words exactly as they were, including the button that is
+deliberately absent, because there the original reasoning holds in full.
+
+- **`PlanCards.current` becomes `DisplayState | null`.** A tier-less account is not on the free tier and must
+  not be drawn as one: no `Huidig` badge and no `CurrentPlanCard`, which had nothing to draw a name or a grant
+  line from anyway. The nullable is the honest shape — "which card is theirs" has *no answer* here rather than
+  a default one.
+- **`loadPlans` is split out of `seePlans`**, which was fetch-and-navigate in one. `no-tier` wants the fetch
+  without the navigation, and it is the one non-`ready` answer that needs a second call at all — the screen is
+  reached without ever passing through the plans screen, so nothing else would ask.
+- **The cards are handed in as `children`**, the arrangement `PlansScreen` already uses: `PlanCards` reads
+  `grantLine` from `screens.tsx`, so importing it back would close a cycle.
+- **Only a *loaded and empty* catalog is the dead end.** While the call is in flight or has failed the cards
+  own the screen and say so themselves, because claiming "this will resolve itself" over a request that has
+  merely not landed is a guess presented as news.
+
+**ADR-0032 is not touched** — a dated record is not rewritten to match how things turned out
+([`adr/README.md`](adr/README.md)) — and its *Revisit if* already gestured at this ground: *"if an emptied
+catalog turns out to be a state anybody sits in rather than passes through"*. The distinction this ticket
+draws is the sharper one: it is not the **emptied** catalog anybody sits in, it is the **defaultless** one,
+and those had been treated as the same screen.
+
+**Not walked against a real account.** Held by the two suites — `screens.test.tsx` on the branch, and
+`Popup.test.tsx` end to end, including that `/api/plans` is asked at all, which is the half a component test
+cannot see. The Checkout hand-off from this screen is the same `upgrade` the plans screen uses and is
+unchanged, but nobody has bought a plan *from* here against Stripe test mode.
+
+#### T79 · The free tier can be created, because it can be deleted · **M** · T76, T77 · **shipped**
+*No issue filed — this came in as a bug report: creating a free tier from `/admin` was refused with "A plan
+states what it costs."* [ADR-0031](adr/0031-the-free-tier-is-the-one-without-a-price.md) is amended with the
+argument; what follows is the work.
+
+**The refusal was correct and the state it left was not.** ADR-0031 defines the free tier as the tier with no
+`tier_price` row and rested *"at most one"* on every creation path going through Stripe — `adopt` is driven by
+a Price, and `POST /api/admin/plans` demanded one — so a priceless tier was **unsayable rather than
+forbidden**, which this repo prefers and says so in `CreatePlans` itself. Then **T77 made every tier deletable,
+the seeded free one included**, and nothing could make another. The only priceless tier that has ever existed
+was the row `V2__seed_tier_catalog.sql` wrote.
+
+**Which matters because of what the default tier is for.** Every new account is provisioned onto it and every
+terminal subscription falls back to it (ADR-0018), so a catalog that can only create paid tiers is one where
+arriving and lapsing both land somebody on something they must pay for — or on no tier at all, the `NO_TIER`
+state ADR-0032 introduced as one users *pass through*. T77's own recovery — "an operator makes a tier the
+default and everybody is adopted at once" — could only ever produce a paid one. **Both halves of T78's screen
+and this ticket's route are the same hole seen from two ends.**
+
+**The wire.** `prices: []` states that a tier costs nothing; an **absent** `prices` is still a `400`. That is
+ADR-0029's absent-versus-stated rule reused, and without it a client that forgot the field would quietly
+create a free tier. **No `free` boolean** — the free tier *is* the one without a price, so a flag would be a
+second spelling of the list's own emptiness, the derivable pair refused on `name`/`code`, on `isDefault`, and
+on this screen once already.
+
+**API** — `TierEdits.createWithoutAPrice`, the one insert in `TierRows` no Stripe Price drove, refusing a
+second with the new `TierEdited.FreeTierAlreadyExists`. The check is a **read inside the writing transaction**
+and could not be a constraint: "at most one tier with no `tier_price` row" is a property of the *absence* of
+rows in another table, so there is no column for a unique index to cover — `makeDefault` has the same shape
+for the flag it is the sole writer of. The route answers it **above the currency lookup**, because every line
+below that is about money and a `503` for a tier that costs nothing would be refusing to act for want of a
+price nobody asked for.
+
+**The row is created off sale and not the default**, both deliberately: a published tier must have something
+to charge against (`V7`), and `makeDefault` stays the sole writer of the flag, so repairing a stranded catalog
+is two deliberate acts rather than one that guesses the second.
+
+**`/admin`** — a **Free — no price, and nothing to pay** checkbox that greys the amounts, the way Unlimited
+greys the quota. **A mode rather than an inference from two empty boxes**: somebody who has not finished
+typing has also left both blank, and a form reading those alike would make a free tier out of a half-filled
+one. The button stops saying **Create in Stripe** when it is making the one tier Stripe never hears about, and
+the `409` — which already carried three facts — gets a fourth reading used *only* for a creation that stated
+no price, because that case has one obvious cause and listing four would be unhelpful on purpose.
+
+**A second instance of the same bug, found on the way and fixed with it.** The form refused to render at all
+when Stripe could not name the catalog's currency. That was right until a catalog could be left with no free
+tier, and is now exactly backwards: that is the state an operator must act in, and whether Stripe can name a
+currency has nothing to do with a tier nobody is charged for. The amounts are greyed and the free tier can
+still be made.
+
+**One test changed meaning rather than being added to**, and it is the honest record of the reversal:
+`andEachRhythmItIsSoldAtIsStatedInFull` asserted `prices: []` → `400` on the grounds that *"an empty list is
+the same as no list — a plan nobody can be charged for"*. That sentence is the definition of the free tier,
+and it is now the one creation on that route which can succeed in the suite at all, since it asks Stripe for
+nothing.
+
+**Not walked against a real account.** Held by the API suite (`TierDeletionTest` arranges a catalog with no
+free tier and gets one back; `AdminTierTest` pins the `409`) and by `/admin`'s. Nobody has deleted a free tier
+and recreated one against a real Stripe test-mode account.
+
 ---
 
 ## Deferred

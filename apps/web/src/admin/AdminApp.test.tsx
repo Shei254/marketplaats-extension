@@ -1618,15 +1618,55 @@ describe("creating a plan from the screen", () => {
     expect(s.calls.some((call) => call.url.endsWith("/api/admin/plans"))).toBe(false);
   });
 
-  it("will not create anything when Stripe cannot say what it may be priced in", async () => {
-    // Offering a guess here is offering a currency the account cannot settle in.
+  it("will not price anything when Stripe cannot say what it may be priced in", async () => {
+    // Offering a guess here is offering a currency the account cannot settle in —
+    // so the amounts are greyed rather than filled with one.
     const s = stack({ currency: () => new Response(null, { status: 503 }) });
 
     await arrive(s);
     await click("New plan");
 
     expect(text()).toContain("could not say what this account settles in");
-    expect(container.querySelector("#plan-amount-month")).toBeNull();
+    expect(container.querySelector<HTMLInputElement>("#plan-amount-month")?.disabled).toBe(true);
+  });
+
+  it("but still makes the tier that needs no currency at all (T79)", async () => {
+    // The form used to refuse outright, which was right until a catalog could be
+    // left with no free tier (T77) — that is precisely the state an operator has
+    // to act in, and whether Stripe can name a currency has nothing to do with a
+    // tier nobody is charged for.
+    const s = stack({ currency: () => new Response(null, { status: 503 }) });
+
+    await arrive(s);
+    await click("New plan");
+    await type("#plan-name", "Free");
+    await click("Create free tier");
+    await until(
+      () => s.calls.some((call) => call.url.endsWith("/api/admin/plans")),
+      "the free tier to reach the API",
+    );
+
+    const sent = JSON.parse(
+      s.calls.find((call) => call.url.endsWith("/api/admin/plans"))?.body ?? "{}",
+    ) as Record<string, unknown>;
+    // Stated, and stated empty. An absent `prices` is a 400 at the API — the same
+    // absent-versus-stated rule ADR-0029 drew for a quota.
+    expect(sent["prices"]).toEqual([]);
+  });
+
+  it("and says which one thing went wrong when a free tier already exists", async () => {
+    // The 409 already carried three facts; a creation that stated no price has one
+    // obvious cause, and naming four would be unhelpful on purpose.
+    const s = stack({ create: () => new Response(null, { status: 409 }) });
+
+    await arrive(s);
+    await click("New plan");
+    await type("#plan-name", "Free");
+    await check("#plan-free");
+    await click("Create free tier");
+    await until(() => text().includes("only be one"), "the refusal to be explained");
+
+    expect(text()).toContain("already a tier with no price");
   });
 });
 

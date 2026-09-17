@@ -62,6 +62,29 @@ public interface TierEdits {
 	TierEdited apply(String code, TierEdit edit);
 
 	/**
+	 * Create a tier with no Stripe Price — which is what a <em>free</em> tier is (T79, ADR-0031 amended).
+	 *
+	 * <p><strong>The one creation path that does not go through Stripe</strong>, and the reason it exists is
+	 * T77: once every tier became deletable, the seeded free one could go and nothing could make another. The
+	 * catalog would keep working and keep selling, and every account arriving or lapsing onto the default
+	 * (ADR-0018) would land on a tier somebody has to pay for.
+	 *
+	 * <p>It refuses a second with {@link TierEdited.FreeTierAlreadyExists}, checked in the same transaction as
+	 * the insert. "At most one free tier" was structural until this method existed, so this is where it stops
+	 * being structural and starts being stated — the trade ADR-0031 is amended to record.
+	 *
+	 * <p>The row it writes is unpublished and not the default, both deliberately. A published tier must have
+	 * something to charge against ({@code V7}'s trigger and {@link TierEdited.NothingToChargeAgainst}), which
+	 * this by definition has not; and {@link #makeDefault(String)} stays the sole writer of that flag, so
+	 * recovering a stranded catalog is two deliberate acts rather than one that guesses the second.
+	 *
+	 * @param code the handle to file it under, already checked to be one this API can address
+	 * @param edit the editable half of the row — its name, grant and flags
+	 * @return applied, or why it could not be
+	 */
+	TierEdited createWithoutAPrice(String code, TierEdit edit);
+
+	/**
 	 * Set the Catalog order: every tier there is, in the sequence the plan cards should read (T75, #164).
 	 *
 	 * <p><strong>The whole sequence rather than one tier's place</strong>, and for the reason

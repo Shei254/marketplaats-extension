@@ -209,7 +209,7 @@ export function AdminCatalog({
         await load();
         return;
       }
-      setNote({ tone: "error", message: whyNotCreated(answer) });
+      setNote({ tone: "error", message: whyNotCreated(answer, plan.prices.length === 0) });
     },
     [api, load, onSignedOut],
   );
@@ -1429,22 +1429,30 @@ function NewPlanForm({
   const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [quota, setQuota] = useState("0");
   const [unlimited, setUnlimited] = useState(false);
+  /**
+   * Creating the tier that costs nothing (T79, ADR-0031 amended).
+   *
+   * **A mode rather than an inference from two empty boxes.** Leaving both price
+   * fields blank is what somebody who has not finished typing has also done, and
+   * a form that read those two states alike would make a free tier out of a
+   * half-filled one. Ticked, the prices are disabled and the submit sends
+   * `prices: []`, which the API reads as *stated to cost nothing* — an absent
+   * list is still a `400` there.
+   */
+  const [free, setFree] = useState(false);
   // A plan is created with its cap rather than created and then edited: the flags
   // used to be a hardcoded `{}` here, so setting one was a second act an operator
   // had to remember (T69).
   const features = useFeatures(NO_FLAGS);
   const [problem, setProblem] = useState<string | null>(null);
 
-  if (!pricedIn) {
-    return (
-      <FormPanel title="New plan" onCancel={onCancel}>
-        <Note tone="warn">
-          Stripe could not say what this account settles in, so a plan cannot be priced here right now.
-          Creating one in the Stripe dashboard, tagged with its tier code, still works.
-        </Note>
-      </FormPanel>
-    );
-  }
+  // **The priced half of this form needs a currency; the free tier does not.**
+  // Refusing the whole screen used to be right, and stopped being right the moment
+  // a catalog could be left with no free tier at all (T77) — that is exactly the
+  // state where an operator must be able to act, and Stripe being unreachable has
+  // nothing to do with a tier nobody is charged for.
+  const canOnlyMakeAFreeTier = !pricedIn;
+  const makingFree = free || canOnlyMakeAFreeTier;
 
   const tierCode = tierCodeFrom(name);
 
@@ -1471,24 +1479,26 @@ function NewPlanForm({
     }
     // In RHYTHMS' order, so the cheapest rhythm is first however the fields were
     // filled in — which is the order `GET /api/plans` answers in and the order a
-    // card reads.
+    // card reads. Empty throughout on a free tier, which is what says it is one.
     const prices: NewPrice[] = [];
-    for (const rhythm of RHYTHMS) {
-      const typed = amounts[rhythm.interval]?.trim() ?? "";
-      if (!typed) continue;
-      const amount = amountInMinorUnits(typed, pricedIn);
-      if (amount === null) {
-        setProblem(amountProblem(rhythm, pricedIn));
+    if (!makingFree) {
+      for (const rhythm of RHYTHMS) {
+        const typed = amounts[rhythm.interval]?.trim() ?? "";
+        if (!typed) continue;
+        const amount = amountInMinorUnits(typed, pricedIn ?? "eur");
+        if (amount === null) {
+          setProblem(amountProblem(rhythm, pricedIn ?? "eur"));
+          return;
+        }
+        prices.push({ amount, interval: rhythm.interval });
+      }
+      if (prices.length === 0) {
+        setProblem(
+          "A plan states what it costs. Price it by the month, by the year, or both — a buyer picks " +
+            "which on the card. For the tier that costs nothing, tick “Free” above.",
+        );
         return;
       }
-      prices.push({ amount, interval: rhythm.interval });
-    }
-    if (prices.length === 0) {
-      setProblem(
-        "A plan states what it costs. Price it by the month, by the year, or both — a buyer picks " +
-          "which on the card.",
-      );
-      return;
     }
     const relists = unlimited ? null : quotaTyped(quota);
     if (relists === undefined) {
@@ -1532,12 +1542,12 @@ function NewPlanForm({
         {RHYTHMS.map((rhythm, index) => (
           <Field
             key={rhythm.interval}
-            label={`${rhythm.fieldLabel}, in ${pricedIn.toUpperCase()}`}
+            label={`${rhythm.fieldLabel}, in ${(pricedIn ?? "EUR").toUpperCase()}`}
             // Said once, under the first of them, rather than under each: it is one
             // instruction about a pair of fields, and twice reads as two rules.
             hint={
               index === 0
-                ? `Written the way money is — ${exampleAmount(pricedIn)}. Leave one empty to not sell at it.`
+                ? `Written the way money is — ${exampleAmount(pricedIn ?? "eur")}. Leave one empty to not sell at it.`
                 : undefined
             }
           >
@@ -1548,8 +1558,12 @@ function NewPlanForm({
               // Stripe Price. `inputMode` still brings up the numeric keypad.
               id={`plan-amount-${rhythm.interval}`}
               inputMode="decimal"
-              placeholder={exampleAmount(pricedIn)}
-              value={amounts[rhythm.interval] ?? ""}
+              placeholder={exampleAmount(pricedIn ?? "eur")}
+              // Greyed rather than hidden on a free tier, for the reason the
+              // unlimited checkbox greys the quota: a field that vanishes takes
+              // the explanation of why with it.
+              disabled={makingFree}
+              value={makingFree ? "" : (amounts[rhythm.interval] ?? "")}
               onChange={(e) =>
                 setAmounts((typed) => ({ ...typed, [rhythm.interval]: e.target.value }))
               }
@@ -1567,6 +1581,19 @@ function NewPlanForm({
           />
         </Field>
       </div>
+      {/* Below the fields it disables, like the unlimited box below the quota it
+          greys — and it is the control an operator whose free tier was deleted
+          has come to this form looking for (T79). */}
+      <Checkbox
+        id="plan-free"
+        label="Free — no price, and nothing to pay"
+        checked={makingFree}
+        // Nothing to un-tick when there is no currency to price against: the form
+        // can only make this kind of tier, and a box that sprang back would be
+        // lying about which.
+        disabled={canOnlyMakeAFreeTier}
+        onChange={(e) => setFree(e.target.checked)}
+      />
       <Checkbox
         id="plan-unlimited"
         label="Unlimited — no cap on how many reposts a period grants"
@@ -1578,10 +1605,24 @@ function NewPlanForm({
         {/* Shown, not chosen (T63, #129). Every tier is priced in what this Stripe
             account settles in — a plan screen is a comparison, and two currencies
             on it is not one a buyer can make. */}
-        <li>
-          Priced in <b>{pricedIn.toUpperCase()}</b>, like every tier — that is what this Stripe
-          account settles in.
-        </li>
+        {makingFree ? (
+          <li>
+            <b>The free tier is the one with no price at all</b> — there is exactly one, it is created off
+            sale, and it is what new accounts land on once you make it the default.
+            {canOnlyMakeAFreeTier
+              ? " Stripe could not say what this account settles in, so a priced plan cannot be made here" +
+                " right now — this one needs no currency."
+              : null}
+          </li>
+        ) : (
+          /* Shown, not chosen (T63, #129). Every tier is priced in what this Stripe
+             account settles in — a plan screen is a comparison, and two currencies
+             on it is not one a buyer can make. */
+          <li>
+            Priced in <b>{(pricedIn ?? "eur").toUpperCase()}</b>, like every tier — that is what this Stripe
+            account settles in.
+          </li>
+        )}
         <li>
           Price it at both rhythms and the plan card offers the buyer the choice; price it at one and
           it sells at that one. A rhythm can be added later from the plan&apos;s row.
@@ -1598,7 +1639,9 @@ function NewPlanForm({
       {problem ? <Note tone="error">{problem}</Note> : null}
       <div className="admin-form-actions">
         <Button shape="rect" tone={busy ? "busy" : "primary"} onClick={submit}>
-          {busy ? "Creating…" : "Create in Stripe"}
+          {/* A free tier is the one creation on this screen Stripe never hears
+              about, so the button stops naming it (T79). */}
+          {busy ? "Creating…" : makingFree ? "Create free tier" : "Create in Stripe"}
         </Button>
         <Button shape="rect" tone="secondary" onClick={onCancel} disabled={busy}>
           Cancel
@@ -1971,9 +2014,22 @@ function tierIn(tiers: AdminTier[], code: string): AdminTier | null {
 }
 
 /** What each refusal of a *creation* means, which is not what the edit form's mean. */
-function whyNotCreated(answer: CreateAnswer): string {
+function whyNotCreated(answer: CreateAnswer, statedNoPrice = false): string {
   switch (answer.status) {
     case "exists":
+      // A creation that stated no price has one obvious cause and the screen says
+      // that one rather than the list (T79, ADR-0031 amended): there is at most one
+      // tier without a price, because that absence is *what makes it the free tier*.
+      // The other three facts below remain reachable here — a taken code is a taken
+      // code — but naming four possibilities when the operator just ticked the box
+      // that has exactly one is the refusal being unhelpful on purpose.
+      if (statedNoPrice) {
+        return (
+          "There is already a tier with no price, and there can only be one — a tier without a price is " +
+          "what “free” means here. Edit the one you have, or delete it first. (If the name you typed is " +
+          "taken by another tier, that would refuse this too.)"
+        );
+      }
       // One status, three facts, and the screen names all three rather than sending
       // an operator to check the one it used to mean — the same bargain `refusal`
       // makes for the edit form's `409`. The third is T77's (ADR-0032) and is the

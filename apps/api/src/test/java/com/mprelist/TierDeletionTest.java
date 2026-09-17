@@ -550,6 +550,65 @@ class TierDeletionTest {
 				.build());
 	}
 
+	/**
+	 * A catalog with no free tier can be given one — the hole T77 opened and T79 closed.
+	 *
+	 * <p><strong>This is the recovery path, and before T79 there was none.</strong> ADR-0031 defines the free
+	 * tier as the one with no {@code tier_price} row, and rested "at most one" on every creation going through
+	 * Stripe. Deletion then became possible for every tier, the seeded free one included — so a catalog could
+	 * lose it permanently, and every account provisioned or lapsing onto the default (ADR-0018) would land on
+	 * a tier somebody has to pay for, or on none at all.
+	 *
+	 * <p>This suite's catalog starts empty, which <em>is</em> the stranded state — no arranging needed.
+	 *
+	 * <p>It is also the only creation on this route that can succeed in these suites, and that is not a trick
+	 * of the test: a free tier states no price, so nothing here asks Stripe for anything.
+	 */
+	@Test
+	void aCatalogWithNoFreeTierCanBeGivenOne() {
+		assertThat(post(PLANS, freeTier("starter")).statusCode()).isEqualTo(201);
+
+		JsonNode made = tierIn(Json.of(get(TIERS)).get("tiers"), "starter");
+		assertThat(made.get("prices")).isEmpty();
+		assertThat(made.get("relistQuotaPerPeriod").asInt()).isEqualTo(10);
+		// Not on sale and not the default. A priceless tier has nothing to charge against (V7), and
+		// `makeDefault` stays the sole writer of that flag — so recovering a stranded catalog is two
+		// deliberate acts rather than one that guesses the second.
+		assertThat(made.get("published").asBoolean()).isFalse();
+		assertThat(made.get("isDefault").asBoolean()).isFalse();
+	}
+
+	/** And having got one, the catalog will not take a second — the invariant survives the recovery. */
+	@Test
+	void andWillNotTakeASecondOnceItHasOne() {
+		assertThat(post(PLANS, freeTier("starter")).statusCode()).isEqualTo(201);
+
+		assertThat(post(PLANS, freeTier("another")).statusCode()).isEqualTo(409);
+	}
+
+	/**
+	 * A free tier cannot be created on sale, because there is nothing to charge against.
+	 *
+	 * <p>{@code V7}'s trigger says a published tier has a price and this by definition has none, so it is
+	 * refused on the way in rather than written and left for the database to reject as a {@code 500}.
+	 *
+	 * <p>{@code 409} rather than {@code 400}: the body is well formed and says something coherent, and it is
+	 * the catalog that cannot hold it — which is the same reading, and the same status, that the edit route
+	 * gives {@code NothingToChargeAgainst}.
+	 */
+	@Test
+	void andCannotBeCreatedOnSale() {
+		assertThat(post(PLANS, "{\"tierCode\":\"starter\",\"name\":\"Starter\",\"prices\":[],"
+				+ "\"relistQuotaPerPeriod\":10,\"features\":{},\"published\":true}").statusCode())
+				.isEqualTo(409);
+	}
+
+	/** What the New plan form sends for a tier that costs nothing: the same body, with no rhythms. */
+	private static String freeTier(String code) {
+		return "{\"tierCode\":\"" + code + "\",\"name\":\"" + code + "\",\"prices\":[],"
+				+ "\"relistQuotaPerPeriod\":10,\"features\":{},\"published\":false}";
+	}
+
 	private HttpResponse<String> post(String path, String body) {
 		return Http.send(request(path).header("Authorization", "Bearer " + operator())
 				.header("Content-Type", "application/json")

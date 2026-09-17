@@ -1,4 +1,4 @@
-import { inMajorUnits, majorUnitsOf, type Plan, type PlanPrice } from "@mprelist/contracts";
+import { inMajorUnits, majorUnitsOf, type DisplayState, type Plan, type PlanPrice } from "@mprelist/contracts";
 
 import type { HandoffAnswer } from "../api/subscribing";
 
@@ -142,6 +142,34 @@ export function grantOf(plan: Plan, interval: string): string {
   if (plan.relistQuotaPerPeriod === null) return UNLIMITED_REPOSTS;
   const relists = `${plan.relistQuotaPerPeriod} herplaatsing${plan.relistQuotaPerPeriod === 1 ? "" : "en"}`;
   return `${relists} ${every(interval)}`;
+}
+
+/**
+ * Whether the plan somebody is on grants no reposts at all — asked once here so
+ * that the strip, the prompt and the ad list cannot spell it three ways (T32, #41).
+ *
+ * The `plan` here is the **Display state**, the subscription `GET /api/me`
+ * describes, and not the `Plan` the rest of this module prices — the same two
+ * senses `screens.tsx`'s `grantLine` already lives with, and the types keep them
+ * apart.
+ *
+ * **`=== 0`, never a falsy test.** `null` is unlimited (ADR-0029), so `!grant`
+ * reads the plan on which nothing may be reposted and the plan on which everything
+ * may as the same one — and would lock the most generous tier in the catalog.
+ *
+ * **It asks the grant and never the remainder**, which is the whole of what a
+ * control may be locked on. A grant is the Tier's own property: nothing its holder
+ * does moves it, only an operator or a purchase. `quotaRemaining` goes back *up*
+ * without anybody acting — a `FAILED_BEFORE_DELETE` refunds its unit and so does
+ * reconciliation — so a button disabled on that is one a refund has already made
+ * wrong, until somebody presses Vernieuwen.
+ *
+ * The state is reachable two ways and neither is exotic: an operator withdrawing
+ * the free tier is a quota of 0 on the default one (ADR-0019), and every
+ * subscription that ends falls back there (ADR-0018).
+ */
+export function grantsNothing(plan: DisplayState): boolean {
+  return plan.relistQuotaPerPeriod === 0;
 }
 
 /**

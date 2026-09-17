@@ -276,7 +276,7 @@ class CheckoutSessionTest {
 		return new TierCatalog() {
 
 			@Override
-			public TierId defaultTier() {
+			public java.util.Optional<TierId> defaultTier() {
 				throw new UnsupportedOperationException("not part of buying a plan");
 			}
 

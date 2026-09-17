@@ -1,5 +1,7 @@
 package com.mprelist.enforcement.internal;
 
+import com.mprelist.enforcement.ReasonCode;
+
 /**
  * What the extension reports a relist turned out to be, and the three values {@code relist_event.outcome}
  * holds — {@code docs/enforcement-contract.md}'s {@code /complete} body, and the whole of what this backend

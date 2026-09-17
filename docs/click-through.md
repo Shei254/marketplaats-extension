@@ -119,8 +119,10 @@ thread.
 4. Wait it out, then spend the remaining two.
    *Expect:* the header reads **`0 of 3`**.
 5. Click **Repost** again.
-   *Expect:* the button is **locked**, the ads are **still listed**, and the prompt is upgrade-shaped with
-   the reset date. The list staying visible is deliberate — it is the conversion surface.
+   *Expect:* the button is **live** before you press it — a spent period locks nothing, because that number
+   comes back without you (T32, #41) — and the press is **refused before anything is deleted**. The row then
+   goes dark and says which limit it hit, the ads are **still listed**, and the prompt above them is
+   upgrade-shaped with the reset date. The list staying visible is deliberate — it is the conversion surface.
 6. **Stop the API** and click **Repost**.
    *Expect:* refused, and **no ad is deleted**. Fail-closed means no relist without a fresh `200`.
 7. Restart the API. In `psql`, raise the free tier's quota to 5; reopen the popup.
@@ -269,6 +271,10 @@ URIs exactly, so sign-in lands on `/` and the page rewrites the address bar to `
 5. Sign in to the extension as a **fresh** user.
    *Expect:* they are provisioned, they see their ads, and every button is locked with an upgrade prompt.
    **No error, no failed sign-in.** This is "the admin decided there is no free tier".
+   *Check what locks it:* the buttons are dark **before anything is clicked** — nothing is sent and nothing
+   is refused (T32, #41). Put the quota back to 3, repost three times until the strip reads 0, and the
+   buttons are **live** again: a spent period is not a plan without reposts, and that number goes back up
+   without the user. The prompt above the list changes with it.
 6. Look for a way to unset `isDefault`.
    *Expect:* there isn't one. Only **Make default**, on the tiers that are not it — a catalog with no default
    provisions nobody, so the API offers no request that could produce one and the screen has no control for
@@ -324,6 +330,24 @@ URIs exactly, so sign-in lands on `/` and the page rewrites the address bar to `
    reloaded. The new draft is now in the table, at the **bottom**. One refusal for "a tier you did not list",
    "a code that is not there" and "a code twice", because all three mean the same thing to this screen: what
    it is holding is stale.
+9h. **Rename the free tier** (T76, [ADR-0031](adr/0031-the-free-tier-is-the-one-without-a-price.md)). Click
+   **Edit** on the row with no price and type *Gratis* into Name.
+   *Expect:* the hint under the field reads **Filed under `gratis`** while you type, and a warning says
+   saving moves the code and that nobody on the tier moves with it. Save, and the **Code** column on the row
+   says `gratis`. Then **reopen the popup**: the plan strip says Gratis, and the account is still on the same
+   tier with the same quota — a subscription points at the row, not at the code.
+   *Then try three names that cannot work:* **Pro** (a code the catalog already holds), **Order** (the one
+   code `PUT /api/admin/tiers/order` has taken, so a tier filed under it could never be opened again) and
+   **!!!** (nothing to make a code from). Each is refused on the form with no request sent — watch the
+   network tab and see nothing leave.
+   *And on any other row:* open **Edit** on Pro and rename it. The code does not move and the notes say why
+   — Stripe holds the same code on its price and that copy is how the sync finds the tier again.
+9i. Click **Prices** on the free tier.
+   *Expect:* before any amount is typed, the form says this is the one tier nobody can buy, that it is the
+   tier every new account is provisioned onto, and that its code becomes permanent. **It still lets you do
+   it** — an operator may genuinely want to start charging for what was free, and refusing would force a
+   default-tier swap that hands new accounts a paid tier for nothing while it happens. Add a price, then
+   reopen **Edit**: the name field is display text again and the code is fixed.
 10. Reprice: in Stripe, create a **new** Price tagged with an existing tier's code.
    *Expect:* the tier repoints, the plan cards show the new amount, and anybody already subscribed keeps
    paying the old one — which is Stripe's immutability, not a bug. Force a failed payment on one of them and
@@ -536,3 +560,54 @@ number.
 **What this does not check:** that `upTo` holds against a caller who ignores it. It cannot — `authorize` sees
 one ad at a time and has nothing to count a batch with, which ADR-0025 records as a consequence rather than a
 gap to close.
+
+
+## After Go-Live · I can delete a plan (T77)
+
+**Proves:** a tier deleted here is deleted in Stripe too, that a deleted tier does not come back, that nobody
+is left paying for a plan that no longer exists, and that an emptied catalog says something true rather than
+"something went wrong".
+[ADR-0032](adr/0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md).
+
+> ⚠️ Steps 4 and 5 **cancel a real test-mode subscription** and leave an account on a different plan. A
+> throwaway test-mode customer, and a tier you are content to lose.
+
+> Needs `MPRELIST_STRIPE_SECRET_KEY` and a running `stripe listen` (see slice C). Without the key the rows
+> queue and drain nothing, which is step 7's case rather than a failure.
+
+1. In `/admin`, create a plan — **New plan**, any name, one rhythm — and press **Delete** in its row.
+   *Expect:* the panel says **"Nobody is on this tier, so nobody moves"** and asks for nothing — one click on
+   *Delete <name>* and it is gone. The warning is never skipped; the *typing* is what the consequence buys,
+   and there is none to buy here.
+2. Look at the Stripe dashboard, *Products*, with archived shown.
+   *Expect:* within a minute the Prices are **archived**, their `metadata.tier_code` is **gone**, and the
+   Product is archived too. The tag is the half that matters: archiving alone fires a `price.updated` that
+   still names the tier.
+3. Now edit one of those archived Prices in the Stripe dashboard — change its nickname and save.
+   *Expect:* the tier **does not come back** in `/admin`. Before this ticket it would have: `price.updated`
+   reaches the sync exactly like `price.created`, and the tag is what it adopts on. Check the API log for the
+   `is not a plan, so nothing was adopted` line.
+4. Put a test-mode subscriber on a paid tier (buy it from the extension with card `4242…`), then delete that
+   tier in `/admin`.
+   *Expect:* the confirmation panel opens and **names the numbers** — how many subscribers move and where,
+   and that **1 live Stripe subscription will be cancelled**. The Delete button stays locked until you type
+   the tier's name.
+5. Confirm it, then look at that customer in Stripe and at the extension popup for that account.
+   *Expect:* the subscription is **cancelled** in Stripe within a minute, and the popup shows the **default
+   tier** immediately — not at the end of the period they paid for. That loss is by design and is what the
+   panel said out loud; a refund is yours to issue in Stripe.
+6. Delete every tier, one at a time, ending with the default one. Then open the extension popup.
+   *Expect:* `/admin` says **there are no tiers** and that nobody can repost. The popup draws a screen saying
+   the plan is gone and that **retrying will not help** — not "unavailable, try again". Sign in as somebody
+   new while the catalog is empty: they are provisioned rather than refused, and get the same screen.
+7. Create a plan and press **Make default**.
+   *Expect:* every account, including the one from step 6 that never signed in again, is on it the moment the
+   button answers — the popup shows the new plan on its next open with no other action taken.
+8. **The stuck-row case.** Unset `MPRELIST_STRIPE_SECRET_KEY`, restart the API, and delete a tier that has
+   Prices.
+   *Expect:* the catalog is right at once, the API logs `no Stripe API key is configured, so nothing can be
+   torn down`, and `select * from stripe_cleanup where done_at is null` has the rows. Creating a plan under
+   that same code is refused by the sync until they drain — put the key back, restart, and watch them clear.
+
+**What this does not check:** that a tier with thousands of subscribers drains in a sensible time. That is
+ADR-0032's own "revisit if", and the point at which the confirmation's promise outruns what the job can do.

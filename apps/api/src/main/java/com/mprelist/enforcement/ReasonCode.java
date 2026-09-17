@@ -1,4 +1,4 @@
-package com.mprelist.enforcement.internal;
+package com.mprelist.enforcement;
 
 import org.springframework.http.HttpStatus;
 
@@ -10,9 +10,18 @@ import org.springframework.http.HttpStatus;
  * <p>The mapping lives on the code rather than at the point of refusal, so that "quota exhausted is a 429" is
  * stated once. Nothing else in this application decides a denial's status.
  *
- * <p>Four of the contract's five are here. {@code UNAUTHENTICATED} is {@code identity}'s — it is answered by
+ * <p>Five of the contract's six are here. {@code UNAUTHENTICATED} is {@code identity}'s — it is answered by
  * the filter chain before any route is reached, which is what makes it true of routes no ticket has written
  * yet (#19).
+ *
+ * <p><strong>Public since T77, and it was in {@code internal} until then</strong>
+ * (<a href="../../../../../../../docs/adr/0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md">ADR-0032</a>).
+ * Every code here used to be sent by one module, on the two routes the gate owns, so the enum could be as
+ * private as the decision it belongs to. {@link #NO_TIER} is the first that travels on somebody else's route:
+ * it is answered by {@code GET /api/me} as well as by {@code /authorize}, and that second half is the whole
+ * reason it exists as a code rather than as a {@code 503}. Publishing the enum is what keeps the vocabulary
+ * single-sourced — {@code packages/contracts} holds its own list to this file, and a second spelling of
+ * {@code "NO_TIER"} in {@code display} would be a string nothing compares to anything.
  *
  * <p>{@link #BULK_NOT_ENTITLED} was declared here, in the contract and in {@code packages/contracts} before
  * anything could send it, so that no installed build would meet a code it had never heard of and render it as
@@ -20,7 +29,7 @@ import org.springframework.http.HttpStatus;
  * {@code /authorize} accepts the {@code batch} flag that is refused with it, and the ordering has paid for
  * itself: the clients that shipped before this deploy already know what it means.
  */
-enum ReasonCode {
+public enum ReasonCode {
 
 	/**
 	 * A payer whose subscription lapsed, and only ever that. Every user always has a subscription and a free
@@ -73,9 +82,41 @@ enum ReasonCode {
 	 * user, one of whom needs a bigger plan and the other of whom needs a minute. Which is exactly why the
 	 * contract's denials carry a typed code at all.
 	 */
-	RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS);
+	RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS),
 
-	HttpStatus status() {
+	/**
+	 * The caller's subscription names no tier, so there is nothing to read a plan, a grant or a reset date out
+	 * of (T77, ADR-0032).
+	 *
+	 * <p>Reachable exactly one way: an operator deleted the tier this person was on and the catalog had no
+	 * default to move them to — the default tier itself, or the last tier there is. Their subscription row
+	 * survives, with their {@code stripe_customer_id} and the anchor every future window is rolled from, and
+	 * one {@code PUT /api/admin/tiers/{code}/default} adopts them and everybody like them at once.
+	 *
+	 * <p><strong>Checked above the subscription status, and that ordering is the contract's.</strong> Every
+	 * check below it reads the tier — the quota is the tier's grant, {@code bulk} is one of its flags — so
+	 * there is nothing for them to read and no honest answer for them to give. Status is the interesting one:
+	 * a mirrored status is still perfectly true of a tier-less subscriber, and answering
+	 * {@link #SUBSCRIPTION_INACTIVE} would tell somebody their card is failing when what happened is that
+	 * their plan was deleted. That is the one denial in this contract that would point at the wrong person.
+	 *
+	 * <p><strong>{@code 403} and not a {@code 503}</strong>, which was argued and is the cost this code was
+	 * added to pay. The empty-bodied {@code 503} {@code GET /api/plans} answers when Stripe cannot be reached
+	 * is the nearest precedent — the rule being that the codes are statements about the <em>user</em> and that
+	 * one is about our ability to answer at all — and an emptied catalog arguably qualifies. It was rejected
+	 * because the sentence a client renders for a {@code 503} is "unavailable, retry", and no retry fixes
+	 * this: an operator may sit in an emptied catalog deliberately. It carries no field for
+	 * {@link #BULK_NOT_ENTITLED}'s reason, and a stronger one — what to do about it is not the user's to do.
+	 *
+	 * <p><strong>And it is {@code NO_TIER} rather than {@code NO_PLAN}.</strong> ADR-0019 split those two
+	 * words and {@code docs/glossary.md} keeps them apart: a Plan is a Tier joined with its Stripe Prices, so
+	 * a free user has a Tier and has never had a Plan — {@code NO_PLAN} would be true of them on a good day.
+	 * {@code TIER_WITHDRAWN} was the other candidate and would have been the one code here describing an
+	 * event rather than a condition.
+	 */
+	NO_TIER(HttpStatus.FORBIDDEN);
+
+	public HttpStatus status() {
 		return this.status;
 	}
 

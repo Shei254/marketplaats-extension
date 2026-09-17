@@ -154,6 +154,37 @@ describe("a build the backend has stopped serving", () => {
   });
 });
 
+describe("an account on no tier at all", () => {
+  it("is its own answer, read from the code the denial carries", async () => {
+    // T77 (ADR-0032). The tier this user was on was deleted and the catalog had no
+    // default to move them to, which is a state rather than a failure — and read by
+    // the *code*, because that is the contract's rule and the difference between
+    // this and the two answers around it.
+    const { client } = api({ answer: () => json({ reason: "NO_TIER" }, 403) });
+
+    await expect(client.displayState()).resolves.toEqual({ status: "no-tier" });
+  });
+
+  it("and not `unavailable`, which is the sentence the code exists to stop", async () => {
+    // Every other non-200 here is "unavailable, retry", and that is false in both
+    // halves: nothing is down, and no retry changes the answer. That falsehood is
+    // the cost the ADR accepts for builds installed before this one, and the whole
+    // reason the code was added rather than reusing the 503 `/api/plans` answers.
+    const { client } = api({ answer: () => json({ reason: "NO_TIER" }, 403) });
+
+    await expect(client.displayState()).resolves.not.toEqual({ status: "unavailable" });
+  });
+
+  it("while a 403 that is not a denial this build knows is unavailable", async () => {
+    // Fail-closed, and the honest answer to a backend saying something this build
+    // has never heard of. Telling somebody their plan was deleted on the strength
+    // of a status alone would be inventing a cause for a refusal.
+    const { client } = api({ answer: () => new Response("not json at all", { status: 403 }) });
+
+    await expect(client.displayState()).resolves.toEqual({ status: "unavailable" });
+  });
+});
+
 describe("the body", () => {
   it("is read whole, and keeps what the tier is called as well as its code", () => {
     // Both spellings travel because branding a plan by a name an operator may

@@ -44,6 +44,28 @@ import com.mprelist.subscription.QuotaPeriod;
 public record RemainingQuota(Integer quotaRemaining, OffsetDateTime resetAt) {
 
 	/**
+	 * What a subscription naming no tier has left, which is nothing (T77, ADR-0032).
+	 *
+	 * <p><strong>Zero rather than {@code null}, and the distinction is the whole of ADR-0029.</strong>
+	 * {@code null} is a grant with no ceiling; this is a subscriber with no grant, because the tier their
+	 * entitlement was read from was deleted and there was no default to move them to. Zero is also what
+	 * {@link #isSpent()} needs it to be — they may not relist, and the gate says so with {@code NO_TIER}
+	 * before this number is ever reached.
+	 *
+	 * <p><strong>It exists for exactly one caller.</strong> The gate and {@code /api/me} both refuse a
+	 * tier-less subscription above the point they would ask for this; {@code /complete} does not refuse
+	 * anything at all, on purpose — a report is the only account of what happened on Marktplaats, and the
+	 * person whose plan was deleted mid-relist is still its only witness. So the report lands, the reservation
+	 * resolves, and the answer is the honest one rather than an exception thrown at somebody reporting news.
+	 *
+	 * @param period the window, whose {@code end} is still the {@code resetAt} answered with — it is the
+	 * subscription's own and has nothing to do with the tier that went
+	 */
+	public static RemainingQuota nothingToSpend(QuotaPeriod period) {
+		return new RemainingQuota(0, period.end());
+	}
+
+	/**
 	 * What is left of a tier's grant after the units a period is already holding.
 	 *
 	 * <p><strong>An unlimited tier has nothing to subtract from</strong> (ADR-0029), so the answer is

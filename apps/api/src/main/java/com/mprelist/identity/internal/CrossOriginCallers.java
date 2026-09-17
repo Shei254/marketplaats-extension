@@ -64,15 +64,16 @@ class CrossOriginCallers {
 			@Value("${mprelist.cors.allowed-origins}") List<String> origins) {
 		CorsConfiguration allowed = new CorsConfiguration();
 		allowed.setAllowedOrigins(origins);
-		// The three this API answers. `PUT` arrived with the admin catalog (T53, #84) and is exactly as
-		// load-bearing as the other two: a method a preflight does not allow makes the browser abandon the
-		// call, so an operator's every save would fail with nothing in this application's log to show for it.
-		// There is no `DELETE`, because nothing here deletes — a tier is retired by unpublishing it.
+		// The four this API answers. `PUT` arrived with the admin catalog (T53, #84) and `DELETE` with T77
+		// (ADR-0032), and each is exactly as load-bearing as `GET`: a method a preflight does not allow makes
+		// the browser abandon the call, so an operator's save — or their delete — would fail with nothing in
+		// this application's log to show for it. This line said "there is no DELETE, because nothing here
+		// deletes — a tier is retired by unpublishing it", which was true until every tier became deletable.
 		//
 		// `OPTIONS` is not among them and does not need to be: a preflight is answered by the filter this
 		// configures rather than routed, and what it is checked against is the method the caller says it is
 		// preparing to send.
-		allowed.setAllowedMethods(List.of("GET", "POST", "PUT"));
+		allowed.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE"));
 		// `Authorization` is never a safelisted header and `Content-Type: application/json` is not one
 		// either, so every call this API takes is preflighted and both have to be named here.
 		//

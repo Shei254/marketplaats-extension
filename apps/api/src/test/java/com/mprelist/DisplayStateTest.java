@@ -302,6 +302,52 @@ class DisplayStateTest {
 	}
 
 	/**
+	 * The one denial this route has, and the whole reason {@code NO_TIER} is a code rather than a {@code 503}
+	 * (T77, ADR-0032).
+	 *
+	 * <p>A subscription naming no tier has no name, no grant and no {@code resetAt} to render — every field of
+	 * the body above {@code subscriptionStatus} would have to be invented. So it is refused, in the denial
+	 * shape the contract fixes: the code, and nothing else, because what to do about this is not the user's to
+	 * do.
+	 *
+	 * <p><strong>Answered <em>here</em> is the half that matters.</strong> {@code display-state.ts} maps every
+	 * non-{@code 200} to "unavailable" bar {@code 401} and {@code 426}, so a denial sent only to
+	 * {@code /authorize} would be read by nobody: the popup says "unavailable, retry" first and the user never
+	 * presses the button that had the honest answer behind it.
+	 */
+	@Test
+	void aSubscriptionNamingNoTierIsDeniedRatherThanShownAPlanWithHolesInIt() {
+		Subscriber user = aSubscriberEntitledTo(3);
+		this.rows.hasNoTier(user);
+
+		HttpResponse<String> refused = displayStateOf(user);
+
+		assertThat(refused.statusCode()).isEqualTo(403);
+		JsonNode denial = Json.of(refused);
+		assertThat(denial.get("reason").asString()).isEqualTo("NO_TIER");
+		// The code and nothing else. A `resetAt` here would invite a client to render a date out of a refusal
+		// that has none, which is the rule every denial in this contract keeps.
+		assertThat(denial.propertyNames()).containsExactly("reason");
+	}
+
+	/**
+	 * And it is refused <strong>above</strong> the status, which is what keeps the denial pointing at the
+	 * right person.
+	 *
+	 * <p>A mirrored status is still perfectly true of somebody whose tier was deleted, so a lapsed payer in
+	 * that state would otherwise be told their card is failing — the one denial in this contract that would
+	 * name a problem the user could go and fix and be wrong about it.
+	 */
+	@Test
+	void andTheDenialIsAboutTheMissingTierRatherThanAboutAStatusThatIsStillTrue() {
+		Subscriber user = aSubscriberEntitledTo(3);
+		this.rows.statusIs(user, "past_due");
+		this.rows.hasNoTier(user);
+
+		assertThat(Json.of(displayStateOf(user)).get("reason").asString()).isEqualTo("NO_TIER");
+	}
+
+	/**
 	 * The tier is sent in both of its spellings, and the test is what an operator's rename does to each: the
 	 * display name follows the edit and the code does not. That is the pair's whole reason for existing — a
 	 * client branding a plan reads {@code code}, a client rendering one reads {@code name}, and neither ends

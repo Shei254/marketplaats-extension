@@ -13,6 +13,8 @@ const PRO: AdminTier = {
   published: true,
   isDefault: false,
   prices: [{ stripePriceId: "price_pro", interval: "month" }],
+  subscribers: 0,
+  payingSubscribers: 0,
 };
 
 interface Call {
@@ -123,11 +125,20 @@ describe("reading a tier off the wire", () => {
 });
 
 describe("saving a tier", () => {
-  const EDIT = { name: "Pro", relistQuotaPerPeriod: 75, features: {}, published: true };
+  const EDIT = {
+    code: "pro",
+    name: "Pro",
+    relistQuotaPerPeriod: 75,
+    features: {},
+    published: true,
+  };
 
-  it("puts the whole editable half, and never the code or the price", async () => {
+  it("puts the whole editable half, and never the price", async () => {
     // The `PUT` is total over what may change, and what may not is the decision
     // (ADR-0019): the amount is Stripe's, and the tag on the Price is the only link.
+    // `code` joined it in T76 (ADR-0031) and is stated like everything else — on
+    // this row it is the one already stored, which is how an edit says it is not
+    // moving it.
     const { client, calls } = api(() => json(PRO));
 
     await expect(client.save("pro", EDIT)).resolves.toEqual({ status: "saved", tier: PRO });
@@ -135,6 +146,7 @@ describe("saving a tier", () => {
     expect(calls[0]?.url).toBe("http://localhost:8080/api/admin/tiers/pro");
     const sent = JSON.parse(calls[0]?.body ?? "{}") as Record<string, unknown>;
     expect(Object.keys(sent).sort()).toEqual([
+      "code",
       "features",
       "name",
       "published",
@@ -142,11 +154,12 @@ describe("saving a tier", () => {
     ]);
   });
 
-  it("reads a 409 as a tier with nothing to charge against", async () => {
-    // The one way this route conflicts, and the way out is Stripe's.
+  it("reads a 409 as a catalog that cannot hold the tier as described", async () => {
+    // One status for four facts since ADR-0031 — no Price, no grant, a frozen code
+    // or a taken one — because they are one recovery to the only caller.
     const { client } = api(() => empty(409));
 
-    await expect(client.save("pro", EDIT)).resolves.toEqual({ status: "unsellable" });
+    await expect(client.save("pro", EDIT)).resolves.toEqual({ status: "conflicted" });
   });
 
   it("and a 404 as a code the catalog no longer stores", async () => {
@@ -186,6 +199,36 @@ describe("moving the default", () => {
   });
 });
 
+describe("deleting a tier", () => {
+  it("sends a DELETE and reads the whole catalog back", async () => {
+    // The catalog rather than the row (T77, ADR-0032): a delete removes a row, can
+    // move the default badge to nowhere, and can empty the list. A screen that
+    // removed one row and hoped would be holding a default flag that is gone.
+    const { client, calls } = api(() => json({ tiers: [PRO] }));
+
+    await expect(client.remove("free")).resolves.toEqual({ status: "deleted", tiers: [PRO] });
+    expect(calls[0]?.method).toBe("DELETE");
+    expect(calls[0]?.url).toBe("http://localhost:8080/api/admin/tiers/free");
+    expect(calls[0]?.body).toBeUndefined();
+  });
+
+  it("reads an emptied catalog as an answer rather than as a failure", async () => {
+    // The state the whole ADR is about. A reader that refused an empty list would
+    // blank the one screen an operator needs to get out of it.
+    const { client } = api(() => json({ tiers: [] }));
+
+    await expect(client.remove("free")).resolves.toEqual({ status: "deleted", tiers: [] });
+  });
+
+  it("has one refusal, and it can only mean the row was already gone", async () => {
+    // Every tier is deletable, so there is no state of the catalog the API declines
+    // to produce — which leaves a `404` with exactly one reading.
+    const { client } = api(() => new Response(null, { status: 404 }));
+
+    await expect(client.remove("free")).resolves.toEqual({ status: "gone" });
+  });
+});
+
 describe("setting the order the plans are read in", () => {
   const FREE: AdminTier = {
     tier: { code: "free", name: "Free" },
@@ -194,6 +237,8 @@ describe("setting the order the plans are read in", () => {
     published: false,
     isDefault: true,
     prices: [],
+    subscribers: 0,
+    payingSubscribers: 0,
   };
 
   it("puts the whole catalog, by code, in one request", async () => {
@@ -210,7 +255,7 @@ describe("setting the order the plans are read in", () => {
     expect(calls[0]?.body).toBe('{"codes":["pro","free"]}');
   });
 
-  it("reads a 409 as a stale screen rather than as an unsellable tier", async () => {
+  it("reads a 409 as a stale screen rather than as a tier the catalog cannot hold", async () => {
     // The same status the edit route answers, meaning something else entirely:
     // here the list was not the catalog's set, because a tier arrived or left
     // while the page was open. Folding the two together would put the edit form's

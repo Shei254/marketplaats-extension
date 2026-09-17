@@ -23,17 +23,19 @@ com.mprelist
 │   └── internal/                 ◀ the resource server, the account row, and the client-version gate
 ├── catalog/        public: TierId, TierName, TierPrice, TierCatalog, Entitlement,
 │   │                       CatalogEntry, SellablePlan, TierEdit, TierEdits, TierEdited,
-│   │                       Adoption, PriceAdoptions, TaggedPrice
-│   └── internal/                 ◀ the tier table, through JdbcClient
+│   │                       Adoption, PriceAdoptions, TaggedPrice, TierTeardown,
+│   │                       StripeCleanup, OutstandingCleanup
+│   └── internal/                 ◀ the tier table and the tear-down queue, through JdbcClient
 ├── subscription/   public: SubscriptionStatus, Subscription, QuotaPeriod, Subscriptions,
-│   │                       SubscriptionMirror, SubscriberOnStripe, Mirroring
+│   │                       SubscriptionMirror, SubscriberOnStripe, Mirroring,
+│   │                       TierSubscribers, SubscriberCount
 │   └── internal/                 ◀ the table, through JdbcClient, and provisioning on first sign-in
 ├── billing/        public: StripePrices, StripePrice, StripePaymentMethods, StripePlans,
 │   │                       NewPlanInStripe, PlanRhythm, PlanCreation, StripeAccountFacts,
 │   │                       UnadoptedPrices, UntaggedPrice
 │   └── internal/                 ◀ the Stripe client and its caches, and the three routes
 │                                   /api/checkout, /api/portal, /api/stripe/webhook
-├── enforcement/    public: /authorize, /complete, Quotas, RemainingQuota
+├── enforcement/    public: /authorize, /complete, Quotas, RemainingQuota, ReasonCode
 │   └── internal/                 ◀ the tables, and the decision itself
 ├── display/        public: /api/me, /api/plans
 │   └── internal/                 ◀ the snapshots, composed from the modules above

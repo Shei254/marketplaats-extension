@@ -28,6 +28,8 @@ const PRO: AdminTier = {
   published: true,
   isDefault: false,
   prices: [{ stripePriceId: "price_pro", interval: "month" }],
+  subscribers: 0,
+  payingSubscribers: 0,
 };
 
 const FREE: AdminTier = {
@@ -37,6 +39,9 @@ const FREE: AdminTier = {
   published: false,
   isDefault: true,
   prices: [],
+  // The default tier, with people on it and nobody paying — every free tier (T77).
+  subscribers: 12,
+  payingSubscribers: 0,
 };
 
 const DRAFT: AdminTier = {
@@ -46,6 +51,8 @@ const DRAFT: AdminTier = {
   published: false,
   isDefault: false,
   prices: [{ stripePriceId: "price_starter", interval: "month" }],
+  subscribers: 0,
+  payingSubscribers: 0,
 };
 
 /** A tier with no repost cap (T73, ADR-0029) — the third thing a quota can say. */
@@ -56,6 +63,8 @@ const UNLIMITED: AdminTier = {
   published: true,
   isDefault: false,
   prices: [{ stripePriceId: "price_power", interval: "month" }],
+  subscribers: 0,
+  payingSubscribers: 0,
 };
 
 /** A Price in Stripe carrying no `tier_code`, which is what the second page lists. */
@@ -74,6 +83,7 @@ interface Backend {
   prices?: () => Response;
   write?: () => Response;
   order?: () => Response;
+  remove?: () => Response;
   currency?: () => Response;
   create?: () => Response;
   addPrice?: () => Response;
@@ -90,6 +100,9 @@ function stack(backend: Backend = {}) {
         : json({ access_token: tokenFor(backend.roles ?? ["ADMIN"]) });
     }
     if (url.endsWith("/api/admin/tiers")) return (backend.tiers ?? (() => json({ tiers: [FREE, PRO] })))();
+    if ((init?.method ?? "GET") === "DELETE") {
+      return (backend.remove ?? (() => json({ tiers: [FREE] })))();
+    }
     if (url.endsWith("/api/admin/tiers/order")) {
       return (backend.order ?? (() => json({ tiers: [PRO, FREE] })))();
     }
@@ -535,7 +548,16 @@ describe("editing a tier", () => {
     const sent = JSON.parse(put?.body ?? "{}") as Record<string, unknown>;
     // Quota 0 on the default tier is how ADR-0019 says "there is no free tier".
     expect(sent["relistQuotaPerPeriod"]).toBe(0);
-    expect(Object.keys(sent).sort()).toEqual(["features", "name", "published", "relistQuotaPerPeriod"]);
+    // `code` among them since T76 (ADR-0031): a whole `PUT` says "not moving it" by
+    // sending back the code it was given, which is what this row does.
+    expect(Object.keys(sent).sort()).toEqual([
+      "code",
+      "features",
+      "name",
+      "published",
+      "relistQuotaPerPeriod",
+    ]);
+    expect(sent["code"]).toBe("free");
   });
 
   it("refuses a blank quota rather than reading it as zero", async () => {
@@ -549,7 +571,11 @@ describe("editing a tier", () => {
     await type("#tier-quota", "");
     await click("Save");
 
-    expect(text()).toContain("Relists per period");
+    // The whole sentence, not just the field name: this is the one string on the
+    // screen only ever read by somebody who has already got something wrong, and
+    // the worst moment to meet a second word for the field they are looking at
+    // (T74, #161).
+    expect(text()).toContain("Reposts per period has to be");
     expect(s.calls.some((call) => call.method === "PUT")).toBe(false);
   });
 
@@ -575,7 +601,13 @@ describe("editing a tier", () => {
       // write side of ADR-0029 rests on.
       const sent = sentEdit(s);
       expect(sent["relistQuotaPerPeriod"]).toBeNull();
-      expect(Object.keys(sent).sort()).toEqual(["features", "name", "published", "relistQuotaPerPeriod"]);
+      expect(Object.keys(sent).sort()).toEqual([
+        "code",
+        "features",
+        "name",
+        "published",
+        "relistQuotaPerPeriod",
+      ]);
     });
 
     it("and greys the number, because there is no longer a number to type", async () => {
@@ -695,9 +727,122 @@ describe("editing a tier", () => {
     await arrive(s);
     await click("Edit");
     await click("Save");
-    await until(() => text().includes("cannot go on sale"), "the API's refusal to be reported");
+    await until(() => text().includes("cannot hold that tier"), "the API's refusal to be reported");
 
-    expect(text()).toContain("cannot go on sale");
+    // One status for four facts since ADR-0031, and the form names all four: the
+    // API sends no `reason`, and the recovery is the same for every one of them.
+    expect(text()).toContain("no Stripe Price");
+    expect(text()).toContain("a Price has frozen");
+  });
+
+  /**
+   * The free tier is the one with no Stripe Price (T76, ADR-0031), and the code is
+   * the field an operator could not set until now. `FREE` is priceless here, which
+   * is what makes it the row these are about — nothing is flagged.
+   */
+  describe("and renaming the one tier no Price has frozen (T76, ADR-0031)", () => {
+    it("files it under the new name, because nothing holds a second copy of the code", async () => {
+      const s = stack();
+
+      await arrive(s);
+      await click("Edit");
+      await type("#tier-name", "Gratis");
+      await click("Save");
+      await until(() => s.calls.some((call) => call.method === "PUT"), "the save to reach the API");
+
+      // Addressed by where it is, and filed under where it is going.
+      expect(sentEdit(s)["code"]).toBe("gratis");
+      expect(s.calls.find((call) => call.method === "PUT")?.url).toContain("/tiers/free");
+    });
+
+    it("prints the code while it is being typed, because the rename is not cosmetic here", async () => {
+      // Derived is not the same as secret, and it is least secret in the moment it
+      // changes: this is the one row where a label edit moves `/api/me`'s payload.
+      const s = stack();
+
+      await arrive(s);
+      await click("Edit");
+      await type("#tier-name", "Zakelijk Groeiën");
+
+      expect(text()).toContain("zakelijk-groeien");
+    });
+
+    it("and says what moving it does, rather than letting it happen quietly", async () => {
+      const s = stack();
+
+      await arrive(s);
+      await click("Edit");
+      await type("#tier-name", "Gratis");
+
+      expect(text()).toContain("Nobody moves");
+    });
+
+    it("refuses a name another tier is already filed under, without a round trip", async () => {
+      // "Pro" derives `pro`, which the catalog holds. Said here because the screen
+      // is holding every tier and the API's `409` carries no `reason` to tell the
+      // four things it means apart.
+      const s = stack();
+
+      await arrive(s);
+      await click("Edit");
+      await type("#tier-name", "Pro");
+      await click("Save");
+
+      expect(text()).toContain("Pro already uses");
+      expect(s.calls.some((call) => call.method === "PUT")).toBe(false);
+    });
+
+    it("refuses the one name whose code this screen could never open again", async () => {
+      // `PUT /api/admin/tiers/order` is the Catalog order's route and Spring prefers
+      // the literal, so a tier filed under `order` is uneditable — including to undo
+      // it. Unreachable until a *name* could derive a code.
+      const s = stack();
+
+      await arrive(s);
+      await click("Edit");
+      await type("#tier-name", "Order");
+      await click("Save");
+
+      expect(text()).toContain("could never open again");
+      expect(s.calls.some((call) => call.method === "PUT")).toBe(false);
+    });
+
+    it("refuses a name with nothing in it to make a code from", async () => {
+      const s = stack();
+
+      await arrive(s);
+      await click("Edit");
+      await type("#tier-name", "!!!");
+      await click("Save");
+
+      expect(text()).toContain("a letter or a digit");
+      expect(s.calls.some((call) => call.method === "PUT")).toBe(false);
+    });
+
+    it("but leaves the code alone on a tier a Price has frozen, and sends it back unchanged", async () => {
+      // Stripe holds the code as `metadata.tier_code` and the sync finds the tier by
+      // it, so renaming underneath would split one tier in two on the next
+      // `price.updated`. `PRO` has a price; the field is display text again.
+      const s = stack({ tiers: () => json({ tiers: [PRO] }) });
+
+      await arrive(s);
+      await click("Edit");
+      await type("#tier-name", "Pro Plus");
+      await click("Save");
+      await until(() => s.calls.some((call) => call.method === "PUT"), "the save to reach the API");
+
+      expect(sentEdit(s)["code"]).toBe("pro");
+      expect(sentEdit(s)["name"]).toBe("Pro Plus");
+    });
+
+    it("and says so on the row, rather than leaving the operator to find out", async () => {
+      const s = stack({ tiers: () => json({ tiers: [PRO] }) });
+
+      await arrive(s);
+      await click("Edit");
+
+      expect(text()).toContain("it stays there");
+    });
   });
 
   it("refuses flags that are not a JSON object, rather than sending them", async () => {
@@ -887,6 +1032,171 @@ describe("moving the default", () => {
     const put = s.calls.find((call) => call.method === "PUT");
     expect(put?.url).toBe("http://localhost:8080/api/admin/tiers/pro/default");
     expect(put?.body).toBeUndefined();
+  });
+});
+
+describe("deleting a tier", () => {
+  it("is offered on every row, including the default one and the last one", async () => {
+    // Every tier is deletable (T77, ADR-0032). The narrower designs — refuse the
+    // default, soft-delete behind a flag — are rejected in the ADR on the same
+    // point: they make an operator's own catalog something the data model has an
+    // opinion about.
+    const s = stack();
+
+    await arrive(s);
+
+    expect([...container.querySelectorAll("button")].filter(
+      (candidate) => candidate.textContent?.trim() === "Delete",
+    )).toHaveLength(2);
+  });
+
+  it("always says what it is about to cost before it does anything", async () => {
+    // "A quantified warning always" (ADR-0032). The panel is never skipped, because
+    // an operator should not learn what a delete costs by having already done it.
+    const s = stack();
+
+    await arrive(s);
+    await clickInRowFor("pro", "Delete");
+
+    expect(text()).toContain("Deleting Pro");
+    expect(s.calls.some((call) => call.method === "DELETE")).toBe(false);
+  });
+
+  it("and goes on one click where nobody is on the tier and nobody pays for it", async () => {
+    // A draft the sync invented, or a plan created thirty seconds ago — the friction
+    // T61 existed to remove. The panel says there is nothing to lose and asks for
+    // nothing: the escalation is the typed name, and it is not owed here.
+    const s = stack();
+
+    await arrive(s);
+    await clickInRowFor("pro", "Delete");
+
+    expect(text()).toContain("Nobody is on this tier");
+    expect(button("Delete Pro").disabled).toBe(false);
+
+    await click("Delete Pro");
+    await until(() => s.calls.some((call) => call.method === "DELETE"), "the delete to reach the API");
+
+    expect(s.calls.find((call) => call.method === "DELETE")?.url).toBe(
+      "http://localhost:8080/api/admin/tiers/pro",
+    );
+  });
+
+  it("and says where subscribers move, and how many", async () => {
+    // Quantified rather than generic: "are you sure?" is a sentence somebody clicks
+    // through, and "12 subscribers move to Free" is one they read. FREE has twelve
+    // people on it and nobody paying.
+    const s = stack();
+
+    await arrive(s);
+    await clickInRowFor("free", "Delete");
+
+    expect(text()).toContain("Deleting Free");
+    expect(text()).toContain("12 subscribers");
+    expect(s.calls.some((call) => call.method === "DELETE")).toBe(false);
+  });
+
+  it("and says that this one is the default, so new accounts land on nothing", async () => {
+    const s = stack();
+
+    await arrive(s);
+    await clickInRowFor("free", "Delete");
+
+    expect(text()).toContain("This is the default tier");
+  });
+
+  it("and names where they land, read off the catalog rather than described as a rule", async () => {
+    // The API moves them to whichever tier holds the flag, and this screen is
+    // holding every row — so it can say the name instead of the rule.
+    const s = stack({ tiers: () => json({ tiers: [{ ...FREE, isDefault: true }, { ...PRO, subscribers: 4 }] }) });
+
+    await arrive(s);
+    await clickInRowFor("pro", "Delete");
+
+    expect(text()).toContain("4 subscribers move to Free");
+  });
+
+  it("and warns loudest when there is nowhere for them to land", async () => {
+    // The state `NO_TIER` exists to describe: those accounts are on no plan until an
+    // operator makes a tier the default, at which point every one of them is adopted.
+    const s = stack({ tiers: () => json({ tiers: [{ ...PRO, isDefault: true, subscribers: 4 }] }) });
+
+    await arrive(s);
+    await clickInRowFor("pro", "Delete");
+
+    expect(text()).toContain("left on no tier at all");
+    expect(text()).toContain("This is the last tier in the catalog");
+  });
+
+  it("asks for the tier's name only when live payers will be cancelled", async () => {
+    // Friction tracking consequence. This is the one outcome here that costs
+    // somebody money and cannot be undone from this screen.
+    const s = stack({
+      tiers: () => json({ tiers: [FREE, { ...PRO, subscribers: 9, payingSubscribers: 3 }] }),
+    });
+
+    await arrive(s);
+    await clickInRowFor("pro", "Delete");
+
+    expect(text()).toContain("3 live Stripe subscriptions will be cancelled");
+    expect(button("Delete Pro").disabled).toBe(true);
+    expect(s.calls.some((call) => call.method === "DELETE")).toBe(false);
+  });
+
+  it("and lets it through once the name matches", async () => {
+    const s = stack({
+      tiers: () => json({ tiers: [FREE, { ...PRO, subscribers: 9, payingSubscribers: 3 }] }),
+    });
+
+    await arrive(s);
+    await clickInRowFor("pro", "Delete");
+    await type(".admin-form input", "Pro");
+    await click("Delete Pro");
+    await until(() => s.calls.some((call) => call.method === "DELETE"), "the delete to reach the API");
+
+    expect(s.calls.find((call) => call.method === "DELETE")?.url).toBe(
+      "http://localhost:8080/api/admin/tiers/pro",
+    );
+  });
+
+  it("draws an emptied catalog as the state it is, rather than as a blank table", async () => {
+    // An empty catalog is reachable on purpose and is an outage for every user, so
+    // the screen says so — and says the way out, which is New plan rather than undo.
+    const s = stack({ tiers: () => json({ tiers: [PRO] }), remove: () => json({ tiers: [] }) });
+
+    await arrive(s);
+    await clickInRowFor("pro", "Delete");
+    await click("Delete Pro");
+    await until(() => text().includes("There are no tiers"), "the empty catalog to be drawn");
+
+    expect(text()).toContain("nobody can repost");
+  });
+
+  it("and says out loud when a delete left the catalog with no default", async () => {
+    // The one outcome worth naming after the fact: everybody on that tier, and every
+    // new account, is on no plan until a tier is made the default.
+    const s = stack({
+      tiers: () => json({ tiers: [{ ...FREE, isDefault: true }, PRO] }),
+      remove: () => json({ tiers: [{ ...PRO, isDefault: false }] }),
+    });
+
+    await arrive(s);
+    await clickInRowFor("free", "Delete");
+    await click("Delete Free");
+    await until(() => text().includes("no default tier"), "the note to say what happened");
+
+    expect(text()).toContain("make one the default");
+  });
+
+  it("reloads on a 404, because the catalog this tab holds is wrong about more than the row", async () => {
+    const s = stack({ remove: () => new Response(null, { status: 404 }) });
+
+    await arrive(s);
+    await clickInRowFor("pro", "Delete");
+    await click("Delete Pro");
+    await until(() => text().includes("deleted somewhere else"), "the refusal to be said");
+
+    expect(text()).toContain("reloaded");
   });
 });
 
@@ -1243,7 +1553,11 @@ describe("creating a plan from the screen", () => {
     expect(text()).toContain("Amount must be at least 50 cents");
   });
 
-  it("and says a code is taken rather than repointing the tier that has it", async () => {
+  it("and names every reason the code could be refused, since the status tells them apart", async () => {
+    // One `409`, three facts, no `reason` on the wire — the same bargain the edit
+    // form's refusal makes. The third is T77's (ADR-0032) and is the only one that
+    // clears on its own, which is why it is named rather than folded into "taken":
+    // an operator told "pick another name" would rename a plan they could have had.
     const s = stack({ create: () => new Response(null, { status: 409 }) });
 
     await arrive(s);
@@ -1251,9 +1565,10 @@ describe("creating a plan from the screen", () => {
     await type("#plan-name", "Pro");
     await type("#plan-amount-month", "5.00");
     await click("Create in Stripe");
-    await until(() => text().includes("already uses that code"), "the clash to be reported");
+    await until(() => text().includes("cannot be filed"), "the clash to be reported");
 
-    expect(text()).toContain("Codes are permanent");
+    expect(text()).toContain("another tier already uses the code");
+    expect(text()).toContain("still being removed from Stripe");
   });
 
   it("files a plan under a code made from its name, and shows it while it is typed", async () => {
@@ -1282,6 +1597,24 @@ describe("creating a plan from the screen", () => {
     await click("Create in Stripe");
 
     expect(text()).toContain("needs a letter or a digit");
+    expect(s.calls.some((call) => call.url.endsWith("/api/admin/plans"))).toBe(false);
+  });
+
+  it("and refuses the one name whose plan could never be edited afterwards", async () => {
+    // "Order" derives `order`, and `PUT /api/admin/tiers/order` is the Catalog
+    // order's route (ADR-0031). Creating one is a Stripe Product for a row nothing
+    // can then touch, so it is refused before Stripe is asked for anything.
+    const s = stack();
+
+    await arrive(s);
+    await click("New plan");
+    await type("#plan-name", "Order");
+    await type("#plan-amount-month", "5.00");
+    await click("Create in Stripe");
+
+    // The same sentence the edit form says, because it is the same fact: the
+    // literal is `packages/contracts`' and the wording is one function's.
+    expect(text()).toContain("could never open again");
     expect(s.calls.some((call) => call.url.endsWith("/api/admin/plans"))).toBe(false);
   });
 
@@ -1372,6 +1705,35 @@ describe("a plan sold at more than one rhythm", () => {
     expect(text()).toContain("keeps the price they signed up at");
     expect(text()).toContain("Replace in Stripe");
   });
+
+  /**
+   * Pricing the free tier is the one click that ends its freeness, and it is
+   * allowed (T76, ADR-0031). Refusing it on the `isDefault` row was weighed and
+   * rejected: an operator may genuinely want to start charging for what was free,
+   * and refusing would force them through a default-tier swap that hands new
+   * accounts a paid tier for nothing while it happens.
+   */
+  it("warns before pricing the one tier nobody can buy, and still offers to", async () => {
+    const s = stack();
+
+    await arrive(s);
+    await clickInRowFor("free", "Prices");
+
+    expect(text()).toContain("adding a price ends that");
+    // Both consequences, because they are two different facts about the same row.
+    expect(text()).toContain("every new account is provisioned onto");
+    expect(text()).toContain("becomes permanent");
+    expect(button("Add in Stripe").disabled).toBe(false);
+  });
+
+  it("and says nothing of the sort on a tier that is already sold", async () => {
+    const s = stack();
+
+    await arrive(s);
+    await clickInRowFor("pro", "Prices");
+
+    expect(text()).not.toContain("adding a price ends that");
+  });
 });
 
 
@@ -1437,7 +1799,7 @@ describe("the Stripe prices that carry no tier", () => {
     expect(fold?.querySelector("summary")?.textContent).toContain("One price in Stripe carries");
     // On the catalog rather than instead of it: the list an operator works in is
     // still the page.
-    expect(text()).toContain("Relists");
+    expect(text()).toContain("Reposts");
   });
 
   it("and the list itself is inside that fold, not under the tier table", async () => {
@@ -1506,5 +1868,80 @@ describe("the catalog at a glance", () => {
 
     expect(text()).toContain("Nothing waiting on you");
     expect(container.querySelector(".admin-stat--attention")).toBeNull();
+  });
+});
+
+describe("one word for the thing users press (T74, #161)", () => {
+  /**
+   * Everything `/admin` renders, on the one screen there is.
+   *
+   * Asserted as a sweep rather than field by field because the defect T74 exists
+   * for is a *mixture* — the quota field said "Relists per period" over a hint
+   * that said reposts — and a per-string assertion is exactly what let the two
+   * disagree for four tickets. A panel added later is covered by this the day it
+   * is opened here.
+   */
+  async function everythingOnScreen(): Promise<string> {
+    const s = stack({ tiers: () => json({ tiers: [FREE, PRO, DRAFT, UNLIMITED] }) });
+    let swept = "";
+
+    await arrive(s);
+    swept += text();
+    // New plan first: it is a page action, and an open row panel takes that slot.
+    await click("New plan");
+    swept += text();
+    await clickInRowFor("pro", "Edit");
+    swept += text();
+    await clickInRowFor("pro", "Prices");
+    swept += text();
+    await clickInRowFor("pro", "Delete");
+    swept += text();
+
+    return swept;
+  }
+
+  it("says repost to an operator, everywhere the screen says it at all", async () => {
+    // ADR-0029: users read *repost*, internal identifiers keep *relist*. `/admin`
+    // is a screen, so nothing here is an identifier — and the word an operator
+    // sets a number against has to be the word the subscriber reads under the
+    // button.
+    const swept = await everythingOnScreen();
+
+    // Both halves matter. The negative is the sweep; the positive is what stops
+    // it passing on a screen that failed to render — every panel above draws the
+    // word, so it has to appear once per panel opened rather than merely once.
+    expect(swept.match(/repost/gi)?.length ?? 0).toBeGreaterThanOrEqual(5);
+    expect(swept).not.toMatch(/relist/i);
+  });
+
+  it("and says it on the quota field, whichever form is asking", async () => {
+    // The two forms write the same column and used to label it identically —
+    // which is why they have to move together, and why a rename that reached one
+    // of them would read as a difference between them.
+    const s = stack();
+
+    await arrive(s);
+    await click("New plan");
+    expect(text()).toContain("Reposts per period");
+
+    await clickInRowFor("free", "Edit");
+    expect(text()).toContain("Reposts per period");
+  });
+
+  it("and refuses the New plan form's quota in the same words", async () => {
+    // The sentence is spelled twice, because the two forms parse the quota
+    // separately — so it is the one string here that can come apart, and the
+    // edit form's copy was the only one anything asserted.
+    const s = stack();
+
+    await arrive(s);
+    await click("New plan");
+    await type("#plan-name", "Starter");
+    await type("#plan-amount-month", "5.00");
+    await type("#plan-quota", "");
+    await click("Create in Stripe");
+
+    expect(text()).toContain("Reposts per period has to be");
+    expect(s.calls.some((call) => call.url.endsWith("/api/admin/plans"))).toBe(false);
   });
 });

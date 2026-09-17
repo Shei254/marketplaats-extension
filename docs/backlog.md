@@ -137,9 +137,69 @@ quickly and watch the cooldown. → [script](click-through.md#slice-b--the-gate-
 The idle/busy/done/failed behaviour the POC popup has, including the one-relist-at-a-time lock that stops a
 distracted click fanning out into several deletes.
 
-#### [T32](https://github.com/Shei254/marketplaats-extension/issues/41) · Quota display and locked states · **S** · T17, T30b
+#### [T32](https://github.com/Shei254/marketplaats-extension/issues/41) · Quota display and locked states · **S** · T17, T30b · **shipped**
 Remaining quota and `resetAt` in the header; locked buttons carrying upgrade / update-card / cooldown per the
 reason code, with `retryAfter` rendered as a countdown.
+
+**What locks, decided 2026-09-16.** `AdList`'s `locked` is computed from serialisation, cooldown and
+batch-frozen — quota is not an input — so on a tier granting nothing every Repost button is live, costs a
+round trip to be refused, and shows *"Je hebt je limiet voor herplaatsingen in deze periode bereikt"*: a
+sentence about a limit that was never reached, on a plan where nothing comes back next period. The rule is
+**lock on the grant, never on the remainder**:
+
+- **`relistQuotaPerPeriod === 0`** — the button is disabled, `tone="locked"`, with the row line naming the
+  plan rather than a limit, and `NoRepostsPrompt` already above it offering plans. Safe to lock on because it
+  is a property of the **Tier**: nothing the holder does moves it, only an operator or a purchase.
+- **`quotaRemaining === 0` with a grant above it** — the button **stays live** and the backend refuses. This
+  number goes *up* without the user acting: a `FAILED_BEFORE_DELETE` report refunds its unit and so does
+  **Reconciliation**, so a disabled button here is one a refund has already made wrong until somebody presses
+  Refresh.
+
+This is the **Display state** used for copy and for a control's appearance and never for a decision, which is
+the line [ADR-0007](adr/0007-quota-enforcement.md) draws — `authorize` is still the only thing that grants,
+and it refuses *before* any delete, so a click that gets through costs nothing but a round trip. It is the
+same treatment the bulk checkbox already gets ([ADR-0025](adr/0025-bulk-repost-is-entitled-queued-and-paced-wider.md)):
+*"The free tier sees a control it cannot use, deliberately … the difference between a feature a free user
+knows to want and one they never learn exists."*
+
+**The discriminator is display state, not the denial.** `LockedState`'s `upgrade` carries `resetAt` and a
+zero-grant tier has a real one — the period still rolls, it just rolls to 0 — so the denial payload cannot
+tell the two apart. The row reads `relistQuotaPerPeriod` from `/api/me` to pick the sentence, the way
+`screens.tsx` already does for the strip. Splitting the copy is the same move `LockedState` makes for
+`not-in-plan`: *"`upgrade` means 'you have spent this period's relists', which is a true sentence about a
+different thing, and showing it here would answer a question nobody asked."*
+
+**`click-through.md` step 5 of slice D already asserts the result** — *"every button is locked with an upgrade
+prompt. No error, no failed sign-in"* — so that step is what this ticket makes true, and it failed until now.
+
+**Built as written.** The grant is one boolean handed down to `AdList` — the screen above holds the
+subscription, the list holds the order the ads are in, which is the division `selection.bulk` already keeps —
+and `grantsNothing` is named once in `plans.ts` so the strip, the prompt and the rows cannot spell it three
+ways. `refusalNote` takes it as a second argument and splits `upgrade` on it. Two things the ticket did not
+say, and the code decides: **a row holding a deleted ad keeps its Opnieuw**, which falls out of `locked`
+darkening only an *idle* button: finishing a relist whose delete already ran needs no fresh grant
+(`enforcement-contract.md`), and a lock that took that with it would strand somebody's listing inside the
+extension until they bought a plan. And **the row line is the refusal's, not a line under every row**: the bullet
+above asks for *"the row line naming the plan rather than a limit"*, and the limit sentence being replaced is
+`refusalNote`'s, so that is the one that moved. A locked idle row draws nothing — `NoRepostsPrompt` says it
+once directly above a list that is uniform when this is true, twenty copies of one sentence would be the
+third line per row that stops a 360px list being scannable, and Chrome draws no tooltip on a disabled control
+to hover instead.
+
+**Left alone deliberately:** the bulk cap is still `min(quotaRemaining, upTo)` (T68, ADR-0025), so on a spent
+period the tick boxes do go dead while the Repost buttons stay live. That is not the same question — a cap
+says how many of these may go in one batch, and `describeTick` names which of the two numbers is biting —
+and changing it is a decision about the selection, not about the lock.
+
+**Found, not decided: a failing card is the third case and this ticket did not rule on it.** `AdList`'s
+`locked` does not read `subscriptionStatus`, so on dunning every Repost button is live, the click is refused
+with `update-card`, and only then does the row go dark — the same shape the spent period keeps, and unlike a
+spent period it is not a number that moves on its own. Two reasons it was left: it is a state about Stripe
+rather than about the catalog, and the prompt is already there with the one button that fixes it. What is
+worth saying out loud is the pair — **zeroed tier + failing card**, which ADR-0029 says is reachable — where
+the buttons lock on the grant, the strip reads *"Geen herplaatsingen in dit abonnement"*, and the dunning
+prompt below still offers *"Werk je betaalgegevens bij om weer te kunnen herplaatsen"*, which on that plan
+would not. Pinned by a test so the state is known rather than accidental; the copy is a ticket of its own.
 
 ---
 
@@ -693,7 +753,8 @@ together in the 2026-09-05 grilling and are written down together for that reaso
 feature. T69 came out of the 2026-09-06 session and is the operator's half of what T68 sold. **T70 is the
 2026-09-07 session taking T68's screen back off** for the length of go-live
 ([ADR-0027](adr/0027-the-popup-stops-offering-bulk-repost.md)) — which is why the section reads as a feature
-that shipped, gained an operator control, and currently cannot be reached. **T73 and T74 are the
+that shipped, gained an operator control, and currently cannot be reached. **T77 is the 2026-09-16 deletion session**, which asked for a delete button
+and left with ADR-0014's central invariant narrowed. **T73 and T74 are the
 2026-09-10 session**, which came in asking for a tier with no repost cap and left with a sentinel
 placement ([ADR-0029](adr/0029-unlimited-is-null-and-zero-still-grants-nothing.md)), a publish rule that
 closes a gap nobody had noticed, and the vocabulary defect found underneath the new copy.
@@ -989,7 +1050,7 @@ and on an unlimited tier that read **"5 of Infinity selected"**. Found by review
 **Not walked against real ads.** Everything here is held by the three suites; the click-through scripts move
 with the copy but nobody has driven an unlimited tier through a real Marktplaats account.
 
-#### [T74](https://github.com/Shei254/marketplaats-extension/issues/161) · One word for the thing users press · **S** · T73
+#### [T74](https://github.com/Shei254/marketplaats-extension/issues/161) · One word for the thing users press · **S** · T73 · **shipped**
 The button says **Repost**. The strip above it says **relists**. The admin quota field says both in one field —
 label *"Relists per period"*, hint *"How many reposts a subscriber gets each period."*
 [ADR-0029](adr/0029-unlimited-is-null-and-zero-still-grants-nothing.md) settles it: users read **repost**,
@@ -1005,6 +1066,55 @@ The sweep is `/admin`'s labels, hints and validation messages, the remaining pop
 the prompts. `relistsLeft` is already done by T73. **Prose in ADRs is not touched** — a dated record is not
 rewritten to match how things turned out ([`adr/README.md`](adr/README.md)) — and neither are code comments,
 which are about the identifiers they sit beside.
+
+**Where it landed, and the half the ticket could not have known about.** The English sweep the ticket
+describes was **all `/admin`'s**: the page lede, the `Relists` column, `Relists per period` on both forms, and
+the validation message, which is spelled twice because the two forms parse the quota separately. There was no
+popup or plan-card half left to do. The popup was **translated to Dutch** after this ticket was written, and
+the Dutch had already picked one word — *herplaatsen* — so T73's `relistsLeft` was the last English string a
+user could read there. *(No count is given on purpose. T71 below is the argument for that.)*
+
+**So the ticket's real remainder was in the Dutch**, and it is three strings that had drifted to *"opnieuw
+plaatsen"* — Marktplaats's own name for the act, which the glossary gives to **Relist** and not to this.
+- The row message after a failed repost: *"Je advertentie is verwijderd, maar **opnieuw plaatsen** is mislukt
+  … klik op Opnieuw"*. Two words for one act and then a third reading of the second, in the message a user
+  only ever meets **after their ad has already been deleted**. Now *herplaatsen is mislukt*, in `relisting.ts`
+  and `batching.ts` both.
+- **`describeStop("ad-down")`**, found by the spec review: every other branch of that switch says
+  *herplaatsen* or *herplaatsingen* and this one said *"kon niet opnieuw worden geplaatst"* — the mixture
+  inside a single switch.
+- **The sign-in screen**, which said *"met één klik opnieuw te plaatsen"* four lines above *"het herplaatsen
+  gebeurt in je eigen browsersessie"*. One screen, two words, and it is the first screen anybody sees.
+
+**And the two sentences stopped being two.** They were duplicated verbatim across `relisting.ts` and
+`batching.ts` and agreed only by somebody remembering to keep them agreeing — which is exactly how one of them
+came to say *"opnieuw plaatsen"* while the other said *"herplaatsen"*, so the popup gave the act two names
+depending on whether the ad had been ticked. `AD_UNCHANGED` and `AD_IS_DOWN` are now exported from
+`relisting.ts` and imported by `batching.ts`, which already took `RowState` from it. **A structural change in
+a ticket scoped "copy only", and taken on purpose**: this sweep had just paid the duplication's price — one
+word meant four edits — and a word cannot be *one* word if the sentence carrying it is two. The suites split
+the same way, each fact once: `relisting.test.ts` asserts what the sentences say, `batching.test.ts` asserts
+only that it is saying the same ones, character for character.
+
+**One Dutch string was left alone, deliberately.** The row's hover text still reads *"Verwijder ‘…’ en plaats
+de advertentie opnieuw"* — that sentence exists to say a repost **deletes first** (ADR-0002), which is the one
+thing the button cannot say on its own, and the single verb is precisely what would hide it. Spelling the two
+steps out is not a second name for them, and the glossary now says so rather than leaving the next reader to
+"fix" it.
+
+**Covered as a sweep rather than field by field.** `/admin`'s suite opens every panel that screen has — the
+catalog, New plan, Edit, Prices and Delete — and asserts the whole rendered text says *repost* and never
+*relist*. The defect this ticket is about is a **mixture**, and per-string assertions are what let the label
+and its own hint disagree for four tickets; a panel added later is covered the day it is opened in that sweep.
+The validation message now has **both** of its spellings asserted — the edit form's copy was the only one
+anything checked, which the standards review caught and which is the exact shape of defect this ticket is for.
+
+**Two things outside the stated sweep moved with it**, named here so they are not read as scope creep. Two
+sample strings in `packages/ui`'s own component test read `Relists per period` and `2 of 3 relists left`, the
+second verbatim the string T73 retired; and the root `README.md` quoted that same dead string as live copy.
+Neither is shipped, and both are how a retired spelling comes back — a library's canonical example and the
+first file anybody reads. `README.md`'s *"a Repost button that runs one relist at a time"* **stays**: that one
+is prose about the mechanic, which is exactly what keeps the word.
 
 #### [T75](https://github.com/Shei254/marketplaats-extension/issues/164) · The operator sets the order the plans are read in · **M** · T53, T54, T73 · **shipped**
 The plan cards are ordered `relist_quota_per_period, code` and always have been — cheapest grant first, ties
@@ -1067,6 +1177,166 @@ so in the step itself. What the suite does hold: the buttons (which are the same
 `draggable`, the whole sequence going out as one `PUT`, the snap-back, and the `409`-becomes-reload. The API
 side is `AdminTierTest`'s new section, `BaselineSchemaTest` on the column and the missing `unique`, and
 `PlansTest` on the cards following the catalog.
+
+
+#### T76 · The free tier is one an operator can name · **S** · T53, T54, T73, T75 · **shipped**
+"How is an admin meant to set the free tier" had no answer written down, and working it out found that most
+of one already existed. [ADR-0031](adr/0031-the-free-tier-is-the-one-without-a-price.md) is the decision.
+Name, quota, feature flags and position have been editable since T54; **the code has not**, so every
+deployment calls its free tier `free` because `V2__seed_tier_catalog.sql` said so in August.
+
+**No migration, no column, no constraint.** A tier is free exactly when it has no `tier_price` row — derived,
+like `isDefault` is derived, and for the same reason a `featured` boolean was refused in ADR-0030. "At most
+one free tier" needs nothing enforcing it: `NewPlanInStripe` refuses an empty rhythm list in its constructor
+and the sync adopts a tier *from* a Price, so neither creation path can make a second one.
+
+**`TierEdit` gains `code`**, accepted exactly while `not exists (select 1 from tier_price where tier_id = ?)`.
+Beyond that the code is in Stripe as `metadata.tier_code` and a rename would leave the tier holding Prices
+that name something else — the next `price.updated` would adopt the old code as a fresh draft, splitting the
+tier in two. Retagging the Prices in the same operation was weighed and rejected: a local commit plus N
+Stripe calls half-fails into exactly that split.
+
+**The code is derived from the name, never typed** — `tierCodeFrom` already exists, already normalises, and
+`tier-code.ts`'s "nobody types a tier code any more" stays intact. The cost is accepted and stated in the ADR:
+on this one row, renaming stops being cosmetic. The form prints the derived code while it is being typed, the
+way `NewPlanForm` does.
+
+**Three collisions, refused on the form before submit** — a code the catalog holds, a name deriving to
+nothing, and the reserved literal **`order`**, which `AdministerTiers` currently dismisses with "Nothing
+creates one" and which a *name* can now create. A tier coded `order` is the one row that can never be edited
+again, including to undo it. The API keeps a `409` as the backstop, and its sentence broadens from "this tier
+cannot go on sale as described" to "the catalog cannot hold this tier as described" — still one empty body,
+still one recovery (reload).
+
+**The Prices button on the free tier's row warns and then allows**, naming both consequences: it is the tier
+every new account lands on and every ended subscription falls back to, and adding a price freezes its code
+permanently. Refusing it on the `isDefault` row was weighed and rejected — it would force a default-tier swap
+that hands new accounts a paid tier for free while it happens.
+
+**One comment is corrected because it is already wrong.** `TierEdit`'s "No `code` … a subscription's tier is
+found through it" is false and was when written: `subscription.tier_id` is a uuid and `TierRows` looks the
+tier up by it, reading the code *out* of the row. Nothing finds a tier by code except the admin routes, by
+path.
+
+**Not in it:** a delete route (the free tier has every user on it and `subscription.tier_id` carries no delete
+rule, so it is deletable only before the first sign-in — and deleting the default takes sign-in down), a
+second free tier, grandfathering, any user-to-tier admin route, and `max_marktplaats_accounts`.
+
+**Click-through:** rename the free tier in `/admin` and watch its code follow on the row; reopen the popup and
+see the new name on the plan strip; try naming it after an existing plan and after `order`, and be refused
+without a round trip; add a price to it and read the warning.
+
+**Built as written, with one addition.** The reserved literal is refused by the **API** as well as by both
+forms, in the same `409` and with its reason stated where the collision lives: `AdministerTiers` owns the
+routing table, `TierEdits` knows nothing about one, so the check is on the route rather than in the catalog.
+`POST /api/admin/plans` refuses it too — a plan named "Order" derived it before T76 and would have created a
+Stripe Product for a row nothing could then edit. `AdminTierTest`'s fixture also changed shape: it restored
+the seeded catalog by deleting every row whose code was not one of the three, which was the same statement as
+"restore" only for as long as a code could not move, and would now delete a renamed free tier along with the
+default flag and every later test's sign-in. It reads the three ids once and puts the codes back on them.
+
+
+#### T77 · Every tier is deletable · **L** · T53, T54, T61, T62, T76 · **shipped**
+*No issue filed — this came in as "the admin has no way to delete tiers" and is written down here where every
+other decision is.* [ADR-0032](adr/0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md) carries
+the argument.
+
+The session opened on symmetry — `/admin` creates and cannot delete — which this repo has refused three times
+as a reason to build anything, and the argument that survived is about **T61**: creating a tier is one submit
+now, so a typo, a wrong rhythm or a plan made against the wrong account is a permanent row in a catalog whose
+whole audience is one operator. **T76 ruled a delete route out the same morning and was right about the
+question it asked** — the free tier has every user on it — and asked of the catalog as a whole the answer came
+out the other way, because what made deletion look impossible was a foreign key and a throwing lookup rather
+than anything an operator would recognise.
+
+**Two things nobody had written down, found on the way, and they are why this is an L rather than an S.**
+A deleted tier **comes back**: `StripeEvent.isAboutAPrice()` is true for `price.updated` as well as
+`price.created`, `tier_price` cascades but the Stripe Prices do not, and the next update on one re-adopts
+`metadata.tier_code` as a fresh draft — as a `LOG.warn` nobody reads. And **archiving a Price does not stop
+the billing**: it stops new purchases, so a delete that only tidied the catalog would leave real customers
+paying monthly for a tier that is gone.
+
+**Schema** — one migration.
+- `subscription.tier_id` **nullable**, foreign key rebuilt `on delete set null`. A row with no tier keeps
+  `stripe_customer_id` (a returning payer stays the same customer) and `created_at` (the anchor every future
+  `resetAt` is rolled from), which is why the row survives rather than being deleted.
+- `stripe_cleanup` — **one row per outstanding Stripe call**: `tier_code`, `kind`
+  (`cancel_subscription` | `archive_price` | `archive_product`), `stripe_id`, `attempts`, `last_error`,
+  `done_at`. One stuck object does not block the rest.
+
+**API**
+- `DELETE /api/admin/tiers/{code}` → the whole **AdminTiers** body, read back in the write's transaction, like
+  `PUT …/order`. **`404` is the only refusal** — every tier is deletable, the default and the last included.
+  A tier coded `order` is deletable though not editable, since `PUT …/order` takes the literal and this does
+  not.
+- In one transaction: subscribers move to the default tier (or to no tier where the deleted row *is* the
+  default, or is the last); `tier_price` cascades; the Stripe work is **enqueued from the ids while they still
+  exist**, never re-derived afterwards.
+- A `@Scheduled` drain — `ReservationReconciliation` is the precedent. Per tier: cancel each live Stripe
+  subscription, archive **and untag** each Price (`active=false` + `metadata[tier_code]=""`, one call),
+  archive the Product (a `retrieve` per Price to learn the id — it was never stored).
+- **`PriceAdoptions.adopt` refuses a code with unfinished cleanup rows**, which closes the resurrection window
+  without burning the code for good.
+- **`TierCatalog.defaultTier()` → `Optional`**; `ProvisionOnFirstLogin` stops throwing and writes a tier-less
+  row; `SubscriptionRows.ended()` falls back to no tier where there is no default (ADR-0018, refined).
+- **`PUT …/{code}/default` adopts every orphan** in its own transaction — the sole writer of the flag, so the
+  only moment "no default exists" stops being true.
+- **`Subscription.tier()` becomes `Optional<TierId>`**, so the compiler names all four readers —
+  `DisplayStates`, `QuotasFromReservations`, `RelistGate`, `SubscriptionRows` — rather than each remembering.
+  T70's argument about `BulkSelection.cap`, applied where it is cheap.
+- **`AdminTier` gains subscriber counts**: how many move, and how many live Stripe subscriptions get
+  cancelled.
+
+**Contracts** — `DENIAL_REASONS` gains **`NO_TIER`** and `Denial` gains `{ reason: "NO_TIER" }`, carrying
+nothing. **Not `NO_PLAN`**: a **Plan** is a Tier joined with a Price, so a free user has a Tier and has never
+had a Plan. It states a condition rather than a cause, like every code beside it.
+
+**Extension** — `display-state.ts` gains `{ status: "no-tier" }` beside `signed-out` and `outdated`, and the
+popup draws a real sentence for it. **This is the half that makes the code worth its contract change**: every
+other non-`200` maps to `unavailable`, so a denial sent only to the gate would be read by nobody.
+
+**`apps/web`** — a Delete on each row, a quantified confirmation naming how many subscribers move, how many
+Stripe subscriptions are cancelled, and that this is the default tier if it is. **Typing the tier's name is
+required only when live payers will be cancelled** — friction tracking consequence, so undoing a plan made a
+minute ago stays one click.
+
+**Two comments that are already wrong and go with the work.** `AdministerTiers`' *"What it deliberately cannot
+do: create a tier, delete one, or set a price"* and `AdminCatalog.tsx`'s *"What it will not offer: creating a
+tier, deleting one…"* — T61 shipped creation and neither was updated, so "the API refuses it" had stopped
+being the reason before this ticket touched anything. A third goes with them and is accurate until this
+ships: `AdministerTiers`' *"a catalog with none takes down every new sign-in"*, which is the argument for
+`isDefault` moving rather than toggling. The move survives — nothing here adds a request that clears the flag
+— but the consequence it names stops being true the moment provisioning writes a tier-less row.
+
+**Costs accepted, written down so they are not later read as oversights.** A build installed before this
+renders `NO_TIER` as "something went wrong, try again" until it updates — the trap `BULK_NOT_ENTITLED`'s
+docstring exists to record. Deleting the last tier takes the product down for every user until a new default
+exists, by design. A payer drops to the default the instant the row goes, losing the remainder of a period
+they paid for, and any refund is the operator's to issue in Stripe. `stripe_cleanup` is this app's first
+durable work queue, and a row Stripe refuses forever is one somebody has to notice.
+
+**Click-through:** `docs/click-through.md` § *After Go-Live · I can delete a plan*. Create a plan, delete it,
+confirm the row and its Stripe Product and Prices are gone or archived; edit one of those archived Prices in
+the Stripe dashboard and confirm the tier does **not** come back; delete a tier with a live test-mode
+subscriber and watch them land on the default with the subscription cancelled; delete every tier and confirm
+the popup says something true rather than "unavailable"; make a tier the default and watch the orphans
+reattach.
+
+**Where it landed, where the ticket reads differently from the code.** Two, both about placement rather than
+about what was decided. The `stripe_cleanup` queue is **`catalog`'s table**, not `billing`'s: `adopt` has to
+read it on the hot path to refuse a code still being torn down, and asking that across a module boundary
+would invert the dependency `billing → catalog` that the boundary check already enforces — so the ids live
+beside the tier codes they are keyed on and `billing` owns only the calls (`TearDownDeletedTiers`). And the
+delete itself is composed in **`admin`** (`CatalogAndSubscribers`), because one transaction spans
+`catalog`'s rows and `subscription`'s and neither module may reach into the other; `TierEdits.delete` is the
+catalog's half alone. **`POST /api/admin/plans` had to learn the refusal too**, which the ticket did not name and which the code
+review found: the catalog holds no row under a deleted code, so the create's existing `409` passed, Stripe
+made a Product and tagged Prices, and the `adopt` behind them then refused the code — a `500` on a branch
+commented *"both unreachable"*, and Stripe objects no cleanup row covers. So `TierTeardown.isBeingTornDown` is
+on the port rather than private to the table (two callers ask it), and the create's `409` now means three
+facts rather than two. `ReasonCode` moved out of `enforcement/internal` for a third, smaller reason:
+`NO_TIER` is the first code answered by a route the gate does not own, so `display` needed the word and a
+second spelling of it would be a string nothing compares to anything.
 
 
 ---

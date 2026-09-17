@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { refusalNote, refusedTone, rowStateFor } from "./relisting";
+import { AD_IS_DOWN, AD_UNCHANGED, refusalNote, refusedTone, rowStateFor } from "./relisting";
+
+/**
+ * The two plans a refusal can land on, named rather than passed as a bare `true`
+ * — `refusalNote(locked, true)` at a call site says nothing about what is true.
+ */
+const GRANTS_NOTHING = true;
+const CAPPED = false;
 
 const WIRE_ERROR = { code: "NO_MARKTPLAATS_TAB", message: "No marktplaats.nl tab is open" } as const;
 
@@ -34,6 +41,20 @@ describe("what an outcome does to the row", () => {
     expect(state).toHaveProperty("message", expect.stringContaining("opgeslagen in de extensie"));
   });
 
+  it("and calls the act herplaatsen, which is the word the button says (T74, #161)", () => {
+    // "Opnieuw plaatsen" is Marktplaats's own name for it, and this sentence sat
+    // one clause away from "klik op Opnieuw" — two words for the act and a third
+    // reading of the first one, in the message a user only ever meets after
+    // their ad has already been deleted. ADR-0029's split applies to the Dutch
+    // copy the same way: one word for the thing users press.
+    //
+    // Asserted here and nowhere else, because this module now owns both sentences
+    // and the batch's suite asserts only that it is saying the same ones.
+    expect(AD_IS_DOWN).toContain("herplaatsen is mislukt");
+    expect(AD_IS_DOWN).not.toContain("opnieuw plaatsen");
+    expect(AD_UNCHANGED).toContain("Er is niets herplaatst");
+  });
+
   it("keeps a refusal apart from a failure", () => {
     // Nothing ran. Rendering it as a failure would tell the user something broke
     // when in fact they were turned away, which is a different next move.
@@ -52,20 +73,51 @@ describe("what an outcome does to the row", () => {
 
 describe("what a refusal says", () => {
   it("has something for every locked state the gate can produce", () => {
-    // Provisional copy — the designed prompts are T32 (#41) — but a button that
-    // silently does nothing is not an acceptable intermediate state.
-    expect(refusalNote({ state: "upgrade", resetAt: null })).toContain("je limiet voor herplaatsingen");
-    expect(refusalNote({ state: "update-card" })).toContain("betaling");
+    // One sentence per reason the gate can produce, because a button that
+    // silently does nothing is not a state this screen may be in.
+    expect(refusalNote({ state: "upgrade", resetAt: null }, CAPPED)).toContain(
+      "je limiet voor herplaatsingen",
+    );
+    expect(refusalNote({ state: "update-card" }, CAPPED)).toContain("betaling");
     // Not the quota sentence: the two end at the same screen and say different
     // things about why you are looking at it.
-    expect(refusalNote({ state: "not-in-plan" })).toContain("bij je abonnement");
-    expect(refusalNote({ state: "not-in-plan" })).not.toContain("je limiet voor herplaatsingen");
-    expect(refusalNote({ state: "retry" })).toContain("Probeer het opnieuw");
+    expect(refusalNote({ state: "not-in-plan" }, CAPPED)).toContain("bij je abonnement");
+    expect(refusalNote({ state: "not-in-plan" }, CAPPED)).not.toContain("je limiet voor herplaatsingen");
+    expect(refusalNote({ state: "retry" }, CAPPED)).toContain("Probeer het opnieuw");
   });
 
   it("counts the seconds when it was given them, and does not invent them when it was not", () => {
-    expect(refusalNote({ state: "cooldown", retryAfter: 24 })).toContain("24s");
-    expect(refusalNote({ state: "cooldown", retryAfter: null })).not.toMatch(/\d/);
+    expect(refusalNote({ state: "cooldown", retryAfter: 24 }, CAPPED)).toContain("24s");
+    expect(refusalNote({ state: "cooldown", retryAfter: null }, CAPPED)).not.toMatch(/\d/);
+  });
+
+  it("tells a plan that grants nothing from one that has been spent (T32, #41)", () => {
+    // `upgrade` cannot tell the two apart and is not asked to: a zero-grant tier
+    // has a real `resetAt` — the period still rolls, it just rolls to 0 — so the
+    // discriminator is display state rather than the denial, and the row reads the
+    // grant off `/api/me` the way the strip above it already does.
+    const spent = refusalNote({ state: "upgrade", resetAt: "2026-09-14T08:31:22.101Z" }, CAPPED);
+    const nothing = refusalNote({ state: "upgrade", resetAt: "2026-09-14T08:31:22.101Z" }, GRANTS_NOTHING);
+
+    expect(spent).toContain("je limiet voor herplaatsingen");
+    // The sentence this ticket exists to delete: a limit that was never reached,
+    // on a plan where nothing comes back next period either.
+    expect(nothing).not.toContain("limiet");
+    expect(nothing).toContain("abonnement");
+  });
+
+  it("and says the same thing about every other refusal, whatever the grant is", () => {
+    // Splitting `upgrade` is a statement about that one reason. A cooldown is the
+    // rails, a failing card is Stripe, and neither becomes a different event
+    // because the tier grants nothing.
+    for (const state of [
+      { state: "cooldown", retryAfter: 24 },
+      { state: "update-card" },
+      { state: "not-in-plan" },
+      { state: "retry" },
+    ] as const) {
+      expect(refusalNote(state, GRANTS_NOTHING)).toBe(refusalNote(state, CAPPED));
+    }
   });
 
   it("shows a clock for a cooldown and a lock for everything else", () => {

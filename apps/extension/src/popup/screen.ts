@@ -10,7 +10,7 @@ import type { ListingSummary } from "../domain/types";
 /**
  * What the popup is showing, and the whole of it (T29, #38).
  *
- * Four screens, one at a time. **Signed out shows only sign-in** — no ad list, no
+ * Six screens, one at a time. **Signed out shows only sign-in** — no ad list, no
  * quota, no plan — which is ADR-0007's refinement and not a layout preference:
  * everything else on this surface is either the user's own data or a number the
  * backend has not been asked for yet.
@@ -33,22 +33,30 @@ import type { ListingSummary } from "../domain/types";
  * again; this one says trying again is exactly what will not work, and names the
  * one thing that will. A build the backend has stopped serving is refused on every
  * route, so there is no plan to show and no ad list worth listing.
+ *
+ * `no-tier` is the sixth and is kept apart from both for the same reason again
+ * (T77, ADR-0032). The backend answered promptly and truthfully — this account is
+ * on no plan, because an operator deleted the tier it was on and the catalog had no
+ * default to move it to — so "unavailable, try again" is false in both halves, and
+ * unlike `outdated` there is nothing the *user* can do either. It is the one screen
+ * here whose instruction is to wait for somebody else.
  */
 export type Screen =
   | { screen: "loading" }
   | { screen: "signed-out"; failure?: string }
   | { screen: "unavailable" }
   | { screen: "outdated" }
+  | { screen: "no-tier" }
   | { screen: "signed-in"; plan: DisplayState }
   | { screen: "plans"; plan: DisplayState };
 
 export const LOADING: Screen = { screen: "loading" };
 
 /**
- * One answer, one screen. Pure, and total over the four answers, so a fifth would
+ * One answer, one screen. Pure, and total over the five answers, so a sixth would
  * not compile rather than falling through to whatever was on the screen.
  *
- * `PlansAnswer` shares three of those four cases, and the popup hands them here
+ * `PlansAnswer` shares three of those cases, and the popup hands them here
  * for the same treatment: a plans call refused for want of a token means the same
  * thing as a display-state call refused for want of one, and answering it with a
  * different screen would be two vocabularies for one event.
@@ -63,6 +71,8 @@ export function screenFor(answer: DisplayStateAnswer): Screen {
       return { screen: "unavailable" };
     case "outdated":
       return { screen: "outdated" };
+    case "no-tier":
+      return { screen: "no-tier" };
   }
 }
 

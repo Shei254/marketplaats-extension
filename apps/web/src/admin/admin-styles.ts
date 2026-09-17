@@ -374,6 +374,25 @@ export const adminCss = `
 }
 .admin-form-actions { display: flex; gap: var(--mp-space-sm); flex-wrap: wrap; }
 
+/* What a delete is about to do (T77, ADR-0032). A list rather than a paragraph,
+   because it is four independent facts and an operator reads it to find the one
+   that applies to them — a paragraph is a thing to skim, and this is the panel that
+   must not be skimmed. Marked with the error colour rather than the accent every
+   other panel carries, which is the only place on this screen that colour is used
+   as a warning rather than as a state badge. */
+.admin-consequences {
+  margin: 0;
+  padding-left: var(--mp-space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--mp-space-sm);
+  max-width: 78ch;
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  color: var(--mp-fg);
+}
+.admin-consequences code { font-family: var(--mp-font-mono); }
+.admin-consequences strong { color: var(--mp-err); }
+
 /* The flags (T69). A number, the hatch under it, and - when it is open - the JSON
    the number cannot say. Grouped rather than laid into \`.admin-form-grid\`, because
    the hatch belongs to the field above it and not to the form: two columns would

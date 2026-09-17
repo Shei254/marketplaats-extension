@@ -16,8 +16,9 @@ package com.mprelist.catalog;
  * a second catalog of labels beside ours that a rename never reaches. So the wire carries the pair, and
  * which is which is stated here rather than guessed at each reader.
  *
- * @param code the stable handle: {@code tier.code}, what {@code V2__seed_tier_catalog.sql} upserts on and the
- * one thing about a tier an admin edit does not move
+ * @param code the handle: {@code tier.code}, what {@code V2__seed_tier_catalog.sql} upserts on and what a
+ * Price is tagged with. Immovable once there is a Price holding a copy of it — which is every tier but the
+ * free one, whose code an edit re-derives from its name (T76, ADR-0031)
  * @param name display text, {@code tier.name}, an operator's to rewrite. Rendered, never compared — a blank
  * one is not refused here, because a tier somebody typed an empty label for should show an empty label rather
  * than take {@code /api/me} down for its subscribers, which is what an exception on this path would do

@@ -26,6 +26,11 @@ import type { WorkerPort } from "./screen";
  * The row state lives here rather than in each row, for the same reason: the lock
  * is a property of the list, and a row that owned its own state could not know
  * another was running.
+ *
+ * **And one lock that is the plan's** (T32, #41). A tier granting nothing locks
+ * every button before anything is clicked, which is ADR-0007's "render
+ * locked-vs-active *before* any click" for the one case where that can be done
+ * honestly — see the `grantsNothing` prop below for why the remainder is not.
  */
 export function AdList({
   view,
@@ -33,6 +38,7 @@ export function AdList({
   onOutcome,
   selection,
   runStates,
+  grantsNothing,
   empty = "Je hebt geen actieve advertenties.",
 }: {
   view: AdsView;
@@ -55,6 +61,37 @@ export function AdList({
    * since a reposted ad has a new id.
    */
   onOutcome: (outcome: WireRelistOutcome) => void;
+  /**
+   * Whether the plan this list is drawn under grants no reposts at all (T32, #41)
+   * — `plans.ts`'s `grantsNothing`, and the only thing this component is told
+   * about the subscription.
+   *
+   * **One boolean rather than the plan**, for the reason `selection.bulk` is one
+   * field rather than three: the screen above holds the plan, this list holds the
+   * order the ads are in, and handing it the whole `DisplayState` would let it
+   * start deciding entitlement questions that are not its.
+   *
+   * **And the grant rather than the remainder.** A grant is the Tier's own
+   * property — only an operator or a purchase moves it — so every row can be
+   * locked on it and still be right in a minute. `quotaRemaining` goes back *up*
+   * without the holder acting, so a button disabled on that is one a refund has
+   * already made wrong; it stays live, the click costs a round trip, and
+   * `authorize` refuses it before any delete (ADR-0007).
+   *
+   * **Nothing is written on the rows.** The list is uniform when this is true and
+   * `NoRepostsPrompt` says it once, directly above — twenty copies of one sentence
+   * under twenty rows is the third line per row that stops a 360px list being
+   * scannable. Chrome draws no tooltip on a disabled control either, which is why
+   * there is nothing to hover.
+   *
+   * **A row holding a deleted ad keeps its Opnieuw**, and that falls out of
+   * `toneFor` rather than being carved out here: `locked` only darkens an *idle*
+   * button. It is the behaviour to want. Finishing a relist whose delete already
+   * ran needs no fresh grant (`docs/enforcement-contract.md`), so the one thing
+   * this lock must never do is strand somebody's ad inside the extension because
+   * an operator zeroed their tier while it was there.
+   */
+  grantsNothing: boolean;
   /**
    * What an empty list means, which this component cannot know: an account with
    * no ads and a search that matched none are the same three states and two
@@ -172,13 +209,21 @@ export function AdList({
             // A run locks every row for the reason one relist does, one step
             // further out: the queue is the serialisation now, and a row somebody
             // pressed mid-run would be a second delete beside the one in flight.
+            //
+            // The plan's lock is last and is the only one of the four that is not
+            // about timing: the other three end on their own, and this one ends
+            // when somebody buys something.
             locked={
-              (running !== null && running !== ad.id) || secondsLeft !== null || selection?.frozen === true
+              (running !== null && running !== ad.id) ||
+              secondsLeft !== null ||
+              selection?.frozen === true ||
+              grantsNothing
             }
             secondsLeft={secondsLeft}
             pacingSeconds={running === ad.id ? pacingSeconds : null}
             onStart={start}
             selection={selection ?? null}
+            grantsNothing={grantsNothing}
           />
         ))}
       </ul>
@@ -246,13 +291,24 @@ export function AdRow({
   pacingSeconds,
   onStart,
   selection,
+  grantsNothing,
 }: {
   ad: ListingSummary;
   state: RowState;
   /** The batch selection this row is part of, or `null` when none is offered. */
   selection?: BatchSelection | null;
-  /** Another row is relisting, or the account is in a cooldown, so this one may not start. */
+  /** Another row is relisting, the account is in a cooldown, or the plan grants nothing. */
   locked: boolean;
+  /**
+   * Whether the plan grants no reposts at all, which this row needs even though
+   * `locked` above already carries it: a refusal that landed here before the
+   * buttons went dark has to be read against the plan to pick its sentence.
+   *
+   * **Not two spellings of one fact**, which is the shape this repo refuses — a
+   * cooldown locks a row on a plan granting plenty, so `locked` is true in states
+   * this is false in. One implies the other and never the reverse.
+   */
+  grantsNothing: boolean;
   /** Seconds until the account's cooldown ends, when one is running. */
   secondsLeft?: number | null;
   /**
@@ -312,7 +368,7 @@ export function AdRow({
           {counting != null ? `${counting}s` : labelFor(state)}
         </Button>
       </div>
-      <RowNote state={state} pacing={pacingSeconds != null} />
+      <RowNote state={state} pacing={pacingSeconds != null} grantsNothing={grantsNothing} />
     </li>
   );
 }
@@ -390,7 +446,15 @@ function useCountdown(until: number | null, onElapsed: () => void): number | nul
   return left;
 }
 
-function RowNote({ state, pacing }: { state: RowState; pacing?: boolean }): JSX.Element | null {
+function RowNote({
+  state,
+  pacing,
+  grantsNothing,
+}: {
+  state: RowState;
+  pacing?: boolean;
+  grantsNothing: boolean;
+}): JSX.Element | null {
   // Said before anything else, because while it is true the row is "busy" and a
   // busy row says nothing at all — which is the hang this note exists to not be.
   if (pacing) return <Note tone="warn">{PACING_NOTE}</Note>;
@@ -400,7 +464,7 @@ function RowNote({ state, pacing }: { state: RowState; pacing?: boolean }): JSX.
     case "failed":
       return <Note tone={state.tone}>{state.message}</Note>;
     case "refused":
-      return <Note tone="warn">{refusalNote(state.locked)}</Note>;
+      return <Note tone="warn">{refusalNote(state.locked, grantsNothing)}</Note>;
     default:
       return null;
   }

@@ -2,6 +2,7 @@ import {
   amountInMinorUnits,
   decimalsIn,
   inMajorUnits,
+  RESERVED_TIER_CODE,
   type AdminTier,
   type NewPlan,
   type NewPrice,
@@ -26,6 +27,7 @@ import type {
   CatalogAnswer,
   CreateAnswer,
   CurrencyAnswer,
+  DeleteAnswer,
   EditAnswer,
   OrderAnswer,
   PricesAnswer,
@@ -66,11 +68,31 @@ import { tierCodeFrom } from "./tier-code";
  * would feel broken on the one gesture that has to feel direct. A refusal snaps it
  * back and says why.
  *
- * **What it will not offer**: creating a tier, deleting one, typing a Stripe
- * Price id, or typing the code a plan is filed under (`tier-code.ts`). A plan is created by tagging a Price in Stripe and the sync drafts the
- * row (ADR-0019); a tier is retired by unpublishing it, since a subscription
- * references its tier behind a foreign key. Buttons for any of those would be
- * buttons the API refuses.
+ * **What it will not offer**: typing a Stripe Price id, typing the code a plan is
+ * filed under (`tier-code.ts`), or editing an amount — Stripe Prices are
+ * immutable, so repricing is a new tagged Price and the sync repoints the tier
+ * (ADR-0019). Buttons for those would be buttons the API refuses.
+ *
+ * **Creating a tier is offered**, and the sentence above said otherwise for
+ * longer than it was true: T61 put `POST /api/admin/plans` behind the New plan
+ * button, which creates the Stripe Product and a Price per rhythm and then makes
+ * the webhook's own `adopt` call.
+ *
+ * **Deleting one is offered too, and every tier is deletable** — the default and
+ * the last included (T77, ADR-0032). What used to be here was a reason (a
+ * subscription references its tier behind a foreign key, so a plan is retired by
+ * unpublishing it) and that was a foreign key speaking rather than anything an
+ * operator would recognise. The argument that changed it is T61's: creating a plan
+ * is one submit now, so a typo or a wrong rhythm is a permanent row in a catalog
+ * whose whole audience is one person.
+ *
+ * **The friction tracks the consequence and nothing else** (`DeleteForm`). The
+ * confirmation is always shown and always quantifies — how many subscribers move,
+ * how many live Stripe subscriptions get cancelled, whether this is the default and
+ * whether it is the last — and it asks for the tier's *name* to be typed only when
+ * real payers will be cancelled. So undoing a plan created thirty seconds ago is a
+ * sentence saying nothing is lost and one click, which is the friction T61 existed
+ * to remove; cancelling strangers' subscriptions cannot be done by reflex.
  */
 export function AdminCatalog({
   api,
@@ -115,9 +137,12 @@ export function AdminCatalog({
    * What a write did, said in the operator's own terms.
    *
    * The refusals are the API's four, and each is a different instruction: a `409`
-   * means go and create a Price in Stripe, a `404` means the catalog moved under
-   * this screen, a `400` should be unreachable for a form that sends every field,
-   * and `signed-out` is the only one that is not a sentence but a redirect.
+   * means the catalog cannot hold the tier as described — four facts behind one
+   * status since ADR-0031, which is why `refusal` names all four rather than
+   * sending an operator to Stripe for the one it used to mean — a `404` means the
+   * catalog moved under this screen, a `400` should be unreachable for a form that
+   * sends every field, and `signed-out` is the only one that is not a sentence but
+   * a redirect.
    */
   const applied = useCallback(
     async (answer: EditAnswer, what: string): Promise<void> => {
@@ -216,6 +241,39 @@ export function AdminCatalog({
     [api, load, onSignedOut],
   );
 
+  /**
+   * Deleting a tier, which is the one write here that cannot be undone.
+   *
+   * **The whole catalog comes back and replaces what is held**, like `reorder` and
+   * unlike every write that answers with a row: a delete removes a row, can move
+   * the default badge to nowhere, and can leave the catalog *empty* — which is a
+   * state the screen draws rather than a failure it reports.
+   *
+   * `gone` is the only refusal and it means the row was already deleted, most
+   * likely in another tab. Reloaded rather than merely said, because the list this
+   * tab is holding is now wrong about more than the one row.
+   */
+  const remove = useCallback(
+    async (tier: AdminTier) => {
+      setBusy(true);
+      const answer = await api.remove(tier.tier.code);
+      setBusy(false);
+      if (answer.status === "signed-out") {
+        onSignedOut();
+        return;
+      }
+      if (answer.status === "deleted") {
+        setCatalog({ status: "ready", tiers: answer.tiers });
+        setPanel(null);
+        setNote({ tone: "ok", message: whatTheDeleteDid(tier, answer.tiers) });
+        return;
+      }
+      setNote({ tone: "error", message: whyNotDeleted(answer) });
+      if (answer.status === "gone") await load();
+    },
+    [api, load, onSignedOut],
+  );
+
   const makeDefault = useCallback(
     async (tier: AdminTier) => {
       setBusy(true);
@@ -301,6 +359,7 @@ export function AdminCatalog({
         onCreate={(plan) => void createPlan(plan)}
         onAddPrice={(code, price) => void addPrice(code, price)}
         onMakeDefault={(tier) => void makeDefault(tier)}
+        onDelete={(tier) => void remove(tier)}
         onReorder={(codes) => void reorder(codes)}
       />
     </AdminShell>
@@ -308,7 +367,19 @@ export function AdminCatalog({
 }
 
 /** Which form is open. Never two, which is what makes one panel enough. */
-type Panel = { kind: "new" } | { kind: "price"; code: string } | { kind: "edit"; code: string } | null;
+type Panel =
+  | { kind: "new" }
+  | { kind: "price"; code: string }
+  | { kind: "edit"; code: string }
+  /**
+   * The delete confirmation (T77, ADR-0032). A panel rather than a `confirm()` or a
+   * modal, and for the reason the other three are panels: it is where every form on
+   * this screen opens, it marks the row it belongs to while it is up, and it has
+   * room for the four sentences that make the confirmation a quantified one rather
+   * than an "are you sure?" somebody clicks through.
+   */
+  | { kind: "delete"; code: string }
+  | null;
 
 /**
  * The catalog page: what the whole of it looks like at a glance, whichever form is
@@ -327,6 +398,7 @@ function Tiers({
   onCreate,
   onAddPrice,
   onMakeDefault,
+  onDelete,
   onReorder,
 }: {
   catalog: CatalogAnswer | null;
@@ -341,6 +413,7 @@ function Tiers({
   onCreate: (plan: NewPlan) => void;
   onAddPrice: (code: string, price: NewPrice) => void;
   onMakeDefault: (tier: AdminTier) => void;
+  onDelete: (tier: AdminTier) => void;
   /** The whole catalog, in the order it should be read in. Never one row's index. */
   onReorder: (codes: string[]) => void;
 }): JSX.Element {
@@ -365,10 +438,21 @@ function Tiers({
 
   const editing = panel?.kind === "edit" ? tierIn(catalog.tiers, panel.code) : null;
   const pricing = panel?.kind === "price" ? tierIn(catalog.tiers, panel.code) : null;
+  const deleting = panel?.kind === "delete" ? tierIn(catalog.tiers, panel.code) : null;
 
   return (
     <div className="admin-sections">
       {note ? <Note tone={note.tone}>{note.message}</Note> : null}
+      {/* **An empty catalog is a state and not a failure** (T77, ADR-0032), so it is
+          said rather than drawn as a table with no rows — and said as the outage it
+          is for every user, because that is the thing an operator who arrived here
+          by accident has to know. There is no "undo": the way out is New plan. */}
+      {catalog.tiers.length === 0 ? (
+        <Note tone="error">
+          There are no tiers. Every account is on no plan and nobody can repost until one exists —
+          create a plan, or the first one you create can be made the default.
+        </Note>
+      ) : null}
       <Summary tiers={catalog.tiers} currency={currency} />
       <Untagged answer={prices} />
       {panel?.kind === "new" ? (
@@ -395,9 +479,26 @@ function Tiers({
         <TierForm
           key={editing.tier.code}
           tier={editing}
+          // The whole catalog, because a derived code can collide with one of the
+          // others and this screen is already holding every one of them (ADR-0031).
+          // Asking the API would be a round trip to be told what is on the page.
+          catalog={catalog.tiers}
           busy={busy}
           onCancel={() => onOpen(null)}
           onSave={(edit) => onSave(editing.tier.code, edit)}
+        />
+      ) : null}
+      {deleting ? (
+        <DeleteForm
+          key={deleting.tier.code}
+          tier={deleting}
+          // The whole catalog, because what a delete does to the people on this tier
+          // depends on the rest of it: which tier they land on is whichever holds the
+          // default flag, and "this is the last one" is a fact about the list.
+          catalog={catalog.tiers}
+          busy={busy}
+          onCancel={() => onOpen(null)}
+          onDelete={() => onDelete(deleting)}
         />
       ) : null}
       <CatalogTable
@@ -406,6 +507,7 @@ function Tiers({
         busy={busy}
         onOpen={onOpen}
         onMakeDefault={onMakeDefault}
+        onDelete={onDelete}
         onReorder={onReorder}
       />
     </div>
@@ -440,6 +542,7 @@ function CatalogTable({
   busy,
   onOpen,
   onMakeDefault,
+  onDelete,
   onReorder,
 }: {
   tiers: AdminTier[];
@@ -447,6 +550,7 @@ function CatalogTable({
   busy: boolean;
   onOpen: (panel: Panel) => void;
   onMakeDefault: (tier: AdminTier) => void;
+  onDelete: (tier: AdminTier) => void;
   onReorder: (codes: string[]) => void;
 }): JSX.Element {
   /** The row whose handle is held, and so the only row the browser may pick up. */
@@ -455,7 +559,10 @@ function CatalogTable({
   const [carrying, setCarrying] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
 
-  const open = panel?.kind === "edit" || panel?.kind === "price" ? panel.code : null;
+  const open =
+    panel?.kind === "edit" || panel?.kind === "price" || panel?.kind === "delete"
+      ? panel.code
+      : null;
   const codes = tiers.map((tier) => tier.tier.code);
   const letGo = () => {
     setArmed(null);
@@ -482,7 +589,7 @@ function CatalogTable({
               <th>Order</th>
               <th>Code</th>
               <th>Name</th>
-              <th>Relists</th>
+              <th>Reposts</th>
               <th>Stripe Price</th>
               <th>State</th>
               <th />
@@ -497,6 +604,7 @@ function CatalogTable({
                 open={open === tier.tier.code}
                 editing={panel?.kind === "edit" && panel.code === tier.tier.code}
                 pricing={panel?.kind === "price" && panel.code === tier.tier.code}
+                deleting={panel?.kind === "delete" && panel.code === tier.tier.code}
                 first={index === 0}
                 last={index === tiers.length - 1}
                 armed={armed === tier.tier.code}
@@ -529,6 +637,21 @@ function CatalogTable({
                   )
                 }
                 onMakeDefault={() => onMakeDefault(tier)}
+                // **Always the panel, never straight to the write** (ADR-0032: "a
+                // quantified warning always"). What varies is what the panel *says*
+                // and whether it asks for anything: a tier nobody is on reads
+                // "nobody moves" and deletes on one click, and one with live payers
+                // will not delete until its name is typed. Friction tracking
+                // consequence rather than a confirmation that is sometimes absent —
+                // an operator should never learn what a delete costs by having
+                // already done it.
+                onDelete={() =>
+                  onOpen(
+                    panel?.kind === "delete" && panel.code === tier.tier.code
+                      ? null
+                      : { kind: "delete", code: tier.tier.code },
+                  )
+                }
               />
             ))}
           </tbody>
@@ -690,6 +813,7 @@ function TierRow({
   open,
   editing,
   pricing,
+  deleting,
   first,
   last,
   armed,
@@ -705,6 +829,7 @@ function TierRow({
   onEdit,
   onAddPrice,
   onMakeDefault,
+  onDelete,
 }: {
   tier: AdminTier;
   busy: boolean;
@@ -712,6 +837,7 @@ function TierRow({
   open: boolean;
   editing: boolean;
   pricing: boolean;
+  deleting: boolean;
   /** Nothing above it, so there is nowhere to move it up to — and the same below. */
   first: boolean;
   last: boolean;
@@ -731,6 +857,7 @@ function TierRow({
   onEdit: () => void;
   onAddPrice: () => void;
   onMakeDefault: () => void;
+  onDelete: () => void;
 }): JSX.Element {
   const draft = isDraft(tier);
   return (
@@ -829,6 +956,17 @@ function TierRow({
               Make default
             </Button>
           )}
+          {/* Quiet like the others, and last in the row — the destructive control
+              is not the one a hand lands on. What stops it being dangerous is the
+              panel it opens rather than a colour it is painted (ADR-0032). */}
+          <Button
+            shape="rect"
+            tone={deleting ? "secondary" : "ghost"}
+            onClick={onDelete}
+            disabled={busy}
+          >
+            Delete
+          </Button>
         </div>
       </td>
     </tr>
@@ -867,6 +1005,131 @@ function FormPanel({
 }
 
 /**
+ * The delete confirmation (T77, ADR-0032).
+ *
+ * **It quantifies, always.** How many subscribers move and where they land, how
+ * many live Stripe subscriptions get cancelled, whether this is the default tier,
+ * whether it is the last one, and what happens in Stripe afterwards. "Are you
+ * sure?" is a sentence somebody clicks through; "412 subscribers move to Free and
+ * 38 Stripe subscriptions are cancelled" is one they read.
+ *
+ * **The panel is always shown and the typing is not.** Typing the tier's name is
+ * asked for only when live payers will be cancelled, which is the one consequence
+ * here that costs somebody money and cannot be undone from this screen. So a draft
+ * the sync invented, or a plan created a minute ago, reads "nobody is on this tier,
+ * so nobody moves" and goes on one click — the friction T61 existed to remove —
+ * while cancelling strangers' subscriptions cannot be done by reflex. What is never
+ * skipped is being *told*: an operator should not learn what a delete costs by
+ * having already done it.
+ *
+ * **Where the subscribers land is read off the catalog rather than assumed.** The
+ * API moves them to whichever tier holds the default flag, unless the tier being
+ * deleted is that tier — so this screen, which is holding every row, can say the
+ * name rather than the rule. Nobody lands anywhere when there is no other default,
+ * and that is the sentence that has to be loudest: those accounts are on no plan
+ * until an operator makes one the default, at which point every one of them is
+ * adopted at once.
+ */
+function DeleteForm({
+  tier,
+  catalog,
+  busy,
+  onCancel,
+  onDelete,
+}: {
+  tier: AdminTier;
+  /** Every tier there is — where the subscribers land, and whether this is the last row. */
+  catalog: AdminTier[];
+  busy: boolean;
+  onCancel: () => void;
+  onDelete: () => void;
+}): JSX.Element {
+  const [typed, setTyped] = useState("");
+
+  const landing = catalog.find((other) => other.isDefault && other.tier.code !== tier.tier.code);
+  const lastTier = catalog.length === 1;
+  // The one thing on this screen that asks for more than a click, and the only one
+  // that is irreversible from here: money stops, and the remainder of a period
+  // somebody paid for goes with it.
+  const nameIsRequired = tier.payingSubscribers > 0;
+  const confirmed = !nameIsRequired || typed.trim() === tier.tier.name;
+
+  return (
+    <FormPanel
+      title={`Deleting ${tier.tier.name}`}
+      lede={
+        <>
+          The tier stored under <code>{tier.tier.code}</code>. This cannot be undone from this
+          screen — there is no restore, and a tier created again under the same name is a new row
+          with new Stripe Prices.
+        </>
+      }
+      onCancel={onCancel}
+    >
+      <ul className="admin-consequences">
+        <li>{whoMoves(tier, landing)}</li>
+        {tier.payingSubscribers > 0 ? (
+          <li>
+            <strong>
+              {counted(tier.payingSubscribers, "live Stripe subscription", "live Stripe subscriptions")}{" "}
+              will be cancelled.
+            </strong>{" "}
+            They lose the rest of the period they have paid for. No refund is issued from here —
+            money is decided in Stripe, where you can issue one per customer.
+          </li>
+        ) : null}
+        {tier.isDefault ? (
+          <li>
+            <strong>This is the default tier.</strong> Until you make another one the default, every
+            new account is created on no plan at all.
+          </li>
+        ) : null}
+        {lastTier ? (
+          <li>
+            <strong>This is the last tier in the catalog.</strong> Deleting it takes the product
+            down for every user until a new plan exists and is made the default.
+          </li>
+        ) : null}
+        {tier.prices.length > 0 ? (
+          <li>
+            {counted(tier.prices.length, "Stripe Price", "Stripe Prices")} will be archived and
+            untagged, and their Product archived — in the background, over the next few minutes.
+            Until that finishes, <code>{tier.tier.code}</code> cannot be used for a new plan.
+          </li>
+        ) : null}
+      </ul>
+
+      {nameIsRequired ? (
+        <Field
+          label={`Type ${tier.tier.name} to confirm`}
+          hint="Asked for because live subscriptions will be cancelled. Deleting a plan nobody pays for takes one click."
+        >
+          <Input
+            value={typed}
+            onChange={(event) => setTyped(event.currentTarget.value)}
+            autoComplete="off"
+          />
+        </Field>
+      ) : null}
+
+      <div className="admin-form-actions">
+        <Button
+          shape="rect"
+          tone={busy ? "busy" : confirmed ? "primary" : "locked"}
+          onClick={onDelete}
+          disabled={busy || !confirmed}
+        >
+          {busy ? "Deleting…" : `Delete ${tier.tier.name}`}
+        </Button>
+        <Button shape="rect" tone="ghost" onClick={onCancel} disabled={busy}>
+          Cancel
+        </Button>
+      </div>
+    </FormPanel>
+  );
+}
+
+/**
  * The edit form, total over the four editable fields.
  *
  * **The flags are a number and a hatch** (`FeaturesField`, T69). They were a JSON
@@ -880,14 +1143,30 @@ function FormPanel({
  * **"On sale" is refused by the API for a tier with no Price**, and the hint says
  * so before the save rather than after: the way out is Stripe's, and a form that
  * only reported the `409` would be sending an operator to look in the wrong place.
+ *
+ * **The code follows the name on a tier no Price has frozen** (T76, ADR-0031) —
+ * which is the free tier and, in practice, nothing else. It is derived rather than
+ * typed, for `tier-code.ts`'s reason, and printed while it moves, because on this
+ * one row renaming stops being cosmetic: the tier's own admin path and the
+ * `tier.code` in `/api/me` both follow it. Everywhere else the code is shown as the
+ * fixed thing it is, and the form sends back the one it was given.
+ *
+ * **The three collisions are refused here, before the submit.** A code the catalog
+ * already holds, the reserved literal `order`, and a name that derives to nothing.
+ * The screen is holding the whole catalog, so it can check all three without
+ * asking, and the API's `409` carries no `reason` to tell them apart with anyway —
+ * which is the same bargain `NewPlanForm` and the zero-grant warning already make.
  */
 function TierForm({
   tier,
+  catalog,
   busy,
   onCancel,
   onSave,
 }: {
   tier: AdminTier;
+  /** Every tier there is, which is what makes a collision answerable without a round trip. */
+  catalog: AdminTier[];
   busy: boolean;
   onCancel: () => void;
   onSave: (edit: TierEdit) => void;
@@ -901,6 +1180,15 @@ function TierForm({
   const [published, setPublished] = useState(tier.published);
   const [problem, setProblem] = useState<string | null>(null);
 
+  // **Stripe holds the only other copy, so a Price is what freezes it** (ADR-0031).
+  // Read off the row rather than off a flag: "free" is not stored anywhere, it is
+  // "has no price", the same way `isDefault` is the catalog's rather than the row's.
+  const frozen = !isFree(tier);
+  const code = frozen ? tier.tier.code : tierCodeFrom(name);
+  // A half-cleared name derives to nothing, which is a refusal on submit and not a
+  // move to warn about — so the sentence below waits until there is a code to name.
+  const moving = code !== "" && code !== tier.tier.code;
+
   const grantsNothing = !unlimited && quotaTyped(quota) === 0;
   // **Keyed on the checkbox rather than on the stored row**, because the submit
   // below is: `published && !grantsNothing` refuses both directions, and a warning
@@ -913,7 +1201,7 @@ function TierForm({
   const submit = (): void => {
     const parsedQuota = unlimited ? null : quotaTyped(quota);
     if (parsedQuota === undefined) {
-      setProblem("Relists per period has to be a whole number, and not a negative one.");
+      setProblem("Reposts per period has to be a whole number, and not a negative one.");
       return;
     }
     const flags = features.read();
@@ -925,8 +1213,17 @@ function TierForm({
       setProblem("A tier needs a name — it is what you will look for in this list.");
       return;
     }
+    const collision = whyThisCodeWillNotDo(code, tier, catalog);
+    if (collision) {
+      setProblem(collision);
+      return;
+    }
     setProblem(null);
     onSave({
+      // The code the name derives to, or the one this row already has where a Price
+      // has frozen it. Sent either way, because the `PUT` is whole: "not moving it"
+      // is said by stating it, not by leaving it out.
+      code,
       name: name.trim(),
       relistQuotaPerPeriod: parsedQuota,
       features: flags.features,
@@ -943,19 +1240,38 @@ function TierForm({
     <FormPanel
       title={`Editing ${tier.tier.name}`}
       lede={
-        <>
-          The tier stored under <code>{tier.tier.code}</code>. Its price is Stripe&apos;s and is not
-          edited here.
-        </>
+        frozen ? (
+          <>
+            The tier stored under <code>{tier.tier.code}</code>. Its price is Stripe&apos;s and is not
+            edited here.
+          </>
+        ) : (
+          <>
+            The tier stored under <code>{tier.tier.code}</code>. It has no Stripe price, so the code
+            follows the name — see below.
+          </>
+        )
       }
       onCancel={onCancel}
     >
       <div className="admin-form-grid">
-        <Field label="Name" hint="Display text, and yours to rewrite.">
+        <Field
+          label="Name"
+          hint={
+            frozen ? (
+              "Display text, and yours to rewrite."
+            ) : (
+              <>
+                Display text — and on this tier the code too. Filed under{" "}
+                <code className="mp-code">{code || "…"}</code>.
+              </>
+            )
+          }
+        >
           <Input id="tier-name" value={name} onChange={(event) => setName(event.target.value)} />
         </Field>
         <Field
-          label="Relists per period"
+          label="Reposts per period"
           hint="0 on the default tier is how “there is no free tier” is said."
         >
           <Input
@@ -984,7 +1300,7 @@ function TierForm({
         onChange={(event) => setPublished(event.target.checked)}
       />
       <ul className="admin-notes">
-        {tier.prices.length === 0 ? (
+        {isFree(tier) ? (
           <li>
             This tier has no Stripe price, so it cannot go on sale. Add one with <b>Prices</b> on its
             row, or create it in Stripe tagged <code>metadata.tier_code = {tier.tier.code}</code> —
@@ -995,6 +1311,19 @@ function TierForm({
           Lowering the quota under existing subscribers is allowed: what is left of their period is
           this number minus what they have spent, and never less than zero.
         </li>
+        {frozen ? (
+          <li>
+            Filed under <code>{tier.tier.code}</code>, and it stays there: Stripe holds the same code
+            on this tier&apos;s {tier.prices.length === 1 ? "price" : "prices"} and that is how the
+            sync finds it again. Renaming is display text only.
+          </li>
+        ) : (
+          <li>
+            This tier has no Stripe price, so nothing holds a second copy of its code and the code
+            follows the name. Everybody on it stays on it — a subscription points at the row, not at
+            the code.
+          </li>
+        )}
       </ul>
       {/* The two warnings ADR-0029 asks for, and they are warnings rather than
           refusals for different reasons: one is a consequence this form then
@@ -1020,6 +1349,14 @@ function TierForm({
               sale in the same save.
             </>
           )}
+        </Note>
+      ) : null}
+      {moving ? (
+        <Note tone="warn">
+          Saving files this tier under <code>{code}</code> instead of{" "}
+          <code>{tier.tier.code}</code>. Nobody moves — a subscription points at the row — but{" "}
+          <code>tier.code</code> in <code>/api/me</code> changes, and so does this tier&apos;s own
+          address in this screen.
         </Note>
       ) : null}
       {unlimited && tier.isDefault ? (
@@ -1124,6 +1461,14 @@ function NewPlanForm({
       setProblem("A name needs a letter or a digit in it: the code the plan is filed under is made from it.");
       return;
     }
+    // And never the reserved one (ADR-0031). The API refuses it too, but as the
+    // same `409` a taken code gets — which would tell an operator "a tier already
+    // uses that code" about a tier that does not exist, after creating a Stripe
+    // Product for a row nothing could then edit.
+    if (tierCode === RESERVED_TIER_CODE) {
+      setProblem(whyTheReservedCodeWillNotDo("plan"));
+      return;
+    }
     // In RHYTHMS' order, so the cheapest rhythm is first however the fields were
     // filled in — which is the order `GET /api/plans` answers in and the order a
     // card reads.
@@ -1147,7 +1492,7 @@ function NewPlanForm({
     }
     const relists = unlimited ? null : quotaTyped(quota);
     if (relists === undefined) {
-      setProblem("Relists per period has to be a whole number, and not a negative one.");
+      setProblem("Reposts per period has to be a whole number, and not a negative one.");
       return;
     }
     const flags = features.read();
@@ -1211,7 +1556,7 @@ function NewPlanForm({
             />
           </Field>
         ))}
-        <Field label="Relists per period" hint="How many reposts a subscriber gets each period.">
+        <Field label="Reposts per period" hint="How many reposts a subscriber gets each period.">
           <Input
             id="plan-quota"
             type="number"
@@ -1354,6 +1699,21 @@ function NewPriceForm({
           one it already sells at creates a replacement price — which is the only way to reprice,
           because Stripe prices cannot be edited.
         </li>
+        {isFree(tier) ? (
+          // The free tier is the one with no price (ADR-0031), so this button on this
+          // row is the one click that ends that. Warned rather than refused: an
+          // operator may genuinely want to start charging for what was free, and
+          // refusing here would force them through a default-tier swap that hands new
+          // accounts a paid tier for nothing while it happens.
+          <li>
+            <b>This is the one tier nobody can buy, and adding a price ends that.</b>
+            {tier.isDefault
+              ? " It is the tier every new account is provisioned onto, and the one an ended subscription falls back to."
+              : ""}{" "}
+            Its code also becomes permanent: Stripe will hold <code>{code}</code> on the price, and
+            that copy is how the sync finds this tier again.
+          </li>
+        ) : null}
         {replacing ? (
           <li>
             <b>Everybody already subscribed keeps the price they signed up at.</b> That is what
@@ -1535,6 +1895,23 @@ function isDraft(tier: AdminTier): boolean {
 }
 
 /**
+ * The tier nobody can buy — the **free tier** (T76, ADR-0031).
+ *
+ * **Derived, never declared**: free is "has no Stripe price", not a flag, the same
+ * way `isDraft` above is three columns rather than a column. Named because this
+ * screen asks it for three different reasons — whether the code may follow the
+ * name, why "on sale" cannot be ticked, and what a price would end — and three
+ * spellings of `prices.length === 0` is the set that drifts.
+ *
+ * **Not the same claim as `isDefault`**, which is where new accounts land. One row
+ * today, two facts always. Rendering the price column is neither and stays a
+ * length check: that one is "nothing to list", not "free".
+ */
+function isFree(tier: AdminTier): boolean {
+  return tier.prices.length === 0;
+}
+
+/**
  * The sequence with one code moved to where another one is (T75, #164).
  *
  * **The dropped row takes the target's place and everything else closes up**, which
@@ -1597,7 +1974,16 @@ function tierIn(tiers: AdminTier[], code: string): AdminTier | null {
 function whyNotCreated(answer: CreateAnswer): string {
   switch (answer.status) {
     case "exists":
-      return "A tier already uses that code. Codes are permanent, so pick another one.";
+      // One status, three facts, and the screen names all three rather than sending
+      // an operator to check the one it used to mean — the same bargain `refusal`
+      // makes for the edit form's `409`. The third is T77's (ADR-0032) and is the
+      // only one that resolves on its own: a code stays closed while the tier
+      // deleted under it is still being torn down in Stripe.
+      return (
+        "That name cannot be filed: another tier already uses the code it derives to, or the code is one " +
+        "this screen could never open again, or a tier under it was just deleted and is still being removed " +
+        "from Stripe. The last one clears on its own within a few minutes."
+      );
     case "refused":
       // Stripe's own sentence. It names what to change; nothing here could.
       return answer.problem;
@@ -1610,15 +1996,135 @@ function whyNotCreated(answer: CreateAnswer): string {
   }
 }
 
+/** Where the people on a tier land when it goes, named rather than described. */
+function whoMoves(tier: AdminTier, landing: AdminTier | undefined): ReactNode {
+  if (tier.subscribers === 0) {
+    return <>Nobody is on this tier, so nobody moves.</>;
+  }
+  if (landing) {
+    return (
+      <>
+        {counted(tier.subscribers, "subscriber moves", "subscribers move")} to{" "}
+        {landing.tier.name}, the default tier, the moment this is deleted.
+      </>
+    );
+  }
+  return (
+    <>
+      <strong>
+        {counted(tier.subscribers, "subscriber is", "subscribers are")} left on no tier at all
+      </strong>{" "}
+      — there is no other default to move them to. They cannot repost until you make a tier the
+      default, which adopts every one of them at once.
+    </>
+  );
+}
+
+/**
+ * What a delete turned out to have done, in the operator's own terms.
+ *
+ * Read off the catalog that came back rather than off what was clicked, which is
+ * the rule every other write on this screen keeps: an emptied catalog is the one
+ * outcome worth saying out loud, and it is a fact about the answer.
+ */
+function whatTheDeleteDid(deleted: AdminTier, left: AdminTier[]): string {
+  if (left.length === 0) {
+    return `${deleted.tier.name} is deleted and the catalog is now empty. Nobody can repost until you create a plan and make it the default.`;
+  }
+  if (!left.some((tier) => tier.isDefault)) {
+    return `${deleted.tier.name} is deleted. There is no default tier now, so new accounts and everybody who was on it are on no plan — make one the default to adopt them all.`;
+  }
+  return `${deleted.tier.name} is deleted.`;
+}
+
+/**
+ * "1 subscriber moves", "412 subscribers move" — the number and the noun that
+ * agrees with it, since a confirmation written in the plural about one person reads
+ * as a screen that has not looked.
+ */
+function counted(howMany: number, one: string, several: string): string {
+  return `${howMany} ${howMany === 1 ? one : several}`;
+}
+
+/**
+ * What each refusal of a *delete* means, which is not what the edit form's mean
+ * (T77, ADR-0032).
+ *
+ * There is only one that is about the tier at all: `gone` is the API's `404`, and
+ * on this route it can mean nothing except that the row was already deleted —
+ * every tier is deletable, so there is no state of the catalog the API declines to
+ * produce and no second reading of the status. The rest are the API not answering.
+ */
+function whyNotDeleted(answer: Exclude<DeleteAnswer, { status: "deleted" | "signed-out" }>): string {
+  switch (answer.status) {
+    case "gone":
+      return "No tier is stored under that code any more — it was deleted somewhere else. The catalog has been reloaded.";
+    case "forbidden":
+      return "This account no longer has the ADMIN role.";
+    default:
+      return "The API could not be reached. Nothing was deleted.";
+  }
+}
+
+/**
+ * Why a derived code cannot be stored, or `null` where it can (T76, ADR-0031).
+ *
+ * **Three collisions, and two of them are reachable by ordinary naming** now that a
+ * name derives a code. Answered here rather than by the API, which sends one `409`
+ * for all of them and no `reason` to tell them apart — and which this screen can
+ * pre-empt, because it is holding every tier there is.
+ *
+ * Auto-suffixing to `pro-2` was rejected in the ADR as the "quietly corrected"
+ * ADR-0029 names as the thing not to do, and it does nothing for `order` at all.
+ */
+function whyThisCodeWillNotDo(code: string, tier: AdminTier, catalog: AdminTier[]): string | null {
+  if (code === tier.tier.code) return null;
+  if (!code) {
+    // "!!!" derives to nothing, and the code is what the tier is filed under. The
+    // same sentence `NewPlanForm` says, because it is the same fact about a name.
+    return "A name needs a letter or a digit in it: the code this tier is filed under is made from it.";
+  }
+  if (code === RESERVED_TIER_CODE) {
+    // `PUT /api/admin/tiers/order` is the route that sets the Catalog order, and
+    // Spring prefers the literal — so a tier filed under it is the one row that
+    // could never be edited again, including to undo this.
+    return whyTheReservedCodeWillNotDo("tier");
+  }
+  const taken = catalog.find((other) => other.tier.code === code);
+  if (taken) {
+    return `That name is filed under “${code}”, which ${taken.tier.name} already uses. Codes are one per tier.`;
+  }
+  return null;
+}
+
+/**
+ * Why the reserved code cannot be stored, said once for the two forms that can
+ * derive it (T76, ADR-0031).
+ *
+ * The literal is `packages/contracts`' — it is a fact about the API's routing
+ * table, not about deriving a code, and `tierCodeFrom` is right to answer `order`
+ * for "Order". Both write routes refuse it too; this is what stops an operator
+ * getting there.
+ */
+function whyTheReservedCodeWillNotDo(what: string): string {
+  return (
+    `A ${what} filed under “${RESERVED_TIER_CODE}” is one this screen could never open again — that ` +
+    "address already belongs to the catalog's own order. Pick another name."
+  );
+}
+
 /** What each refusal means to the person looking at the form. */
 function refusal(answer: EditAnswer): string {
   switch (answer.status) {
-    case "unsellable":
-      // Two facts behind one status since ADR-0029, and both are on the row the
-      // form is open over — so the sentence names them and the reload shows which.
+    case "conflicted":
+      // Four facts behind one status since ADR-0031, and every one of them is in
+      // the catalog this screen is holding — so the sentence names them and the
+      // reload shows which. The form checks all four first, so arriving here means
+      // this tab is out of date.
       return (
-        "That tier cannot go on sale: it either has no Stripe Price — create one in Stripe tagged " +
-        "with its code — or grants no reposts. Reload the catalog to see which."
+        "The catalog cannot hold that tier as described: it has no Stripe Price to go on sale " +
+        "against, or grants no reposts, or its code moved on a tier a Price has frozen, or the " +
+        "code it moved to is one another tier holds. Reload the catalog to see which."
       );
     case "gone":
       return "No tier is stored under that code any more. Reload the catalog.";

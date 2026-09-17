@@ -28,6 +28,7 @@ import com.mprelist.catalog.TierEdits;
 import com.mprelist.catalog.TierId;
 import com.mprelist.catalog.TierName;
 import com.mprelist.catalog.TierPrice;
+import com.mprelist.catalog.TierTeardown;
 
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
@@ -40,28 +41,41 @@ import tools.jackson.databind.json.JsonMapper;
  * endpoints will edit one — so an ORM would buy a persistence context this module has no use for and bring
  * {@code ddl-auto}, a second schema author beside the migrations, along with it.
  *
- * <p>It implements all three of this module's ports. They are separate types for their callers' sake (see
+ * <p>It implements three of this module's four ports. They are separate types for their callers' sake (see
  * {@link PriceAdoptions} and {@link TierEdits}) and one class here for the table's: a second class writing
  * these columns is a second place the catalog's rules could be spelled differently — and with an operator
  * editing the same rows a webhook writes (T53, #84), "spelled differently" would mean the two disagreeing
- * about what a quota is allowed to be.
+ * about what a quota is allowed to be. The fourth is {@link TierTeardown}, which is
+ * {@link StripeCleanupRows} beside this one because it is a different table — and this class reads that one
+ * for exactly one thing, on the line that says why.
  */
 @Service
 class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 
-	TierRows(JdbcClient db) {
+	/**
+	 * @param teardown the queue a deleted tier leaves behind, asked one question only: whether a code is
+	 * still being torn down — see {@link #adopt}
+	 */
+	TierRows(JdbcClient db, TierTeardown teardown) {
 		this.db = db;
+		this.teardown = teardown;
 	}
 
+	/**
+	 * <p>Empty rather than a throw since T77 (ADR-0032), and the change is in the answer rather than in the
+	 * statement: {@code tier_single_default} has always made this at most one row, and nothing has ever made
+	 * it at least one. Until a tier could be deleted the invariant held for reasons outside the database —
+	 * the seed writes a default, {@link #makeDefault} moves the flag rather than clearing it, {@link #adopt}
+	 * never writes the column and {@code TierEdit} carries no field for it — and the throw was where that was
+	 * stated. Deleting the tier holding the flag is the first operation in this application's history that
+	 * can leave the catalog with none.
+	 */
 	@Override
-	public TierId defaultTier() {
+	public Optional<TierId> defaultTier() {
 		return this.db.sql("select id from tier where is_default")
 				.query(UUID.class)
 				.optional()
-				.map(TierId::new)
-				.orElseThrow(() -> new IllegalStateException("No tier carries is_default, so there is no tier to "
-						+ "provision a new account onto. V2__seed_tier_catalog.sql leaves Free holding it; an "
-						+ "operator moving the flag has to move it to another tier rather than off every one."));
+				.map(TierId::new);
 	}
 
 	/**
@@ -83,9 +97,9 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 						row.getInt("max_marktplaats_accounts"), flagsIn(row.getString("features"))))
 				.optional()
 				.orElseThrow(() -> new IllegalStateException("No tier carries the id " + tier.id() + ", so there is "
-						+ "nothing to resolve an entitlement from. A subscription references its tier behind a "
-						+ "foreign key with no delete rule, so this is an id the catalog never issued rather than "
-						+ "a tier that has been retired."));
+						+ "nothing to resolve an entitlement from. A tier deleted out from under a subscriber "
+						+ "leaves their tier_id null (V11) and Subscription.tier() empty, so this is an id the "
+						+ "catalog never issued rather than one it has since dropped."));
 	}
 
 	/**
@@ -102,9 +116,9 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 				.query((row, number) -> new TierName(row.getString("code"), row.getString("name")))
 				.optional()
 				.orElseThrow(() -> new IllegalStateException("No tier carries the id " + tier.id() + ", so there is "
-						+ "nothing to name. A subscription references its tier behind a foreign key with no delete "
-						+ "rule, so this is an id the catalog never issued rather than a tier that has been "
-						+ "retired."));
+						+ "nothing to name. A tier deleted out from under a subscriber leaves their tier_id null "
+						+ "(V11) and Subscription.tier() empty, so this is an id the catalog never issued rather "
+						+ "than one it has since dropped."));
 	}
 
 	/**
@@ -222,6 +236,21 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 	@Override
 	@Transactional
 	public Adoption adopt(TaggedPrice price) {
+		/*
+		 * Asked first, and before anything is read about the Price at all, because it is a question about the
+		 * *code* rather than about what is being offered (T77, ADR-0032). A tier whose row is gone while its
+		 * Prices are still tagged is a tier this upsert would draft straight back — `isAboutAPrice()` is true
+		 * for `price.updated` as well as `price.created`, so an operator editing an archived Price, or Stripe
+		 * emitting an update for reasons of its own, resurrects it at quota 0 as a LOG.warn nobody reads. The
+		 * archive-and-untag the drain performs is what closes that for good; this is what holds the window
+		 * until it has.
+		 *
+		 * One statement away from the upsert rather than a question asked across a module boundary, which is
+		 * the whole reason the queue is this module's table (see TierTeardown).
+		 */
+		if (this.teardown.isBeingTornDown(price.tierCode())) {
+			return Adoption.REFUSED_A_CODE_BEING_TORN_DOWN;
+		}
 		if (heldByAnotherTier(price)) {
 			return Adoption.LEFT_TO_THE_TIER_THAT_HOLDS_IT;
 		}
@@ -351,9 +380,21 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 	 * writer including this one; the checks exist so that the one writer with a human in front of it can say
 	 * what happened.
 	 *
+	 * <p><strong>The code moves only where nothing else holds a copy of it</strong> (T76, ADR-0031), and the
+	 * guard is the tier's own price list rather than a query of its own: a {@code tier_price} row means Stripe
+	 * carries the code as {@code metadata.tier_code}, which is what {@link #adopt} finds the tier by. The
+	 * {@code stored} entry above has already read the prices, so "has a Price" is the same fact the publish
+	 * check one line down is asking about — read once and asked twice rather than two statements that could
+	 * come to disagree.
+	 *
+	 * <p>Both code checks are made before the publish ones because they are about <em>which row this is</em>
+	 * rather than about what it may be sold for: an edit that moves a frozen code is refused whether or not
+	 * it also tried to put the tier on sale, and being told the sellable thing first would send an operator to
+	 * fix the wrong half of their form.
+	 *
 	 * <p>Read back inside the same transaction rather than assembled from the request, so the answer is the
 	 * row — including the {@code stripe_price_id} the operator did not send and the {@code is_default} this
-	 * does not touch.
+	 * does not touch. Read back by the code the edit <em>asked for</em>, since that is where the row now is.
 	 */
 	@Override
 	@Transactional
@@ -362,7 +403,17 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 		if (stored.isEmpty()) {
 			return new TierEdited.NoSuchTier();
 		}
-		if (edit.published() && stored.get().prices().isEmpty()) {
+		boolean moving = !edit.code().equals(code);
+		if (moving && !stored.get().isFree()) {
+			return new TierEdited.CodeFrozenByAPrice();
+		}
+		// Any row under the asked-for code is another tier's, because this branch is only reached where the
+		// two codes differ. `tier.code` is unique, so the alternative to answering here is the constraint
+		// failing under the route as a 500.
+		if (moving && entryFor(edit.code()).isPresent()) {
+			return new TierEdited.CodeTakenByAnotherTier();
+		}
+		if (edit.published() && stored.get().isFree()) {
 			return new TierEdited.NothingToChargeAgainst();
 		}
 		if (edit.published() && edit.grantsNothing()) {
@@ -370,19 +421,46 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 		}
 		this.db.sql("""
 				update tier
-				   set name = :name,
+				   set code = :newCode,
+				       name = :name,
 				       relist_quota_per_period = :quota,
 				       features = cast(:features as jsonb),
 				       published = :published
 				 where code = :code
 				""")
+				.param("newCode", edit.code())
 				.param("name", edit.name())
 				.param("quota", edit.relistQuotaPerPeriod())
 				.param("features", JSON.writeValueAsString(edit.features()))
 				.param("published", edit.published())
 				.param("code", code)
 				.update();
-		return new TierEdited.Applied(entryFor(code).orElseThrow());
+		return new TierEdited.Applied(entryFor(edit.code()).orElseThrow());
+	}
+
+	/**
+	 * One statement, and everything else about a delete happens around it rather than in it.
+	 *
+	 * <p><strong>What the database does on its own is most of it.</strong> {@code tier_price} cascades (V7),
+	 * so a deleted tier stops being sold at anything; {@code subscription.tier_id} is set null (V11), so
+	 * whoever is still on it is orphaned rather than blocking the delete behind a foreign key. That second
+	 * one is the <em>backstop</em> and not the mechanism: {@code CatalogAndSubscribers} has already moved
+	 * everybody to the default tier where there is one to move them to, so what this catches is the two cases
+	 * where there is not — the default tier itself, and the last tier in the catalog.
+	 *
+	 * <p><strong>No existence check</strong>, for the reason {@link TierEdits#delete(String)} gives: the
+	 * caller has already read the row, because it needed the tier's Prices to capture the Stripe work before
+	 * the cascade took them.
+	 *
+	 * <p>V7's {@code tier_price_is_not_the_last_of_a_published_tier} does not fire on this, although the
+	 * cascade deletes exactly the rows it watches: it is a constraint trigger checked at the end of the
+	 * statement, and by then there is no published tier without a price because there is no tier.
+	 */
+	@Override
+	@Transactional
+	public List<CatalogEntry> delete(String code) {
+		this.db.sql("delete from tier where code = ?").param(code).update();
+		return everyTier();
 	}
 
 	/**
@@ -401,7 +479,10 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 	 * test could tell the difference — which is #41's precedent for deleting one.
 	 *
 	 * <p>Nothing here can leave the catalog with no default: the two statements are one transaction, and a
-	 * code naming no tier is refused before either runs.
+	 * code naming no tier is refused before either runs. What <em>can</em> is {@link #delete(String)}, which
+	 * is the point of ADR-0032 rather than a hole in this one — and the orphans that leaves are adopted by
+	 * {@code CatalogAndSubscribers} in the transaction this method runs in, because they are rows of a table
+	 * this module does not own.
 	 */
 	@Override
 	@Transactional
@@ -480,9 +561,10 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 
 	/** One row, read the one way — three statements above hand back an entry and all three mean this. */
 	private static CatalogEntry entry(ResultSet row, Map<UUID, List<TierPrice>> prices) throws SQLException {
-		return new CatalogEntry(new TierName(row.getString("code"), row.getString("name")), quotaStored(row),
-				flagsIn(row.getString("features")), row.getBoolean("published"), row.getBoolean("is_default"),
-				prices.getOrDefault(row.getObject("id", UUID.class), List.of()));
+		UUID id = row.getObject("id", UUID.class);
+		return new CatalogEntry(new TierId(id), new TierName(row.getString("code"), row.getString("name")),
+				quotaStored(row), flagsIn(row.getString("features")), row.getBoolean("published"),
+				row.getBoolean("is_default"), prices.getOrDefault(id, List.of()));
 	}
 
 	/**
@@ -498,6 +580,8 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 	}
 
 	private final JdbcClient db;
+
+	private final TierTeardown teardown;
 
 	/**
 	 * This module's own, not the application's. The shared mapper is configured for what goes out over HTTP —

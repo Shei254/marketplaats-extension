@@ -103,6 +103,7 @@ describe("a denial", () => {
       BULK_NOT_ENTITLED: "not-in-plan",
       QUOTA_EXCEEDED: "upgrade",
       RATE_LIMITED: "cooldown",
+      NO_TIER: "no-tier",
     };
 
     for (const reason of DENIAL_REASONS) {

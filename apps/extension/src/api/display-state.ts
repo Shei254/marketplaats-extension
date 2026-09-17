@@ -1,4 +1,9 @@
-import { SUBSCRIPTION_STATUSES, isQuota, type DisplayState } from "@mprelist/contracts";
+import {
+  SUBSCRIPTION_STATUSES,
+  isQuota,
+  type DenialReason,
+  type DisplayState,
+} from "@mprelist/contracts";
 
 import type { AccessToken } from "../auth/session";
 import type { Http } from "../auth/discovery";
@@ -10,7 +15,7 @@ import { clientHeaders } from "./client-release";
  * (`docs/enforcement-contract.md`). It grants nothing and spends nothing, so the
  * popup may ask for it as often as it is opened.
  *
- * **Fail-closed applies to display too.** Only one of the four answers is a plan:
+ * **Fail-closed applies to display too.** Only one of the five answers is a plan:
  * a backend that cannot be reached, or one whose answer cannot be read, is
  * `unavailable`. Rendering a stale or guessed plan would put a live Repost button
  * in front of a user the gate is about to refuse — which is the failure ADR-0007
@@ -26,6 +31,19 @@ export type DisplayStateAnswer =
    * no plan to show and no ad list worth listing — only one instruction.
    */
   | { status: "outdated" }
+  /**
+   * The backend has this account on no plan at all (T77, ADR-0032). An operator
+   * deleted the tier they were on and the catalog had no default to move them
+   * to, so there is no name, no grant and no reset date to render.
+   *
+   * **A screen of its own for `outdated`'s reason, and the opposite of
+   * `unavailable`.** Nothing is broken and nothing is down: the backend answered
+   * promptly and truthfully, and no retry changes the answer — an operator has to
+   * make a tier the default, and everybody naming none is adopted onto it at
+   * once. Calling it unavailable would offer a retry button that cannot work, on
+   * the one failure a user genuinely cannot act on.
+   */
+  | { status: "no-tier" }
   | { status: "unavailable" };
 
 export interface AccessTokens {
@@ -65,14 +83,28 @@ export class MprelistApi {
     }
 
     /**
-     * `401` is the only refusal this route has — every user always has a
-     * subscription, so a lapsed payer and an exhausted free user are both *shown*
-     * their state rather than turned away. It means the token we just refreshed is
-     * not one this API will take, and the only thing a user can do about that is
-     * sign in again; calling it "unavailable" would offer them a retry button that
-     * cannot work.
+     * Not signed in. Nearly nothing else on this route is refusable — every user
+     * always has a subscription *row*, so a lapsed payer and an exhausted free user
+     * are both *shown* their state rather than turned away — and this means the
+     * token we just refreshed is not one the API will take. The only thing a user
+     * can do about that is sign in again; calling it "unavailable" would offer them
+     * a retry button that cannot work.
      */
     if (response.status === 401) return { status: "signed-out" };
+    /**
+     * The one denial this route has, and it is read by its **code** rather than by
+     * its status — which is the contract's own rule and the difference between
+     * this line and the two around it. `401` and `426` carry no body to read, so
+     * the status is the whole of what they say; a denial carries `reason`, and
+     * some other `403` on this path (none exists today) would be a statement about
+     * something else. Read before `!response.ok`, or it would be one more
+     * "unavailable" and the user would be offered a retry that cannot work.
+     */
+    if (response.status === 403) {
+      const denial = await response.json().catch(() => null);
+      if (isDenial(denial, "NO_TIER")) return { status: "no-tier" };
+      return UNAVAILABLE;
+    }
     /**
      * `426 Upgrade Required` is the one answer this client reads by *status* rather
      * than by a reason code, and the contract says why: the codes are statements
@@ -91,6 +123,19 @@ export class MprelistApi {
 }
 
 const UNAVAILABLE: DisplayStateAnswer = { status: "unavailable" };
+
+/**
+ * Whether a body is the denial shape carrying this exact code.
+ *
+ * Checked rather than assumed, for `asDisplayState`'s reason one function down: a
+ * `403` whose body is not a denial at all is a backend saying something this build
+ * has never heard of, and the honest answer to that is `unavailable` — not a
+ * screen telling somebody their plan was deleted.
+ */
+function isDenial(body: unknown, reason: DenialReason): boolean {
+  if (typeof body !== "object" || body === null) return false;
+  return (body as Record<string, unknown>)["reason"] === reason;
+}
 
 /**
  * The body, checked rather than trusted — every field, because a half-read

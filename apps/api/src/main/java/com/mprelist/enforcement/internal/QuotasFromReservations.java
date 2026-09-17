@@ -31,7 +31,11 @@ class QuotasFromReservations implements Quotas {
 	}
 
 	/**
-	 * <strong>An unlimited tier skips the count</strong> (ADR-0029). {@link RemainingQuota#of} ignores
+	 * <strong>A subscription with no tier skips everything</strong> (T77, ADR-0032): there is no row to
+	 * resolve an entitlement from, and zero is what is left of a grant that does not exist. See
+	 * {@link RemainingQuota#nothingToSpend} for why this answers at all rather than refusing.
+	 *
+	 * <p><strong>An unlimited tier skips the count</strong> (ADR-0029). {@link RemainingQuota#of} ignores
 	 * {@code held} when the grant is {@code null}, so the statement behind it would be a scan of this
 	 * period's reservations for a number nothing reads — on the gate's own path, for the users doing the
 	 * highest volume. Skipped here rather than inside the record, because this is the class that knows what
@@ -39,7 +43,14 @@ class QuotasFromReservations implements Quotas {
 	 */
 	@Override
 	public RemainingQuota leftFor(UserRef caller, Subscription plan) {
-		Entitlement granted = this.tiers.entitlementOf(plan.tier());
+		// Only `/complete` reaches this branch — the gate and `/api/me` both answer NO_TIER above the point
+		// they would ask — and it is the one caller that refuses nothing on purpose, because a report is the
+		// only account of what happened on Marktplaats and its author's plan being deleted mid-relist does
+		// not make them a worse witness.
+		if (plan.tier().isEmpty()) {
+			return RemainingQuota.nothingToSpend(plan.period());
+		}
+		Entitlement granted = this.tiers.entitlementOf(plan.tier().get());
 		int held = granted.relistsPerPeriod() == null ? 0
 				: this.reservations.unitsHeldIn(caller, plan.period());
 		return RemainingQuota.of(granted, held, plan.period());

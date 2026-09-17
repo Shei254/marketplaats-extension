@@ -14,11 +14,20 @@
  * {@link com.mprelist.billing.UnadoptedPrices}, which hands over our own records rather than Stripe types —
  * so ADR-0014's "Stripe stays in one module" holds here as it does everywhere else.
  *
- * <p><strong>What the CRUD deliberately is not.</strong> It cannot create a tier, delete one, or set a price:
- * a plan is created in Stripe and tagged with its code, the sync drafts the row (ADR-0019), the amount is
- * immutable, and a tier is retired by unpublishing it rather than by deleting a row its subscribers reference.
- * What is editable is what this application actually owns — the quota, the name, the flags, whether it is on
- * sale, and which tier new accounts start on.
+ * <p><strong>What the CRUD is and is not.</strong> It cannot set a price: the amount is Stripe's and
+ * immutable. It does not write a {@code tier} row for a creation either — a plan is created in Stripe and
+ * tagged with its code, and the sync drafts the row (ADR-0019), which is what T61's New plan button drives
+ * rather than going round. What is editable is what this application actually owns — the quota, the name, the
+ * flags, whether it is on sale, the order the catalog reads in, and which tier new accounts start on.
+ *
+ * <p><strong>Deleting was on that list and is not any more</strong> (T77,
+ * {@link com.mprelist.catalog.TierEdits#delete}; ADR-0032). The sentence here said a tier is retired by
+ * unpublishing it rather than by deleting a row its subscribers reference, and that was a foreign key
+ * speaking rather than anything an operator would recognise. Every tier is now deletable including the
+ * default and the last, which is also <strong>the first thing this module composes rather than forwards</strong>:
+ * {@code CatalogAndSubscribers} is one transaction across {@code catalog}'s rows and {@code subscription}'s,
+ * because a delete moves people and neither module may reach into the other to do it. It still owns no table
+ * and decides nothing about what a tier grants.
  */
 @ApplicationModule
 package com.mprelist.admin;

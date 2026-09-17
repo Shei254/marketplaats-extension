@@ -1,7 +1,7 @@
-import type { Plan } from "@mprelist/contracts";
+import type { DisplayState, Plan } from "@mprelist/contracts";
 import { describe, expect, it } from "vitest";
 
-import { grantOf, handoffFailure, priceOf, waysToPay } from "./plans";
+import { grantOf, grantsNothing, handoffFailure, priceOf, waysToPay } from "./plans";
 
 /** The one rhythm this fixture is sold at, named because several assertions want it. */
 const FIRST_PRICE = { amount: 999, currency: "eur", interval: "month" } as const;
@@ -79,6 +79,33 @@ describe("what a plan grants", () => {
 
   it("agrees with the number it is describing", () => {
     expect(grantOf({ ...PRO, relistQuotaPerPeriod: 1 }, "month")).toBe("1 herplaatsing per maand");
+  });
+});
+
+/** The subscription somebody is on, as `GET /api/me` describes it. */
+const ON: DisplayState = {
+  subscriptionStatus: "ACTIVE",
+  tier: { code: "free", name: "Gratis" },
+  quotaRemaining: 2,
+  relistQuotaPerPeriod: 3,
+  resetAt: "2026-09-14T08:31:22.101Z",
+  features: {},
+};
+
+describe("a plan that grants nothing (T32, #41)", () => {
+  it("is a grant of 0, and an unlimited one is its opposite", () => {
+    // `=== 0` rather than a falsy test, because `null` is unlimited (ADR-0029) and
+    // `!quota` reads the two as one plan — the one where nothing may be reposted
+    // and the one where everything may.
+    expect(grantsNothing({ ...ON, relistQuotaPerPeriod: 0, quotaRemaining: 0 })).toBe(true);
+    expect(grantsNothing({ ...ON, relistQuotaPerPeriod: null, quotaRemaining: null })).toBe(false);
+    expect(grantsNothing(ON)).toBe(false);
+  });
+
+  it("reads the grant and never the remainder, which is the whole of the rule", () => {
+    // A spent period is not a plan without reposts: this number goes back up
+    // without the holder doing anything, so nothing may be locked on it.
+    expect(grantsNothing({ ...ON, quotaRemaining: 0 })).toBe(false);
   });
 });
 

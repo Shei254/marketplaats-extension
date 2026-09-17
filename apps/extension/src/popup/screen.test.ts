@@ -30,5 +30,8 @@ describe("which screen an answer means", () => {
   it("shows the update screen for a build the backend has stopped serving", () => {
     // Not `unavailable`, which offers a retry that cannot work (T43, #52).
     expect(screenFor({ status: "outdated" })).toEqual({ screen: "outdated" });
+    // T77 (ADR-0032): its own screen for `outdated`'s reason and the opposite of
+    // `unavailable` — nothing is down, and no retry changes it.
+    expect(screenFor({ status: "no-tier" })).toEqual({ screen: "no-tier" });
   });
 });

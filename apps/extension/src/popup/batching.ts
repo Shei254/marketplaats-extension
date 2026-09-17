@@ -2,7 +2,7 @@ import { bulkIn, type DisplayState } from "@mprelist/contracts";
 
 import { describeDuration, estimateBatchMs, sleepsMidRun, type BatchShape } from "../domain/batch-estimate";
 import { progressOf, type BatchRun, type BatchStopReason } from "../domain/batch-run";
-import type { RowState } from "./relisting";
+import { AD_IS_DOWN, AD_UNCHANGED, type RowState } from "./relisting";
 
 /**
  * Reposting several ads at once, as the popup understands it (T68, #147;
@@ -437,10 +437,14 @@ export function describeStop(reason: BatchStopReason): string | null {
       return "Meerdere tegelijk herplaatsen hoort niet bij je abonnement, dus de rest is niet gestart.";
     case "unavailable":
       return "Je abonnement kon niet worden gecontroleerd, dus de rest is niet gestart. Probeer het opnieuw.";
+    case "no-tier":
+      // Deliberately without "probeer het opnieuw", unlike the line above it: the
+      // backend answered, and no retry changes the answer (T77, ADR-0032).
+      return "Er staat nu geen abonnement op dit account, dus de rest is niet gestart.";
     case "ad-down":
       // The one stop that is about an ad rather than about the account, and the
       // one where the user has something to do on a specific row.
-      return "Eén advertentie is verwijderd en kon niet opnieuw worden geplaatst, dus er is niets anders gestart. De advertentie is opgeslagen in de extensie — klik op Opnieuw bij die rij.";
+      return "Eén advertentie is verwijderd en kon niet worden herplaatst, dus er is niets anders gestart. De advertentie is opgeslagen in de extensie — klik op Opnieuw bij die rij.";
     case "failures":
       return "Twee herplaatsingen achter elkaar leverden niets op, dus de rest is niet gestart. Er is niets verwijderd.";
   }
@@ -471,20 +475,11 @@ function rowStateForOutcome(result: "reposted" | "skipped" | "down"): RowState {
     case "reposted":
       return { kind: "done" };
     case "skipped":
-      // The wording is the single-repost one, because it is the same event: the
-      // unit went back and the ad is exactly where it was.
-      return {
-        kind: "failed",
-        tone: "error",
-        action: "relist",
-        message: "Er is niets herplaatst — je advertentie is ongewijzigd.",
-      };
+      // The single-repost sentence itself, not a copy of it: the same event said
+      // twice is how the two drifted apart (T74, #161). The unit went back and
+      // the ad is exactly where it was.
+      return { kind: "failed", tone: "error", action: "relist", message: AD_UNCHANGED };
     case "down":
-      return {
-        kind: "failed",
-        tone: "warn",
-        action: "retry",
-        message: "Je advertentie is verwijderd, maar opnieuw plaatsen is mislukt. De advertentie is opgeslagen in de extensie — klik op Opnieuw.",
-      };
+      return { kind: "failed", tone: "warn", action: "retry", message: AD_IS_DOWN };
   }
 }

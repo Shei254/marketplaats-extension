@@ -112,6 +112,23 @@ class CrossOriginTest {
 	}
 
 	/**
+	 * And for the {@code DELETE} a tier is removed with (T77, ADR-0032).
+	 *
+	 * <p>The same half-bug one ticket later, and the reason this assertion exists rather than the method
+	 * list being trusted: a route added on one side and a method left off this one fails in the browser
+	 * before the request is sent, so nothing in the API's log says the delete was ever attempted. The comment
+	 * beside that list said "there is no DELETE, because nothing here deletes", which was true right up until
+	 * this ticket.
+	 */
+	@Test
+	void andForTheDeleteATierIsRemovedWith() {
+		HttpResponse<String> preflight = preflight(WEB, "DELETE", "authorization");
+
+		assertThat(preflight.statusCode()).isEqualTo(200);
+		assertThat(header(preflight, "Access-Control-Allow-Methods")).contains("DELETE");
+	}
+
+	/**
 	 * And {@code apps/web} is answered at all, which is the other half of that bug.
 	 *
 	 * <p>The extension had been the only client since #41, so every assertion above was about one origin and

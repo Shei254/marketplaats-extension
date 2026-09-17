@@ -100,6 +100,19 @@ final class Subscribers {
 				""" + THE_TIER_OF, user.account());
 	}
 
+	/**
+	 * A subscription naming no tier — the state T77 made reachable (ADR-0032): the tier this account was on
+	 * was deleted and the catalog had no default to move them to.
+	 *
+	 * <p>Arranged directly rather than by deleting a tier through the route, for this class's whole reason:
+	 * what the suites below are about is what a tier-less subscription is <em>answered</em> with, and going
+	 * through the delete would make each of them also a test of the delete. {@link TierDeletionTest} is where
+	 * the two are put together.
+	 */
+	void hasNoTier(Subscriber user) {
+		this.db.update("update subscription set tier_id = null where app_user_id = ?", user.account());
+	}
+
 	void statusIs(Subscriber user, String status) {
 		this.db.update("update subscription set status = ? where app_user_id = ?", status, user.account());
 	}

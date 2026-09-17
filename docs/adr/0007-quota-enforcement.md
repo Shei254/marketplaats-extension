@@ -54,5 +54,26 @@ can assert it, and under this ADR the client is the adversary. Quota and SafetyP
 **per-User** for now. `MarktplaatsAccount` remains in the domain model, and "find a stable MP account
 identifier" is an open spike that also blocks `maxMpAccounts` as a sellable entitlement.
 
+## Refinement (2026-09-16): the lock reads the grant, never the remainder
+The amendment above asks the UI to render locked-vs-active **before any click**. That is only honest about a
+fact which cannot move under it, and of the two numbers `/api/me` carries, exactly one qualifies.
+
+**`relistQuotaPerPeriod === 0` locks every Repost control, before anything is clicked.** A grant is the
+Tier's own property: nothing its holder does changes it, only an operator editing the catalog or a purchase.
+A control locked on it is still right a minute later, and the prompt beside the list says what would change
+it.
+
+**`quotaRemaining === 0` locks nothing.** That number goes back *up* without the user acting — a
+`FAILED_BEFORE_DELETE` report hands its unit back, and so does reconciliation — so a button disabled on it is
+one a refund has already made wrong, until somebody presses Refresh. It stays live, the click costs a round
+trip, and `authorize` refuses it **before any delete**. That is the fail-closed rule above doing its job
+rather than a hole in it: display state decides how a control looks and never whether a relist may happen.
+
+The denial cannot draw this distinction for us. `QUOTA_EXCEEDED` is one refusal for both, and its `resetAt`
+is real on a zero-grant tier too — the period still rolls, it just rolls to 0 — so the copy is split on the
+grant from `/api/me` rather than on the reason code.
+[T32](https://github.com/Shei254/marketplaats-extension/issues/41) is the work, and `../backlog.md` carries
+the reasoning in full.
+
 ## Revisit if
 Bypass/abuse becomes materially common → increase friction (e.g., server-signed action nonces bound to identity), never full hard enforcement without reversing ADR-0001.

@@ -218,3 +218,22 @@ is published deliberately rather than by the sync, which is the same care this A
 **"Publishing a draft is an admin setting its quota" is now enforceable rather than descriptive.** ADR-0029
 adds `published → (quota > 0 OR quota IS NULL)` at the three layers `V7` uses, so a draft cannot be published
 while it is still a draft.
+
+## Amended by ADR-0031 (2026-09-16) — the tag on the Price is what freezes the code, and only that
+
+[ADR-0031](0031-the-free-tier-is-the-one-without-a-price.md) makes `tier.code` editable while a tier has no
+Price, and this ADR is the reason the exception is drawn exactly there. **`metadata.tier_code` is the whole
+link between the two systems**, so a tier holding Prices tagged with a code it no longer carries is a catalog
+the sync cannot read: the next `price.updated` would find no tier under that tag and draft a new one at quota
+0 — the tier split in two, by a rename, with its subscribers on the half nobody is looking at. Retagging every
+Price in the same operation was weighed and rejected, because a local commit plus N Stripe calls half-fails
+into exactly that split.
+
+**Nothing about the sync changes.** It still adopts a tier *from* a Price, still never writes a quota, and
+still takes whatever code Stripe names — including `order`, which the two write routes now refuse and the
+webhook deliberately does not, since a catalog that refused rows it had already been told about would be the
+worse failure.
+
+**"No free tier is a quota of 0" is untouched**, and ADR-0031 is narrow because of it. What that spelling
+could never say is what the free tier is *called*, which is now an operator's to set.
+

@@ -76,10 +76,16 @@ describe("the denial reasons", () => {
   });
 
   it("are the ones the API can actually answer with", () => {
-    // Three live on the gate's own enum; `UNAUTHENTICATED` is `identity`'s, written
-    // by the filter chain before any route is reached, which is what makes it true
-    // of routes no ticket has written yet. Asserted where each one lives.
-    const gateCodes = javaEnumConstants("enforcement/internal/ReasonCode");
+    // Four live on `enforcement`'s own enum; `UNAUTHENTICATED` is `identity`'s,
+    // written by the filter chain before any route is reached, which is what makes
+    // it true of routes no ticket has written yet. Asserted where each one lives.
+    //
+    // The enum moved out of `internal` in T77 (ADR-0032), and the reason is the
+    // reason this assertion exists: `NO_TIER` is the first code answered by a route
+    // the gate does not own — `GET /api/me` sends it too — so `display` needed the
+    // word, and a second spelling of it there would be a string nothing compares to
+    // anything.
+    const gateCodes = javaEnumConstants("enforcement/ReasonCode");
     const filterChain = repoFile(
       "apps/api/src/main/java/com/mprelist/identity/internal/ResourceServerSecurity.java",
     );

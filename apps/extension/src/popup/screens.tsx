@@ -2,7 +2,7 @@ import { Badge, Button, Icon, IconButton, Meter, Note, Skeleton, Spinner } from 
 import type { DisplayState } from "@mprelist/contracts";
 import type { JSX, ReactNode } from "react";
 
-import { MANAGING, UNLIMITED_REPOSTS, type Handoff } from "./plans";
+import { grantsNothing, MANAGING, UNLIMITED_REPOSTS, type Handoff } from "./plans";
 
 
 /**
@@ -59,7 +59,7 @@ export function SignedOutScreen({
         </div>
         <h1 className="popup-title">Zet je advertenties weer bovenaan</h1>
         <p className="popup-copy">
-          Log in om je Marktplaats-advertenties met één klik opnieuw te plaatsen.
+          Log in om je Marktplaats-advertenties met één klik te herplaatsen.
         </p>
         <Button shape="block" tone={busy ? "busy" : "primary"} onClick={onSignIn}>
           {busy ? "Bezig met inloggen…" : "Inloggen"}
@@ -131,6 +131,44 @@ export function OutdatedScreen(): JSX.Element {
   );
 }
 
+/**
+ * On no plan at all (T77, ADR-0032): the tier this account was on was deleted and
+ * the catalog had no default to move it to.
+ *
+ * **No retry button, and for a sharper version of `OutdatedScreen`'s reason.**
+ * There the user can do something and it simply is not "try again"; here there is
+ * nothing for *either* of them to do — an operator makes a tier the default and
+ * everybody naming none is adopted onto it at once. So the copy says who is doing
+ * it and that nothing was lost, and offers no control that would only ever be
+ * pressed in vain.
+ *
+ * **It says nothing about paying**, deliberately. A subscriber whose plan was
+ * deleted has had their Stripe subscription cancelled, and pointing them at the
+ * plan cards at this moment would be offering a catalog that may be empty — see
+ * the same choice `BatchBar`'s locked line makes while bulk is withdrawn.
+ */
+export function NoTierScreen(): JSX.Element {
+  return (
+    <>
+      <Header />
+      <div className="popup-centred">
+        <div className="popup-warning">
+          <Icon name="warning" />
+        </div>
+        <h1 className="popup-title">Er staat nu geen abonnement op dit account</h1>
+        <p className="popup-copy">
+          Het abonnement waar je op zat bestaat niet meer, en er is nog geen ander ingesteld.
+          Herplaatsen is daarom gepauzeerd tot dat gebeurd is.
+        </p>
+        <p className="popup-micro">
+          Er is niets gewijzigd op Marktplaats en je advertenties staan precies waar je ze hebt
+          achtergelaten. Dit lost zich vanzelf op — opnieuw proberen helpt niet.
+        </p>
+      </div>
+    </>
+  );
+}
+
 export function UnavailableScreen({
   onRetry,
   busy,
@@ -185,13 +223,17 @@ export function SignedInScreen({
   handoff: Handoff;
   busy: boolean;
 }): JSX.Element {
-  // The three states a quota can be in, asked once and answered here rather than
-  // re-derived at each of the four places below that branch on them (ADR-0029).
-  // `unlimited` reads the grant and not the remainder: the two are null together,
-  // and the ceiling is the fact the screen is actually about.
+  // The three states a quota can be in, named rather than re-derived at each of
+  // the four places below that branch on them (ADR-0029). `unlimited` reads the
+  // grant and not the remainder: the two are null together, and the ceiling is the
+  // fact the screen is actually about.
+  //
+  // The middle one is `plans.ts`'s function since T32 (#41) and is called rather
+  // than copied into a local, so that this strip and the ad list beneath it have
+  // one spelling between them: a screen of dead buttons and the prompt explaining
+  // them must never disagree about whether the plan grants anything.
   const unlimited = plan.relistQuotaPerPeriod === null;
-  const grantsNothing = plan.relistQuotaPerPeriod === 0;
-  const spent = plan.quotaRemaining === 0 && !grantsNothing;
+  const spent = plan.quotaRemaining === 0 && !grantsNothing(plan);
   const paymentFailing = !ALLOWED_STATUSES.includes(plan.subscriptionStatus);
   return (
     <>
@@ -210,7 +252,7 @@ export function SignedInScreen({
           </>
         }
       />
-      <div className={stripClass(spent || grantsNothing, paymentFailing)}>
+      <div className={stripClass(spent || grantsNothing(plan), paymentFailing)}>
         <div className="popup-plan-top">
           <span className="popup-plan-name">
             {plan.tier.name}
@@ -240,7 +282,7 @@ export function SignedInScreen({
             unlimited tier — it would invite the reader to believe there is a limit
             — and it is a promise on a tier granting 0, where what comes back is 0
             (ADR-0029). */}
-        {paymentFailing || unlimited || grantsNothing || !resetsOn(plan.resetAt) ? null : (
+        {paymentFailing || unlimited || grantsNothing(plan) || !resetsOn(plan.resetAt) ? null : (
           <p className="popup-plan-foot">{resetsOn(plan.resetAt)}</p>
         )}
       </div>
@@ -250,7 +292,7 @@ export function SignedInScreen({
       {spent && !paymentFailing ? (
         <ExhaustedPrompt resetAt={plan.resetAt} onSeePlans={onSeePlans} />
       ) : null}
-      {grantsNothing && !paymentFailing ? <NoRepostsPrompt onSeePlans={onSeePlans} /> : null}
+      {grantsNothing(plan) && !paymentFailing ? <NoRepostsPrompt onSeePlans={onSeePlans} /> : null}
       {children}
     </>
   );

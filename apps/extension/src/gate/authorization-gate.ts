@@ -54,6 +54,21 @@ export type LockedState =
    */
   | { state: "not-in-plan" }
   | { state: "cooldown"; retryAfter: number | null }
+  /**
+   * There is no plan on this account at all — `NO_TIER` (T77, ADR-0032). The tier
+   * this user was on was deleted and the catalog had no default to move them to.
+   *
+   * **Separate from `retry`, which is where an unknown code lands and is exactly
+   * what this code exists to stop it saying.** "Try again" is false in both
+   * halves: nothing is down, and no retry changes it — an operator makes a tier
+   * the default and everybody naming none is adopted onto it at once.
+   *
+   * Reached only by a race in practice: `/api/me` answers `NO_TIER` too, so the
+   * popup is already on a screen with no Repost button by the time a user could
+   * press one. What reaches here is a tier deleted between that call and the
+   * click, which is worth a true sentence rather than a shrug.
+   */
+  | { state: "no-tier" }
   /** "Unavailable — try again." Nothing the user can fix, and nothing they did wrong. */
   | { state: "retry" };
 
@@ -110,6 +125,10 @@ function lockedBy(body: unknown): LockedState {
       return { state: "upgrade", resetAt: nonEmptyString(fields["resetAt"]) };
     case "RATE_LIMITED":
       return { state: "cooldown", retryAfter: wholeSeconds(fields["retryAfter"]) };
+    case "NO_TIER":
+      // Carries nothing, and there is nothing it could carry: what to do about it
+      // is not this user's to do (T77, ADR-0032).
+      return { state: "no-tier" };
     case "UNAUTHENTICATED":
       // The contract renders this as "unavailable, retry" like any other failure
       // the user cannot act on. T24 (#33) refreshes before this call is made, so a

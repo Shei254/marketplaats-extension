@@ -3,7 +3,10 @@ package com.mprelist.subscription.internal;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -19,9 +22,11 @@ import com.mprelist.subscription.Mirroring;
 import com.mprelist.subscription.QuotaPeriod;
 import com.mprelist.subscription.SubscriberOnStripe;
 import com.mprelist.subscription.Subscription;
+import com.mprelist.subscription.SubscriberCount;
 import com.mprelist.subscription.SubscriptionMirror;
 import com.mprelist.subscription.SubscriptionStatus;
 import com.mprelist.subscription.Subscriptions;
+import com.mprelist.subscription.TierSubscribers;
 
 /**
  * The {@code subscription} table as everything outside this module sees it, and the only code that reads it.
@@ -31,12 +36,12 @@ import com.mprelist.subscription.Subscriptions;
  * write here is one {@code update} of the columns it names — the roll of a free window, and the two halves of
  * the Stripe mirror (#30).
  *
- * <p>It implements both of this module's ports, which are separate types for their callers' sake (see
- * {@link SubscriptionMirror}) and one class here for the table's: a second class writing these columns is a
- * second place the window, the status and the tier could be spelled differently.
+ * <p>It implements all three of this module's ports, which are separate types for their callers' sake (see
+ * {@link SubscriptionMirror} and {@link TierSubscribers}) and one class here for the table's: a second class
+ * writing these columns is a second place the window, the status and the tier could be spelled differently.
  */
 @Service
-class SubscriptionRows implements Subscriptions, SubscriptionMirror {
+class SubscriptionRows implements Subscriptions, SubscriptionMirror, TierSubscribers {
 
 	/**
 	 * @param tiers read on the way out of a subscription rather than into one: which tier a Stripe Price is
@@ -91,15 +96,16 @@ class SubscriptionRows implements Subscriptions, SubscriptionMirror {
 				""")
 				.param(user.id())
 				.query((values, number) -> new Row(values.getObject("id", UUID.class),
-						new TierId(values.getObject("tier_id", UUID.class)), statusIn(values.getString("status")),
+						tierNamed(values.getObject("tier_id", UUID.class)), statusIn(values.getString("status")),
 						new QuotaPeriod(utc(values.getObject("period_start", OffsetDateTime.class)),
 								utc(values.getObject("period_end", OffsetDateTime.class))),
 						utc(values.getObject("created_at", OffsetDateTime.class)), values.getBoolean("stripes")))
 				.optional()
-				.orElseThrow(() -> new IllegalStateException("The account " + user.id() + " holds no subscription, "
-						+ "which ADR-0014 makes unreachable: first login provisions one on the default tier in "
-						+ "the transaction that creates the account. A row deleted underneath a live account is "
-						+ "the only way to arrive here."));
+				.orElseThrow(() -> new IllegalStateException("The account " + user.id() + " holds no subscription "
+						+ "row, which ADR-0014 makes unreachable and ADR-0032 narrowed without weakening: first "
+						+ "login provisions a row in the transaction that creates the account, naming the default "
+						+ "tier or naming none where the catalog has been emptied. A row deleted underneath a live "
+						+ "account is still the only way to arrive here."));
 		// Read after the row rather than before it, so that a window rolled to start at this instant cannot
 		// start after a `now` the caller already holds — the reservation it goes on to write would then be
 		// stamped before its own period and counted against nobody's quota.
@@ -176,17 +182,21 @@ class SubscriptionRows implements Subscriptions, SubscriptionMirror {
 		 *
 		 * So an unrecognised Price no longer costs the event, only the tier change: the status and the window
 		 * are mirrored and the row keeps the tier it is already on, which for a repriced plan is the right one.
-		 * A row that is on **no** tier cannot happen — every subscription is provisioned onto one (ADR-0014) —
-		 * so there is no case here where keeping the tier means keeping nothing.
+		 *
+		 * **Since T77 "the tier it is already on" may be no tier at all** (ADR-0032), and the answer is the
+		 * same one: keep what is there. That pairing is the one that heals — a subscriber orphaned by a
+		 * deleted tier whose Price this application still recognises is put back on a real tier by the next
+		 * event Stripe sends about them, without anything here knowing that is what it did.
 		 */
 		Optional<TierId> tier = this.tiers.tierSoldAs(stripePriceId);
+		Optional<TierId> landing = tier.or(() -> row.get().tier());
 		this.db.sql("""
 				update subscription
-				   set tier_id = ?, status = ?, period_start = ?, period_end = ?,
+				   set tier_id = cast(? as uuid), status = ?, period_start = ?, period_end = ?,
 				       stripe_customer_id = ?, stripe_subscription_id = ?, mirrored_through = ?
 				 where id = ?
 				""")
-				.params(tier.orElse(row.get().tier()).id(), stored(status), period.start(), period.end(),
+				.params(landing.map(TierId::id).orElse(null), stored(status), period.start(), period.end(),
 						who.customerId(), who.subscriptionId(), saidAt, row.get().id())
 				.update();
 		return tier.isPresent() ? Mirroring.MIRRORED : Mirroring.MIRRORED_ONTO_THE_TIER_THEY_WERE_ALREADY_ON;
@@ -204,6 +214,14 @@ class SubscriptionRows implements Subscriptions, SubscriptionMirror {
 	 * ours to roll again ({@link Row#windowIsOursToRoll()}). Left behind, this account's window would sit
 	 * where the cancellation put it for ever, since the Stripe subscription that owned it no longer exists to
 	 * send another event.
+	 *
+	 * <p><strong>"The default tier" is now a question with two answers</strong>, which is ADR-0018 refined
+	 * rather than reversed (T77, ADR-0032). Where there is no default — the catalog was emptied, or the
+	 * default tier was the one deleted — the fallback lands on no tier rather than failing the webhook: an
+	 * event Stripe must be allowed to deliver is not one to refuse over the state of our own catalog, and
+	 * the subscriber is denied {@code NO_TIER} until a default exists again. Everything else about the
+	 * statement is unchanged, including the window, so the healing that {@code PUT …/{code}/default} does is
+	 * a single {@code update} of one column.
 	 */
 	@Override
 	@Transactional
@@ -218,12 +236,12 @@ class SubscriptionRows implements Subscriptions, SubscriptionMirror {
 		QuotaPeriod ours = ourOwnWindowAt(row.get().createdAt(), OffsetDateTime.now(ZoneOffset.UTC));
 		this.db.sql("""
 				update subscription
-				   set tier_id = ?, status = 'active', period_start = ?, period_end = ?,
+				   set tier_id = cast(? as uuid), status = 'active', period_start = ?, period_end = ?,
 				       stripe_customer_id = ?, stripe_subscription_id = null, mirrored_through = ?
 				 where id = ?
 				""")
-				.params(this.tiers.defaultTier().id(), ours.start(), ours.end(), who.customerId(), saidAt,
-						row.get().id())
+				.params(this.tiers.defaultTier().map(TierId::id).orElse(null), ours.start(), ours.end(),
+						who.customerId(), saidAt, row.get().id())
 				.update();
 		return Mirroring.FELL_BACK_TO_THE_DEFAULT_TIER;
 	}
@@ -259,7 +277,7 @@ class SubscriptionRows implements Subscriptions, SubscriptionMirror {
 				.param("account", who.taggedAccount().orElse(null))
 				.param("customer", who.customerId())
 				.query((values, number) -> new Mirrored(values.getObject("id", UUID.class),
-						new TierId(values.getObject("tier_id", UUID.class)),
+						tierNamed(values.getObject("tier_id", UUID.class)),
 						utc(values.getObject("created_at", OffsetDateTime.class)),
 						optionalUtc(values.getObject("mirrored_through", OffsetDateTime.class))))
 				.optional();
@@ -270,11 +288,13 @@ class SubscriptionRows implements Subscriptions, SubscriptionMirror {
 	 * how far through Stripe's telling it already is.
 	 *
 	 * @param tier what it is on now, read because a Price that belongs to no tier any more leaves this as the
-	 * right answer — which is every subscriber of a plan that has since been repriced
+	 * right answer — which is every subscriber of a plan that has since been repriced. Empty where the tier
+	 * they were on was deleted (T77)
 	 * @param mirroredThrough the {@code created} of the newest Stripe event applied here, or null where none
 	 * ever has been — which is every account that has not paid
 	 */
-	private record Mirrored(UUID id, TierId tier, OffsetDateTime createdAt, OffsetDateTime mirroredThrough) {
+	private record Mirrored(UUID id, Optional<TierId> tier, OffsetDateTime createdAt,
+			OffsetDateTime mirroredThrough) {
 
 		/**
 		 * Whether this row already reflects something Stripe said after the event now in hand — which makes
@@ -298,7 +318,7 @@ class SubscriptionRows implements Subscriptions, SubscriptionMirror {
 	 * @param stripes whether a Stripe subscription is mirrored here, which is what makes the window Stripe's to
 	 * move. Free subscriptions have no Stripe counterpart at all, so theirs is ours to roll
 	 */
-	private record Row(UUID id, TierId tier, SubscriptionStatus status, QuotaPeriod period,
+	private record Row(UUID id, Optional<TierId> tier, SubscriptionStatus status, QuotaPeriod period,
 			OffsetDateTime createdAt, boolean stripes) {
 
 		/**
@@ -318,6 +338,99 @@ class SubscriptionRows implements Subscriptions, SubscriptionMirror {
 			return new Subscription(this.tier, this.status, this.period);
 		}
 
+	}
+
+	// --- what a catalog edit does to the people on it (T77, ADR-0032) --------------------------------------
+
+	/**
+	 * One statement over the whole table, grouped — the admin screen renders every row and asking per row
+	 * would be N round trips for a screen that is one.
+	 *
+	 * <p>{@code count(stripe_subscription_id)} rather than a second predicate, which is SQL's own way of
+	 * saying "how many of these are not null": a row carrying one is a row Stripe is currently billing, and
+	 * ADR-0018 clears the column on a cancellation precisely so that this stays true.
+	 *
+	 * <p>{@code where tier_id is not null}, so the orphans are not grouped into a key nothing could name.
+	 * They are counted by nobody today; what they are is the population {@code adoptOrphansOnto} heals.
+	 */
+	@Override
+	public Map<TierId, SubscriberCount> countsByTier() {
+		Map<TierId, SubscriberCount> counts = new LinkedHashMap<>();
+		this.db.sql("""
+				select tier_id, count(*) as subscribers, count(stripe_subscription_id) as paying
+				  from subscription
+				 where tier_id is not null
+				 group by tier_id
+				""")
+				.query((values, number) -> Map.entry(new TierId(values.getObject("tier_id", UUID.class)),
+						new SubscriberCount(values.getInt("subscribers"), values.getInt("paying"))))
+				.list()
+				.forEach(entry -> counts.put(entry.getKey(), entry.getValue()));
+		return counts;
+	}
+
+	/**
+	 * The read and the write, in that order and in one method, because the order is the whole of what this
+	 * promises — see {@link TierSubscribers#moveEveryoneOn}.
+	 *
+	 * <p>{@code for update} on the read for {@link #currentFor}'s reason turned around: these are rows a
+	 * relist may be being authorized against at this moment, and the gate locks the same row before it reads
+	 * a tier and spends against it. It covers only the rows it selects — the payers — and it is the
+	 * {@code update} below that serialises against everybody else's authorize, by taking the same row locks
+	 * the gate does. What the clause buys is that the ids answered with cannot be read from a row another
+	 * transaction is in the middle of changing.
+	 *
+	 * <p>{@code cast(? as uuid)} so that landing on <em>no</em> tier is a parameter rather than a second
+	 * statement: an untyped null in a {@code set} is a null Postgres would have to infer a type for, and the
+	 * two-statement alternative is two places this rule could be spelled differently.
+	 *
+	 * <p>{@code MANDATORY}, like {@link #currentFor}: this is one half of a delete, and a half that could
+	 * commit on its own is a half that could commit while the other rolled back — leaving a live tier with
+	 * nobody on it, or an empty catalog everybody is still pointed at.
+	 */
+	@Override
+	@Transactional(propagation = Propagation.MANDATORY)
+	public List<String> moveEveryoneOn(TierId tier, Optional<TierId> onto) {
+		List<String> live = this.db.sql("""
+				select stripe_subscription_id
+				  from subscription
+				 where tier_id = ? and stripe_subscription_id is not null
+				 for update
+				""")
+				.param(tier.id())
+				.query(String.class)
+				.list();
+		this.db.sql("update subscription set tier_id = cast(? as uuid) where tier_id = ?")
+				.params(onto.map(TierId::id).orElse(null), tier.id())
+				.update();
+		return live;
+	}
+
+	/**
+	 * One statement over the orphans, and it is the whole of the healing.
+	 *
+	 * <p>Nothing else about those rows is touched — not the status, not the window, not either Stripe id. A
+	 * tier-less subscription is an ordinary row with one column emptied, so putting a tier back in it is an
+	 * ordinary row again; anything more would be inventing a period or a status for somebody whose plan was
+	 * deleted underneath them.
+	 *
+	 * <p>{@code MANDATORY} for {@link #moveEveryoneOn}'s reason: it is the second half of moving the default
+	 * flag, and the two commit together or not at all.
+	 */
+	@Override
+	@Transactional(propagation = Propagation.MANDATORY)
+	public int adoptOrphansOnto(TierId tier) {
+		return this.db.sql("update subscription set tier_id = ? where tier_id is null")
+				.param(tier.id())
+				.update();
+	}
+
+	/**
+	 * The {@code tier_id} column, which may be null since V11 — read the one way, because three statements
+	 * above read it and a fourth that forgot would be a subscriber silently on no plan.
+	 */
+	private static Optional<TierId> tierNamed(UUID stored) {
+		return Optional.ofNullable(stored).map(TierId::new);
 	}
 
 	/**

@@ -1050,7 +1050,7 @@ and on an unlimited tier that read **"5 of Infinity selected"**. Found by review
 **Not walked against real ads.** Everything here is held by the three suites; the click-through scripts move
 with the copy but nobody has driven an unlimited tier through a real Marktplaats account.
 
-#### [T74](https://github.com/Shei254/marketplaats-extension/issues/161) · One word for the thing users press · **S** · T73
+#### [T74](https://github.com/Shei254/marketplaats-extension/issues/161) · One word for the thing users press · **S** · T73 · **shipped**
 The button says **Repost**. The strip above it says **relists**. The admin quota field says both in one field —
 label *"Relists per period"*, hint *"How many reposts a subscriber gets each period."*
 [ADR-0029](adr/0029-unlimited-is-null-and-zero-still-grants-nothing.md) settles it: users read **repost**,
@@ -1066,6 +1066,55 @@ The sweep is `/admin`'s labels, hints and validation messages, the remaining pop
 the prompts. `relistsLeft` is already done by T73. **Prose in ADRs is not touched** — a dated record is not
 rewritten to match how things turned out ([`adr/README.md`](adr/README.md)) — and neither are code comments,
 which are about the identifiers they sit beside.
+
+**Where it landed, and the half the ticket could not have known about.** The English sweep the ticket
+describes was **all `/admin`'s**: the page lede, the `Relists` column, `Relists per period` on both forms, and
+the validation message, which is spelled twice because the two forms parse the quota separately. There was no
+popup or plan-card half left to do. The popup was **translated to Dutch** after this ticket was written, and
+the Dutch had already picked one word — *herplaatsen* — so T73's `relistsLeft` was the last English string a
+user could read there. *(No count is given on purpose. T71 below is the argument for that.)*
+
+**So the ticket's real remainder was in the Dutch**, and it is three strings that had drifted to *"opnieuw
+plaatsen"* — Marktplaats's own name for the act, which the glossary gives to **Relist** and not to this.
+- The row message after a failed repost: *"Je advertentie is verwijderd, maar **opnieuw plaatsen** is mislukt
+  … klik op Opnieuw"*. Two words for one act and then a third reading of the second, in the message a user
+  only ever meets **after their ad has already been deleted**. Now *herplaatsen is mislukt*, in `relisting.ts`
+  and `batching.ts` both.
+- **`describeStop("ad-down")`**, found by the spec review: every other branch of that switch says
+  *herplaatsen* or *herplaatsingen* and this one said *"kon niet opnieuw worden geplaatst"* — the mixture
+  inside a single switch.
+- **The sign-in screen**, which said *"met één klik opnieuw te plaatsen"* four lines above *"het herplaatsen
+  gebeurt in je eigen browsersessie"*. One screen, two words, and it is the first screen anybody sees.
+
+**And the two sentences stopped being two.** They were duplicated verbatim across `relisting.ts` and
+`batching.ts` and agreed only by somebody remembering to keep them agreeing — which is exactly how one of them
+came to say *"opnieuw plaatsen"* while the other said *"herplaatsen"*, so the popup gave the act two names
+depending on whether the ad had been ticked. `AD_UNCHANGED` and `AD_IS_DOWN` are now exported from
+`relisting.ts` and imported by `batching.ts`, which already took `RowState` from it. **A structural change in
+a ticket scoped "copy only", and taken on purpose**: this sweep had just paid the duplication's price — one
+word meant four edits — and a word cannot be *one* word if the sentence carrying it is two. The suites split
+the same way, each fact once: `relisting.test.ts` asserts what the sentences say, `batching.test.ts` asserts
+only that it is saying the same ones, character for character.
+
+**One Dutch string was left alone, deliberately.** The row's hover text still reads *"Verwijder ‘…’ en plaats
+de advertentie opnieuw"* — that sentence exists to say a repost **deletes first** (ADR-0002), which is the one
+thing the button cannot say on its own, and the single verb is precisely what would hide it. Spelling the two
+steps out is not a second name for them, and the glossary now says so rather than leaving the next reader to
+"fix" it.
+
+**Covered as a sweep rather than field by field.** `/admin`'s suite opens every panel that screen has — the
+catalog, New plan, Edit, Prices and Delete — and asserts the whole rendered text says *repost* and never
+*relist*. The defect this ticket is about is a **mixture**, and per-string assertions are what let the label
+and its own hint disagree for four tickets; a panel added later is covered the day it is opened in that sweep.
+The validation message now has **both** of its spellings asserted — the edit form's copy was the only one
+anything checked, which the standards review caught and which is the exact shape of defect this ticket is for.
+
+**Two things outside the stated sweep moved with it**, named here so they are not read as scope creep. Two
+sample strings in `packages/ui`'s own component test read `Relists per period` and `2 of 3 relists left`, the
+second verbatim the string T73 retired; and the root `README.md` quoted that same dead string as live copy.
+Neither is shipped, and both are how a retired spelling comes back — a library's canonical example and the
+first file anybody reads. `README.md`'s *"a Repost button that runs one relist at a time"* **stays**: that one
+is prose about the mechanic, which is exactly what keeps the word.
 
 #### [T75](https://github.com/Shei254/marketplaats-extension/issues/164) · The operator sets the order the plans are read in · **M** · T53, T54, T73 · **shipped**
 The plan cards are ordered `relist_quota_per_period, code` and always have been — cheapest grant first, ties

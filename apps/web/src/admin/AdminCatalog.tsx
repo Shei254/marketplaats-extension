@@ -589,7 +589,7 @@ function CatalogTable({
               <th>Order</th>
               <th>Code</th>
               <th>Name</th>
-              <th>Relists</th>
+              <th>Reposts</th>
               <th>Stripe Price</th>
               <th>State</th>
               <th />
@@ -1201,7 +1201,7 @@ function TierForm({
   const submit = (): void => {
     const parsedQuota = unlimited ? null : quotaTyped(quota);
     if (parsedQuota === undefined) {
-      setProblem("Relists per period has to be a whole number, and not a negative one.");
+      setProblem("Reposts per period has to be a whole number, and not a negative one.");
       return;
     }
     const flags = features.read();
@@ -1271,7 +1271,7 @@ function TierForm({
           <Input id="tier-name" value={name} onChange={(event) => setName(event.target.value)} />
         </Field>
         <Field
-          label="Relists per period"
+          label="Reposts per period"
           hint="0 on the default tier is how “there is no free tier” is said."
         >
           <Input
@@ -1492,7 +1492,7 @@ function NewPlanForm({
     }
     const relists = unlimited ? null : quotaTyped(quota);
     if (relists === undefined) {
-      setProblem("Relists per period has to be a whole number, and not a negative one.");
+      setProblem("Reposts per period has to be a whole number, and not a negative one.");
       return;
     }
     const flags = features.read();
@@ -1556,7 +1556,7 @@ function NewPlanForm({
             />
           </Field>
         ))}
-        <Field label="Relists per period" hint="How many reposts a subscriber gets each period.">
+        <Field label="Reposts per period" hint="How many reposts a subscriber gets each period.">
           <Input
             id="plan-quota"
             type="number"

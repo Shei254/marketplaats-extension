@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { refusalNote, refusedTone, rowStateFor } from "./relisting";
+import { AD_IS_DOWN, AD_UNCHANGED, refusalNote, refusedTone, rowStateFor } from "./relisting";
 
 /**
  * The two plans a refusal can land on, named rather than passed as a bare `true`
@@ -39,6 +39,20 @@ describe("what an outcome does to the row", () => {
 
     expect(state).toMatchObject({ kind: "failed", tone: "warn", action: "retry" });
     expect(state).toHaveProperty("message", expect.stringContaining("opgeslagen in de extensie"));
+  });
+
+  it("and calls the act herplaatsen, which is the word the button says (T74, #161)", () => {
+    // "Opnieuw plaatsen" is Marktplaats's own name for it, and this sentence sat
+    // one clause away from "klik op Opnieuw" — two words for the act and a third
+    // reading of the first one, in the message a user only ever meets after
+    // their ad has already been deleted. ADR-0029's split applies to the Dutch
+    // copy the same way: one word for the thing users press.
+    //
+    // Asserted here and nowhere else, because this module now owns both sentences
+    // and the batch's suite asserts only that it is saying the same ones.
+    expect(AD_IS_DOWN).toContain("herplaatsen is mislukt");
+    expect(AD_IS_DOWN).not.toContain("opnieuw plaatsen");
+    expect(AD_UNCHANGED).toContain("Er is niets herplaatst");
   });
 
   it("keeps a refusal apart from a failure", () => {

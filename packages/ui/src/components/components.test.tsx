@@ -164,13 +164,13 @@ describe("Card", () => {
 describe("Field", () => {
   it("is the label, so clicking the words focuses the control", () => {
     const field = markup(
-      <Field label="Relists per period" hint="Lowering it clamps at zero.">
+      <Field label="Reposts per period" hint="Lowering it clamps at zero.">
         <Input value="50" readOnly />
       </Field>,
     );
 
     expect(field).toMatch(/^<label class="mp-field">/);
-    expect(field).toContain('<span class="mp-label">Relists per period</span>');
+    expect(field).toContain('<span class="mp-label">Reposts per period</span>');
     // A span rather than a paragraph: a <p> is not phrasing content, and the
     // browser would close the label around it — taking the control out of it.
     expect(field).toContain('<span class="mp-hint">Lowering it clamps at zero.</span>');
@@ -195,11 +195,11 @@ describe("Field", () => {
 
 describe("Meter", () => {
   it("is the fraction that is left, as a width and as a number a reader can hear", () => {
-    const meter = markup(<Meter value={2} max={3} valueText="2 of 3 relists left" />);
+    const meter = markup(<Meter value={2} max={3} valueText="2 of 3 reposts left" />);
 
     expect(meter).toContain('role="progressbar"');
     expect(meter).toContain('aria-valuenow="2"');
-    expect(meter).toContain('aria-valuetext="2 of 3 relists left"');
+    expect(meter).toContain('aria-valuetext="2 of 3 reposts left"');
     expect(meter).toContain("width:66.66666666666666%");
   });
 

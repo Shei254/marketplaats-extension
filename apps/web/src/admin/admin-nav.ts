@@ -47,7 +47,7 @@ export const ADMIN_PAGES: readonly AdminPage[] = [
     label: "Tiers",
     title: "Tiers",
     lede:
-      "Every plan there is — what it costs, how many relists it buys, and whether people can buy it. " +
+      "Every plan there is — what it costs, how many reposts it buys, and whether people can buy it. " +
       "Amounts are set in Stripe and shown here.",
     group: "Catalog",
     icon: "bolt",

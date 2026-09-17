@@ -571,7 +571,11 @@ describe("editing a tier", () => {
     await type("#tier-quota", "");
     await click("Save");
 
-    expect(text()).toContain("Relists per period");
+    // The whole sentence, not just the field name: this is the one string on the
+    // screen only ever read by somebody who has already got something wrong, and
+    // the worst moment to meet a second word for the field they are looking at
+    // (T74, #161).
+    expect(text()).toContain("Reposts per period has to be");
     expect(s.calls.some((call) => call.method === "PUT")).toBe(false);
   });
 
@@ -1795,7 +1799,7 @@ describe("the Stripe prices that carry no tier", () => {
     expect(fold?.querySelector("summary")?.textContent).toContain("One price in Stripe carries");
     // On the catalog rather than instead of it: the list an operator works in is
     // still the page.
-    expect(text()).toContain("Relists");
+    expect(text()).toContain("Reposts");
   });
 
   it("and the list itself is inside that fold, not under the tier table", async () => {
@@ -1864,5 +1868,80 @@ describe("the catalog at a glance", () => {
 
     expect(text()).toContain("Nothing waiting on you");
     expect(container.querySelector(".admin-stat--attention")).toBeNull();
+  });
+});
+
+describe("one word for the thing users press (T74, #161)", () => {
+  /**
+   * Everything `/admin` renders, on the one screen there is.
+   *
+   * Asserted as a sweep rather than field by field because the defect T74 exists
+   * for is a *mixture* — the quota field said "Relists per period" over a hint
+   * that said reposts — and a per-string assertion is exactly what let the two
+   * disagree for four tickets. A panel added later is covered by this the day it
+   * is opened here.
+   */
+  async function everythingOnScreen(): Promise<string> {
+    const s = stack({ tiers: () => json({ tiers: [FREE, PRO, DRAFT, UNLIMITED] }) });
+    let swept = "";
+
+    await arrive(s);
+    swept += text();
+    // New plan first: it is a page action, and an open row panel takes that slot.
+    await click("New plan");
+    swept += text();
+    await clickInRowFor("pro", "Edit");
+    swept += text();
+    await clickInRowFor("pro", "Prices");
+    swept += text();
+    await clickInRowFor("pro", "Delete");
+    swept += text();
+
+    return swept;
+  }
+
+  it("says repost to an operator, everywhere the screen says it at all", async () => {
+    // ADR-0029: users read *repost*, internal identifiers keep *relist*. `/admin`
+    // is a screen, so nothing here is an identifier — and the word an operator
+    // sets a number against has to be the word the subscriber reads under the
+    // button.
+    const swept = await everythingOnScreen();
+
+    // Both halves matter. The negative is the sweep; the positive is what stops
+    // it passing on a screen that failed to render — every panel above draws the
+    // word, so it has to appear once per panel opened rather than merely once.
+    expect(swept.match(/repost/gi)?.length ?? 0).toBeGreaterThanOrEqual(5);
+    expect(swept).not.toMatch(/relist/i);
+  });
+
+  it("and says it on the quota field, whichever form is asking", async () => {
+    // The two forms write the same column and used to label it identically —
+    // which is why they have to move together, and why a rename that reached one
+    // of them would read as a difference between them.
+    const s = stack();
+
+    await arrive(s);
+    await click("New plan");
+    expect(text()).toContain("Reposts per period");
+
+    await clickInRowFor("free", "Edit");
+    expect(text()).toContain("Reposts per period");
+  });
+
+  it("and refuses the New plan form's quota in the same words", async () => {
+    // The sentence is spelled twice, because the two forms parse the quota
+    // separately — so it is the one string here that can come apart, and the
+    // edit form's copy was the only one anything asserted.
+    const s = stack();
+
+    await arrive(s);
+    await click("New plan");
+    await type("#plan-name", "Starter");
+    await type("#plan-amount-month", "5.00");
+    await type("#plan-quota", "");
+    await click("Create in Stripe");
+
+    expect(text()).toContain("Reposts per period has to be");
+    expect(s.calls.some((call) => call.url.endsWith("/api/admin/plans"))).toBe(false);
   });
 });

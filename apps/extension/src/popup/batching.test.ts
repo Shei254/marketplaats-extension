@@ -18,6 +18,7 @@ import {
   pickUpTo,
   rowStatesFor,
 } from "./batching";
+import { AD_IS_DOWN, AD_UNCHANGED } from "./relisting";
 
 /**
  * What the popup makes of a plan's `bulk` flag, and the words it says about a run
@@ -198,6 +199,15 @@ describe("what a run says about itself", () => {
   ] as const)("says something a user can act on about %s", (reason, said) => {
     expect(describeStop(reason)).toContain(said);
   });
+
+  // And it says it in this file's own word (T74, #161). Every other branch of
+  // that switch says *herplaatsen* or *herplaatsingen*; this one described the
+  // same act as "opnieuw ... geplaatst", which is Marktplaats's name for it and
+  // not the product's — the mixture ADR-0029 settles, inside one switch.
+  it("and calls the act herplaatsen when it is an ad that stopped the run", () => {
+    expect(describeStop("ad-down")).toContain("kon niet worden herplaatst");
+    expect(describeStop("ad-down")).not.toContain("opnieuw worden geplaatst");
+  });
 });
 
 describe("what the rows show during a run", () => {
@@ -215,8 +225,12 @@ describe("what the rows show during a run", () => {
     expect(rowStatesFor(run)).toEqual({});
   });
 
-  // The wording is the single-repost wording, because it is the same event — a
-  // batch is not a second relist mechanic and should not read like one.
+  // The single-repost sentence itself, because it is the same event — a batch is
+  // not a second relist mechanic and should not read like one. Asserted as an
+  // identity rather than a substring since T74 (#161): these were two copies
+  // agreeing by hand, and they stopped, one drifting to "opnieuw plaatsen" while
+  // the other said "herplaatsen". What the sentence *says* is `relisting.ts`'s to
+  // prove; what this file owes is that it is the same sentence.
   it("and an ad that is down offers Retry and says where it is", () => {
     const down = advanceBatch(
       startBatch(["a", "b"], NOW),
@@ -225,7 +239,7 @@ describe("what the rows show during a run", () => {
     ).run;
 
     expect(rowStatesFor(down)["a"]).toMatchObject({ kind: "failed", action: "retry" });
-    expect(rowStatesFor(down)["a"]).toHaveProperty("message", expect.stringContaining("opgeslagen in de extensie"));
+    expect(rowStatesFor(down)["a"]).toHaveProperty("message", AD_IS_DOWN);
   });
 
   it("and one that removed nothing says the ad is untouched", () => {
@@ -236,7 +250,7 @@ describe("what the rows show during a run", () => {
     ).run;
 
     expect(skipped["outcomes"]).toHaveLength(1);
-    expect(rowStatesFor(skipped)["a"]).toHaveProperty("message", expect.stringContaining("ongewijzigd"));
+    expect(rowStatesFor(skipped)["a"]).toHaveProperty("message", AD_UNCHANGED);
   });
 
   it("and nothing at all when there is no run", () => {

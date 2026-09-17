@@ -671,6 +671,19 @@ describe("signed out", () => {
     expect(container.querySelectorAll("button")).toHaveLength(1);
   });
 
+  it("and names the act once, in the word the rest of the popup uses", async () => {
+    // This screen said it twice: "met één klik opnieuw te plaatsen" four lines
+    // above "het herplaatsen gebeurt in je eigen browsersessie". One screen, two
+    // words for one act — which is the whole of T74 (#161), and "opnieuw
+    // plaatsen" is Marktplaats's own name rather than this product's.
+    const { worker } = fakeWorker([{ status: "signed-out" }]);
+
+    await show(worker);
+
+    expect(text()).toContain("herplaatsen");
+    expect(text()).not.toContain("opnieuw te plaatsen");
+  });
+
   it("signs in, then asks what the plan is", async () => {
     const { worker, asked } = fakeWorker([{ status: "signed-out" }, { status: "ready", plan: PLAN }]);
 

@@ -59,7 +59,7 @@ export function SignedOutScreen({
         </div>
         <h1 className="popup-title">Zet je advertenties weer bovenaan</h1>
         <p className="popup-copy">
-          Log in om je Marktplaats-advertenties met één klik opnieuw te plaatsen.
+          Log in om je Marktplaats-advertenties met één klik te herplaatsen.
         </p>
         <Button shape="block" tone={busy ? "busy" : "primary"} onClick={onSignIn}>
           {busy ? "Bezig met inloggen…" : "Inloggen"}

@@ -95,4 +95,25 @@ public sealed interface TierEdited {
 	record CodeTakenByAnotherTier() implements TierEdited {
 	}
 
+	/**
+	 * A second tier with no Stripe Price, refused (T79).
+	 *
+	 * <p><strong>This is the one invariant in this file that used to need no enforcing.</strong>
+	 * <a href="../../../../../../../../docs/adr/0031-the-free-tier-is-the-one-without-a-price.md">ADR-0031</a>
+	 * defines the free tier as the tier with no {@code tier_price} row and rested "at most one" on the fact
+	 * that every creation path went through Stripe: a priceless tier was <em>unsayable</em> rather than
+	 * forbidden, which this codebase prefers and says so one class over.
+	 *
+	 * <p>T77 made every tier deletable, including the seeded free one — and then the only way to make another
+	 * was a hand-written migration, because {@code adopt} is driven by a Price and {@code POST /api/admin/plans}
+	 * demanded one. So the catalog could lose its free tier permanently, which also takes ADR-0018's fallback
+	 * with it: every lapsed subscription lands on the default tier, and every tier an operator could still
+	 * create was one somebody has to pay for.
+	 *
+	 * <p>Creating one without a Price is now sayable, so "at most one" becomes a rule this answers rather than
+	 * a shape nobody could express. The cost is stated in the ADR the ticket amends and not hidden here.
+	 */
+	record FreeTierAlreadyExists() implements TierEdited {
+	}
+
 }

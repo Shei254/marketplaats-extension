@@ -141,6 +141,28 @@ export function Popup({
    * a query in it and a button that quietly emptied it would be two controls
    * disagreeing about what the user asked for.
    */
+  /**
+   * The catalog, fetched without deciding which screen shows it.
+   *
+   * Two screens want it now: the plans screen somebody navigated to, and the
+   * `no-tier` one they were sent to (T77, ADR-0032) — so the fetch is separated
+   * from the navigation `seePlans` also does. It sits above `load` because `load`
+   * calls it.
+   */
+  const loadPlans = useCallback(async () => {
+    setPlans(PLANS_LOADING);
+    const answer = await worker.plans();
+    if (answer.status === "signed-out" || answer.status === "outdated") {
+      setScreen(screenFor(answer));
+      return;
+    }
+    setPlans(
+      answer.status === "ready"
+        ? { status: "ready", plans: answer.plans, paymentMethods: answer.paymentMethods }
+        : { status: "failed" },
+    );
+  }, [worker]);
+
   const load = useCallback(async () => {
     setBusy(true);
     const answer = await worker.displayState();
@@ -148,13 +170,20 @@ export function Popup({
 
     if (answer.status !== "ready") {
       setAds(ADS_LOADING);
+      // **The one non-`ready` answer that still needs a second call.** `no-tier`
+      // now offers the catalog rather than telling somebody to wait for an
+      // operator (T77, ADR-0032), and the cards are `GET /api/plans` — which this
+      // screen is reached without ever passing through, so nothing else would
+      // fetch them. Fired without awaiting: the screen is already correct and the
+      // cards draw their own skeletons into it.
+      if (answer.status === "no-tier") void loadPlans();
       setBusy(false);
       return;
     }
 
     await showAds(displayed.current);
     setBusy(false);
-  }, [worker, showAds]);
+  }, [worker, showAds, loadPlans]);
 
   useEffect(() => {
     void load();
@@ -417,22 +446,11 @@ export function Popup({
    */
   const seePlans = useCallback(async () => {
     setHandoff(NOT_OPENING);
-    setPlans(PLANS_LOADING);
     setScreen((current) =>
       current.screen === "signed-in" ? { screen: "plans", plan: current.plan } : current,
     );
-
-    const answer = await worker.plans();
-    if (answer.status === "signed-out" || answer.status === "outdated") {
-      setScreen(screenFor(answer));
-      return;
-    }
-    setPlans(
-      answer.status === "ready"
-        ? { status: "ready", plans: answer.plans, paymentMethods: answer.paymentMethods }
-        : { status: "failed" },
-    );
-  }, [worker]);
+    await loadPlans();
+  }, [loadPlans]);
 
   const backToAds = useCallback(() => {
     setHandoff(NOT_OPENING);
@@ -531,6 +549,7 @@ export function Popup({
           plans,
           handoff,
           seePlans,
+          loadPlans,
           backToAds,
           upgrade,
           manageBilling,
@@ -569,6 +588,8 @@ interface Handlers {
   plans: PlansView;
   handoff: Handoff;
   seePlans: () => void;
+  /** Re-fetch the catalog without navigating — the `no-tier` screen's retry. */
+  loadPlans: () => void;
   backToAds: () => void;
   upgrade: (tierCode: string, interval: string) => void;
   manageBilling: () => void;
@@ -601,7 +622,7 @@ interface Handlers {
 
 function body(screen: Screen, handlers: Handlers): JSX.Element {
   const { load, signIn, signOut, busy, ads, worker, onOutcome } = handlers;
-  const { plans, handoff, seePlans, backToAds, upgrade, manageBilling } = handlers;
+  const { plans, handoff, seePlans, loadPlans, backToAds, upgrade, manageBilling } = handlers;
   const { typed, showing, onType, onClearSearch } = handlers;
   const { run, selected, onToggleSelected, onStartBatch, onStopBatch, onDismissBatch } = handlers;
   const { onSelectAll, onClearSelection, onRepostUnstarted, batchShape, bulk, hidden, chosen } = handlers;
@@ -618,10 +639,23 @@ function body(screen: Screen, handlers: Handlers): JSX.Element {
       // acceptable, and a button that cannot work is worse than none (T43, #52).
       return <OutdatedScreen />;
     case "no-tier":
-      // No retry button for a sharper version of the same reason (T77, ADR-0032):
-      // an operator has to make a tier the default, and nothing this user does
-      // brings that forward.
-      return <NoTierScreen />;
+      // It offers the catalog now rather than a wait (T77, ADR-0032): deleting the
+      // *default* tier strands accounts while leaving every other tier on sale, so
+      // for that half of this state buying one is the user's own way out. Where
+      // nothing is on sale the screen falls back to the wait, which is the half
+      // T77 was right about.
+      return (
+        <NoTierScreen view={plans}>
+          <PlanCards
+            view={plans}
+            // On no tier there is no card of theirs to mark.
+            current={null}
+            handoff={handoff}
+            onUpgrade={upgrade}
+            onRetry={loadPlans}
+          />
+        </NoTierScreen>
+      );
     case "signed-in": {
       const running = run !== null && run.stop === null;
       return (

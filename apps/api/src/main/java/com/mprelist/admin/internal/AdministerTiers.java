@@ -156,6 +156,11 @@ class AdministerTiers {
 			case TierEdited.NothingToGrant ignored -> ResponseEntity.status(409).build();
 			case TierEdited.CodeFrozenByAPrice ignored -> ResponseEntity.status(409).build();
 			case TierEdited.CodeTakenByAnotherTier ignored -> ResponseEntity.status(409).build();
+			// Unreachable: this is an *edit* of a row that exists, and the answer belongs to
+			// `createWithoutAPrice` alone (T79). Editing a tier never adds or removes its Price, so a second
+			// free tier cannot be made here — a paid tier cannot be edited into one. Reported rather than
+			// swallowed, because unreachable is a claim and this is where it would fail.
+			case TierEdited.FreeTierAlreadyExists ignored -> ResponseEntity.status(500).build();
 		};
 	}
 

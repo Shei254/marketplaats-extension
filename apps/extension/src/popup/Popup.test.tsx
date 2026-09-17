@@ -654,6 +654,56 @@ describe("a plan that cannot be relisted on", () => {
   });
 });
 
+describe("on no plan at all (T77, ADR-0032)", () => {
+  it("offers the catalog, rather than telling somebody to wait for an operator", async () => {
+    // The state is reached two ways and only one of them empties the catalog:
+    // deleting the *default* tier strands every account naming none while leaving
+    // the rest on sale. For that half, buying a plan is the user's own way out,
+    // and the screen has to have asked `/api/plans` to know it.
+    const { worker } = fakeWorker([{ status: "no-tier" }]);
+
+    await show(worker);
+
+    expect(worker.plans).toHaveBeenCalled();
+    expect(text()).toContain("Pro");
+    expect(text()).toContain("Power");
+    expect(text()).not.toContain("opnieuw proberen helpt niet");
+  });
+
+  it("and marks none of them as the plan they are on", async () => {
+    // A tier-less account is not on the free tier, and a Huidig badge would be the
+    // claim this screen exists to deny.
+    const { worker } = fakeWorker([{ status: "no-tier" }]);
+
+    await show(worker);
+
+    expect(text()).not.toContain("Huidig");
+    expect(text()).not.toContain("Je abonnement");
+  });
+
+  it("but falls back to the wait when the catalog really is empty", async () => {
+    // Deleting the last tier is a supported act (T77), and then there genuinely is
+    // nothing for either of them to do — which is what the original screen said
+    // and what this keeps for exactly that case.
+    const { worker } = fakeWorker([{ status: "no-tier" }], ADS, {
+      plans: { status: "ready", plans: [], paymentMethods: [] },
+    });
+
+    await show(worker);
+
+    expect(text()).toContain("opnieuw proberen helpt niet");
+    expect(text()).toContain("Er is niets gewijzigd op Marktplaats");
+  });
+
+  it("and never asks for the ad list, which needs a Marktplaats call it cannot use", async () => {
+    const { worker } = fakeWorker([{ status: "no-tier" }]);
+
+    await show(worker);
+
+    expect(worker.ads).not.toHaveBeenCalled();
+  });
+});
+
 describe("signed out", () => {
   it("shows sign-in and nothing else", async () => {
     // ADR-0007's refinement, and the assertion is deliberately about absence: no

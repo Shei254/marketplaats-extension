@@ -212,3 +212,54 @@ faces the same Stripe-holds-a-copy problem from the other end — a *deleted* ti
 tag is re-adopted as a draft — and answers it by clearing the tag rather than by leaving it, which is the
 retagging this ADR weighed and rejected for a rename. It is affordable there and was not here: a delete has
 nothing left to half-fail *into*, since the tier is already gone and the queue retries per object.
+
+## Amended by T79 (2026-09-17): "at most one" stops being unsayable and becomes a rule
+
+**A third tier-creation path appeared, which is the first thing *Revisit if* above names.** It is
+`POST /api/admin/plans` with an explicitly empty `prices`, and it exists because the ADR-0032 amendment
+directly above left the catalog in a state neither ADR had looked at: **the free tier became deletable and
+nothing could make another.** Every creation went through Stripe — `adopt` is driven by a Price, and the
+create route demanded one — so the only priceless tier that has ever existed was the row
+`V2__seed_tier_catalog.sql` wrote. Delete it and the catalog can hold paid tiers for ever and never a free
+one again.
+
+**That is worse than losing a row, because of what the default tier is for.** Every new account is provisioned
+onto it and every terminal subscription falls back to it
+([ADR-0018](0018-lapse-falls-back-to-the-default-tier.md)), so a catalog whose only creatable tiers cost money
+is one where arriving and lapsing both land somebody on something they have to pay for — or, if the operator
+never makes one the default, on no tier at all, which is the `NO_TIER` state
+[ADR-0032](0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md) introduced as a thing users *pass
+through* rather than sit in. The recovery ADR-0032 assumed — "an operator makes a tier the default and
+everybody is adopted onto it at once" — could only ever produce a paid one.
+
+**So the sentence this file's own last amendment ends on becomes false**, and it is corrected here rather than
+left standing, for the reason that amendment gives: it is a claim about what the code permits, not about what
+was decided.
+
+- *"A second free tier still cannot be made, because nothing can make a priceless tier at all."* It can now.
+  A creation stating `prices: []` makes one, and `TierEdits.createWithoutAPrice` refuses a second with
+  `TierEdited.FreeTierAlreadyExists`, read and written under one transaction.
+- *"An operator never creates one; they edit the row `V2` left them."* Already half-false after ADR-0032 took
+  the delete side; now false on both.
+
+**What this costs, stated plainly because it is a preference this codebase writes down and is now spending.**
+`CreatePlans` says it one class over — *"Unsayable beats validated, which is the same move `isDefault` made"* —
+and "at most one free tier" was the cleanest instance of it in the repository: not enforced, not enforceable,
+simply not expressible. It is now a query and a `409`. The trade was made because the alternative is a
+catalog that cannot be repaired from its own admin screen, and an unsayable invariant is worth less than a
+recoverable product.
+
+**It is not a constraint, and could not be.** "At most one tier with no `tier_price` row" is a property of the
+*absence* of rows in another table, so there is no column for a unique index to cover. The check is a read
+inside the writing transaction — the shape `makeDefault` already uses for the flag it is the sole writer of.
+
+**What stays exactly as it was.** The free tier is still *derived* — the tier with no `tier_price` row — with
+no flag, no column, no migration and no constraint; nothing here adds a `free` boolean, which would be a
+second spelling of the price list's own emptiness and the derivable pair this repo has refused three times.
+The `code` rule is untouched. A priceless tier is created **off sale** and **not the default**: a published
+tier must have something to charge against (`V7`), and `makeDefault` stays the sole writer of that flag, so
+repairing a stranded catalog is two deliberate acts rather than one that guesses the second.
+
+**Absent and empty are different on the way in**, which is [ADR-0029](0029-unlimited-is-null-and-zero-still-grants-nothing.md)'s
+rule reused: `prices: []` states that this costs nothing, a body with no `prices` at all states nothing and is
+still a `400`. Without that, a client that forgot the field would quietly create a free tier.

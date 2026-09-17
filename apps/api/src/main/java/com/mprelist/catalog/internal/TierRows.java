@@ -439,6 +439,58 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 	}
 
 	/**
+	 * The one insert in this class that no Stripe Price drove (T79).
+	 *
+	 * <p>Every other row here is written by {@link #adopt} — from a Price the webhook brought or the create
+	 * form made — which is exactly why the free tier became unrecreatable the moment T77 let it be deleted.
+	 *
+	 * <p><strong>The refusal is inside the transaction and is a query, not a constraint.</strong> "At most one
+	 * tier without a price" cannot be a unique index: it is a property of the <em>absence</em> of rows in
+	 * another table, and there is no column to be unique over. So it is read and then written under the same
+	 * {@code @Transactional}, which is the same shape {@link #makeDefault} uses for the flag it is the sole
+	 * writer of.
+	 *
+	 * <p>The quota is written, unlike {@link #adopt}'s deliberate refusal to touch it (ADR-0019's central
+	 * rule). That rule is about a <em>webhook</em> never inventing an entitlement from a Price; here an
+	 * operator filled in a form and the number is theirs. Its place in the Catalog order is not written at all
+	 * — {@code V10}'s {@code tier_is_placed_last} fills an unstated place, so a new tier lands at the end
+	 * (ADR-0030) rather than needing this to know the sequence.
+	 */
+	@Override
+	@Transactional
+	public TierEdited createWithoutAPrice(String code, TierEdit edit) {
+		if (entryFor(code).isPresent() || entryFor(edit.code()).isPresent()) {
+			return new TierEdited.CodeTakenByAnotherTier();
+		}
+		// A published tier has something to charge against (V7) and grants something (ADR-0029). Neither can
+		// hold here, and the first cannot hold *by definition* — so it is refused rather than written and
+		// left for the trigger to reject as a 500.
+		if (edit.published()) {
+			return new TierEdited.NothingToChargeAgainst();
+		}
+		boolean oneAlready = this.db.sql("""
+				select count(*) from tier t
+				 where not exists (select 1 from tier_price p where p.tier_id = t.id)
+				""")
+				.query(Integer.class)
+				.single() > 0;
+		if (oneAlready) {
+			return new TierEdited.FreeTierAlreadyExists();
+		}
+		this.db.sql("""
+				insert into tier (code, name, relist_quota_per_period, max_marktplaats_accounts,
+				                  features, published)
+				values (:code, :name, :quota, 1, cast(:features as jsonb), false)
+				""")
+				.param("code", edit.code())
+				.param("name", edit.name())
+				.param("quota", edit.relistQuotaPerPeriod())
+				.param("features", JSON.writeValueAsString(edit.features()))
+				.update();
+		return new TierEdited.Applied(entryFor(edit.code()).orElseThrow());
+	}
+
+	/**
 	 * One statement, and everything else about a delete happens around it rather than in it.
 	 *
 	 * <p><strong>What the database does on its own is most of it.</strong> {@code tier_price} cascades (V7),

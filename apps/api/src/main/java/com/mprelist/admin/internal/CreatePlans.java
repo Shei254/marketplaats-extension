@@ -129,7 +129,9 @@ class CreatePlans {
 		TierEdit grant;
 		try {
 			grant = request.asGrant();
-			request.asPlan("eur");
+			if (!request.statesNoPrice()) {
+				request.asPlan("eur");
+			}
 		}
 		catch (IllegalArgumentException unusable) {
 			return ResponseEntity.badRequest().build();
@@ -156,6 +158,32 @@ class CreatePlans {
 				|| this.teardown.isBeingTornDown(grant.code())
 				|| tierFiledUnder(this.catalog, grant.code()).isPresent()) {
 			return ResponseEntity.status(409).build();
+		}
+
+		/*
+		 * The free tier: no Stripe Product, no Price, no currency to ask for and no `adopt` — the one
+		 * creation on this screen Stripe never hears about (T79, ADR-0031 amended).
+		 *
+		 * Answered above the currency lookup, because every line below it is about money. A `503` for a tier
+		 * that costs nothing would be this API refusing to act because it could not price something it was
+		 * never asked to price — and this is the recovery path for a catalog with no free tier left, which is
+		 * precisely the state where Stripe being reachable is beside the point.
+		 */
+		if (request.statesNoPrice()) {
+			return switch (this.catalog.createWithoutAPrice(grant.code(), grant)) {
+				case TierEdited.Applied applied -> ResponseEntity.status(201).body(withCounts(applied.tier()));
+				case TierEdited.FreeTierAlreadyExists ignored -> ResponseEntity.status(409).build();
+				// A published tier must have something to charge against, which a priceless one by
+				// definition has not, and must grant something (ADR-0029).
+				case TierEdited.NothingToChargeAgainst ignored -> ResponseEntity.status(409).build();
+				case TierEdited.NothingToGrant ignored -> ResponseEntity.status(409).build();
+				// The code was checked against the catalog just above, so reaching this is a race between
+				// two operators rather than a mistake — and it is the same 409 that check answers.
+				case TierEdited.CodeTakenByAnotherTier ignored -> ResponseEntity.status(409).build();
+				// Both unreachable: nothing here moves a code, and nothing here addresses an existing row.
+				case TierEdited.CodeFrozenByAPrice ignored -> ResponseEntity.status(500).build();
+				case TierEdited.NoSuchTier ignored -> ResponseEntity.status(500).build();
+			};
 		}
 
 		Optional<String> currency = this.account.sellingCurrency();
@@ -198,6 +226,10 @@ class CreatePlans {
 			// here is ever moving a code (T76, ADR-0031). Reported for the same reason as the three above.
 			case TierEdited.CodeFrozenByAPrice ignored -> ResponseEntity.status(500).build();
 			case TierEdited.CodeTakenByAnotherTier ignored -> ResponseEntity.status(500).build();
+			// Unreachable for the plainest reason of the six: this branch is the one that *states* a price,
+			// so the row `adopt` has just written has one, and "a second tier without a price" is not a
+			// thing it could be (T79). Reported like the rest, because unreachable is a claim.
+			case TierEdited.FreeTierAlreadyExists ignored -> ResponseEntity.status(500).build();
 		};
 	}
 
@@ -331,9 +363,33 @@ class CreatePlans {
 		 * then ask a buyer to compare two currencies. Unsayable beats validated, which is the same move
 		 * {@code isDefault} made.
 		 */
+		/**
+		 * Whether this creation is of a tier with <em>no</em> price — the free one (T79, ADR-0031).
+		 *
+		 * <p>An explicitly empty list, never an absent one. {@code prices: []} says "this costs nothing"; a
+		 * body with no {@code prices} at all says nothing, and stays a {@code 400}. That is ADR-0029's
+		 * absent-versus-stated distinction reused, and for the same reason: a client that forgot the field
+		 * would otherwise silently create a free tier.
+		 *
+		 * <p>There is deliberately no {@code free} boolean beside it. The free tier <em>is</em> the one
+		 * without a price (ADR-0031), so a flag would be a second spelling of the list's own emptiness — the
+		 * derivable pair this codebase has refused on {@code name}/{@code code}, on {@code isDefault}, and on
+		 * this very screen once already.
+		 */
+		boolean statesNoPrice() {
+			return this.prices != null && this.prices.isEmpty();
+		}
+
 		NewPlanInStripe asPlan(String currency) {
-			if (this.prices == null || this.prices.isEmpty()) {
+			if (this.prices == null) {
 				throw new IllegalArgumentException("A plan states what it costs; guessing would be inventing a price");
+			}
+			if (this.prices.isEmpty()) {
+				// A tier with no Price is the *free* one (ADR-0031), and since T79 it is a thing this route
+				// can make — so an empty list is a statement rather than an omission, and the caller branches
+				// on it before ever asking for this. Absent is still a `400` one clause up: the distinction
+				// between "said nothing" and "said none" is ADR-0029's, reused.
+				throw new IllegalStateException("A free tier states no price, and is not built as a plan");
 			}
 			List<PlanRhythm> rhythms = this.prices.stream().map(price -> {
 				if (price == null) {

@@ -866,17 +866,36 @@ class AdminTierTest {
 	/**
 	 * A plan states every rhythm it is sold at, and each of them fully (T66).
 	 *
-	 * <p>An empty list is the same as no list — a plan nobody can be charged for — and a rhythm named twice is
-	 * two answers to one question rather than a plan sold two ways: adopted, the second would silently replace
-	 * the first, so it is refused where it was typed.
+	 * <p>A rhythm named twice is two answers to one question rather than a plan sold two ways: adopted, the
+	 * second would silently replace the first, so it is refused where it was typed.
+	 *
+	 * <p><strong>An empty list is no longer one of these</strong> (T79). It used to be "the same as no list —
+	 * a plan nobody can be charged for", which is precisely what the free tier is, and since T77 made the
+	 * seeded one deletable that had become the only spelling of a thing nothing else could make. Absent stays
+	 * a {@code 400}, pinned by {@code andABodyThatLeavesOutWhatItCostsOrWhatItGrantsIsNotOne} above.
 	 */
 	@Test
 	void andEachRhythmItIsSoldAtIsStatedInFull() {
-		assertThat(post(PLANS, newPlan("starter", "[]")).statusCode()).isEqualTo(400);
 		assertThat(post(PLANS, newPlan("starter", "[{\"interval\":\"month\"}]")).statusCode()).isEqualTo(400);
 		assertThat(post(PLANS, newPlan("starter", "[{\"amount\":500}]")).statusCode()).isEqualTo(400);
 		assertThat(post(PLANS, newPlan("starter", "[{\"amount\":500,\"interval\":\"month\"},"
 				+ "{\"amount\":900,\"interval\":\"month\"}]")).statusCode()).isEqualTo(400);
+	}
+
+	/**
+	 * And at most one tier has no price at all, which since T79 is a rule rather than a shape (ADR-0031).
+	 *
+	 * <p>A tier with no {@code tier_price} row <em>is</em> the free tier, and ADR-0031 rested "at most one" on
+	 * every creation path going through Stripe — so a second was unsayable rather than forbidden. T77 made the
+	 * seeded one deletable and nothing could then make another, so the emptiness had to become expressible and
+	 * the count had to become checked. That trade is the whole cost of T79.
+	 *
+	 * <p>The seed ships {@code free} with no price, so this asks for a second and is refused. The creation
+	 * itself is in {@code TierDeletionTest}, which is where a catalog without one can be arranged.
+	 */
+	@Test
+	void andAtMostOneTierHasNoPriceAtAll() {
+		assertThat(post(PLANS, newPlan("starter", "[]")).statusCode()).isEqualTo(409);
 	}
 
 	/**

@@ -2,7 +2,7 @@ import { Badge, Button, Icon, IconButton, Meter, Note, Skeleton, Spinner } from 
 import type { DisplayState } from "@mprelist/contracts";
 import type { JSX, ReactNode } from "react";
 
-import { grantsNothing, MANAGING, UNLIMITED_REPOSTS, type Handoff } from "./plans";
+import { grantsNothing, MANAGING, UNLIMITED_REPOSTS, type Handoff, type PlansView } from "./plans";
 
 
 /**
@@ -135,19 +135,47 @@ export function OutdatedScreen(): JSX.Element {
  * On no plan at all (T77, ADR-0032): the tier this account was on was deleted and
  * the catalog had no default to move it to.
  *
- * **No retry button, and for a sharper version of `OutdatedScreen`'s reason.**
- * There the user can do something and it simply is not "try again"; here there is
- * nothing for *either* of them to do — an operator makes a tier the default and
- * everybody naming none is adopted onto it at once. So the copy says who is doing
- * it and that nothing was lost, and offers no control that would only ever be
- * pressed in vain.
+ * **It offers the catalog (T78), which reverses what T77 first shipped here** — and the
+ * reversal is what that ticket's own argument actually supports. It read: *"pointing
+ * them at the plan cards at this moment would be offering a catalog that **may** be
+ * empty"*. That is a reason to make the offer conditional, not to withhold it: the
+ * two ways into this state are an operator deleting the default tier and an operator
+ * deleting the last one, and only the second empties the catalog. In the first there
+ * are published tiers sitting right there, and the old screen told somebody who could
+ * fix this in one click to sit and wait for a stranger instead.
  *
- * **It says nothing about paying**, deliberately. A subscriber whose plan was
- * deleted has had their Stripe subscription cancelled, and pointing them at the
- * plan cards at this moment would be offering a catalog that may be empty — see
- * the same choice `BatchBar`'s locked line makes while bulk is withdrawn.
+ * So the branch is on what `GET /api/plans` actually answers:
+ * - **Something on sale** — the cards, and no waiting copy. Telling somebody to sit
+ *   tight directly above a row of buy buttons is the screen contradicting itself.
+ * - **Nothing on sale** — the original words, unchanged, including the button that
+ *   is deliberately absent. Here T77 is simply right: an operator makes a tier the
+ *   default and everybody naming none is adopted at once, and there is nothing for
+ *   *either* of them to do in the meantime.
+ *
+ * **No card is marked `Huidig` and `CurrentPlanCard` is never drawn**, because they
+ * are on none — a tier-less account is not on the free tier, and drawing it as one
+ * would be the claim this screen exists to deny.
+ *
+ * Both branches keep the sentence that matters most to somebody locked out: nothing
+ * changed on Marktplaats, and their ads are where they left them.
  */
-export function NoTierScreen(): JSX.Element {
+export function NoTierScreen({
+  view,
+  children,
+}: {
+  view: PlansView;
+  /**
+   * The cards, handed in rather than imported — the same arrangement `PlansScreen`
+   * uses and for the same reason: `PlanCards` reads `grantLine` from this module,
+   * so importing it back would close a cycle.
+   */
+  children: ReactNode;
+}): JSX.Element {
+  // Only a *loaded and empty* catalog is the dead end. While the call is in flight
+  // or has failed, the cards own the screen and say so themselves — `PlanCards`
+  // draws skeletons and a retry — and claiming "this will resolve itself" over a
+  // request that simply has not landed would be a guess presented as news.
+  const nothingToBuy = view.status === "ready" && view.plans.length === 0;
   return (
     <>
       <Header />
@@ -157,14 +185,17 @@ export function NoTierScreen(): JSX.Element {
         </div>
         <h1 className="popup-title">Er staat nu geen abonnement op dit account</h1>
         <p className="popup-copy">
-          Het abonnement waar je op zat bestaat niet meer, en er is nog geen ander ingesteld.
-          Herplaatsen is daarom gepauzeerd tot dat gebeurd is.
+          {nothingToBuy
+            ? "Het abonnement waar je op zat bestaat niet meer, en er is nog geen ander ingesteld. Herplaatsen is daarom gepauzeerd tot dat gebeurd is."
+            : "Het abonnement waar je op zat bestaat niet meer. Kies hieronder een abonnement om weer te kunnen herplaatsen."}
         </p>
         <p className="popup-micro">
           Er is niets gewijzigd op Marktplaats en je advertenties staan precies waar je ze hebt
-          achtergelaten. Dit lost zich vanzelf op — opnieuw proberen helpt niet.
+          achtergelaten.
+          {nothingToBuy ? " Dit lost zich vanzelf op — opnieuw proberen helpt niet." : null}
         </p>
       </div>
+      {nothingToBuy ? null : children}
     </>
   );
 }
@@ -523,7 +554,7 @@ export function PlansScreen({
         }
       />
       <div className="popup-plans-body">
-        <h1 className="popup-plans-title">Kies een abonnement</h1>
+        <h1 className="popup-plans-lede">Kies een abonnement</h1>
         <p className="popup-plans-lede">
           Het afrekenen wordt geopend in een nieuw tabblad. Kom daarna hier terug.
           {payWith ? <span className="popup-plans-ways"> {payWith}</span> : null}

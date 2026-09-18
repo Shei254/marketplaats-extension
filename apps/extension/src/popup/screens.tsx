@@ -24,7 +24,7 @@ export function Header({ actions }: { actions?: ReactNode }): JSX.Element {
   return (
     <header className="popup-header">
       <span className="popup-brand">
-        <span className="popup-mark">
+        <span className="mp-mark popup-mark">
           <Icon name="logo" />
         </span>
         {__BRAND_NAME__}
@@ -54,7 +54,7 @@ export function SignedOutScreen({
     <>
       <Header />
       <div className="popup-centred">
-        <div className="popup-badge">
+        <div className="mp-mark popup-badge">
           <Icon name="logo" />
         </div>
         <h1 className="popup-title">Zet je advertenties weer bovenaan</h1>

@@ -185,7 +185,7 @@ export function AdminApp({
         <div className="mp-root admin-plain">
           <header className="admin-plain-bar">
             <span className="admin-brand">
-              <span className="admin-mark">
+              <span className="mp-mark admin-mark">
                 <Icon name="logo" />
               </span>
               {BRAND.name}

@@ -32,7 +32,7 @@ export function Site({ pathname, year }: { pathname: string; year: number }): JS
       <div className="web-card">
         <header className="web-header">
           <span className="web-brand">
-            <span className="web-mark">
+            <span className="mp-mark web-mark">
               <Icon name="logo" />
             </span>
             {BRAND.name}

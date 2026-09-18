@@ -19,6 +19,14 @@
  * than a surface and louder than nothing (`subtle`), a focus ring (`ring`, and
  * until it existed no control on either surface showed keyboard focus at all), and
  * a resting elevation beside the lifted one (`shadow-sm`).
+ *
+ * **The accent was re-cut again in 2026-09, to the mark** (T48, #78). The palette
+ * above predates `brand/icon.png` by a month, so the accent was a mid-blue nobody
+ * had drawn the logo in — `#2563eb`, near enough the artwork to look like a
+ * mistake rather than a choice. It is now the blue half of the master's own
+ * gradient, which is why `accent` and `accent-hover` are sampled values rather
+ * than a ramp off a scale. The teal half is `BRAND_MARK` below and goes nowhere
+ * near a control; see the note there for the contrast that decides it.
  */
 
 /** The two themes. Dark is not an afterthought — today's POC popup already has one. */
@@ -41,6 +49,9 @@ export type PaletteName =
   | "accent"
   | "accent-hover"
   | "on-accent"
+  | "brand-from"
+  | "brand-to"
+  | "on-brand"
   | "ok"
   | "ok-bg"
   | "warn"
@@ -52,6 +63,31 @@ export type PaletteName =
   | "ring"
   | "shadow-sm"
   | "shadow";
+
+/**
+ * The mark's own two stops, and the glyph on them — **the same in both themes**,
+ * which is the one place this palette deliberately does not flip.
+ *
+ * They are sampled off `brand/icon.png` along its 135deg axis, the same corner it
+ * is drawn on: `#58ffcd` at the top-left through to `#0019ff` at the bottom-right.
+ * A logo that changed colour with the reader's theme would not be the logo, and
+ * the raster Chrome shows in the toolbar cannot follow a theme either — so a
+ * themed mark would put the tile in the popup and the icon beside the address bar
+ * in two different colours at once.
+ *
+ * `on-brand` is white rather than `--mp-on-accent` for the same reason: the master
+ * draws a white glyph, and in the dark theme `on-accent` is near-black ink.
+ *
+ * **The teal end stops here.** White on `#58ffcd` is 1.27:1, so this pair is only
+ * ever a tile behind a heavy 20×20 stroke — never a fill under label text. What
+ * the controls get instead is `accent`, re-cut below to the blue half of this
+ * same axis.
+ */
+const BRAND_MARK = {
+  "brand-from": "#58ffcd",
+  "brand-to": "#0019ff",
+  "on-brand": "#ffffff",
+} as const;
 
 export const palette: Record<Theme, Record<PaletteName, string>> = {
   light: {
@@ -67,9 +103,10 @@ export const palette: Record<Theme, Record<PaletteName, string>> = {
     // input, a code chip. The one token that stops those reaching for `hover` and
     // then having nothing left to change under the pointer.
     subtle: "#f8fafc",
-    accent: "#2563eb",
-    "accent-hover": "#1d4ed8",
+    accent: "#1d63ef",
+    "accent-hover": "#0b34f9",
     "on-accent": "#ffffff",
+    ...BRAND_MARK,
     ok: "#15803d",
     "ok-bg": "#f0fdf4",
     warn: "#b45309",
@@ -84,7 +121,7 @@ export const palette: Record<Theme, Record<PaletteName, string>> = {
     stage: "#eef2f6",
     // The accent at low alpha, and never anything else: a focus ring that is not
     // the accent is a second accent nobody chose.
-    ring: "rgba(37,99,235,.32)",
+    ring: "rgba(29,99,239,.32)",
     // Two elevations, because a design with one has to choose between a card that
     // floats when it is only sitting there and a dialog that does not lift at all.
     "shadow-sm": "0 1px 2px rgba(15,23,42,.06)",
@@ -101,11 +138,12 @@ export const palette: Record<Theme, Record<PaletteName, string>> = {
     line: "#262c36",
     hover: "#1c2230",
     subtle: "#1a1f29",
-    accent: "#60a5fa",
+    accent: "#4da3f5",
     "accent-hover": "#93c5fd",
     // Dark text on a light accent, which is the contrast that works when the
     // accent has to be light enough to be seen against `bg`.
     "on-accent": "#0b1220",
+    ...BRAND_MARK,
     ok: "#4ade80",
     "ok-bg": "#0f2419",
     warn: "#fbbf24",
@@ -114,7 +152,7 @@ export const palette: Record<Theme, Record<PaletteName, string>> = {
     "err-bg": "#2b1418",
     disabled: "#4c566a",
     stage: "#0b0e13",
-    ring: "rgba(96,165,250,.36)",
+    ring: "rgba(77,163,245,.36)",
     "shadow-sm": "0 1px 2px rgba(0,0,0,.5)",
     shadow: "0 1px 3px rgba(0,0,0,.6), 0 12px 28px rgba(0,0,0,.45)",
   },

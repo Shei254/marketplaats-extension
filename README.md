@@ -176,7 +176,14 @@ loaded. The Web Store will assign a different id at publish, which is a one-comm
 The extension's user-facing name comes from the root [`brand.json`](brand.json). `public/manifest.template.json`
 and `popup.html` carry `{{brand.name}}` tokens that the build resolves, so renaming the product before launch
 is one edit and a rebuild — and a token that does not resolve **fails the build** rather than shipping as
-literal braces. That is separate from
+literal braces.
+
+**The mark works the same way.** `brand.json` names one square master — [`brand/icon.png`](brand/icon.png) —
+and the build resizes it into the four sizes `manifest.template.json` declares, which is also the list: a size
+added there is emitted, and one emitted is one the manifest names. Nothing in the repository holds a resized
+copy, so redrawing the artwork is one file and a rebuild. `apps/web` takes its tab icon from the same master
+through the same module (`@mprelist/ui/icon-png`). A master that is not square, not 8-bit, or interlaced stops
+the build and says which it was, rather than shipping a worse icon to the Web Store. That is separate from
 `mprelist`, the internal identifier frozen into `com.mprelist`, `@mprelist/*`, the Keycloak realm and the
 database. The brand must never lead with "Marktplaats" — Web Store policy forbids trademark use that implies
 endorsement, so it belongs in the description.

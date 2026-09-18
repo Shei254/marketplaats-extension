@@ -65,15 +65,9 @@ body {
 /* The same tile the popup's header and the admin corner's draw it in, so one
    product does not have two logos. */
 .web-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   width: 24px;
   height: 24px;
-  flex: none;
   border-radius: var(--mp-radius-block);
-  background: var(--mp-accent);
-  color: var(--mp-on-accent);
 }
 
 /* Privacy and Terms, on every page (T36, #45). The one being read is marked with
@@ -143,7 +137,16 @@ body {
   color: var(--mp-muted);
 }
 .web-callout b { color: var(--mp-fg); font-weight: 600; }
-.web-callout-mark { display: inline-flex; color: var(--mp-accent); }
+/* Tiled like every other mark rather than a loose accent glyph: this is the one
+   place on these pages the product names itself, and a mark that is the logo on
+   four surfaces and a coloured glyph on the fifth is the drift \`.mp-mark\` exists
+   to stop. Same 24px box as the header's, so the two read as one mark on a page
+   that shows both. */
+.web-callout-mark {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--mp-radius-block);
+}
 
 .web-footer {
   display: flex;

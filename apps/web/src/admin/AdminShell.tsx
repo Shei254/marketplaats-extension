@@ -58,7 +58,7 @@ export function AdminShell({
       <aside className="admin-sidebar">
         <div className="admin-sidebar-head">
           <span className="admin-brand">
-            <span className="admin-mark">
+            <span className="mp-mark admin-mark">
               <Icon name="logo" />
             </span>
             {BRAND.name}

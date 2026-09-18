@@ -376,6 +376,33 @@ export const componentCss = `
 .mp-note--warn { color: var(--mp-warn); background: var(--mp-warn-bg); }
 .mp-note--error { color: var(--mp-err); background: var(--mp-err-bg); }
 
+/* The mark: the paint only, never the size.
+
+   Four surfaces draw the logo in a tile — the popup header, the popup's signed-out
+   hero, the site header and the admin sidebar — at two sizes, two radii and with
+   one of them lifted. Those stay with each surface, because they are that screen's
+   composition. What cannot be duplicated four times is the gradient: it is the
+   brand, and four copies of it are four things to be wrong when the artwork is
+   redrawn. So this rule is the fill and the glyph, and the consumer sets the box.
+
+   The stops run the master's own 135deg corner-to-corner axis rather than a
+   direction chosen here, which is what keeps a 24px tile and the 48px badge
+   recognisably the same mark.
+
+   \`background-color\` is the *to* stop, not the *from* one as on the primary
+   button. It is the fallback the forced-colours rule below falls back to, and the
+   glyph on it is white: \`--mp-brand-from\` is a teal that white cannot be read on
+   (1.27:1), so the one stop that is safe alone is the blue end. */
+.mp-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  color: var(--mp-on-brand);
+  background-color: var(--mp-brand-to);
+  background-image: linear-gradient(135deg, var(--mp-brand-from), var(--mp-brand-to));
+}
+
 /* Skeleton — a shape where content will be, moving just enough to say it is coming. */
 .mp-skeleton {
   display: block;
@@ -408,6 +435,11 @@ export const componentCss = `
      the flat fill it had before there was a gradient, which is the one thing a
      reader in this mode asked for. */
   .mp-btn--primary { background-image: none; }
+  /* The same trade for the same reason: the tile would go on painting the brand
+     ramp under a glyph the system has just recoloured to contrast with the fill
+     it thinks is there. Dropped, it is a solid \`--mp-brand-to\` the system can
+     reason about. */
+  .mp-mark { background-image: none; }
 }
 `.trim();
 

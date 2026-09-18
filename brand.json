@@ -1,7 +1,9 @@
 {
-  "$note": "Everything a user sees the product called. Change it here and rebuild; nothing else holds a copy. This is NOT `mprelist`, the internal identifier frozen into com.mprelist, @mprelist/*, the Keycloak realm and the database — renaming that is a repo-wide refactor and a `down -v`. The name must never lead with 'Marktplaats' (Web Store policy on trademarks); it belongs in the tagline instead. `name`, `domain` and `supportEmail` are provisional until T60 confirms Web Store name availability, domain availability and a trademark search.",
+  "$note": "Everything a user sees the product called, and the mark they see it under. Change it here and rebuild; nothing else holds a copy. This is NOT `mprelist`, the internal identifier frozen into com.mprelist, @mprelist/*, the Keycloak realm and the database — renaming that is a repo-wide refactor and a `down -v`. The name must never lead with 'Marktplaats' (Web Store policy on trademarks); it belongs in the tagline instead. `name`, `domain` and `supportEmail` are provisional until T60 confirms Web Store name availability, domain availability and a trademark search.",
+  "$icon": "One square master, path relative to this file. Every size Chrome and the browsers ask for is resized from it at build time by packages/ui's `icon-png`, so no derivative of the artwork is committed and none can drift from it. 8-bit RGB or RGBA, non-interlaced, and never smaller than the largest size asked of it — the build refuses each of those by name rather than emitting a worse icon. 512px or more, so a size added later is still a downscale.",
   "name": "AdBump",
   "tagline": "Herplaats je Marktplaats-advertenties met \u00e9\u00e9n klik, zodat ze weer bovenaan staan.",
   "domain": "bumpr.nl",
-  "supportEmail": "support@bumpr.nl"
+  "supportEmail": "support@bumpr.nl",
+  "icon": "brand/icon.png"
 }

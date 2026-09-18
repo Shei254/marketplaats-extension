@@ -25,7 +25,7 @@ import { BRAND } from "../brand";
 function Callout({ children }: { children: ReactNode }): JSX.Element {
   return (
     <p className="web-callout">
-      <span className="web-callout-mark">
+      <span className="mp-mark web-callout-mark">
         <Icon name="logo" />
       </span>
       <span>{children}</span>

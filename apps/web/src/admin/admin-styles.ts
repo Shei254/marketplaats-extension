@@ -84,15 +84,9 @@ export const adminCss = `
   letter-spacing: -0.015em;
 }
 .admin-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   width: 24px;
   height: 24px;
-  flex: none;
   border-radius: var(--mp-radius-block);
-  background: var(--mp-accent);
-  color: var(--mp-on-accent);
 }
 /* "admin" is what this build *is*, not part of the product's name — so it is a
    word beside the brand rather than in it. */

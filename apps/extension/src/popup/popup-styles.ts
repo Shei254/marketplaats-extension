@@ -68,15 +68,9 @@ body {
 /* The mark sits in a tile rather than loose beside the word, which is the same
    shape the signed-out screen draws it at and the reason it reads as a logo. */
 .popup-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   width: 24px;
   height: 24px;
-  flex: none;
   border-radius: var(--mp-radius-block);
-  background: var(--mp-accent);
-  color: var(--mp-on-accent);
 }
 .popup-actions { display: flex; align-items: center; gap: 2px; }
 /* The header's own scale. \`ghost\` is a control the whole product shares, and in
@@ -169,12 +163,7 @@ body {
   height: 48px;
   margin: 0 auto var(--mp-space-md);
   border-radius: var(--mp-radius-card);
-  background: var(--mp-accent);
-  color: var(--mp-on-accent);
   box-shadow: var(--mp-shadow);
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 .popup-warning {
   width: 44px;

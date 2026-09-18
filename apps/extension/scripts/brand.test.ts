@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { escapeHtml, readBrand, resolveJson, resolveTokens } from "./brand.mjs";
+import { escapeHtml, readBrand, readIconMaster, resolveJson, resolveTokens } from "./brand.mjs";
 
 /**
  * The brand is provisional until T60 (#91), so the thing worth testing is not
@@ -130,5 +130,22 @@ describe("the real brand.json", () => {
     const popup = await readFile(new URL("../src/popup/popup.html", import.meta.url), "utf8");
     const brand = await readBrand();
     expect(() => resolveTokens(popup, brand, escapeHtml)).not.toThrow();
+  });
+
+  it("names an icon master that is there, which is the other half of a one-file rebrand", async () => {
+    // The artwork is resized at build time from this one file (T48, #78), so a
+    // `brand.icon` pointing at nothing is a build that stops — and a test that
+    // only read the string would not have noticed.
+    const brand = await readBrand();
+    expect((await readIconMaster(brand)).length).toBeGreaterThan(0);
+  });
+
+  it("says which path it was, when the artwork is not where the brand says", async () => {
+    // The likeliest way to meet this is renaming the file and not the field, and
+    // an ENOENT on a URL assembled two functions away is a poor way to be told.
+    // No fixture on disk: what is passed is the brand, and the second argument is
+    // only the directory the path is resolved against.
+    await expect(readIconMaster({ icon: "gone.png" }, pathToFileURL(join(tmpdir(), "brand.json"))))
+      .rejects.toThrow(/gone\.png/);
   });
 });

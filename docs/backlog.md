@@ -1484,6 +1484,84 @@ nothing.
 free tier and gets one back; `AdminTierTest` pins the `409`) and by `/admin`'s. Nobody has deleted a free tier
 and recreated one against a real Stripe test-mode account.
 
+#### T80 · The login page is ours · **M** · T48, T28, T06 · **shipped**
+*No issue filed — this came in as "has the custom Keycloak login page already been implemented?", and it had
+not.* [ADR-0033](adr/0033-the-login-page-is-ours-and-is-generated.md) carries the argument; what follows is
+the work.
+
+**The first page a user of this product ever sees was Keycloak's.** `launchWebAuthFlow` opens the realm's
+login page in a window Chrome owns (ADR-0010), and what appeared there was the stock theme — a different
+typeface, a different blue, no mark. Three things were wrong with it beyond the look, and none of them is
+cosmetic: the base template renders `realm.displayName`, which reads **"Marktplaats Relist (development)"**
+locally and so **leads with the trademark** `brand.json` says this product must never lead with; on the
+production export that same field reads **"Bumpr"**, a stale copy of a name `brand.json` now spells
+`AdBump`, which is exactly the drift T48 existed to remove and which survived in the one file the brand had
+been copied into by hand; and the page was in **English**, while `popup.html` and `apps/web/index.html` are
+both `lang="nl"` — so signing in was the one step of the product that changed language.
+
+**`apps/keycloak-theme` is a fourth workspace whose build output is a Keycloak theme** — `theme.properties`,
+one stylesheet and three PNGs, every byte of it derived from `brand.json` and `@mprelist/ui`. Renaming the
+product or redrawing the mark stays the one-file edit T48 made it. The workspace is shaped for theme
+*types* rather than for this page: a type is a directory under `src/` named for Keycloak's own spelling of
+it and a line in a registry, and `scripts/build.mjs` walks them and decides nothing.
+
+- **`parent=base`, and exactly one template is replaced.** Keycloak's `base` theme carries the flow — sign-in,
+  registration, the reset chain, the error pages — and styles none of it: every control is written
+  `class="${properties.kcInputClass!}"`, so a theme decides what those classes *are*. Ours are the design
+  system's own, so **the button on this page is the button `componentCss` draws** rather than one built to
+  look like it. The replaced template is `template.ftl`, which is the card, the mark, the name and the footer.
+  The alternative — our own `login.ftl`, `register.ftl` and the rest — is a fork of the authentication
+  screens of a product we upgrade, on the one flow where being subtly wrong is a security bug.
+- **The brand crosses as theme properties**, not as template substitution, so the committed `.ftl` holds no
+  copy of the name and this workspace needs no third `{{brand.…}}` resolver beside `scripts/brand.mjs`'s and
+  `apps/web/src/brand.ts`'s.
+- **The mark is the raster and not the vector**, which is the opposite of T48's call for the site's callout
+  and for the same underlying reason. There is no React here to draw `Icon name="logo"`, and inlining its
+  geometry would be the copy `packages/ui` exists to prevent. The objection to a raster was that it cannot
+  follow a theme — and `BRAND_MARK` is the one part of the palette that is deliberately the same in both.
+- **Dutch, with one supported locale.** `supportedLocales: ["nl"]` and `defaultLocale: "nl"` in both realms;
+  Keycloak's own `messages_nl.properties` is what makes it free, and with one locale no switcher renders.
+- **One directory, committed, mounted by both stacks — and this is the part the first pass got wrong.** It
+  built a third image, `ghcr.io/<owner>/<repo>/keycloak`, on the reasoning that a host with no Node cannot
+  generate a theme. True, and beside the point: that host is a **git checkout** (`git clone … /opt/mprelist`),
+  and `docker-compose.prod.yml` already bind-mounts the Caddyfile and the production realm out of it. So
+  `apps/keycloak-theme/theme/` is committed and both compose files mount it at the same target. No third
+  image, no second Keycloak version to hold equal, no package to prune, and `DeployedStackTest` goes on
+  saying the deployed Keycloak is the one the suite ran against. A theme jar was the other candidate and is
+  worse twice: a jar in `providers/` needs `kc.sh build` at every start, and fetching one from a private
+  repository's releases needs the repository credential ADR-0023 keeps off that machine.
+- **The one committed build output here, and the rule it looks like it breaks is sharpened instead.** What
+  `brand.json` forbids is a copy that can *disagree* with it. CI reruns the build and fails on any
+  difference — byte-reproducible, PNGs included — so this directory is a cache, not a copy. A hand-written
+  stylesheet would still fail the rule, because nothing could hold it to `brand.json` at all.
+- **A stale checkout now shows on a customer's screen, and that is documented rather than enforced.** The
+  deploy script does not `git pull` — that is the second credential ADR-0023 refuses — so `infra/README.md`
+  § Deploying already says a release touching `infra/` needs one first. The theme joins that rule and is
+  the first member of it that fails *silently*: the realm is inert after first start and a stale Caddyfile
+  breaks routing, but a stale theme just renders the old page.
+- **`down -v` on every local stack that already exists**, once: a login theme is a realm property in
+  Keycloak's model, the realm file is the only description of the realm there is, and it imports on first
+  start only.
+
+**A bug found by building it, now covered.** The build *empties* rather than *replaces* its output directory
+only after the first version deleted it and the running Keycloak went on reading the directory that used to
+be there — a bind mount follows the inode, and Keycloak answers a theme it cannot find by logging at ERROR
+and quietly serving its built-in one. `scripts/build.test.ts` holds it to that. The other guard the first
+pass needed — `create_host_path: false`, so that forgetting to build stopped compose — went away with the
+reason for it: the directory is committed, so a clone has it.
+
+**Walked, in both modes.** The sign-in, registration, forgot-password and invalid-credentials pages were
+rendered against the local stack, and the **production** realm was rendered against Keycloak's `start` —
+which is the half `start-dev` on a laptop cannot tell you, since production mode caches themes where
+`start-dev` does not. What no suite here holds is the look: `docs/click-through.md` step 3b is where a human
+reads the page.
+
+**Not in it:** the account console and the admin console, which keep Keycloak's own theme — neither is a
+surface of this product; and a second locale. **An email theme is deferred and is now cheap**: the realm
+allows password reset and has an SMTP server, so that mail goes out in Keycloak's own English template
+carrying the realm's label — the same three faults this ticket fixed one page earlier. Under the type
+registry it is a directory and a line.
+
 ---
 
 ## Deferred

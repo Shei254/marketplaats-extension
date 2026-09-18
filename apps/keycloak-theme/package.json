@@ -1,0 +1,22 @@
+{
+  "name": "@mprelist/keycloak-theme",
+  "version": "0.0.1",
+  "private": true,
+  "description": "The Keycloak theme, generated from brand.json and the design tokens and committed as `theme/`. See docs/adr/0033-the-login-page-is-ours-and-is-generated.md.",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build": "node scripts/build.mjs"
+  },
+  "dependencies": {
+    "@mprelist/ui": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

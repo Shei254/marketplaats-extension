@@ -6,7 +6,8 @@ from the repo root — both `-f` and `--env-file` resolve against the working di
 pass absolute paths:
 
 ```bash
-cp .env.example .env      # once. Everything below is read from it; it is gitignored
+cp .env.example .env                          # once. Everything below is read from it; it is gitignored
+npm ci                                        # the Keycloak theme is committed; rebuild it only when you edit it
 docker compose --env-file .env -f infra/docker-compose.yml up -d --wait
 ```
 
@@ -71,6 +72,48 @@ Keep `-v` in mind when editing [`postgres/init/`](postgres/init) **or [`keycloak
 image runs its init scripts exactly once, on an empty data directory, and Keycloak imports a realm exactly
 once, when that realm does not already exist. Neither is an error the second time — the file simply never
 applies, and the change appears not to have taken.
+
+**That is what the login theme cost once**, and is the only reason it is worth repeating here: `loginTheme`
+and the two locale settings are realm properties, so a stack that came up before T80 keeps Keycloak's own
+page until it is dropped and re-imported. The theme *files* are a mount and need nothing of the sort.
+
+## The login page
+
+The sign-in page is **ours** (T80, [ADR-0033](../docs/adr/0033-the-login-page-is-ours-and-is-generated.md)):
+a Keycloak theme generated from `brand.json` and `@mprelist/ui`, which the realm asks for by name and this
+compose file mounts into the container.
+
+```bash
+npm run build -w @mprelist/keycloak-theme   # emits apps/keycloak-theme/theme/
+```
+
+**It is generated, and its output is committed** — the one committed build output in this repository. The
+stylesheet is the design system's own sheet plus this page's rules, the mark is resized from the one master
+in `brand/`, and the product's name comes from `brand.json`; none of that is written here twice. What makes
+committing it safe is that CI reruns the build and fails on any difference, so the directory in git is a
+cache of those two files rather than a copy that can disagree with them. **Run the build after editing the
+theme and commit what it writes**, or CI will.
+
+**Both stacks mount the same directory, and that is the whole delivery.** `infra/docker-compose.prod.yml`
+bind-mounts `../apps/keycloak-theme/theme` out of the host's checkout exactly as this file does, next to the
+Caddyfile and the production realm it already reads from there. So there is no Keycloak image of ours, the
+version below is the only place it is pinned for the local stack, and the deployed one is held equal to it by
+`DeployedStackTest`.
+
+**Editing it needs no restart.** `start-dev` caches no theme, so a change to the stylesheet is the build
+above and a page reload. What the build must not do is *replace* the directory — a bind mount follows the
+inode — and it does not; `scripts/build.test.ts` holds it to that. If the directory is missing altogether,
+Keycloak does not fail: it logs `Failed to find LOGIN theme mprelist, using built-in themes` and serves its
+own, which looks like a theme that does not work rather than one that is not there.
+
+**Adding a theme type is a directory.** A Keycloak theme is `<name>/<type>/`, and `login` is the only type
+today; `email` — the password-reset mail, which currently goes out in Keycloak's own English — is a
+directory under `apps/keycloak-theme/src/` and a line in its registry, not a second workspace.
+
+**A Keycloak upgrade is two checks here.** This theme styles `base`'s templates, so a release that renames a
+`kc…Class` hook leaves an element unstyled — `src/login/theme.test.ts` carries the hook list with the
+command that produced it. And the mount shadows `/opt/keycloak/themes`, which on 26.7 holds nothing but a
+README because the built-in themes are inside a jar; confirm that is still true before bumping the tag.
 
 ## The realm
 
@@ -379,7 +422,7 @@ A Hostinger VPS, **1 vCPU / 4 GB**. It **never compiles anything** — that is t
 half, and the reason is arithmetic: `apps/api/Dockerfile` builds this repository inside itself, which is a
 third JVM wanting a gigabyte, on one shared core, competing with the two processes it is replacing.
 
-So the host pulls. GitHub Actions builds both images on every green push to `master` and pushes them to GHCR
+So the host pulls. GitHub Actions builds the images on every green push to `master` and pushes them to GHCR
 as `sha-<commit>`; a version tag adds `v…` to that **same digest** with `docker buildx imagetools create` —
 no rebuild, so what runs is provably what was tested. The compose file names image tags, not build contexts.
 
@@ -397,8 +440,15 @@ install -m 755 /opt/mprelist/infra/deploy/mprelist-deploy /opt/mprelist/infra/de
 
 **The checkout is yours to keep current, and the deploy script deliberately does not touch it.** Doing that
 would put a second credential on this machine — a repository read key beside the read-only GHCR token — which
-ADR-0023 does not. The cost is one rule: **a release that changes anything under `infra/` needs a `git pull`
-here before the tag is pushed**, or new images run against an old compose file. Nothing enforces it.
+ADR-0023 does not. The cost is one rule: **a release that changes anything under `infra/` or the Keycloak
+theme needs a `git pull` here before the tag is pushed**, or new images run against an old compose file.
+Nothing enforces it.
+
+**The theme is the one where forgetting is silent**, and it is worth knowing which way each of these fails.
+The realm is inert — `--import-realm` runs once, on an empty database, so a stale copy of it changes nothing.
+A stale Caddyfile usually surfaces as a routing or TLS failure, which is loud. A stale
+`apps/keycloak-theme/theme/` just renders: old colours, old mark, old name, on the first page a customer
+sees, with no error in any log.
 
 Then the key Actions connects with, in `~/.ssh/authorized_keys`, restricted to one command:
 

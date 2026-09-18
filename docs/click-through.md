@@ -63,6 +63,23 @@ thread.
    *Expect:* a Keycloak window on the realm's login page, offering **Register** and **Forgot password?** as
    well as the form. Sign in as `dev` / `local-dev-password` (infra/README.md — the password is no longer the
    username, since the realm gained a policy).
+3b. **Read that page before you type in it** (T80, ADR-0033). This is the step no suite can take: what the
+   theme emits is asserted file by file, and whether it *looks like this product* is only ever a human's
+   verdict.
+   *Expect:* the mark, the product's name from `brand.json`, and its tagline under it — on a card, on the
+   stage colour, in the same typeface and the same blue as the popup that opened it. The tab says
+   **"Inloggen bij uw account · <name>"**.
+   *Expect:* **Dutch**, like every other screen here, and **not** the word "Marktplaats" anywhere near the
+   heading — the realm's own `displayName` is "Marktplaats Relist (development)" and this page must not be
+   rendering it.
+   *Expect:* the eye in the password field shows and hides it. Submit a wrong password: the message is under
+   the field it is about, in the error colour, and the field's own border turns with it.
+   *Expect:* switch your OS to dark mode and reload — the card goes dark, **the mark does not change
+   colour**, and the footer's three links still read.
+   If instead you get Keycloak's own blue-grey page, Keycloak could not find the theme — it logs
+   `Failed to find LOGIN theme mprelist` and serves its built-in one rather than failing. The directory is
+   committed, so the usual cause is an edit that was not rebuilt: `npm run build -w @mprelist/keycloak-theme`
+   and reload.
 3a. Sign out and click **Register** instead. Make an account with a password under twelve characters.
    *Expect:* refused, on the form, saying why. A real one is accepted and signs you straight in — and the
    popup shows **`Free · 3 of 3`**, because the API provisions a stranger on their first call like anyone

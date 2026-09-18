@@ -7,6 +7,10 @@
   "resetPasswordAllowed": true,
   "bruteForceProtected": true,
   "passwordPolicy": "length(12) and notUsername and notEmail",
+  "loginTheme": "mprelist",
+  "internationalizationEnabled": true,
+  "supportedLocales": ["nl"],
+  "defaultLocale": "nl",
   "smtpServer": {
     "host": "${MPRELIST_SMTP_HOST:}",
     "port": "${MPRELIST_SMTP_PORT:587}",

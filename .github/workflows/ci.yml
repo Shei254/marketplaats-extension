@@ -86,6 +86,25 @@ jobs:
       # with `--workspaces --if-present`, so they cover every npm workspace that ever gains one.
       - run: npm run build
 
+      # **The one committed build output in this repository, held to its inputs** (T80, ADR-0033).
+      # `apps/keycloak-theme/theme/` is generated from `brand.json` and `@mprelist/ui`, and it is
+      # committed because a deployed Keycloak reads it out of the host's checkout and that host compiles
+      # nothing (ADR-0023). `npm run build` above has just regenerated it; if git sees a difference, the
+      # committed copy is not this build's output and has begun to disagree with the two files it is
+      # derived from — which is the whole thing `brand.json` exists to make impossible. Rebuild and
+      # commit the result.
+      #
+      # The build is byte-reproducible, PNGs included, so this is an equality check and not a heuristic.
+      #
+      # `git add --intent-to-add` first, and it is load-bearing rather than tidy: `git diff` does not look at
+      # untracked files, so a *new* file the build emits — a second theme type, another icon size — would
+      # pass this check while being absent from the commit, which is the one failure mode that would reach a
+      # deployed host as a 404. Intent-to-add records the path with no content, so the diff sees it.
+      - name: the committed Keycloak theme is this build's output
+        run: |
+          git add --intent-to-add -- apps/keycloak-theme/theme
+          git diff --exit-code -- apps/keycloak-theme/theme
+
   api:
     name: apps/api
     runs-on: ubuntu-latest

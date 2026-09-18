@@ -20,6 +20,14 @@
     -->
     <title>{{brand.name}}</title>
     <meta name="description" content="{{brand.tagline}}" />
+    <!--
+      The mark, resized at build time from the one master in `brand/` by the
+      plugin in vite.config.ts (T48, #78). `src/icons.ts` is the list these two
+      links are held to by a test, since a favicon that stopped being emitted is
+      not something anybody would notice from a page that still renders.
+    -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
   </head>
   <body>
     <!--

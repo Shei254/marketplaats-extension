@@ -5,7 +5,8 @@
   "description": "Design tokens and base components shared by the extension popup and apps/web. See docs/adr/0011-repository-layout.md.",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./icon-png": "./src/icon-png.mjs"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

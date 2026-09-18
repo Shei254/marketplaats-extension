@@ -88,6 +88,43 @@ the `<title>`, and later `apps/web`.
   the database). Renaming the brand is one file; renaming the identifier is not.
 - Drops the `(POC)` suffix. Refs: [glossary — Brand name](glossary.md).
 
+**The mark joined it on 2026-09-19**, and the rule it followed is the file's own: *nothing else holds a copy.*
+`brand.json` gains **`icon`**, one square master in `brand/`, and every size the two surfaces declare is
+resized from it at build time — Chrome's 16/32/48/128 into `dist/icons/`, the site's tab and home-screen
+icons emitted beside its `index.html`. No resized copy is committed anywhere, so redrawing the artwork is the
+same one-file edit a rename already was. Until this, the extension loaded as Chrome's grey jigsaw piece and
+the Web Store's required 128px icon did not exist.
+
+- **The manifest is the list.** `build.mjs` emits exactly what `manifest.template.json` declares, reading the
+  size off the declaration rather than off the filename, so a size added there is emitted and a size emitted
+  is one Chrome was told about. A path declared at two different sizes stops the build: it would otherwise
+  turn on which of the two objects the loop read last, and one reading is a manifest Chrome believes and an
+  image that is not that size.
+- **`packages/ui/src/icon-png.mjs`** decodes, area-averages and re-encodes the PNG — the only such code in
+  the repository, and no new dependency. It is in `packages/ui` for the reason ADR-0011's T66 amendment gives
+  for `money.ts` being in `packages/contracts`: one concept — the mark, which that package already draws as
+  `Icon name="logo"` — derived for two consumers. What it accepts is what a committed master is (8-bit, RGB
+  or RGBA, non-interlaced) and it refuses the rest **by name**, because a 16-bit export, a palette and an
+  interlaced file are three different mistakes with three different fixes.
+- **Colour is averaged weighted by alpha.** Averaging the channels as they sit lets a transparent pixel's
+  colour into the result and draws the dark halo every naive resizer puts around a soft edge. At 2000 → 16
+  that is the difference between the mark and a smudge.
+- **The popup header was left alone**, deliberately. It draws the mark as `Icon name="logo"` — stroked, in an
+  accent tile, from the design canvas — and the raster icon is Chrome's toolbar and the Web Store listing,
+  not an image for a page that already has the vector.
+- **The site's icons are emitted, not committed**, and served from memory by a Vite plugin in development
+  too: a dev server 404ing two links on every page load is the noise somebody eventually silences by
+  committing a copy into `public/`, which is the one outcome this arrangement exists to prevent.
+- **The master is 512px and re-encoded**, not the 2000px export it arrived as. Nothing asks for more than
+  180, and a 5 MB blob is permanent in a history whose whole pack was 223 KiB; 512 leaves every size a
+  downscale and costs 99 KiB. The second variant that came with it — the same mark with wider margins — is
+  not committed: at 16px the tighter one is the one whose strokes survive, and an unused copy of the artwork
+  is the thing this arrangement exists to not have.
+- **The popup header keeps drawing the vector**, decided rather than overlooked. `.popup-mark` tiles the mark
+  on `--mp-accent`, which is a different colour in dark mode, and a raster cannot follow a theme — nor is its
+  teal-to-blue gradient a token any screen here uses. The raster is for Chrome's toolbar and the Store, which
+  take PNG and have no theme to follow.
+
 #### [T23](https://github.com/Shei254/marketplaats-extension/issues/32) · `launchWebAuthFlow` + PKCE sign-in · **L** · T06, T44
 Authorization Code + PKCE against Keycloak; sign-out clears tokens.
 Refs: [ADR-0010](adr/0010-extension-authentication.md).
@@ -699,6 +736,10 @@ interaction signals of real clicks.
 #### [T58](https://github.com/Shei254/marketplaats-extension/issues/89) · Chrome Web Store listing · **M** · T36, T46, T60
 Name, icons, screenshots, description naming Marktplaats **in the copy and not the title**, privacy policy
 URL, permission justifications for `host_permissions` on marktplaats.nl. Review takes days to weeks.
+
+**The icons are no longer part of filling this in** (T48, 2026-09-19): the package carries 16/32/48/128
+resized from `brand.json`'s master, including the 128 the Store requires, and the listing's own store icon is
+that same file. What is left here is the screenshots, the copy and the justifications below.
 
 **The justifications, as they stand.** One line each, written here as each permission arrives rather than
 assembled the night the listing is filled in — a permission whose reason has to be reconstructed months later

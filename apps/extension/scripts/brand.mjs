@@ -26,7 +26,7 @@ const NOT_A_VALUE = /^\$/;
  * declared and hoped for: a `brand.json` missing `name` would otherwise reach a
  * template, resolve to `undefined`, and ship as the string "undefined".
  */
-const REQUIRED = ["name", "tagline", "domain", "supportEmail"];
+const REQUIRED = ["name", "tagline", "domain", "supportEmail", "icon"];
 
 /** @returns {Promise<Record<string, string>>} */
 export async function readBrand(url = BRAND) {
@@ -39,6 +39,28 @@ export async function readBrand(url = BRAND) {
     throw new Error(`brand.json is missing or empty: ${missing.join(", ")}`);
   }
   return brand;
+}
+
+/**
+ * The artwork `brand.icon` names, resolved against `brand.json`'s own directory
+ * rather than the caller's.
+ *
+ * Where the brand's *files* are is the same question as what it is called, so it
+ * is answered here: a build that resolved the path itself would be a second
+ * place that knows the repository's shape, and it would go on working from the
+ * one directory it was written in.
+ *
+ * @param {Record<string, string>} brand
+ * @param {URL} [url] where `brand.json` was read from.
+ * @returns {Promise<Uint8Array>}
+ */
+export async function readIconMaster(brand, url = BRAND) {
+  const master = new URL(brand.icon, url);
+  try {
+    return new Uint8Array(await readFile(master));
+  } catch (cause) {
+    throw new Error(`brand.json names an icon that is not there: ${brand.icon}`, { cause });
+  }
 }
 
 const TOKEN = /\{\{\s*brand\.([A-Za-z][A-Za-z0-9]*)\s*\}\}/g;

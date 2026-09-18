@@ -27,6 +27,14 @@ import { Badge, Button, Card, Field, Input, Meter, Note, UiStyles } from "@mprel
 | `theme.ts` | those tokens as CSS custom properties, generated rather than kept beside them |
 | `styles.ts` | the component rules, and `uiCss` — the properties and the rules in one string |
 | `components/` | `Button`, `IconButton`, `Icon`, `Badge`, `Card`, `Field` (with `Input`, `Select`, `Textarea`, `Checkbox`), `Meter`, `Note`, `Skeleton`, `Spinner`, `UiStyles` |
+| `icon-png.mjs` | the mark as raster, for the places that take PNG and nothing else — `@mprelist/ui/icon-png`, and the only PNG decoder or encoder in this repository |
+
+`icon-png` is the odd one out here and says so in its own file: it is build-time code, imported by
+`apps/extension/scripts/build.mjs` and `apps/web/vite.config.ts` and by no browser bundle. It belongs to this
+package because the mark does — `Icon name="logo"` draws the same shape — and because the alternative is each
+surface resizing the artwork its own way. One square master in [`brand/`](../../brand.json), named by
+`brand.json`, resized on every build: Chrome's four toolbar sizes and the site's two, with **no derivative of
+the artwork committed anywhere**, so a redraw is one file and a rebuild exactly as a rename is (T48, #78).
 
 **Not** in it, deliberately: the popup's header, rows, quota strip and callouts. Those are screens, and they
 are T29 (#38), T30a (#39), T30b (#79) and T32 (#41). This package is what they are all built out of.

@@ -1,8 +1,10 @@
+import { iconSet } from "@mprelist/ui/icon-png";
 import { build } from "esbuild";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { parseArgs } from "node:util";
 
-import { escapeHtml, readBrand, resolveJson, resolveTokens } from "./brand.mjs";
+import { escapeHtml, readBrand, readIconMaster, resolveJson, resolveTokens } from "./brand.mjs";
 import { LOCAL_STACK, readDeployment } from "./deployment.mjs";
 
 /**
@@ -132,10 +134,33 @@ await build({
 // scripts/brand.mjs. `key` passes through untouched: it is the pinned extension
 // id (T44, #13) and nothing about the brand may disturb it.
 const manifest = resolveJson(manifestTemplate, brand);
+
+// The toolbar and Web Store icons (T48, #78; T58, #89), resized from the one
+// master `brand.json` names. **The manifest is the list**: every size it declares
+// is emitted at that size, so adding one is an edit to the template and nothing
+// here, and a size declared but not emitted is not a state this build can reach.
+// Chrome takes PNG only, which is why the mark `packages/ui` draws as
+// `Icon name="logo"` cannot serve here and the artwork is raster.
+//
+// **`action.default_icon` is derived rather than declared**, and the emitted
+// manifest states it in full. Chrome's own documentation does not say what an
+// `action` without one falls back to, so leaving it out rests on undocumented
+// behaviour whose failure mode is the grey jigsaw piece this ticket exists to
+// remove. Typing the same four lines twice in the template would be the other
+// way, and a pair that can disagree is the shape this repository keeps refusing.
+const icons = Object.entries(manifest.icons).map(([size, path]) => ({ size: Number(size), path }));
+manifest.action.default_icon = manifest.icons;
+
 await writeFile(`${outdir}/manifest.json`, `${JSON.stringify(manifest, null, 2)}\n`);
 
 const popup = resolveTokens(await readFile("src/popup/popup.html", "utf8"), brand, escapeHtml);
 await writeFile(`${outdir}/popup.html`, popup);
+
+const drawn = iconSet(await readIconMaster(brand), icons.map(({ size }) => size));
+for (const { size, path } of icons) {
+  await mkdir(`${outdir}/${dirname(path)}`, { recursive: true });
+  await writeFile(`${outdir}/${path}`, drawn.get(size));
+}
 
 // The addresses are named here because they are the one thing about a build that
 // is invisible afterwards and expensive to get wrong: two builds of the same

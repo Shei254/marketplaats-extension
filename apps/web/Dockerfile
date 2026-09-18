@@ -23,6 +23,10 @@ COPY packages/contracts/package.json packages/contracts/
 RUN npm ci
 
 COPY brand.json ./
+# The artwork `brand.json` names (T48, #78). The build resizes the tab icon from it rather than reading a
+# committed copy, so a context without it is a build that stops — which is the point, and is why
+# `icons.test.ts` reads this file.
+COPY brand brand
 COPY packages packages
 COPY apps/web apps/web
 RUN npm run build -w @mprelist/web

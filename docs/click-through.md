@@ -51,6 +51,9 @@ thread.
 
 1. `chrome://extensions` → Developer mode → **Load unpacked** → `apps/extension/dist/`.
    *Expect:* the extension is named from `brand.json` — **not** "Marktplaats Relist (POC)".
+   *Expect:* **the mark on the card and in the toolbar**, not Chrome's grey jigsaw piece (T48, #78). The
+   icons are resized from `brand.json`'s master by the build, so a grey piece here means a `dist/` built
+   before that landed — not a missing file to go and add.
    *Expect:* the **ID shown matches `npm run -s extension-id -w @mprelist/extension`**. This is the only
    place our derivation is checked against Chrome's own; if they disagree, stop — the realm was built from
    the wrong redirect URI and sign-in in step 3 will fail with `Invalid parameter: redirect_uri`.

@@ -4,9 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { decodePng, iconSet } from "@mprelist/ui/icon-png";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { readBrand } from "./brand.mjs";
+import { readBrand, readIconMaster } from "./brand.mjs";
 import { LOCAL_STACK, readDeployment } from "./deployment.mjs";
 import { extensionIdFromKey } from "./extension-key.mjs";
 import { DEV_HOOK_NAMES } from "../src/background/dev-hooks";
@@ -55,7 +56,14 @@ async function buildInto(mode: "production" | "dev"): Promise<BuiltExtension> {
     { cwd: workspaceRoot, stdio: "pipe" },
   );
 
-  const files = (await readdir(dir)).sort();
+  // Recursive since T48's icon set (#78), which is the first thing this build
+  // emits into a subdirectory. Directories themselves are dropped: what the
+  // assertions below are about is what Chrome loads, and `icons/` is not a file
+  // a manifest can name.
+  const files = (await readdir(dir, { recursive: true, withFileTypes: true }))
+    .filter((entry) => entry.isFile())
+    .map((entry) => join(entry.parentPath, entry.name).slice(dir.length + 1))
+    .sort();
   const bundles: Record<string, string> = {};
   for (const name of files.filter((file) => file.endsWith(".js"))) {
     bundles[name] = await readFile(join(dir, name), "utf8");
@@ -106,17 +114,73 @@ describe("extension build", () => {
     await rm(dev.dir, { recursive: true, force: true });
   });
 
-  it("emits the five loadable files and no Options page", () => {
+  it("emits the five loadable files, the icon set, and no Options page", () => {
     // Deliberately exact: options.html/options.js coming back is the regression
-    // this ticket removed, and a new asset should be a considered addition.
+    // this ticket removed, and a new asset should be a considered addition. The
+    // four icons are T48's (#78) — one master in `brand/`, resized here, so
+    // nothing in the repository holds a second copy of the mark.
     expect(production.files).toEqual([
       "background.js",
       "content.js",
+      join("icons", "icon-128.png"),
+      join("icons", "icon-16.png"),
+      join("icons", "icon-32.png"),
+      join("icons", "icon-48.png"),
       "manifest.json",
       "popup.html",
       "popup.js",
     ]);
     expect(dev.files).toEqual(production.files);
+  });
+
+  /**
+   * The icon set is what Chrome draws in the toolbar and what the Web Store
+   * listing carries (T58, #89), and it is generated rather than committed — so
+   * the assertion is that the manifest's own declaration and the emitted bytes
+   * agree, at every size, which a build with a stale list would fail.
+   */
+  it("emits an icon of each size the manifest declares, at the size it declares", async () => {
+    const manifest = JSON.parse(await readFile(join(production.dir, "manifest.json"), "utf8")) as {
+      icons: Record<string, string>;
+      action: { default_icon: Record<string, string> };
+    };
+
+    // Chrome's own set. Named here rather than derived from the manifest, because
+    // the manifest is the thing under test: 128 is the Web Store's required size
+    // and 16 is the one the mark has to survive being scaled to.
+    expect(Object.keys(manifest.icons).sort()).toEqual(["128", "16", "32", "48"]);
+    expect(manifest.action.default_icon).toEqual(manifest.icons);
+
+    for (const [size, path] of Object.entries(manifest.icons)) {
+      const icon = decodePng(await readFile(join(production.dir, path)));
+      expect([icon.width, icon.height], `${path} is not ${size}×${size}`)
+        .toEqual([Number(size), Number(size)]);
+    }
+  });
+
+  it("draws those icons from the master `brand.json` names, and not from anything else", async () => {
+    // The claim is single-sourcing, so it is asserted by *making* the icon here
+    // from the file the brand names and comparing bytes. A build that quietly
+    // fell back to artwork of its own would pass every other test in this file.
+    // Through `readIconMaster` rather than a path assembled here, for the reason
+    // that function exists: where the brand's files are is one module's to know.
+    const master = await readIconMaster(await readBrand());
+
+    expect(await readFile(join(production.dir, "icons", "icon-48.png")))
+      .toEqual(Buffer.from(iconSet(master, [48]).get(48)!));
+  });
+
+  it("declares the sizes once, in `icons`, and the action's copy is the build's", async () => {
+    // The two manifest fields name the same four files, and a template that
+    // spelled both would be a pair that can disagree — the shape this repository
+    // refuses. So the template declares `icons` and the build derives the other,
+    // which is why the test above can assert they are equal without that being a
+    // coincidence somebody has to maintain.
+    const template = JSON.parse(
+      await readFile(new URL("../public/manifest.template.json", import.meta.url), "utf8"),
+    ) as { action: Record<string, unknown> };
+
+    expect(template.action).not.toHaveProperty("default_icon");
   });
 
   it("declares no options_ui, which would point at a page that is no longer built", async () => {
@@ -228,8 +292,10 @@ describe("extension build", () => {
   it("leaves no unresolved token in anything it emits", async () => {
     // A template token that shipped would reach the Web Store listing as the
     // literal `{{brand.name}}`. Checked over every emitted file rather than the
-    // two we happen to template, so a third one added later is covered by default.
-    for (const name of production.files) {
+    // two we happen to template, so a third one added later is covered by
+    // default — the icons excepted, since they are bytes rather than text and a
+    // token cannot be written into them by a resolver that never sees them.
+    for (const name of production.files.filter((file) => !file.endsWith(".png"))) {
       const contents = await readFile(join(production.dir, name), "utf8");
       expect(contents, `${name} carries an unresolved token`).not.toMatch(/\{\{\s*brand\./);
     }

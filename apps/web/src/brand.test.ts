@@ -12,6 +12,9 @@ describe("the brand", () => {
   });
 
   it("carries no `$note`, which is documentation for whoever edits the file", () => {
+    // Nor `icon`, which names a file on a build machine rather than anything a
+    // page says: the tab icon is `src/icons.ts`'s, and it reads `brand.json` for
+    // itself (T48, #78).
     expect(Object.keys(BRAND)).toEqual(["name", "tagline", "domain", "supportEmail"]);
   });
 });

@@ -1,6 +1,6 @@
 {
   "realm": "mprelist",
-  "displayName": "Bumpr",
+  "displayName": "mprelist (production)",
   "enabled": true,
   "sslRequired": "${MPRELIST_SSL_REQUIRED:external}",
   "registrationAllowed": true,

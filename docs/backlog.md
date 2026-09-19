@@ -82,7 +82,7 @@ unpinned id means `down -v` later.
 One root `brand.json` — `name`, `tagline`, `domain`, `supportEmail` — read by `scripts/build.mjs`, which
 templates `public/manifest.template.json` instead of `cp`-ing `manifest.json`. Also feeds the popup header,
 the `<title>`, and later `apps/web`.
-- The name is **Bumpr**, provisionally, and must never lead with "Marktplaats" — Web Store policy forbids
+- The name is **AdBump**, provisionally, and must never lead with "Marktplaats" — Web Store policy forbids
   trademark use implying endorsement. Marktplaats belongs in the *description*.
 - Distinct from the internal identifier `mprelist`, which is frozen (`com.mprelist`, `@mprelist/*`, the realm,
   the database). Renaming the brand is one file; renaming the identifier is not.
@@ -678,6 +678,12 @@ Three things this ticket leaves standing, recorded rather than discovered later:
   and must template the site origins as `${…}` the way `MPRELIST_EXTENSION_ID` already is, or one
   deployment's hostnames are frozen into git. (The import is once; the realm's *contents* stay editable in
   the admin console. `infra/README.md` used to say otherwise and no longer does.)
+  - **One field is already in that position.** `displayName` was renamed from the stale `Bumpr` to
+    `mprelist (production)` on 2026-09-19 (T60), and if this realm has had its first start, the export is
+    inert and that rename reaches it **only through the admin console**. Same trip as the theme:
+    `apps/keycloak-theme/theme/` is bind-mounted out of the host's checkout, so the sign-in page's new
+    footer — `contact@adbump.nl`, and links to the site rather than to `bumpr.nl` — appears after a
+    `git pull` and a Keycloak restart, not after a deploy.
 - **The publish cycle has to be broken deliberately**: the realm wants the Web Store's id, which exists only
   once a store item does, which needs a build, which needs the realm. Create the store item as an
   **unpublished draft** first, `extension-key … set`, then first-start.
@@ -763,6 +769,21 @@ first and it is true as written.
 #### [T60](https://github.com/Shei254/marketplaats-extension/issues/91) · Finalise the brand name · **S** · before T56 and T58
 Web Store name availability, domain availability, a trademark search. One edit to `brand.json` and a rebuild
 (T48) — everything else is prose, the listing, and the realm's origins.
+
+**Domain availability closed on 2026-09-19**: `adbump.nl` is registered and carries an MX, so
+`brand.json`'s `supportEmail` is now `contact@adbump.nl` and it delivers. What remains of this ticket is
+Web Store name availability and the trademark search — both checks rather than commits.
+
+**`brand.domain` is not `adbump.nl`, deliberately.** That domain's A record still points at its registrar,
+and this field's only consumer is the two footer links on the sign-in page (`template.ftl`), which have to
+work — so it holds `www.187-7-19-175.nip.io`, where the site is actually served. T56 moves it, and
+`brand.json`'s `$note` says so beside the value rather than only here.
+
+**The same session swept the last stale spellings of the old name**, which is the other half of "everything
+else is prose": the production realm's `displayName` (now the identifier's — see the glossary's **Brand
+name**), the Stripe suites' `bumpr.test` fixtures, twelve design artboards, and `vitest.config.ts`, which
+held the last hand-copy of the name and now reads `brand.json` the way `build.mjs` does. What still says
+**Bumpr** says it about the past on purpose: ADR-0033, T80 below, and `ProductionRealmTest`'s javadoc.
 
 #### [T59](https://github.com/Shei254/marketplaats-extension/issues/90) · CI · **M** · **shipped**
 `.github/workflows/ci.yml`: two jobs, neither waiting for the other — `npm ci` and the three root scripts,

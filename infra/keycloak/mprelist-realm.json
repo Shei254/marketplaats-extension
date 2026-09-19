@@ -1,6 +1,6 @@
 {
   "realm": "mprelist",
-  "displayName": "Marktplaats Relist (development)",
+  "displayName": "mprelist (development)",
   "enabled": true,
   "sslRequired": "${MPRELIST_SSL_REQUIRED:external}",
   "registrationAllowed": true,

@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
  * fetches, so a rename in {@code apps/web/src/routes.ts} that did not happen here would be found by somebody
  * who has just paid. Spelling them twice on the Java side as well would make that two places to miss.
  *
- * <p>The trailing slash is trimmed once, here, for the same reason: {@code https://bumpr.test//success} is a
+ * <p>The trailing slash is trimmed once, here, for the same reason: {@code https://example.test//success} is a
  * URL Stripe accepts and a page most hosts do not serve, at the moment somebody has just been charged. A guard
  * that lived at each call site would be a guard the next call site forgets.
  *

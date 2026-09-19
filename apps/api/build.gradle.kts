@@ -164,11 +164,12 @@ tasks.withType<Test>().configureEach {
         // is entirely about the difference between them and the two lines above.
         repository.file("infra/docker-compose.prod.yml"),
         repository.file("infra/production.env.example"),
-        // The realm that deployment imports, the proxy in front of it, and the brand whose name the realm's
-        // sign-in page carries (T56, #87). ProductionRealmTest starts a Keycloak on the first of them.
+        // The realm that deployment imports and the proxy in front of it (T56, #87). ProductionRealmTest
+        // starts a Keycloak on the first of them. `brand.json` was here too, for a test that held the realm's
+        // displayName to it; ADR-0033 moved the sign-in page off that field rather than keeping the copy in
+        // step, so nothing in this suite reads the brand and nothing here declares it.
         repository.file("infra/keycloak-production/mprelist-realm.json"),
         repository.file("infra/caddy/Caddyfile"),
-        repository.file("brand.json"),
         // The extension's pinned key, which CrossOriginTest derives the allowed origin from.
         repository.file("apps/extension/public/manifest.template.json"),
         // `.env.example`, which EnvironmentFileTest holds to the two files above and to application.yml —

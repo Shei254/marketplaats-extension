@@ -163,7 +163,10 @@ describe("the update screen", () => {
 
   it("says the build is the problem, and names the product doing the saying", () => {
     expect(markup).toContain("moet worden bijgewerkt");
-    expect(markup).toContain("AdBump");
+    // `__BRAND_NAME__` rather than the name spelled out, because vitest.config.ts
+    // now defines it from `brand.json` — so this asserts the screen names the
+    // product, and a rename stays one edit instead of turning this line red.
+    expect(markup).toContain(__BRAND_NAME__);
   });
 
   it("offers no button, because there is nothing a button could do", () => {

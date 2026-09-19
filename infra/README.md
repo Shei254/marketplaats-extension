@@ -680,6 +680,12 @@ deploy an image and cannot read the live Stripe key. The host still holds exactl
 the read-only GHCR token — shipping the tree through the registry was chosen over a `git pull` partly so
 that it would stay exactly one.
 
+**A changed theme restarts Keycloak; an unchanged one does not.** Compose does not recreate a service
+because a bind-mounted directory's *contents* moved, and this Keycloak runs `start`, which caches themes —
+`start-dev` locally does not, which is why editing the theme on your laptop needs only a page reload. So the
+deploy fingerprints that tree across the swap and force-recreates the one service when the bytes differ. An
+ordinary release, where the theme has not moved, costs no sign-in outage at all.
+
 **The last step checks the page rather than the files.** After `up -d --wait` the script fetches the sign-in
 page and looks for a class only our theme draws. `loginTheme` is a realm *property* and a realm imports on
 first start only, so a realm that came up before T80 does not ask for our theme however correctly the files

@@ -90,6 +90,16 @@ compose() {
 	docker compose --env-file "$env_file" -f "$compose_file" "$@"
 }
 
+# **What the login theme currently is, as one string.** Contents and paths, never timestamps: the tree is
+# re-extracted on every deploy, so every mtime changes every time and anything reading them would report a
+# change on every deploy and restart Keycloak for nothing. `-r` matters — `sha256sum` with no arguments
+# reads standard input, so an empty directory would hang here rather than hashing to nothing.
+theme_fingerprint() {
+	local dir="$1"
+	[[ -d "$dir" ]] || { printf 'absent\n'; return; }
+	( cd "$dir" && find . -type f -print0 | sort -z | xargs -0 -r sha256sum ) | sha256sum
+}
+
 echo "==> Deploying $tag"
 
 # **Before the dump, because it cannot migrate anything and it is how a tag with no tree fails.** The rule
@@ -115,6 +125,7 @@ echo "==> Dumping"
 # without ever being started, and the command it nominally carries is a path that does not exist in an image
 # that contains no executable of any kind. Nothing out of that image is ever run here.
 echo "==> Replacing the deployment tree"
+theme_before="$(theme_fingerprint "$deploy_dir/apps/keycloak-theme/theme")"
 staging="$(mktemp -d "$deploy_dir/.tree.XXXXXX")"
 trap 'rm -rf "$staging"' EXIT
 tree_container="$(docker create "$tree_image")"
@@ -134,6 +145,7 @@ for managed in "${MANAGED[@]}"; do
 done
 rm -rf "$staging"
 trap - EXIT
+theme_after="$(theme_fingerprint "$deploy_dir/apps/keycloak-theme/theme")"
 
 # **The scripts travel with the tree and are never installed by it.** Bash reads a script incrementally, so
 # overwriting `/usr/local/bin/mprelist-deploy` while it is the thing running executes whatever lands under
@@ -177,6 +189,18 @@ trap - EXIT
 # up into a failed deploy rather than a job that hangs until Actions kills it with no verdict.
 echo "==> Starting"
 compose up -d --wait --wait-timeout 300
+
+# **A changed theme needs Keycloak restarted, and nothing else will do it.** Compose recreates a service when
+# its *configuration* changes; the theme is a bind mount whose *contents* changed, which compose neither sees
+# nor should. And this Keycloak runs `start` rather than `start-dev`, so it caches themes — the local stack
+# does not, which is exactly why this never bites in development. Without this the files land correctly, the
+# deploy goes green, and the page a customer sees is the one from before: the failure T81 exists to end,
+# reintroduced one layer further in. Scoped to the one service and done only when the bytes actually differ,
+# so an ordinary deploy costs no sign-in outage at all.
+if [[ "$theme_before" != "$theme_after" ]]; then
+	echo "==> The login theme changed; restarting Keycloak so it drops the cached one"
+	compose up -d --wait --wait-timeout 300 --force-recreate --no-deps keycloak
+fi
 
 # **What a deploy cannot deliver, it can at least notice** (T81, ADR-0034). `loginTheme` is a realm
 # *property*, and Keycloak imports a realm on first start and never again while its database exists — so a

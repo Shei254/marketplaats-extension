@@ -128,5 +128,12 @@ changes nothing.
 - **`DeployedStackTest` keeps both properties it had.** No Keycloak image of ours exists, so the deployed
   server is still the tag the suite ran against; and the production compose still builds nothing, because the
   extraction is the script's and not compose's.
+- **A changed theme restarts Keycloak, and only a changed theme does.** Delivering the files is not enough:
+  compose recreates a service when its *configuration* changes, and a bind mount whose contents changed is
+  not that; and a production Keycloak runs `start`, which caches themes, where the local stack's `start-dev`
+  does not. Without the restart the files land, the deploy goes green, and the page a customer sees is the
+  one from before — this ADR's own failure, one layer further in. The deploy fingerprints the theme tree
+  across the swap by content and path and never by timestamp, since extraction resets every mtime and a
+  fingerprint that read them would restart Keycloak on every deploy for nothing.
 - **A realm property still cannot be deployed.** The check makes that loud on every deploy instead of on the
   day somebody looks at the sign-in page. Setting it remains a console step, and `infra/README.md` says which.

@@ -1,7 +1,7 @@
 # The registry's housekeeping, which ADR-0023 named as a cost of putting a registry in the deploy path and
 # left to nobody: "Packages storage and transfer are billed on private repositories past the account's
 # included allowance ... but it wants old tags pruned". Every green `master` adds a `sha-<commit>` to each of
-# the two packages, and until this file nothing ever removed one.
+# the three packages, and until this file nothing ever removed one.
 #
 # **It is a separate workflow rather than a job in `ci.yml`, and the reason is the trigger.** `ci.yml` is
 # what a push, a pull request and a tag run; this runs on a clock, against the registry rather than against
@@ -81,5 +81,9 @@ jobs:
           # name and the image, because that is what `ghcr.io/<owner>/<repo>/<image>` makes it.
           repository="${GITHUB_REPOSITORY,,}"
           export OWNER="${repository%%/*}"
-          export PACKAGES="${repository#*/}/api,${repository#*/}/web"
+          # `deploy` is the third and is pruned on the same rules (T81, ADR-0034). It is ~100 KB
+          # rather than hundreds of megabytes, so it costs the allowance nothing — but an unpruned
+          # package still accretes a version per green `master`, and a release whose images were
+          # kept while its tree was reaped would be a tag that cannot be redeployed.
+          export PACKAGES="${repository#*/}/api,${repository#*/}/web,${repository#*/}/deploy"
           node .github/scripts/prune-ghcr.mjs

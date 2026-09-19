@@ -88,8 +88,9 @@ jobs:
 
       # **The one committed build output in this repository, held to its inputs** (T80, ADR-0033).
       # `apps/keycloak-theme/theme/` is generated from `brand.json` and `@mprelist/ui`, and it is
-      # committed because a deployed Keycloak reads it out of the host's checkout and that host compiles
-      # nothing (ADR-0023). `npm run build` above has just regenerated it; if git sees a difference, the
+      # committed because the local stack bind-mounts it straight out of the working tree, and because the
+      # `deploy` package built below is then a pure COPY of it needing no Node in that job (ADR-0034).
+      # `npm run build` above has just regenerated it; if git sees a difference, the
       # committed copy is not this build's output and has begun to disagree with the two files it is
       # derived from — which is the whole thing `brand.json` exists to make impossible. Rebuild and
       # commit the result.
@@ -208,10 +209,17 @@ jobs:
       - run: docker build -f apps/api/Dockerfile -t ${{ steps.names.outputs.repository }}/api:sha-${{ github.sha }} apps/api
       - run: docker build -f apps/web/Dockerfile -t ${{ steps.names.outputs.repository }}/web:sha-${{ github.sha }} .
 
+      # The third package, and the one that is not a server (T81, ADR-0034). `FROM scratch` with `infra/` and
+      # the login theme copied in — about 100 KB, built from files already in git, and never started
+      # anywhere. It is what carries the compose file, the Caddyfile, the realm export and the theme to the
+      # host, which before this had to be a git checkout somebody remembered to pull.
+      - run: docker build -f infra/deploy/Dockerfile -t ${{ steps.names.outputs.repository }}/deploy:sha-${{ github.sha }} .
+
       - if: github.ref == 'refs/heads/master'
         run: |
           docker push ${{ steps.names.outputs.repository }}/api:sha-${{ github.sha }}
           docker push ${{ steps.names.outputs.repository }}/web:sha-${{ github.sha }}
+          docker push ${{ steps.names.outputs.repository }}/deploy:sha-${{ github.sha }}
 
   # --- the two acts ---------------------------------------------------------------------------------------
   #
@@ -232,7 +240,7 @@ jobs:
               && needs.images.result == 'success'))
     timeout-minutes: 20
     permissions:
-      # To read the two images and to write the second name onto their digests. Nothing else: this job holds
+      # To read the three images and to write the second name onto their digests. Nothing else: this job holds
       # no credential of the product's, which is ADR-0020's "the environment file on the host is the
       # boundary" doing the work it was written to do. `production.env` never leaves that machine, so the
       # blast radius of a compromised workflow is *it can deploy an image*.
@@ -295,7 +303,7 @@ jobs:
             docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$1" 2>/dev/null || true
           }
 
-          for image in api web; do
+          for image in api web deploy; do
             source="$REPOSITORY/$image:sha-$COMMIT"
             target="$REPOSITORY/$image:$tag"
 

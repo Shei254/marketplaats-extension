@@ -643,7 +643,8 @@ Three things this ticket leaves standing, recorded rather than discovered later:
 - **The host's checkout is updated by hand**, deliberately. Doing it in the deploy script would mean a
   repository read key on that machine beside the read-only GHCR token, which ADR-0023 does not put there. So
   a release that changes anything under `infra/` needs a `git pull` on the host first, and nothing enforces
-  it.
+  it. **Closed by T81 below**, which is what happened the first time nobody did: the tree now travels as a
+  third GHCR package on the credential the host already has, and there is no checkout left to forget.
 - **Nothing pruned GHCR**, which ADR-0023 names as a cost of the registry. Every green `master` adds a
   `sha-<commit>` pair; ~350 MB with layer reuse, billed past the account's allowance. **Closed by
   `.github/workflows/prune-ghcr.yml`**, weekly and by hand, keeping every release, the newest ten builds per
@@ -680,10 +681,10 @@ Three things this ticket leaves standing, recorded rather than discovered later:
   the admin console. `infra/README.md` used to say otherwise and no longer does.)
   - **One field is already in that position.** `displayName` was renamed from the stale `Bumpr` to
     `mprelist (production)` on 2026-09-19 (T60), and if this realm has had its first start, the export is
-    inert and that rename reaches it **only through the admin console**. Same trip as the theme:
-    `apps/keycloak-theme/theme/` is bind-mounted out of the host's checkout, so the sign-in page's new
-    footer — `contact@adbump.nl`, and links to the site rather than to `bumpr.nl` — appears after a
-    `git pull` and a Keycloak restart, not after a deploy.
+    inert and that rename reaches it **only through the admin console**. The theme's half of this is what
+    T81 removed: the sign-in page's new footer — `contact@adbump.nl`, and links to the site rather than to
+    `bumpr.nl` — needed a `git pull` on the host when this was written, and now arrives with the tag
+    (ADR-0034). The console edit does not, and never will: it is a realm property.
 - **The publish cycle has to be broken deliberately**: the realm wants the Web Store's id, which exists only
   once a store item does, which needs a build, which needs the realm. Create the store item as an
   **unpublished draft** first, `extension-key … set`, then first-start.
@@ -1504,6 +1505,48 @@ nothing.
 **Not walked against a real account.** Held by the API suite (`TierDeletionTest` arranges a catalog with no
 free tier and gets one back; `AdminTierTest` pins the `409`) and by `/admin`'s. Nobody has deleted a free tier
 and recreated one against a real Stripe test-mode account.
+
+#### T81 · The deployment tree ships with the tag · **M** · T80, T56 · **shipped**
+*No issue filed — this came in as "would it be possible to have the keycloak build happen automatically
+instead of having to do scp on the infra folder".*
+[ADR-0034](adr/0034-the-deployment-tree-ships-with-the-tag.md) carries the argument.
+
+**T80 shipped and the login page did not change, and nothing said why.** ADR-0033 delivered the generated
+theme by committing it and bind-mounting it out of the host's git checkout — a checkout kept current by hand,
+because automating it means a repository read key beside the read-only GHCR token and ADR-0023 refuses that
+second credential. The cost was written down in three places and came due on the first release after T80.
+
+**`infra/` was copied to the host, which is the obvious reading and is wrong in a way nothing reports.** Of
+the five paths the production stack mounts, four are under `infra/` and the fifth is
+`../apps/keycloak-theme/theme` — relative to the compose file's own directory, and therefore *outside* the
+folder being copied. Docker creates a missing bind-mount source as an empty directory rather than failing.
+Keycloak serves its built-in pages rather than failing. The sign-in page looked deliberate and was
+Keycloak's. The theme was only the file that changes often enough to be noticed first: the Caddyfile decides
+what the internet can reach, and the realm export is the file whose mistakes `InfraFiles` calls "the most
+expensive and the least visible".
+
+- **A third package, `FROM scratch`, about 65 KB.** `ghcr.io/<owner>/<repo>/deploy` carries `infra/` and
+  `apps/keycloak-theme/theme/`, is built and pushed beside the two server images, retagged by the same
+  `for image in api web deploy` loop and pruned on the same rules. It is pulled with the read-only token the
+  host already holds, so **no second credential**, and the files are pinned to the tag rather than to
+  whenever anybody last pulled — which a `git pull` cannot promise.
+- **Extracted, staged and swapped — never copied over the top.** `docker cp` merges, so a file deleted
+  upstream would survive on the host for ever. `infra/` and `apps/` are replaced wholesale;
+  `production.env` sits beside them, in neither, and is never in any image.
+- **The host stops being a git checkout** and needs no git. Bootstrap is a directory, `production.env`, and
+  the two scripts installed once.
+- **The scripts travel in the tree and are never installed by it.** Bash reads a script incrementally, so
+  overwriting the running `mprelist-deploy` would execute whatever landed under the cursor. The difference is
+  printed with the `install` line; running it is somebody's decision.
+- **The deploy now checks the page, not the files.** `loginTheme` is a realm property and a realm imports on
+  first start only, so a realm that came up before T80 does not ask for the theme however correctly the files
+  arrive — which is the *other* half of why nothing appeared. After `up -d --wait` the script fetches the
+  sign-in page and looks for a class only our template draws. It warns rather than failing: the stack is up
+  and serving, and a re-run would change nothing. The fix is an admin-console setting and the warning names it.
+
+**A tag built before this cannot be deployed by the new script**, having no `deploy` package; it says so
+rather than failing on a missing file later. Cutover is: install the new scripts by hand once, deploy a tag
+CI built after this, then delete the old checkout.
 
 #### T80 · The login page is ours · **M** · T48, T28, T06 · **shipped**
 *No issue filed — this came in as "has the custom Keycloak login page already been implemented?", and it had

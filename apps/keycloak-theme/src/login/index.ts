@@ -131,6 +131,14 @@ export const login: ThemeType = {
     ...brand,
     ...HOOKS,
   }),
+  /**
+   * None. Every string on these pages is Keycloak's own, in Keycloak's own
+   * Dutch, and that is the point of the hook map above: the page was made ours
+   * without a word of it being taken over. The mail could not be
+   * (`src/email/copy.ts`, ADR-0035), and closing the register seam between the
+   * two — this page says *u*, the mail says *je* — is where a bundle would go.
+   */
+  messages: () => ({}),
   resources: { "css/login.css": loginStylesheet() },
   icons: ICONS,
 };

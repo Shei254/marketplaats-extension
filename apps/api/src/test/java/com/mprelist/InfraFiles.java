@@ -85,6 +85,20 @@ final class InfraFiles {
 		return repositoryRoot().resolve(".env.example");
 	}
 
+	/**
+	 * The brand, read for one field: the name every surface of this product shows.
+	 *
+	 * <p>It was read here once before, by a test holding the production realm's {@code displayName} to it,
+	 * and that test had been commented out while the file drifted to {@code Bumpr}. ADR-0033's answer was
+	 * not to keep the copy in step but to stop the sign-in page reading it at all. <strong>T82 brings one
+	 * copy back</strong>, and only one: {@code smtpServer.fromDisplayName}, the name on the envelope, which
+	 * is the one thing about a mail that no theme can reach. What makes that safe is that it is held —
+	 * {@code brand.json}'s own rule is that the test is drift, not whether a file is in git.
+	 */
+	static Path brandFile() {
+		return repositoryRoot().resolve("brand.json");
+	}
+
 	/** Read for one line of it, and it is the line that keeps the file above from being committed by mistake. */
 	static Path gitignore() {
 		return repositoryRoot().resolve(".gitignore");

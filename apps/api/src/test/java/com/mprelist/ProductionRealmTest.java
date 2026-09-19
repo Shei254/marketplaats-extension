@@ -200,8 +200,48 @@ class ProductionRealmTest {
 		assertThat(realm.get("defaultLocale").asText()).isEqualTo("nl");
 	}
 
+	/**
+	 * And so is the mail it sends, which is the screen after the one above (T82,
+	 * {@code docs/adr/0035-the-mail-is-ours-and-so-are-the-words.md}).
+	 *
+	 * <p>Two settings, and the theme can reach neither of them. {@code emailTheme} is what makes the frame
+	 * and the words ours at all: without it a customer who forgets their password is sent an unstyled mail
+	 * telling them about their <em>{@code mprelist (production)}</em> account, because the body names
+	 * {@code realmName} and that is this file's {@code displayName}.
+	 *
+	 * <p>{@code fromDisplayName} is the inbox row, which no template can touch — a branded body arriving
+	 * from an address with no name on it is the inconsistency this ticket exists to remove.
+	 * <strong>It is a hand-written copy of the brand in this file, deliberately, and this assertion is the
+	 * entire reason that is safe.</strong> The copy that drifted to {@code Bumpr} was the one nobody was
+	 * holding: the test that would have caught it had been commented out. What {@code brand.json} forbids
+	 * is a copy that can disagree with it, and its own rule is that the test is drift rather than whether a
+	 * file is in git.
+	 *
+	 * <p>Neither reaches a realm that already exists — an import happens on first start and never again —
+	 * so {@code mprelist-deploy} and {@code mprelist-wizard} both name these settings for the console.
+	 */
+	@Test
+	void andSoIsTheMailItSends() {
+		JsonNode realm = Json.of(realm());
+		assertThat(realm.get("emailTheme").asText())
+				.withFailMessage("the production realm does not ask for the `mprelist` email theme, so the "
+						+ "password-reset mail goes out in Keycloak's own unstyled template, telling a "
+						+ "customer about their `mprelist (production)` account (ADR-0035).")
+				.isEqualTo("mprelist");
+		assertThat(realm.get("smtpServer").get("fromDisplayName").asText())
+				.withFailMessage("this realm's `smtpServer.fromDisplayName` is not the name in `brand.json`, "
+						+ "so every mail arrives from a sender with the wrong name on it. This is the one "
+						+ "copy of the brand left in this file, and it is the same field-shaped mistake that "
+						+ "left `Bumpr` here while nothing held it (ADR-0035).")
+				.isEqualTo(brandName());
+	}
+
 	private static String realm() {
 		return InfraFiles.textOf(InfraFiles.productionKeycloakRealm());
+	}
+
+	private static String brandName() {
+		return Json.of(InfraFiles.textOf(InfraFiles.brandFile())).get("name").asText();
 	}
 
 }

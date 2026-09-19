@@ -340,13 +340,13 @@ printf '\n'
 pause "Wait for the run to finish, then press Enter."
 
 # ── 6 ─────────────────────────────────────────────────────────────────────
-stage "Keycloak — the login theme"
+stage "Keycloak — the themes"
 say "THE STAGE NOBODY CAN SKIP, and the one no deploy will ever do for you."
 printf '\n'
 note "A realm is imported on first start and never again while its database exists."
-note "loginTheme is a realm *property*, so a realm that came up before T80 does not"
-note "ask for our theme however perfectly the files arrive. This is set once, by"
-note "hand, and then it is set for good."
+note "loginTheme and emailTheme are realm *properties*, so a realm that came up"
+note "before T80 or T82 does not ask for our themes however perfectly the files"
+note "arrive. These are set once, by hand, and then they are set for good."
 printf '\n'
 ask KEYCLOAK_URL "Keycloak base URL (e.g. https://auth.187-7-19-175.nip.io):"
 write_env KEYCLOAK_URL "$KEYCLOAK_URL"
@@ -355,6 +355,12 @@ printf '\n'
 step "Sign in as an admin. If the deep link does not land, click through:"
 say  "    Realm selector → mprelist → Realm settings → Themes"
 step "Set Login theme to: mprelist"
+step "Set Email theme to: mprelist"
+say  "    The mail a forgotten password sends. Unset, it goes out as two unstyled"
+say  "    paragraphs telling the customer about their 'mprelist (production)'"
+say  "    account, from a sender with no name on it (T82)."
+say  "    The deploy checks the login theme by fetching the page. There is no page"
+say  "    to fetch for a mail, so this line is the only thing that will say so."
 step "Save."
 printf '\n'
 pause "Done? Press Enter."

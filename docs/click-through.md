@@ -84,6 +84,29 @@ thread.
    *Expect:* refused, on the form, saying why. A real one is accepted and signs you straight in — and the
    popup shows **`Free · 3 of 3`**, because the API provisions a stranger on their first call like anyone
    else. This is the path every customer takes and the only one nobody has walked.
+3c. **Forget your password, and read the mail** (T82, [ADR-0035](adr/0035-the-mail-is-ours-and-so-are-the-words.md)).
+   The other step no suite can take. What the theme emits is asserted key by key — the copy, the placeholder
+   indexes, the markup the sanitizer allows — and whether a mail *reads like this product* in an inbox is a
+   human's verdict. **Needs the two Mailtrap variables** in `.env` (infra/README.md § Mail); without them
+   Keycloak logs a send failure and nothing arrives, on the server rather than on the screen.
+   Click **Wachtwoord vergeten?**, give `dev@example.invalid`, then open your Mailtrap inbox.
+   *Expect:* in the inbox list, the sender reads **AdBump** rather than a bare address — that is
+   `smtpServer.fromDisplayName`, which no theme can reach — and the subject is
+   **"Je wachtwoord opnieuw instellen · AdBump"**.
+   *Expect:* the card: the brand ramp as a rule across the top, the name at the head in the display step, the
+   tagline under it, and the same three links the sign-in card has in its footer.
+   *Expect:* **je and never u**, and the string `mprelist` nowhere — the body names the product, where
+   Keycloak's own would say "uw mprelist (development) account". That sentence is the whole ticket.
+   *Expect:* the call to action is a filled blue rectangle. If it is a plain blue underlined link instead,
+   OWASP's own CSS property list dropped some of the declarations — the mail still works, and
+   `src/email/copy.test.ts` is where the allowlist is written down and where to add what you learn.
+   *Expect:* Mailtrap's **HTML** and **Text** tabs both say the same thing, and the text one carries the raw
+   link. Keycloak sends `multipart/alternative`; a client that shows you the second one must not see a
+   different mail.
+   Then press the button: it lands on the reset form, on our own login theme.
+   **Worth doing once, not every time:** forward that mail to a real Gmail address. Gmail is the client whose
+   sanitizer the design is built around — it keeps no `:root` rule and resolves no custom property — and it
+   is the only way to see what most recipients will.
 4. *Expect:* the window closes on its own and the popup shows the signed-in state.
 5. Read the header.
    *Expect:* **`Free · 3 of 3 reposts left`** and a reset date about a month out. That number came from

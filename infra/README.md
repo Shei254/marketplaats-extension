@@ -95,10 +95,15 @@ cache of those two files rather than a copy that can disagree with them. **Run t
 theme and commit what it writes**, or CI will.
 
 **Both stacks mount the same directory, and that is the whole delivery.** `infra/docker-compose.prod.yml`
-bind-mounts `../apps/keycloak-theme/theme` out of the host's checkout exactly as this file does, next to the
-Caddyfile and the production realm it already reads from there. So there is no Keycloak image of ours, the
-version below is the only place it is pinned for the local stack, and the deployed one is held equal to it by
-`DeployedStackTest`.
+bind-mounts `../apps/keycloak-theme/theme` exactly as this file does, next to the Caddyfile and the
+production realm it already reads from there. So there is no Keycloak image of ours, the version below is the
+only place it is pinned for the local stack, and the deployed one is held equal to it by `DeployedStackTest`.
+
+Locally that directory is your working tree. On the deployed host it is put there by `mprelist-deploy`, out
+of the `deploy` package CI builds from this same committed copy (T81,
+[ADR-0034](../docs/adr/0034-the-deployment-tree-ships-with-the-tag.md)) — it used to be a git checkout
+somebody had to remember to pull, which is a story § Deploying tells because it is the reason that package
+exists.
 
 **Editing it needs no restart.** `start-dev` caches no theme, so a change to the stylesheet is the build
 above and a page reload. What the build must not do is *replace* the directory — a bind mount follows the
@@ -435,22 +440,35 @@ echo '/swapfile none swap sw 0 0' >>/etc/fstab   # Hostinger's images ship with 
 
 docker login ghcr.io -u <user> --password-stdin   # a READ-ONLY token: read:packages, never the push token
 
-git clone <this repository> /opt/mprelist         # the compose file, the Caddyfile and the realm live here
-cp /opt/mprelist/infra/production.env.example /opt/mprelist/production.env   # then fill it in
-install -m 755 /opt/mprelist/infra/deploy/mprelist-deploy /opt/mprelist/infra/deploy/mprelist-backup /usr/local/bin/
+mkdir -p /opt/mprelist                            # a directory, not a checkout: this host needs no git
+# production.env.example and the two scripts, copied from a machine that has the repository:
+#   scp infra/production.env.example you@host:/opt/mprelist/production.env      # then fill it in
+#   scp infra/deploy/mprelist-* you@host:/tmp/
+install -m 755 /tmp/mprelist-deploy /tmp/mprelist-backup /usr/local/bin/
 ```
 
-**The checkout is yours to keep current, and the deploy script deliberately does not touch it.** Doing that
-would put a second credential on this machine — a repository read key beside the read-only GHCR token — which
-ADR-0023 does not. The cost is one rule: **a release that changes anything under `infra/` or the Keycloak
-theme needs a `git pull` here before the tag is pushed**, or new images run against an old compose file.
-Nothing enforces it.
+**These three are the only things copied here by hand, and only once.** From the first
+`mprelist-deploy <tag>` the host fetches everything else from the registry: that command pulls the `deploy`
+package and writes `/opt/mprelist/infra/` and `/opt/mprelist/apps/` itself. Later releases update both. The
+scripts are the exception on purpose — a deploy extracts new ones into `infra/deploy/` and prints the
+`install` line rather than overwriting the script that is running.
 
-**The theme is the one where forgetting is silent**, and it is worth knowing which way each of these fails.
-The realm is inert — `--import-realm` runs once, on an empty database, so a stale copy of it changes nothing.
-A stale Caddyfile usually surfaces as a routing or TLS failure, which is loud. A stale
-`apps/keycloak-theme/theme/` just renders: old colours, old mark, old name, on the first page a customer
-sees, with no error in any log.
+**There is no longer a checkout to keep current, and that is what T81 changed**
+([ADR-0034](../docs/adr/0034-the-deployment-tree-ships-with-the-tag.md)). It used to be one, updated by hand,
+because automating it would have meant a repository read key beside the read-only GHCR token and ADR-0023
+refuses that second credential. The rule was: *a release that changes anything under `infra/` or the Keycloak
+theme needs a `git pull` here before the tag is pushed.* Nothing enforced it, and the first release where it
+mattered went out without it.
+
+**It failed the way that rule's own documentation predicted, and worse.** `infra/` was copied to the host,
+which is the obvious reading and misses the theme entirely: that path is `../apps/keycloak-theme/theme`,
+relative to the compose file and therefore *outside* the folder being copied. Docker creates a missing
+bind-mount source as an empty directory rather than failing; Keycloak serves its built-in pages rather than
+failing. Each of the five paths fails differently — the realm is inert, since `--import-realm` runs once on
+an empty database; a stale Caddyfile usually surfaces as a routing or TLS failure, which is loud — but a
+stale or absent theme just renders, on the first page a customer sees, with no error in any log.
+
+Now the registry carries all five with the tag, so the rule is gone rather than merely written down.
 
 Then the key Actions connects with, in `~/.ssh/authorized_keys`, restricted to one command:
 
@@ -614,14 +632,36 @@ page cache and a concurrent `pg_dump`.
 git tag v1.0.0 && git push origin v1.0.0
 ```
 
-That is the deploy. Actions runs the three test jobs, retags the digest `master` already built for that
+That is the deploy. Actions runs the three test jobs, retags the digests `master` already built for that
 commit — `imagetools create`, not a second build — and connects over SSH with a key restricted in
 `authorized_keys` by `command="/usr/local/bin/mprelist-deploy"`: it can run that script and **cannot get a
-shell**. The script takes a `pg_dump` first, writes the tag into `production.env`, pulls, and `up -d --wait`.
-A failure fails the job loudly and stops.
+shell**. The script fetches the deployment tree, takes a `pg_dump`, replaces the tree, writes the tag into
+`production.env`, pulls, and `up -d --wait`. A failure fails the job loudly and stops.
+
+**Everything the stack reads off a filesystem arrives with the tag** (T81,
+[ADR-0034](../docs/adr/0034-the-deployment-tree-ships-with-the-tag.md)), and there is nothing to copy and
+nothing to pull by hand. The compose file, the Caddyfile, the production realm export, the Postgres init
+scripts and the login theme travel as a third GHCR package — `deploy`, `FROM scratch`, about 65 KB — which
+the script extracts over `$MPRELIST_DEPLOY_DIR`. **This host is not a git checkout and needs no git.**
+
+Until T81 it was one, and keeping it current was a `git pull` somebody had to remember. That failed the
+first time it mattered and it failed silently: four of the five paths are under `infra/`, the fifth is
+`../apps/keycloak-theme/theme` and therefore outside it, Docker creates a missing bind-mount source as an
+empty directory rather than erroring, and Keycloak serves its built-in pages rather than erroring. The
+sign-in page looked deliberate and was a different product's.
+
+**The tree is replaced, not merged.** `infra/` and `apps/` are swapped wholesale on every deploy, so a file
+deleted upstream disappears here too. Anything you leave in either of them is gone at the next deploy.
+`production.env` sits beside them and is never touched, except for the one line below.
+
+**The deploy scripts travel in the tree and are never installed by it.** Overwriting a running bash script
+makes it execute whatever lands under the read cursor, so a deploy that ships new ones extracts them to
+`infra/deploy/` and prints the `install` line rather than running it.
 
 **Two things about the tag.** It must be on a commit `master` has already built, or there is no
-`sha-<commit>` digest to rename and the job stops saying so. And `MPRELIST_IMAGE_TAG` in `production.env` is
+`sha-<commit>` digest to rename and the job stops saying so — and it must be a commit from **after T81**,
+since anything older carries no `deploy` package and the script says exactly that rather than failing on a
+missing file later. And `MPRELIST_IMAGE_TAG` in `production.env` is
 the record of what is running: the script rewrites that one line, so `docker compose ps` afterwards needs no
 argument and answers about the same build.
 
@@ -636,7 +676,15 @@ either. The recovery that works is a human reading the Flyway error.
 
 `production.env` never leaves the host. GitHub holds the SSH key and no credential of this product's at all
 (ADR-0020's "the environment file on the host is the boundary", now load-bearing): a compromised workflow can
-deploy an image and cannot read the live Stripe key.
+deploy an image and cannot read the live Stripe key. The host still holds exactly one credential of its own,
+the read-only GHCR token — shipping the tree through the registry was chosen over a `git pull` partly so
+that it would stay exactly one.
+
+**The last step checks the page rather than the files.** After `up -d --wait` the script fetches the sign-in
+page and looks for a class only our theme draws. `loginTheme` is a realm *property* and a realm imports on
+first start only, so a realm that came up before T80 does not ask for our theme however correctly the files
+arrive — the one part of this that no deploy can deliver. It warns rather than failing, because the stack is
+up and serving and a re-run would change nothing; the fix is in the admin console and the warning names it.
 
 ## Afterwards
 

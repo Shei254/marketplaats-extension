@@ -85,7 +85,7 @@ export function versionsToKeep({ versions, keep }) {
   const protectedByTag = tagged.filter((version) => tagsOf(version).some((tag) => !isBuildTag(tag)));
   const buildsOnly = tagged.filter((version) => tagsOf(version).every(isBuildTag));
 
-  // Newest first. `created_at` is what a human would sort by and ties are real — the two packages' pushes
+  // Newest first. `created_at` is what a human would sort by and ties are real — the packages' pushes
   // land in the same second — so the id breaks them, and ids ascend with time.
   const newestFirst = [...buildsOnly].sort((a, b) => {
     const byDate = Date.parse(b.created_at ?? 0) - Date.parse(a.created_at ?? 0);

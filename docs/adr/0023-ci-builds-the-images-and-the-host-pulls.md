@@ -1,6 +1,6 @@
 # ADR-0023: CI builds the images, a registry holds them, the host pulls — and TLS terminates in a fifth container
 
-**Status:** Accepted (2026-09-02)
+**Status:** Accepted (2026-09-02), amended by [ADR-0034](0034-the-deployment-tree-ships-with-the-tag.md) (2026-09-19), which gives the registry a third package and stops the host being a git checkout
 **Scope:** Go-Live. **Amends [ADR-0020](0020-deployment.md)**, whose *Revisit if* names this exact moment.
 T56 ([#87](https://github.com/Shei254/marketplaats-extension/issues/87)) is what carries it out.
 

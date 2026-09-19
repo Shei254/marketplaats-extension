@@ -65,11 +65,14 @@ services:
       start_period: 5s
 
   keycloak:
-    # **The stock image, and that is the decision** (T80, ADR-0033). Our login theme is 84 KB of
-    # generated static files, and it arrives the way the Caddyfile and the realm do — in the checkout this
-    # file is read from — rather than baked into a third image of ours. So there is no
-    # `ghcr.io/<owner>/<repo>/keycloak`, ADR-0023 still builds two images, and this tag is one of the two
-    # `DeployedStackTest` holds equal to infra/docker-compose.yml's.
+    # **The stock image, and that is still the decision** (T80, ADR-0033; T81, ADR-0034). Our login theme
+    # is 84 KB of generated static files, and it arrives the way the Caddyfile and the realm do — extracted
+    # from the `deploy` image into the tree this file is read from — rather than baked into a Keycloak
+    # image of ours. T81 gave the registry a third package and deliberately did not make it this one: a
+    # Keycloak image would write that server's version in a second file and cost `DeployedStackTest` its
+    # claim that the deployed Keycloak is the one the suite ran against. So there is still no
+    # `ghcr.io/<owner>/<repo>/keycloak`, and this tag is one of the two that test holds equal to
+    # infra/docker-compose.yml's.
     image: quay.io/keycloak/keycloak:26.7
     restart: unless-stopped
     # `start`, not `start-dev`: hostname strictness on, the development-mode relaxations off. `--import-realm`
@@ -87,16 +90,18 @@ services:
         source: ${MPRELIST_REALM_DIR:?the directory holding the production realm export}
         target: /opt/keycloak/data/import
         read_only: true
-      # **Our Keycloak theme, out of this checkout** (T80, ADR-0033) — the same directory and the same
-      # target as infra/docker-compose.yml, which is the point: one delivery, not two. It is generated
-      # from `brand.json` and `@mprelist/ui` and committed, because this host compiles nothing and has no
-      # Node on it (ADR-0023); a CI step rebuilds it and fails on any difference, which is what makes a
-      # committed derivative a cache rather than a second copy.
+      # **Our Keycloak theme** (T80, ADR-0033) — the same directory and the same target as
+      # infra/docker-compose.yml, which is the point: one delivery, not two. It is generated from
+      # `brand.json` and `@mprelist/ui` and committed, because this host compiles nothing and has no Node on
+      # it (ADR-0023); a CI step rebuilds it and fails on any difference, which is what makes a committed
+      # derivative a cache rather than a second copy.
       #
-      # Relative, like ./caddy/Caddyfile and ./postgres/init-production and unlike the realm above — there
-      # is only one of these, so there is nothing for an operator to pick wrong. **It is therefore subject
-      # to the `git pull` rule**: a release that changes the theme and is deployed without one goes on
-      # serving the old page, with no error anywhere. infra/README.md § Deploying says so.
+      # **The one path here that points outside `infra/`, and that used to be the whole problem** (T81,
+      # ADR-0034). It is relative to this file's own directory, so an operator copying `infra/` to the host
+      # — the obvious thing to do — missed it entirely, and a missing bind-mount source is not an error:
+      # Docker creates an empty directory and Keycloak serves its built-in pages. Nothing anywhere says so.
+      # The tree is now extracted from the `deploy` image by infra/deploy/mprelist-deploy, so this path and
+      # the four above arrive together with the tag and no copying is involved.
       - ../apps/keycloak-theme/theme:/opt/keycloak/themes:ro
     environment:
       KC_DB: postgres
@@ -164,7 +169,7 @@ services:
     # produced and `v1.0.0` for a release, and a release tag is the *same digest* CI tested with a second name
     # on it — `docker buildx imagetools create` rather than a second build of the same source, which lock
     # files narrow but do not guarantee.
-    image: ${MPRELIST_IMAGE_REPOSITORY:?where CI pushes the two images, e.g. ghcr.io/owner/repo}/api:${MPRELIST_IMAGE_TAG:?the release tag to run, which infra/deploy/mprelist-deploy writes}
+    image: ${MPRELIST_IMAGE_REPOSITORY:?where CI pushes the images, e.g. ghcr.io/owner/repo}/api:${MPRELIST_IMAGE_TAG:?the release tag to run, which infra/deploy/mprelist-deploy writes}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -233,7 +238,7 @@ services:
   web:
     # As above: CI's image, pulled by tag. The build context that used to be here was the repository root,
     # which is the other reason this host compiles nothing — it would need a checkout as well as a toolchain.
-    image: ${MPRELIST_IMAGE_REPOSITORY:?where CI pushes the two images, e.g. ghcr.io/owner/repo}/web:${MPRELIST_IMAGE_TAG:?the release tag to run, which infra/deploy/mprelist-deploy writes}
+    image: ${MPRELIST_IMAGE_REPOSITORY:?where CI pushes the images, e.g. ghcr.io/owner/repo}/web:${MPRELIST_IMAGE_TAG:?the release tag to run, which infra/deploy/mprelist-deploy writes}
     restart: unless-stopped
     environment:
       # What the bundle is *told*, rather than what it was built with — served as `/config.js` and read as a

@@ -12,9 +12,9 @@
 # reference and inside `production.env`. **This is the boundary**; the workflow's own check on the same value
 # is a convenience that keeps a typo out of `imagetools`, and is not what makes this safe.
 #
-# **This host compiles nothing and pulls everything.** CI built both images and pushed them to GHCR; a
-# version tag is the *same digest* CI tested with a second name on it. All that happens here is a dump, a
-# pull, and an `up`.
+# **This host compiles nothing and pulls everything.** CI built all three images and pushed them to GHCR; a
+# version tag is the *same digest* CI tested with a second name on it. All that happens here is a fetch, a
+# dump, a pull, and an `up`.
 #
 # **There is no rollback, and that is deliberate.** If a deploy applies a migration and the new API then
 # fails its healthcheck, rolling the image back starts Flyway against a schema whose history holds a
@@ -22,20 +22,33 @@
 # well, and one container's outage becomes two attempts while somebody watches. The dump taken first is what
 # recovery is built on instead.
 #
-# **What this does not do is update the checkout it runs in.** The compose file, the Caddyfile and the
-# production realm live in `$MPRELIST_DEPLOY_DIR`, and keeping that current is the operator's step — a `git
-# pull` on the host, before tagging. Doing it here would mean a second credential (a repository read key
-# beside the read-only GHCR token), which ADR-0023 deliberately does not put on this machine. The cost is
-# real and is written down in infra/README.md § Deploying: a release that changes anything under `infra/`
-# needs that pull first, or new images run against an old compose file.
+# **The tree this runs against arrives with the tag** (T81, ADR-0034), and until T81 it did not. The compose
+# file, the Caddyfile, the production realm export, the Postgres init scripts and the login theme used to
+# live in a git checkout somebody had to remember to `git pull`, because doing it here would mean a
+# repository read key beside the read-only GHCR token and ADR-0023 refuses that second credential. The
+# forgetting was not hypothetical and it was not loud: a stale Caddyfile or an absent theme is not an error
+# anywhere, it is a page that looks fine and is the wrong one.
+#
+# So the same registry that holds the two server images holds a third package, `deploy` — `FROM scratch`,
+# about 100 KB, pulled with the token this host already has and extracted below. No new credential, and the
+# files are pinned to the tag rather than to whenever anybody last pulled. **The host is therefore no longer
+# a git checkout and needs no git at all**; it is a directory holding `production.env`, which this writes,
+# beside two trees which this replaces.
 
 set -euo pipefail
 
-# Where the checkout and its environment file are. Overridable so that a dry run somewhere else is possible,
+# Where the tree and its environment file are. Overridable so that a dry run somewhere else is possible,
 # but every default is the layout infra/README.md describes.
 readonly deploy_dir="${MPRELIST_DEPLOY_DIR:-/opt/mprelist}"
 readonly env_file="${MPRELIST_ENV_FILE:-$deploy_dir/production.env}"
 readonly compose_file="$deploy_dir/infra/docker-compose.prod.yml"
+
+# **The paths this owns, and the one it must never touch.** Everything below is replaced wholesale on every
+# deploy, so a file deleted upstream disappears here too rather than lingering — which is why the extraction
+# swaps directories instead of copying over the top. `production.env` sits in `$deploy_dir` and in neither
+# of these, deliberately: it holds every password the deployment has, this host is the only copy, and no
+# image has any business carrying it.
+readonly MANAGED=(infra apps)
 
 # `v1.2.3`, optionally with a pre-release suffix, or the `sha-<commit>` every green push to master produces.
 # Anything else is refused rather than interpolated: this value is written into an env file and then into an
@@ -54,8 +67,18 @@ requested="${SSH_ORIGINAL_COMMAND:-${1:-}}"
 [[ "$requested" =~ $TAG_PATTERN ]] || fail "\`$requested\` is not a tag this deploys. Expected v1.2.3 or sha-<commit>."
 readonly tag="$requested"
 
-[[ -f "$compose_file" ]] || fail "no $compose_file. Clone the repository to $deploy_dir first."
 [[ -f "$env_file" ]] || fail "no $env_file. Copy infra/production.env.example there and fill it in."
+[[ -d "$deploy_dir" ]] || fail "no $deploy_dir. Create it and put production.env in it."
+
+# The repository the three packages live under, read from the same file the compose file reads it from, so
+# there is no second place to set it. Read before the tree is replaced, because the tree is what is about to
+# be fetched from it.
+# Trailing whitespace and a stray CR are stripped, because this ends up inside an image reference: a
+# file edited on Windows would otherwise fail the pull with the carriage return invisible in the error.
+image_repository="$(sed -n 's/^MPRELIST_IMAGE_REPOSITORY=//p' "$env_file" | tail -1 | tr -d '\r' | xargs)"
+[[ -n "$image_repository" ]] || fail "$env_file has no MPRELIST_IMAGE_REPOSITORY. Copy the current production.env.example."
+readonly image_repository
+readonly tree_image="$image_repository/deploy:$tag"
 
 # Beside this script when both are run out of the repository, and on PATH once they are installed. Resolved
 # rather than assumed, so a dry run from a checkout exercises the same code the host will.
@@ -69,11 +92,62 @@ compose() {
 
 echo "==> Deploying $tag"
 
+# **Before the dump, because it cannot migrate anything and it is how a tag with no tree fails.** The rule
+# below is about the migration: a dump taken seconds before it is what recovery is built on. Pulling 100 KB
+# of static files runs no schema change, so doing it first turns "this tag predates T81" into a failure that
+# costs nothing rather than one that costs a pg_dump. Every tag built before ADR-0034 lands has no `deploy`
+# package at all, and that is the ordinary way this message is seen.
+echo "==> Fetching the deployment tree"
+docker pull --quiet "$tree_image" >/dev/null \
+	|| fail "no $tree_image in the registry. Tags built before T81 carry no deployment tree; deploy a tag CI built after it."
+
 # **The dump comes first**, so that every deploy leaves a restore point from seconds before the migration
 # that might break it. `set -e` is what makes a dump that failed stop the deploy, which is the whole reason
 # it is first.
 echo "==> Dumping"
 "$backup" pre "$tag"
+
+# **Staged and swapped, never copied over the top.** `docker cp` merges: a file deleted upstream would
+# survive here for ever, and the first symptom of that is a Caddyfile route or a realm client nobody can
+# account for. So the whole tree lands in a staging directory beside its destination — same filesystem, so
+# the `mv` below is a rename — is checked for the paths this deploy is about to rely on, and only then
+# replaces them. `docker create` makes the container and `docker cp` reads its filesystem; it is removed
+# without ever being started, and the command it nominally carries is a path that does not exist in an image
+# that contains no executable of any kind. Nothing out of that image is ever run here.
+echo "==> Replacing the deployment tree"
+staging="$(mktemp -d "$deploy_dir/.tree.XXXXXX")"
+trap 'rm -rf "$staging"' EXIT
+tree_container="$(docker create "$tree_image")"
+docker cp "$tree_container:/tree/." "$staging/"
+docker rm --volumes "$tree_container" >/dev/null
+
+for managed in "${MANAGED[@]}"; do
+	[[ -d "$staging/$managed" ]] \
+		|| fail "$tree_image carries no /tree/$managed. This is not a deployment tree this script can use."
+done
+[[ -f "$staging/infra/docker-compose.prod.yml" ]] \
+	|| fail "$tree_image carries no infra/docker-compose.prod.yml, which is the file this deploy runs."
+
+for managed in "${MANAGED[@]}"; do
+	rm -rf "${deploy_dir:?}/$managed"
+	mv "$staging/$managed" "$deploy_dir/$managed"
+done
+rm -rf "$staging"
+trap - EXIT
+
+# **The scripts travel with the tree and are never installed by it.** Bash reads a script incrementally, so
+# overwriting `/usr/local/bin/mprelist-deploy` while it is the thing running executes whatever lands under
+# the cursor — a failure mode that would arrive on some future release, on the deploy that changed this
+# file, with no way to read what happened. So the tag's copies land in the tree, the difference is said out
+# loud, and installing them is a decision somebody makes.
+for script in mprelist-deploy mprelist-backup; do
+	shipped="$deploy_dir/infra/deploy/$script"
+	installed="$(command -v "$script" || true)"
+	[[ -n "$installed" && -f "$shipped" ]] || continue
+	cmp -s "$shipped" "$installed" && continue
+	echo "mprelist-deploy: NOTE \`$installed\` differs from the one $tag ships." >&2
+	echo "mprelist-deploy:      Install it when convenient:  sudo install -m 755 $shipped $installed" >&2
+done
 
 # **The pull comes before the write**, and the order is the point: the tag is handed to compose through the
 # environment, where it wins over `--env-file`, so a tag that does not exist in the registry fails here with
@@ -103,6 +177,32 @@ trap - EXIT
 # up into a failed deploy rather than a job that hangs until Actions kills it with no verdict.
 echo "==> Starting"
 compose up -d --wait --wait-timeout 300
+
+# **What a deploy cannot deliver, it can at least notice** (T81, ADR-0034). `loginTheme` is a realm
+# *property*, and Keycloak imports a realm on first start and never again while its database exists — so a
+# realm that came up before T80 does not ask for our theme no matter how correctly the files arrive, and
+# what a stranger sees is Keycloak's own page in English. That is precisely the shape of failure this
+# script's whole rewrite exists to stop being silent, and no file this deploy writes can fix it.
+#
+# A black-box check of the page a user actually lands on, needing no credential: our `template.ftl` draws
+# `login-shell`, Keycloak's own theme draws `pf-v5-c-login` and never that. **It warns rather than failing**
+# — the stack is up, healthy and serving, so this deploy did work, and exiting non-zero here would invite a
+# re-run that changes nothing.
+echo "==> Checking the sign-in page"
+keycloak_url="$(sed -n 's|^MPRELIST_KEYCLOAK_URL=||p' "$env_file" | tail -1)"
+if ! command -v curl >/dev/null; then
+	echo "mprelist-deploy: NOTE no curl on this host, so the sign-in page was not checked." >&2
+elif [[ -z "$keycloak_url" ]]; then
+	echo "mprelist-deploy: NOTE $env_file has no MPRELIST_KEYCLOAK_URL, so the sign-in page was not checked." >&2
+elif curl -fsSL --max-time 20 "$keycloak_url/realms/mprelist/account/" | grep -q 'login-shell'; then
+	echo "    the sign-in page is ours"
+else
+	echo "mprelist-deploy: WARNING the sign-in page is not ours — Keycloak is serving its own." >&2
+	echo "mprelist-deploy:         The theme files are deployed; the realm is not asking for them." >&2
+	echo "mprelist-deploy:         A realm imports once, so this is set in the admin console, not in a file:" >&2
+	echo "mprelist-deploy:           $keycloak_url  →  Realm settings → Themes → Login theme → mprelist" >&2
+	echo "mprelist-deploy:         Localization (Dutch) and the realm display name are in the same position." >&2
+fi
 
 echo "==> Running $tag"
 compose ps

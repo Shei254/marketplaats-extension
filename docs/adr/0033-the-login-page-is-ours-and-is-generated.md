@@ -1,6 +1,6 @@
 # ADR-0033: The login page is a surface of ours, and it is generated rather than written
 
-**Status:** Accepted (2026-09-19)
+**Status:** Accepted (2026-09-19), amended by [ADR-0034](0034-the-deployment-tree-ships-with-the-tag.md) (2026-09-19) in its delivery half only — the theme is still generated and still committed, and no longer travels in a checkout the operator updates by hand
 **Scope:** [`apps/keycloak-theme`](../../apps/keycloak-theme), the `loginTheme` both realm exports now name,
 the theme mount in [`infra/docker-compose.yml`](../../infra/docker-compose.yml) and
 [`infra/docker-compose.prod.yml`](../../infra/docker-compose.prod.yml), and one step in

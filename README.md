@@ -185,8 +185,9 @@ added there is emitted, and one emitted is one the manifest names. Nothing in th
 copy, so redrawing the artwork is one file and a rebuild. `apps/web` takes its tab icon from the same master
 through the same module (`@mprelist/ui/icon-png`), and so does the login page (`apps/keycloak-theme`), which
 takes the name and the tagline from the same file at the same moment — that one's sizes are emitted into a
-directory git holds, because a deployed Keycloak reads them out of the host's checkout, and CI rebuilds it
-and fails on any difference so the committed copy cannot drift from this file. A master that is not square, not 8-bit, or interlaced stops
+directory git holds, because the local stack bind-mounts that directory straight out of the working tree and
+so it has to exist without a build having been run, and CI rebuilds it and fails on any difference so the
+committed copy cannot drift from this file. A master that is not square, not 8-bit, or interlaced stops
 the build and says which it was, rather than shipping a worse icon to the Web Store. That is separate from
 `mprelist`, the internal identifier frozen into `com.mprelist`, `@mprelist/*`, the Keycloak realm and the
 database. The brand must never lead with "Marktplaats" — Web Store policy forbids trademark use that implies

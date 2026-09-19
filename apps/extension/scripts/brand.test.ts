@@ -14,15 +14,15 @@ import { escapeHtml, readBrand, readIconMaster, resolveJson, resolveTokens } fro
  * listing pulled.
  */
 
-const BRAND = { name: "Bumpr", tagline: "Relist your ads.", domain: "example.test" };
+const BRAND = { name: "Acme", tagline: "Relist your ads.", domain: "example.test" };
 
 describe("resolveTokens", () => {
   it("replaces every occurrence, not just the first", () => {
-    expect(resolveTokens("{{brand.name}} — {{brand.name}}", BRAND)).toBe("Bumpr — Bumpr");
+    expect(resolveTokens("{{brand.name}} — {{brand.name}}", BRAND)).toBe("Acme — Acme");
   });
 
   it("tolerates whitespace inside the braces", () => {
-    expect(resolveTokens("{{ brand.name }}", BRAND)).toBe("Bumpr");
+    expect(resolveTokens("{{ brand.name }}", BRAND)).toBe("Acme");
   });
 
   it("throws on a key brand.json does not have, naming it", () => {
@@ -55,7 +55,7 @@ describe("resolveJson", () => {
       BRAND,
     );
     expect(resolved).toEqual({
-      name: "Bumpr",
+      name: "Acme",
       version: 3,
       nested: { list: ["example.test", true, null] },
     });

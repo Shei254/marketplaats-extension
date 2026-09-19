@@ -7,8 +7,8 @@ import java.nio.file.Path;
 
 /**
  * The files this suite reads out of the working tree rather than off the classpath — {@code infra/}'s, the
- * root {@code brand.json}, the extension manifest whose pinned key this application's allowed origin is
- * derived from, and ADR-0012, whose module tree {@code ModuleBoundaryTest} holds to the packages.
+ * extension manifest whose pinned key this application's allowed origin is derived from, and ADR-0012, whose
+ * module tree {@code ModuleBoundaryTest} holds to the packages.
  *
  * <p>Named here once because three things have to agree on where they are: the tests that read them,
  * {@code build.gradle.kts} — whose {@code inputs.files} is the only reason an edit to either does not leave
@@ -58,15 +58,6 @@ final class InfraFiles {
 	/** The proxy in front of the deployed stack, which is the only thing on that host that binds a port. */
 	static Path caddyfile() {
 		return repositoryRoot().resolve("infra/caddy/Caddyfile");
-	}
-
-	/**
-	 * Everything a user sees the product called (T48, #78). Read here for one field of it: the realm above
-	 * carries a {@code displayName}, which is the product's name on the page somebody signs in on — and it
-	 * is the one copy of that name outside the file that is supposed to hold the only one.
-	 */
-	static Path brandFile() {
-		return repositoryRoot().resolve("brand.json");
 	}
 
 	/**

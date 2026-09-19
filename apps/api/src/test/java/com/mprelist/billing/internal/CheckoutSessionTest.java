@@ -147,8 +147,8 @@ class CheckoutSessionTest {
 
 		// `apps/web`'s own PATHS, on the other side of a Java/TypeScript boundary. The pages carry no auth at
 		// all: the browser Stripe redirects is not one this API knows anything about (ADR-0017).
-		assertThat(this.posted).containsEntry("success_url", "https://bumpr.test/success");
-		assertThat(this.posted).containsEntry("cancel_url", "https://bumpr.test/cancel");
+		assertThat(this.posted).containsEntry("success_url", "https://example.test/success");
+		assertThat(this.posted).containsEntry("cancel_url", "https://example.test/cancel");
 	}
 
 	/**
@@ -214,7 +214,7 @@ class CheckoutSessionTest {
 	@Test
 	void andSoIsAStripeNobodyConfigured() {
 		OpenCheckout unconfigured = new OpenCheckout(catalogOf(List.of(PRO)), subscriberWith(Optional.empty()),
-				new StripeAccount(""), pages("https://bumpr.test"));
+				new StripeAccount(""), pages("https://example.test"));
 
 		assertThat(unconfigured.open(BUYER, "pro", "month")).isEqualTo(new Checkout.Unavailable());
 	}
@@ -223,19 +223,19 @@ class CheckoutSessionTest {
 	@Test
 	void whileNothingOnSaleIsStillNothingOnSale() {
 		OpenCheckout unconfigured = new OpenCheckout(catalogOf(List.of(PRO)), subscriberWith(Optional.empty()),
-				new StripeAccount(""), pages("https://bumpr.test"));
+				new StripeAccount(""), pages("https://example.test"));
 
 		assertThat(unconfigured.open(BUYER, "starter", "month")).isEqualTo(new Checkout.NotForSale());
 	}
 
 	@Test
 	void aBaseUrlWithATrailingSlashDoesNotBecomeADoubleOne() {
-		// `https://bumpr.test//success` is a URL Stripe accepts and a page most hosts do not serve, at the
+		// `https://example.test//success` is a URL Stripe accepts and a page most hosts do not serve, at the
 		// moment somebody has just been charged.
 		new OpenCheckout(catalogOf(List.of(PRO)), subscriberWith(Optional.empty()), account(),
-				pages("https://bumpr.test/")).open(BUYER, "pro", "month");
+				pages("https://example.test/")).open(BUYER, "pro", "month");
 
-		assertThat(this.posted).containsEntry("success_url", "https://bumpr.test/success");
+		assertThat(this.posted).containsEntry("success_url", "https://example.test/success");
 	}
 
 	/**
@@ -256,7 +256,7 @@ class CheckoutSessionTest {
 	// --- the collaborators, by hand ------------------------------------------------------------------------
 
 	private OpenCheckout checkout(List<SellablePlan> onSale, Optional<String> customer) {
-		return new OpenCheckout(catalogOf(onSale), subscriberWith(customer), account(), pages("https://bumpr.test"));
+		return new OpenCheckout(catalogOf(onSale), subscriberWith(customer), account(), pages("https://example.test"));
 	}
 
 	private static WebPages pages(String baseUrl) {

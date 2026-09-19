@@ -48,9 +48,9 @@ class KeycloakRealmWithoutAnExtensionIdTest {
 	}
 
 	/**
-	 * And a real extension is refused — with the page {@code infra/README.md} promises, by the error string
-	 * it names. That is the point of falling back to a literal that is a <em>valid URI matching no real
-	 * flow</em>, rather than to an empty string: the realm imports and then refuses cleanly, instead of
+	 * And a real extension is refused — with the page {@code infra/README.md} promises, naming the
+	 * parameter that README names. That is the point of falling back to a literal that is a <em>valid
+	 * URI matching no real flow</em>, rather than to an empty string: the realm imports and then refuses cleanly, instead of
 	 * failing to import or registering a URI with no host in it.
 	 */
 	@Test
@@ -60,7 +60,10 @@ class KeycloakRealmWithoutAnExtensionIdTest {
 
 		assertThat(aRealExtension.statusCode()).isEqualTo(400);
 		assertThat(aRealExtension.headers().firstValue("location")).isEmpty();
-		assertThat(aRealExtension.body()).contains("Invalid parameter: redirect_uri");
+		// The parameter's name rather than the sentence around it: this realm is `defaultLocale: nl` since
+		// T80, so Keycloak renders "Ongeldige parameter: redirect_uri" here. The parameter is the half it
+		// does not translate, and `kc-error-message` is the element it is always inside.
+		assertThat(aRealExtension.body()).contains("id=\"kc-error-message\"").contains("redirect_uri");
 	}
 
 }

@@ -1,18 +1,25 @@
 import { defineConfig } from "vitest/config";
 
+import { readBrand } from "./scripts/brand.mjs";
 import { LOCAL_STACK } from "./scripts/deployment.mjs";
 
-export default defineConfig({
+// Asynchronous because `readBrand` is, and it is read rather than written again
+// for the reason `LOCAL_STACK` is imported below: a copy of the name here would
+// be the one that drifted. `infra/keycloak-production/mprelist-realm.json` held
+// the last one and said `Bumpr` for a month, which is what removed it.
+export default defineConfig(async () => ({
   // Tests run with the dev hooks defined, matching `npm run build:dev`. That the
   // default build drops them is asserted against the emitted bundle instead —
   // scripts/build.test.ts, which is why `scripts` is in `include` below.
-  // The dev hooks are defined, matching `npm run build:dev`, and the brand name is
-  // whatever a test asserting on it says it is — the real one comes from
-  // brand.json at build time and `scripts/build.test.ts` asserts *that* against
-  // the emitted bundle.
+  //
+  // The brand name is defined the same way, and from the same file `build.mjs`
+  // reads: a rename then stays the one edit `brand.json` promises rather than
+  // turning a screen's test red. That the *shipped* bundle carries it is a
+  // different claim, asserted against the emitted bundle in
+  // `scripts/build.test.ts` — the only place that can.
   define: {
     __DEV__: "true",
-    __BRAND_NAME__: JSON.stringify("AdBump"),
+    __BRAND_NAME__: JSON.stringify((await readBrand()).name),
     // A version, not *the* version: what the real one is comes from the manifest at
     // build time, and `scripts/build.test.ts` asserts that against the emitted bundle.
     // A test asserting on this one is asserting on a fixture, which is the point.
@@ -33,4 +40,4 @@ export default defineConfig({
     environment: "node",
     include: ["src/**/*.test.ts", "src/**/*.test.tsx", "scripts/**/*.test.ts"],
   },
-});
+}));

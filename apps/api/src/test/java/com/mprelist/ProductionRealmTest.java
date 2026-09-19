@@ -168,21 +168,37 @@ class ProductionRealmTest {
 	}
 
 	/**
-	 * And the name on its sign-in page is the product's name.
+	 * And its sign-in page is ours, in the product's language.
 	 *
-	 * <p>{@code brand.json} is meant to be the only copy of that (T48, #78) and this realm is the one place
-	 * it cannot reach: an import is not a build, so there is no token to resolve. Held here instead, because
-	 * the alternative is that T60 renames the product and the login page goes on saying the old name — and
-	 * the login page is the first thing a new customer sees.
+	 * <p><strong>This replaces a test that was commented out, and the reason it was is the reason T80
+	 * exists.</strong> What stood here asserted that this realm's {@code displayName} equalled
+	 * {@code brand.json}'s {@code name}, because the base login template renders {@code realm.displayName}
+	 * and an import is not a build — so there was no token to resolve and the name had to be kept in step by
+	 * hand. It was not: the file said {@code Bumpr} while {@code brand.json} had moved on, which is the exact
+	 * drift T48 (#78) removed everywhere it could reach, surviving in the one place it could not.
+	 *
+	 * <p>The answer was not to keep the copy in step. It was to stop the page reading it: the login theme
+	 * (T80, {@code docs/adr/0033-the-login-page-is-ours-and-is-generated.md}) replaces that template and
+	 * takes the name from {@code brand.json} at build time, so {@code displayName} is now what Keycloak means
+	 * by it — an administrator's label for the realm, on no page a customer sees.
+	 *
+	 * <p>So what is left for this file to say is which theme the realm asks for, and in what language. The
+	 * theme's own contents are asserted in {@code apps/keycloak-theme}, in the workspace that builds it: no
+	 * artefact crosses between the Gradle and npm halves of this repository (ADR-0011), and the Keycloak this
+	 * test starts therefore has no theme directory — it logs that it could not find one and serves its
+	 * built-in pages, which is why nothing below reads the markup.
 	 */
-//	@Test
-//	void andTheNameOnItsSignInPageIsTheProductsOwn() {
-//		assertThat(Json.of(realm()).get("displayName").asText())
-//				.withFailMessage("the production realm's displayName is not brand.json's `name`. It is the "
-//						+ "product's name on the page a customer signs in on, and an import cannot resolve a "
-//						+ "{{brand.name}} token — so this one is kept in step by hand, or not at all.")
-//				.isEqualTo(Json.of(InfraFiles.textOf(InfraFiles.brandFile())).get("name").asText());
-//	}
+	@Test
+	void andItsSignInPageIsOursAndInDutch() {
+		JsonNode realm = Json.of(realm());
+		assertThat(realm.get("loginTheme").asText())
+				.withFailMessage("the production realm does not ask for the `mprelist` login theme, so a "
+						+ "deployment signs customers in on Keycloak's own page — which renders this realm's "
+						+ "displayName, in English, with no mark on it (ADR-0033).")
+				.isEqualTo("mprelist");
+		assertThat(realm.get("internationalizationEnabled").asBoolean()).isTrue();
+		assertThat(realm.get("defaultLocale").asText()).isEqualTo("nl");
+	}
 
 	private static String realm() {
 		return InfraFiles.textOf(InfraFiles.productionKeycloakRealm());

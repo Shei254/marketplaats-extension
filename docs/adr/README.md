@@ -15,13 +15,13 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0002](0002-relist-mechanic.md) | Relist mechanic — delete + re-create | Accepted |
 | [0003](0003-relist-safety-and-snapshot.md) | Relist safety — delete-first ordering + durable client-side snapshot | Accepted |
 | [0004](0004-surfaces-and-internal-api.md) | Relist surfaces + internal-API engine | Accepted |
-| [0005](0005-identity-and-auth.md) | Identity & auth (full app) — Keycloak + Spring Boot | Accepted |
+| [0005](0005-identity-and-auth.md) | Identity & auth (full app) — Keycloak + Spring Boot | Accepted, refined by 0010 and 0033 |
 | [0006](0006-billing.md) | Subscription billing — Stripe Billing | Accepted |
 | [0007](0007-quota-enforcement.md) | Quota enforcement — backend-authorized per relist | Accepted |
 | [0008](0008-safety-and-consent.md) | Safety & consent posture | Accepted |
 | [0009](0009-tech-stack.md) | Technology stack | Accepted, amended by 0010–0015 |
 | [0010](0010-extension-authentication.md) | Extension auth — launchWebAuthFlow + PKCE, public client | Accepted |
-| [0011](0011-repository-layout.md) | Repository layout — monorepo, one deployable per workspace | Accepted |
+| [0011](0011-repository-layout.md) | Repository layout — monorepo, one deployable per workspace | Accepted, amended by 0017, refined by 0033 |
 | [0012](0012-backend-modular-monolith.md) | Backend — modular monolith (Spring Modulith), hexagonal modules | Accepted |
 | [0013](0013-remote-client-configuration.md) | Remote client configuration for the internal-API layer | Accepted, refined by 0024 |
 | [0014](0014-tier-catalog-and-entitlements.md) | Tier catalog & entitlements ours, keyed to Stripe Prices | Accepted, refines 0006, refined by 0026, 0029, 0030 and 0031, amended by 0032 |
@@ -31,7 +31,7 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0018](0018-lapse-falls-back-to-the-default-tier.md) | A subscription that ends falls back to the default tier | Accepted, refines 0014, refined by 0032 |
 | [0019](0019-plans-are-stripe-first-and-webhook-synced.md) | Plans created in Stripe, synced to the Tier catalog by webhook | Accepted, refines 0014, refined by 0029 and 0031 |
 | [0020](0020-deployment.md) | Deployed as four containers on one host, from a second compose file | Accepted, amended by 0023 |
-| [0021](0021-design-system-stays-ours.md) | The design system stays ours, and stays a CSS string | Accepted, refines 0016 |
+| [0021](0021-design-system-stays-ours.md) | The design system stays ours, and stays a CSS string | Accepted, refines 0016, refined by 0033 |
 | [0022](0022-the-plan-screen-names-the-payment-methods.md) | The plan screen names the payment methods, read from Stripe | Accepted, refines 0006 |
 | [0023](0023-ci-builds-the-images-and-the-host-pulls.md) | CI builds the images, a registry holds them, the host pulls; TLS in a fifth container | Accepted, amends 0020 |
 | [0024](0024-the-extension-addresses-are-built-in.md) | The extension's own addresses are built in, never served | Accepted, refines 0013 |
@@ -43,6 +43,7 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0030](0030-the-catalog-order-is-the-operators.md) | The catalog order is the operator's, and it is one sequence | Accepted, refines 0014 |
 | [0031](0031-the-free-tier-is-the-one-without-a-price.md) | The free tier is the one without a price, and an operator edits it | Accepted, refines 0014 and 0019, partly reversed by 0032 |
 | [0032](0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md) | Every tier is deletable, and an empty catalog is a state | Accepted, amends 0014, refines 0018, partly reverses 0031 |
+| [0033](0033-the-login-page-is-ours-and-is-generated.md) | The login page is a surface of ours, and it is generated rather than written | Accepted, refines 0005, 0011 and 0021 |
 
 **Amended by the 2026-08-13 session:** 0006 (Stripe narrowed to money + lifecycle), 0007 (gating depth,
 `/api/me` display state, `marktplaatsAccountId` dropped), 0009 (monorepo, React popup, Options page removed).

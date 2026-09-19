@@ -65,6 +65,11 @@ services:
       start_period: 5s
 
   keycloak:
+    # **The stock image, and that is the decision** (T80, ADR-0033). Our login theme is 84 KB of
+    # generated static files, and it arrives the way the Caddyfile and the realm do — in the checkout this
+    # file is read from — rather than baked into a third image of ours. So there is no
+    # `ghcr.io/<owner>/<repo>/keycloak`, ADR-0023 still builds two images, and this tag is one of the two
+    # `DeployedStackTest` holds equal to infra/docker-compose.yml's.
     image: quay.io/keycloak/keycloak:26.7
     restart: unless-stopped
     # `start`, not `start-dev`: hostname strictness on, the development-mode relaxations off. `--import-realm`
@@ -82,6 +87,17 @@ services:
         source: ${MPRELIST_REALM_DIR:?the directory holding the production realm export}
         target: /opt/keycloak/data/import
         read_only: true
+      # **Our Keycloak theme, out of this checkout** (T80, ADR-0033) — the same directory and the same
+      # target as infra/docker-compose.yml, which is the point: one delivery, not two. It is generated
+      # from `brand.json` and `@mprelist/ui` and committed, because this host compiles nothing and has no
+      # Node on it (ADR-0023); a CI step rebuilds it and fails on any difference, which is what makes a
+      # committed derivative a cache rather than a second copy.
+      #
+      # Relative, like ./caddy/Caddyfile and ./postgres/init-production and unlike the realm above — there
+      # is only one of these, so there is nothing for an operator to pick wrong. **It is therefore subject
+      # to the `git pull` rule**: a release that changes the theme and is deployed without one goes on
+      # serving the old page, with no error anywhere. infra/README.md § Deploying says so.
+      - ../apps/keycloak-theme/theme:/opt/keycloak/themes:ro
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak

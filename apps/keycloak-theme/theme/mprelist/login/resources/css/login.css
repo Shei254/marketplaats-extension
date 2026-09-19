@@ -1,0 +1,905 @@
+:root,
+:host,
+.mp-theme {
+  --mp-font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mp-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  --mp-text-title: 650 15.5px/1.3;
+  --mp-text-body: 400 14px/1.45;
+  --mp-text-secondary: 400 13px/1.5;
+  --mp-text-caption: 400 12.5px/1.4;
+  --mp-text-micro: 400 11.5px/1.5;
+  --mp-text-control: 600 13.5px/1.2;
+  --mp-text-control-large: 600 14px/1.2;
+  --mp-text-display: 650 24px/1.25;
+  --mp-text-label: 650 11.5px/1.4;
+  --mp-space-xs: 6px;
+  --mp-space-sm: 9px;
+  --mp-space-md: 14px;
+  --mp-space-lg: 20px;
+  --mp-space-xl: 28px;
+  --mp-radius-skeleton: 4px;
+  --mp-radius-note: 6px;
+  --mp-radius-block: 8px;
+  --mp-radius-card: 12px;
+  --mp-radius-pill: 999px;
+  --mp-spin: 0.7s;
+  --mp-spin-reduced: 2s;
+  --mp-fast: 120ms;
+  --mp-ease: cubic-bezier(.2, .6, .3, 1);
+  --mp-bg: #ffffff;
+  --mp-fg: #0f172a;
+  --mp-muted: #64748b;
+  --mp-line: #e2e8f0;
+  --mp-hover: #f1f5f9;
+  --mp-subtle: #f8fafc;
+  --mp-accent: #1d63ef;
+  --mp-accent-hover: #0b34f9;
+  --mp-on-accent: #ffffff;
+  --mp-brand-from: #58ffcd;
+  --mp-brand-to: #0019ff;
+  --mp-on-brand: #ffffff;
+  --mp-ok: #15803d;
+  --mp-ok-bg: #f0fdf4;
+  --mp-warn: #b45309;
+  --mp-warn-bg: #fffbeb;
+  --mp-err: #b91c1c;
+  --mp-err-bg: #fef2f2;
+  --mp-disabled: #94a3b8;
+  --mp-stage: #eef2f6;
+  --mp-ring: rgba(29,99,239,.32);
+  --mp-shadow-sm: 0 1px 2px rgba(15,23,42,.06);
+  --mp-shadow: 0 1px 3px rgba(15,23,42,.08), 0 8px 24px rgba(15,23,42,.08);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-mp-theme="light"]),
+  :host,
+  .mp-theme:not([data-mp-theme="light"]) {
+    --mp-bg: #14181f;
+    --mp-fg: #e6eaf2;
+    --mp-muted: #97a1b3;
+    --mp-line: #262c36;
+    --mp-hover: #1c2230;
+    --mp-subtle: #1a1f29;
+    --mp-accent: #4da3f5;
+    --mp-accent-hover: #93c5fd;
+    --mp-on-accent: #0b1220;
+    --mp-brand-from: #58ffcd;
+    --mp-brand-to: #0019ff;
+    --mp-on-brand: #ffffff;
+    --mp-ok: #4ade80;
+    --mp-ok-bg: #0f2419;
+    --mp-warn: #fbbf24;
+    --mp-warn-bg: #2a2110;
+    --mp-err: #fb7185;
+    --mp-err-bg: #2b1418;
+    --mp-disabled: #4c566a;
+    --mp-stage: #0b0e13;
+    --mp-ring: rgba(77,163,245,.36);
+    --mp-shadow-sm: 0 1px 2px rgba(0,0,0,.5);
+    --mp-shadow: 0 1px 3px rgba(0,0,0,.6), 0 12px 28px rgba(0,0,0,.45);
+  }
+}
+
+[data-mp-theme="dark"] {
+  --mp-bg: #14181f;
+  --mp-fg: #e6eaf2;
+  --mp-muted: #97a1b3;
+  --mp-line: #262c36;
+  --mp-hover: #1c2230;
+  --mp-subtle: #1a1f29;
+  --mp-accent: #4da3f5;
+  --mp-accent-hover: #93c5fd;
+  --mp-on-accent: #0b1220;
+  --mp-brand-from: #58ffcd;
+  --mp-brand-to: #0019ff;
+  --mp-on-brand: #ffffff;
+  --mp-ok: #4ade80;
+  --mp-ok-bg: #0f2419;
+  --mp-warn: #fbbf24;
+  --mp-warn-bg: #2a2110;
+  --mp-err: #fb7185;
+  --mp-err-bg: #2b1418;
+  --mp-disabled: #4c566a;
+  --mp-stage: #0b0e13;
+  --mp-ring: rgba(77,163,245,.36);
+  --mp-shadow-sm: 0 1px 2px rgba(0,0,0,.5);
+  --mp-shadow: 0 1px 3px rgba(0,0,0,.6), 0 12px 28px rgba(0,0,0,.45);
+}
+
+[data-mp-theme="light"] {
+  --mp-bg: #ffffff;
+  --mp-fg: #0f172a;
+  --mp-muted: #64748b;
+  --mp-line: #e2e8f0;
+  --mp-hover: #f1f5f9;
+  --mp-subtle: #f8fafc;
+  --mp-accent: #1d63ef;
+  --mp-accent-hover: #0b34f9;
+  --mp-on-accent: #ffffff;
+  --mp-brand-from: #58ffcd;
+  --mp-brand-to: #0019ff;
+  --mp-on-brand: #ffffff;
+  --mp-ok: #15803d;
+  --mp-ok-bg: #f0fdf4;
+  --mp-warn: #b45309;
+  --mp-warn-bg: #fffbeb;
+  --mp-err: #b91c1c;
+  --mp-err-bg: #fef2f2;
+  --mp-disabled: #94a3b8;
+  --mp-stage: #eef2f6;
+  --mp-ring: rgba(29,99,239,.32);
+  --mp-shadow-sm: 0 1px 2px rgba(15,23,42,.06);
+  --mp-shadow: 0 1px 3px rgba(15,23,42,.08), 0 8px 24px rgba(15,23,42,.08);
+}
+
+/* Root — the surface a screen is drawn on. */
+.mp-root {
+  font: var(--mp-text-body) var(--mp-font-family);
+  color: var(--mp-fg);
+  background: var(--mp-bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+.mp-root *,
+.mp-root *::before,
+.mp-root *::after { box-sizing: border-box; }
+
+/* Focus, once, for everything this package ships that can take it.
+
+   The visible part is the ring; the outline is transparent on purpose, so that a
+   forced-colours mode — where box-shadows are dropped — still has an outline to
+   paint. A control that shows nothing on :focus-visible is unusable by keyboard
+   and looks identical to one that works. */
+.mp-btn:focus-visible,
+.mp-icon-btn:focus-visible,
+.mp-input:focus-visible,
+.mp-select:focus-visible,
+.mp-textarea:focus-visible,
+.mp-check:focus-visible,
+.mp-link:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--mp-ring);
+}
+
+/* Button — the shape says how big, the tone says what state the action is in. */
+.mp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--mp-space-xs);
+  flex: none;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  font: var(--mp-text-control) var(--mp-font-family);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--mp-fast) var(--mp-ease),
+    border-color var(--mp-fast) var(--mp-ease),
+    color var(--mp-fast) var(--mp-ease),
+    filter var(--mp-fast) var(--mp-ease),
+    box-shadow var(--mp-fast) var(--mp-ease);
+}
+.mp-btn--pill { padding: 5px 12px; border-radius: var(--mp-radius-pill); }
+.mp-btn--rect { padding: 7px 14px; border-radius: var(--mp-radius-block); }
+.mp-btn--block {
+  width: 100%;
+  padding: 10px var(--mp-space-md);
+  border-radius: var(--mp-radius-block);
+  font: var(--mp-text-control-large) var(--mp-font-family);
+}
+
+/* The primary tone is the one gradient in the system that is not a shimmer, and
+   the two stops are the two accents we already have. That is worth stating,
+   because the names now say something the rule does not: `--mp-accent-hover` is a
+   **rest** stop here, and `:hover` no longer touches the background at all.
+
+   It has to be that way round. A gradient is `background-image`, and
+   `background-image` does not interpolate in any browser — so a hover that swapped
+   one gradient for another would snap where this control has always faded. What
+   hover changes instead is the two things that *do* interpolate: the elevation it
+   already owned, and brightness. The button lifts rather than repaints.
+
+   `background-color` is spelled separately from `background-image` rather than
+   folded into one `background`, so there is a solid accent underneath the ramp for
+   the forced-colours rule at the foot of this sheet to fall back to.
+
+   The ramp runs corner to corner, which is a decision with two visible costs taken
+   knowingly: the two accents sit on opposite sides of the neutral in the two
+   themes, so the light button darkens towards its bottom-right and the dark one
+   lightens towards it; and a 135deg ramp reads as more horizontal the wider the
+   control, so a `pill` in a row and a `block` in the foot are not lit identically.
+   Both are cured by an `--accent-grad` token drawn on the canvas per theme, which
+   is where to start if either one ever grates. */
+.mp-btn--primary {
+  color: var(--mp-on-accent);
+  background-color: var(--mp-accent);
+  background-image: linear-gradient(135deg, var(--mp-accent), var(--mp-accent-hover));
+  box-shadow: var(--mp-shadow-sm);
+}
+.mp-btn--primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+  box-shadow: var(--mp-shadow);
+}
+.mp-btn--secondary {
+  color: var(--mp-fg);
+  background: var(--mp-bg);
+  border-color: var(--mp-line);
+  box-shadow: var(--mp-shadow-sm);
+}
+.mp-btn--secondary:hover:not(:disabled) { background: var(--mp-hover); }
+/* The quiet one: a text button that is a button. Both surfaces had written it for
+   themselves — `popup-quiet` in the header, `admin-who` beside the brand. */
+.mp-btn--ghost { color: var(--mp-muted); background: none; }
+.mp-btn--ghost:hover:not(:disabled) { color: var(--mp-fg); background: var(--mp-hover); }
+.mp-btn--retry { color: var(--mp-on-accent); background: var(--mp-warn); }
+/* Locked and busy read as unavailable rather than as broken: a quiet chip with the
+   lock or the spinner in it, not a grey slab where a blue button was. */
+.mp-btn--locked,
+.mp-btn--busy,
+.mp-btn--cooldown {
+  color: var(--mp-muted);
+  background: var(--mp-subtle);
+  border-color: var(--mp-line);
+}
+.mp-btn--done { color: var(--mp-ok); background: var(--mp-ok-bg); }
+.mp-btn:disabled { cursor: default; }
+/* A tone that *is* a state carries its own colours; a pressable tone that has been
+   disabled for a moment — a form saving, a header waiting on a reload — fades. */
+.mp-btn--primary:disabled,
+.mp-btn--secondary:disabled,
+.mp-btn--ghost:disabled,
+.mp-btn--retry:disabled { opacity: 0.55; box-shadow: none; }
+
+/* Icon button — the popup header's refresh, and nothing heavier. */
+.mp-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 6px;
+  border: 0;
+  border-radius: var(--mp-radius-block);
+  background: none;
+  color: var(--mp-muted);
+  cursor: pointer;
+  transition:
+    background-color var(--mp-fast) var(--mp-ease),
+    color var(--mp-fast) var(--mp-ease);
+}
+.mp-icon-btn:hover:not(:disabled) { color: var(--mp-fg); background: var(--mp-hover); }
+.mp-icon-btn:disabled { color: var(--mp-disabled); cursor: default; }
+
+/* Badge — a word about a thing, in the colour of what it means. */
+.mp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: var(--mp-radius-pill);
+  font: var(--mp-text-micro) var(--mp-font-family);
+  font-weight: 650;
+  color: var(--mp-muted);
+  background: var(--mp-subtle);
+  border: 1px solid var(--mp-line);
+  white-space: nowrap;
+}
+.mp-badge--accent { color: var(--mp-accent); background: var(--mp-hover); border-color: transparent; }
+.mp-badge--ok { color: var(--mp-ok); background: var(--mp-ok-bg); border-color: transparent; }
+.mp-badge--warn { color: var(--mp-warn); background: var(--mp-warn-bg); border-color: transparent; }
+.mp-badge--err { color: var(--mp-err); background: var(--mp-err-bg); border-color: transparent; }
+
+/* Card — a surface with an edge, which is what a page of sections is made of. */
+.mp-card {
+  background: var(--mp-bg);
+  border: 1px solid var(--mp-line);
+  border-radius: var(--mp-radius-card);
+  box-shadow: var(--mp-shadow-sm);
+}
+.mp-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--mp-space-md);
+  padding: var(--mp-space-md) var(--mp-space-lg);
+  border-bottom: 1px solid var(--mp-line);
+}
+.mp-card-title {
+  margin: 0;
+  font: var(--mp-text-title) var(--mp-font-family);
+  letter-spacing: -0.01em;
+}
+.mp-card-lede {
+  margin: 3px 0 0;
+  font: var(--mp-text-caption) var(--mp-font-family);
+  color: var(--mp-muted);
+  max-width: 68ch;
+}
+.mp-card-body { padding: var(--mp-space-lg); }
+/* A table fills its card to the edges; the head above it has already said what it is. */
+.mp-card-body--flush { padding: 0; }
+
+/* Fields — a label, a control, and the sentence under it that explains the rule. */
+.mp-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.mp-label {
+  font: var(--mp-text-caption) var(--mp-font-family);
+  font-weight: 600;
+  color: var(--mp-fg);
+}
+.mp-input,
+.mp-select,
+.mp-textarea {
+  width: 100%;
+  font: var(--mp-text-body) var(--mp-font-family);
+  color: var(--mp-fg);
+  background: var(--mp-bg);
+  border: 1px solid var(--mp-line);
+  border-radius: var(--mp-radius-block);
+  padding: 8px 10px;
+  transition:
+    border-color var(--mp-fast) var(--mp-ease),
+    box-shadow var(--mp-fast) var(--mp-ease);
+}
+.mp-input:hover:not(:disabled),
+.mp-select:hover:not(:disabled),
+.mp-textarea:hover:not(:disabled) { border-color: var(--mp-disabled); }
+.mp-input:focus-visible,
+.mp-select:focus-visible,
+.mp-textarea:focus-visible { border-color: var(--mp-accent); }
+.mp-input::placeholder,
+.mp-textarea::placeholder { color: var(--mp-muted); }
+.mp-input:disabled,
+.mp-select:disabled,
+.mp-textarea:disabled { color: var(--mp-muted); background: var(--mp-subtle); cursor: default; }
+.mp-textarea { min-height: 72px; font-family: var(--mp-font-mono); font-size: 12.5px; resize: vertical; }
+/* The native control, told what colour it is. A hand-drawn one would be a second
+   keyboard implementation to get right. */
+.mp-check {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--mp-accent);
+  cursor: pointer;
+}
+.mp-check-row { display: flex; align-items: center; gap: var(--mp-space-xs); }
+.mp-hint {
+  margin: 0;
+  font: var(--mp-text-micro) var(--mp-font-family);
+  color: var(--mp-muted);
+  line-height: 1.5;
+}
+
+/* Table — rows of one shape, read down a column. */
+.mp-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font: var(--mp-text-secondary) var(--mp-font-family);
+}
+.mp-table th {
+  text-align: left;
+  font: var(--mp-text-label) var(--mp-font-family);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--mp-muted);
+  background: var(--mp-subtle);
+  padding: 9px var(--mp-space-md);
+  border-bottom: 1px solid var(--mp-line);
+  white-space: nowrap;
+}
+.mp-table td {
+  padding: 11px var(--mp-space-md);
+  border-bottom: 1px solid var(--mp-line);
+  vertical-align: middle;
+}
+.mp-table tbody tr:last-child td { border-bottom: 0; }
+.mp-table tbody tr { transition: background-color var(--mp-fast) var(--mp-ease); }
+.mp-table tbody tr:hover td { background: var(--mp-hover); }
+/* Digits being compared down a column line up, which is the whole reason a table
+   was chosen over a list. */
+.mp-numeric { font-variant-numeric: tabular-nums; }
+
+/* Code — an identifier that has to be read character by character. */
+.mp-code {
+  font-family: var(--mp-font-mono);
+  font-size: 11.5px;
+  color: var(--mp-muted);
+  background: var(--mp-subtle);
+  border: 1px solid var(--mp-line);
+  border-radius: var(--mp-radius-note);
+  padding: 1px 5px;
+}
+
+/* An identifier inside a sentence, which is most of them: the hints under a field
+   and the ledes over a section both name Stripe ids and metadata keys, and those
+   are read character by character wherever they appear. */
+.mp-hint code,
+.mp-card-lede code {
+  font-family: var(--mp-font-mono);
+  font-size: 0.94em;
+  color: var(--mp-fg);
+}
+
+/* Meter — how much of something is left, in the width of a bar. */
+.mp-meter {
+  display: block;
+  width: 100%;
+  height: 4px;
+  border-radius: var(--mp-radius-pill);
+  background: var(--mp-line);
+  overflow: hidden;
+}
+.mp-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--mp-radius-pill);
+  background: var(--mp-accent);
+  transition: width var(--mp-fast) var(--mp-ease);
+}
+.mp-meter--warn .mp-meter-fill { background: var(--mp-warn); }
+.mp-meter--err .mp-meter-fill { background: var(--mp-err); }
+
+/* Link — the only text in this product that is not a control and still reacts. */
+.mp-link { color: var(--mp-accent); text-decoration: none; border-radius: var(--mp-radius-note); }
+.mp-link:hover { text-decoration: underline; }
+
+/* Spinner — this design's oldest motion. */
+.mp-spinner {
+  display: inline-block;
+  box-sizing: border-box;
+  width: 11px;
+  height: 11px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: mp-spin var(--mp-spin) linear infinite;
+}
+.mp-spinner--lg { width: 22px; height: 22px; border-width: 2.5px; }
+@keyframes mp-spin { to { transform: rotate(360deg); } }
+
+/* Note — the line under a row that says what just happened. */
+.mp-note {
+  box-sizing: border-box;
+  margin: 8px 0 2px;
+  padding: 8px var(--mp-space-sm);
+  border-radius: var(--mp-radius-note);
+  font: var(--mp-text-caption) var(--mp-font-family);
+}
+.mp-note--ok { color: var(--mp-ok); background: var(--mp-ok-bg); }
+.mp-note--warn { color: var(--mp-warn); background: var(--mp-warn-bg); }
+.mp-note--error { color: var(--mp-err); background: var(--mp-err-bg); }
+
+/* The mark: the paint only, never the size.
+
+   Four surfaces draw the logo in a tile — the popup header, the popup's signed-out
+   hero, the site header and the admin sidebar — at two sizes, two radii and with
+   one of them lifted. Those stay with each surface, because they are that screen's
+   composition. What cannot be duplicated four times is the gradient: it is the
+   brand, and four copies of it are four things to be wrong when the artwork is
+   redrawn. So this rule is the fill and the glyph, and the consumer sets the box.
+
+   The stops run the master's own 135deg corner-to-corner axis rather than a
+   direction chosen here, which is what keeps a 24px tile and the 48px badge
+   recognisably the same mark.
+
+   `background-color` is the *to* stop, not the *from* one as on the primary
+   button. It is the fallback the forced-colours rule below falls back to, and the
+   glyph on it is white: `--mp-brand-from` is a teal that white cannot be read on
+   (1.27:1), so the one stop that is safe alone is the blue end. */
+.mp-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  color: var(--mp-on-brand);
+  background-color: var(--mp-brand-to);
+  background-image: linear-gradient(135deg, var(--mp-brand-from), var(--mp-brand-to));
+}
+
+/* Skeleton — a shape where content will be, moving just enough to say it is coming. */
+.mp-skeleton {
+  display: block;
+  box-sizing: border-box;
+  background: var(--mp-line);
+  background-image: linear-gradient(90deg, var(--mp-line), var(--mp-subtle), var(--mp-line));
+  background-size: 200% 100%;
+  border-radius: var(--mp-radius-skeleton);
+  animation: mp-shimmer 1.4s linear infinite;
+}
+.mp-skeleton--pill { border-radius: var(--mp-radius-pill); }
+@keyframes mp-shimmer { to { background-position: -200% 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  /* Every transition goes; the two animations are decided one at a time. A still
+     ring reads as a control that has hung, so the spinner slows down instead —
+     which is what the POC popup and the canvas both already do. A still shimmer
+     says nothing at all, so it stops. */
+  .mp-root *,
+  .mp-root *::before,
+  .mp-root *::after { transition-duration: 1ms; }
+  .mp-spinner { animation-duration: var(--mp-spin-reduced); }
+  .mp-skeleton { animation: none; }
+}
+
+@media (forced-colors: active) {
+  /* Forced colours overrides `background-color` and `color` and leaves
+     `background-image` painting, so the ramp would survive underneath text the
+     system has just recoloured for contrast. Dropping it puts this control back to
+     the flat fill it had before there was a gradient, which is the one thing a
+     reader in this mode asked for. */
+  .mp-btn--primary { background-image: none; }
+  /* The same trade for the same reason: the tile would go on painting the brand
+     ramp under a glyph the system has just recoloured to contrast with the fill
+     it thinks is there. Dropped, it is a solid `--mp-brand-to` the system can
+     reason about. */
+  .mp-mark { background-image: none; }
+}
+
+/* The page behind the card. `.mp-root` paints itself `--mp-bg`, which is the
+   card's colour and not the page's; this sheet is emitted after the component
+   sheet, so the later rule at equal weight is the stage. */
+.login-stage {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: var(--mp-space-xl) var(--mp-space-md);
+  background: var(--mp-stage);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+/* One column, the width of a sign-in form and no wider. A card that grows with
+   the viewport turns two fields into a banner. */
+.login-shell {
+  width: 100%;
+  max-width: 400px;
+  margin: auto;
+}
+
+/* `.mp-card` brings the surface, the edge, the radius and the resting elevation.
+   What is added here is the lift — this card is the only thing on its page, and
+   the sheet's two elevations are "resting" and "lifted" — and `overflow: hidden`,
+   which is what the ribbon below is clipped to. */
+.login-card {
+  overflow: hidden;
+  box-shadow: var(--mp-shadow);
+}
+
+/* The mark's own axis, three pixels of it, across the top of the card.
+
+   The one place the brand's gradient appears as a *fill* on this page. It carries
+   no text and never will: white on `--mp-brand-from` is 1.27:1, which is the
+   contrast that keeps the teal end of this ramp away from anything anybody has to
+   read (see `BRAND_MARK` in the token sheet). */
+.login-ribbon {
+  height: 3px;
+  background-color: var(--mp-brand-to);
+  background-image: linear-gradient(135deg, var(--mp-brand-from), var(--mp-brand-to));
+}
+
+.login-head {
+  padding: var(--mp-space-xl) var(--mp-space-lg) var(--mp-space-lg);
+  border-bottom: 1px solid var(--mp-line);
+  text-align: center;
+}
+
+/* The artwork itself, resized from the one master `brand.json` names, rather than
+   the stroked `Icon name="logo"` the other four surfaces draw in an accent tile.
+
+   Two reasons, and the second is the one that decides it. There is no React here
+   to render the component, and inlining its geometry into a template would be the
+   copy `packages/ui` exists to prevent. And the mark's own colours are the same
+   in both themes by decision — `BRAND_MARK` says so — so the one thing a raster
+   cannot do, follow a theme, is the one thing this mark must not do. */
+.login-mark {
+  display: block;
+  width: 48px;
+  height: 48px;
+  margin: 0 auto var(--mp-space-sm);
+  border-radius: var(--mp-radius-card);
+  box-shadow: var(--mp-shadow-sm);
+}
+
+.login-brand {
+  display: block;
+  font: var(--mp-text-display) var(--mp-font-family);
+  letter-spacing: -0.02em;
+}
+
+/* What the product is, for somebody who arrived here in a window Chrome opened
+   and is being asked for a password by a name they have seen once. */
+.login-tagline {
+  margin: var(--mp-space-xs) auto 0;
+  max-width: 34ch;
+  font: var(--mp-text-caption) var(--mp-font-family);
+  color: var(--mp-muted);
+}
+
+.login-body { padding: var(--mp-space-lg); }
+
+/* The page's own heading — which step of the flow this is. Quieter than the brand
+   above it on purpose: the name is what identifies the page, and "Inloggen bij uw
+   account" is what it is currently asking. */
+.login-title {
+  margin: 0 0 var(--mp-space-lg);
+  font: var(--mp-text-title) var(--mp-font-family);
+  text-align: center;
+}
+
+/* Which account the step in front of you belongs to, on the pages that continue
+   one somebody already started — and the link back out of it. */
+.login-attempted {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: var(--mp-space-sm);
+  margin-bottom: var(--mp-space-md);
+  font: var(--mp-text-caption) var(--mp-font-family);
+  color: var(--mp-muted);
+}
+.login-attempted label { font-weight: 600; color: var(--mp-fg); }
+
+/* "* verplichte velden", over a form that has some. */
+.login-required-note {
+  margin: 0 0 var(--mp-space-md);
+  font: var(--mp-text-micro) var(--mp-font-family);
+  color: var(--mp-muted);
+  text-align: right;
+}
+
+/* Keycloak's own message, in the design system's note. The tone is chosen in the
+   template from `message.type`, so the modifier is the sheet's rather than a
+   second palette here. */
+.login-alert {
+  margin: 0 0 var(--mp-space-md);
+  text-align: left;
+}
+
+/* Every field wrapper Keycloak emits is `.mp-field`; this is the gap between two
+   of them. A rule on the form itself would not do — `login.ftl`'s form carries an
+   id and no class, and three of these templates have no form element at all. */
+.login-form { display: block; }
+.login-group + .login-group { margin-top: var(--mp-space-md); }
+
+/* The two halves of a field as the user-profile form writes it: the label beside
+   its required marker, and the control with whatever the template puts under it.
+   Both are children of `.mp-field`, which is already a column with a gap, so what
+   is added here is the row the first one is and the column the second one is. */
+.login-label-wrap {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+}
+.login-input-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+/* Keycloak's own marker, and one of two class names on these pages that is not
+   ours to choose — the templates write it literally. */
+.login-card .required { color: var(--mp-err); }
+.login-content { display: block; }
+
+/* The password field and the button that reveals it. `login.ftl` wraps the two in
+   one element, which is the only thing making an overlay safe here. */
+.login-input-group { position: relative; }
+.login-input-group .mp-input { padding-right: 38px; }
+
+.login-reveal {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mp-radius-note);
+  color: var(--mp-muted);
+  background: none;
+  cursor: pointer;
+  transition:
+    color var(--mp-fast) var(--mp-ease),
+    background-color var(--mp-fast) var(--mp-ease);
+}
+.login-reveal:hover { color: var(--mp-fg); background: var(--mp-hover); }
+.login-reveal:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--mp-ring);
+}
+
+/* The eye and the struck-through eye, drawn on the icon set's 20x20 grid at its
+   stroke width, as masks rather than as images: `passwordVisibility.js` swaps the
+   whole `className` of this element, so the glyph has to be a class and the
+   element it lands on cannot be an `<svg>` — assigning `className` on one does
+   nothing. The mask reads alpha, never colour, which is why `currentColor` here
+   resolves to nothing in particular and the paint comes from the button. */
+.login-reveal-icon {
+  width: 18px;
+  height: 18px;
+  background: currentColor;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: contain;
+}
+.login-reveal-icon--show {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='currentColor' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1.8 10S4.9 4.8 10 4.8 18.2 10 18.2 10 15.1 15.2 10 15.2 1.8 10 1.8 10Z'/%3E%3Ccircle cx='10' cy='10' r='2.6'/%3E%3C/svg%3E");
+}
+.login-reveal-icon--hide {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='currentColor' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1.8 10S4.9 4.8 10 4.8c1.2 0 2.3.3 3.2.7M16.4 7.4c1.2 1.4 1.8 2.6 1.8 2.6S15.1 15.2 10 15.2c-1.4 0-2.6-.4-3.6-.9'/%3E%3Cpath d='M8.2 8.2a2.6 2.6 0 0 0 3.6 3.6'/%3E%3Cpath d='M3.4 3.4l13.2 13.2'/%3E%3C/svg%3E");
+}
+
+/* The row under the password: "remember me" on the left where the realm offers
+   it, "forgot password?" on the right. Both halves are optional and the row holds
+   its shape with either one missing.
+
+   `flex-direction` is stated because this element is also `.mp-field`, which is a
+   column — the template puts both classes on one div, and inheriting the column
+   would stack the two links. */
+.login-settings {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mp-space-md);
+  margin-top: var(--mp-space-md);
+  font: var(--mp-text-caption) var(--mp-font-family);
+}
+
+/* The same block on a page with one link in it rather than two — "back to
+   sign-in" under the register and reset forms, which centres. */
+.login-options {
+  display: flex;
+  justify-content: center;
+  font: var(--mp-text-caption) var(--mp-font-family);
+}
+.login-settings .login-options { justify-content: flex-end; }
+.login-options-links { display: flex; gap: var(--mp-space-md); }
+
+/* The submit, set apart from the last field. Two selectors because the templates
+   disagree about which hook the block carries: `login.ftl` gives it the plain
+   form-group class and the others give it the buttons one. The id is Keycloak's
+   and is the same on every one of them. */
+.login-buttons,
+#kc-form-buttons { margin-top: var(--mp-space-lg); }
+/* Two buttons in a flow that offers a way back — "cancel" beside "submit". */
+.login-buttons-wrap { display: flex; gap: var(--mp-space-sm); }
+.login-buttons-wrap .mp-btn { flex: 1; }
+
+/* A checkbox's or radio's label, which sits beside the control rather than over
+   it — `.mp-check-row` is the row and this is the text in it. */
+.login-check-label {
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  color: var(--mp-fg);
+  cursor: pointer;
+}
+.login-check-label--disabled { color: var(--mp-disabled); cursor: default; }
+
+/* Keycloak says which field it rejected in an attribute, so the control can show
+   it. Scoped to this page rather than added to the sheet: `Input` has no invalid
+   state to pass through, so a rule on `.mp-input` itself would be a state the
+   design system names and no React caller can reach. */
+.login-body .mp-input[aria-invalid="true"] { border-color: var(--mp-err); }
+
+/* The field's own error, under the control it belongs to. `.mp-hint` is the muted
+   sentence under a field and this is the loud one; it is the only rule here that
+   states a foreground colour, because the sheet has no error text style that is
+   not a filled note. */
+.login-error {
+  display: block;
+  margin-top: 5px;
+  font: var(--mp-text-micro) var(--mp-font-family);
+  color: var(--mp-err);
+}
+
+/* "Nieuwe gebruiker? Registreren", and the equivalent foot of the other pages. */
+.login-aside {
+  margin-top: var(--mp-space-lg);
+  padding-top: var(--mp-space-md);
+  border-top: 1px solid var(--mp-line);
+  text-align: center;
+  font: var(--mp-text-caption) var(--mp-font-family);
+  color: var(--mp-muted);
+}
+
+/* An identity provider, if the realm is ever given one. The buttons themselves
+   are the sheet's secondary block button; what is here is the divider that says
+   where the password form ends and the rule that keeps a provider's own logo from
+   deciding the row's height. */
+.login-social {
+  margin-top: var(--mp-space-lg);
+  padding-top: var(--mp-space-md);
+  border-top: 1px solid var(--mp-line);
+}
+.login-social h2 {
+  margin: 0 0 var(--mp-space-sm);
+  font: var(--mp-text-label) var(--mp-font-family);
+  color: var(--mp-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.login-social hr { display: none; }
+.login-social-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mp-space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.login-social-list--grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.login-social-item { min-width: 0; }
+.login-social-name { overflow: hidden; text-overflow: ellipsis; }
+.login-social-logo { width: 18px; height: 18px; flex: none; }
+.login-social-disabled { opacity: 0.55; pointer-events: none; }
+
+/* Links, once, for a page whose markup gives them no class of its own. */
+.login-card a,
+.login-foot a {
+  color: var(--mp-accent);
+  text-decoration: none;
+  border-radius: var(--mp-radius-note);
+}
+.login-card a:hover,
+.login-foot a:hover { text-decoration: underline; }
+.login-card a:focus-visible,
+.login-foot a:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--mp-ring);
+}
+
+/* Under the card, not in it: the same three links the site puts in its footer, so
+   somebody can read what they are agreeing to before they make an account. */
+.login-foot {
+  margin: var(--mp-space-md) 0 0;
+  text-align: center;
+  font: var(--mp-text-micro) var(--mp-font-family);
+  color: var(--mp-muted);
+}
+.login-foot a { color: var(--mp-muted); }
+.login-foot a:hover { color: var(--mp-fg); }
+
+/* The locale switcher. The realm offers one language, so this is drawn for the
+   day it offers two rather than being left to render as a bare list. */
+.login-locale {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--mp-space-sm) var(--mp-space-lg) 0;
+  font: var(--mp-text-caption) var(--mp-font-family);
+}
+.login-locale ul {
+  margin: var(--mp-space-xs) 0 0;
+  padding: var(--mp-space-xs);
+  list-style: none;
+  position: absolute;
+  background: var(--mp-bg);
+  border: 1px solid var(--mp-line);
+  border-radius: var(--mp-radius-block);
+  box-shadow: var(--mp-shadow);
+}
+.login-locale ul[aria-hidden="true"] { display: none; }
+.login-locale button {
+  font: var(--mp-text-caption) var(--mp-font-family);
+  color: var(--mp-muted);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+@media (forced-colors: active) {
+  /* The ribbon is decoration and a forced palette drops `background-image`, which
+     would leave a solid bar of the one stop that survives. It goes instead. */
+  .login-ribbon { display: none; }
+}

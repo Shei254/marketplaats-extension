@@ -95,7 +95,7 @@ class PortalSessionTest {
 
 		// `apps/web`'s own PATHS, on the other side of a Java/TypeScript boundary — and not `/success`, which
 		// congratulates somebody on a payment. The commonest reason to be in the Portal is cancelling.
-		assertThat(this.posted).containsEntry("return_url", "https://bumpr.test/billing");
+		assertThat(this.posted).containsEntry("return_url", "https://example.test/billing");
 	}
 
 	@Test
@@ -131,7 +131,7 @@ class PortalSessionTest {
 	@Test
 	void andSoIsAStripeNobodyConfigured() {
 		OpenPortal unconfigured = new OpenPortal(subscriberWith(Optional.of("cus_paying")), new StripeAccount(""),
-				new WebPages("https://bumpr.test"));
+				new WebPages("https://example.test"));
 
 		assertThat(unconfigured.open(SUBSCRIBER)).isEqualTo(new Portal.Unavailable());
 	}
@@ -140,17 +140,17 @@ class PortalSessionTest {
 	@Test
 	void whileNothingToManageIsStillNothingToManage() {
 		OpenPortal unconfigured = new OpenPortal(subscriberWith(Optional.empty()), new StripeAccount(""),
-				new WebPages("https://bumpr.test"));
+				new WebPages("https://example.test"));
 
 		assertThat(unconfigured.open(SUBSCRIBER)).isEqualTo(new Portal.NothingToManage());
 	}
 
 	@Test
 	void aBaseUrlWithATrailingSlashDoesNotBecomeADoubleOne() {
-		new OpenPortal(subscriberWith(Optional.of("cus_paying")), account(), new WebPages("https://bumpr.test/"))
+		new OpenPortal(subscriberWith(Optional.of("cus_paying")), account(), new WebPages("https://example.test/"))
 				.open(SUBSCRIBER);
 
-		assertThat(this.posted).containsEntry("return_url", "https://bumpr.test/billing");
+		assertThat(this.posted).containsEntry("return_url", "https://example.test/billing");
 	}
 
 	/**
@@ -170,7 +170,7 @@ class PortalSessionTest {
 	// --- the collaborators, by hand ------------------------------------------------------------------------
 
 	private OpenPortal portal(Optional<String> customer) {
-		return new OpenPortal(subscriberWith(customer), account(), new WebPages("https://bumpr.test"));
+		return new OpenPortal(subscriberWith(customer), account(), new WebPages("https://example.test"));
 	}
 
 	private StripeAccount account() {

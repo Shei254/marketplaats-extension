@@ -373,16 +373,28 @@ class KeycloakRealmTest {
 	 * <p>Both halves are asserted because they fail differently and a length rule alone would let the second
 	 * through: {@code notUsername} is what stops the password that is the account name, which is long enough
 	 * to pass {@code length(12)} whenever the username is.
+	 *
+	 * <p><strong>Asserted on what survives a translation.</strong> T80 gave this realm
+	 * {@code defaultLocale: nl}, so Keycloak answers in Dutch: what is checked is the field the error
+	 * hangs off, the {@code 12} the policy is configured with, and that the second refusal is not the
+	 * first one's message. Spelling either sentence out here is what broke when the locale changed, and
+	 * it would break again on a Keycloak that reworded its own translation.
 	 */
 	@Test
 	void andTheirPasswordHasToSurviveThePolicyTheRealmSets() {
 		String username = someUsername();
 
 		assertThat(keycloak.register(username, "short")).isEmpty();
-		assertThat(keycloak.whyRegistrationWasRefused()).contains("minimum length 12");
+		assertThat(keycloak.whatRegistrationWasRefusedOn()).contains("password");
+		String forBeingShort = keycloak.whyRegistrationWasRefused();
+		// `doesNotContain("<")` is what stops this passing on nothing: the reader falls back to the whole
+		// page when it finds no error element, and a whole page carries a `12` of its own in the policy
+		// block it renders either way. A message is text; a page is markup.
+		assertThat(forBeingShort).doesNotContain("<").contains("12");
 
 		assertThat(keycloak.register(username, username)).isEmpty();
-		assertThat(keycloak.whyRegistrationWasRefused()).contains("must not be equal to the username");
+		assertThat(keycloak.whatRegistrationWasRefusedOn()).contains("password");
+		assertThat(keycloak.whyRegistrationWasRefused()).isNotEqualTo(forBeingShort);
 	}
 
 	/**

@@ -52,6 +52,12 @@ are drawn in the product and on no artboard:
 `/admin` still has no artboard at all and is drawn out of the tokens, which is what
 [T54 (#85)](https://github.com/Shei254/marketplaats-extension/issues/85) decided and remains true.
 
+**And the copy here is in English, while both surfaces ship `lang="nl"`.** `legal.tsx` renders *"Wat AdBump
+doet"* where `Terms.dc.html` says *"What AdBump does"* — these artboards are the source for the *structure*
+of that copy, which is the claim `legal.tsx`'s own header makes, and the Dutch is the code's. Draw them in
+Dutch at the next re-seed. The product's **name** was substituted through every file here on 2026-09-19,
+when `brand.json` stopped saying Bumpr (T60), so it is the one thing in this copy that is current.
+
 ## Re-seeding
 
 Edit the `.dc.html` files, then re-seed and republish to the same artifact URL. The seeding helper

@@ -59,6 +59,21 @@ services:
         condition: service_healthy
     volumes:
       - ./keycloak:/opt/keycloak/data/import:ro
+      # Our Keycloak theme (T80, ADR-0033) — the same directory, mounted the same way, that
+      # infra/docker-compose.prod.yml mounts. It is **generated** from `brand.json` and
+      # `@mprelist/ui` by `npm run build -w @mprelist/keycloak-theme`, and it is **committed**,
+      # which is the only reason a deployed host that compiles nothing can have it too. A CI step
+      # rebuilds it and fails on any difference, so the bytes in git cannot disagree with the two
+      # files they are derived from.
+      #
+      # Over the whole themes directory rather than into a `mprelist` under it, because the built-in
+      # themes are inside a jar and this directory holds nothing but a README: that way the theme's
+      # name is `THEME_NAME`'s alone, rather than half here and half in the build. **A Keycloak
+      # upgrade is where that gets re-checked** — infra/README.md § Upgrading Keycloak.
+      #
+      # `start-dev` caches no theme, so editing a stylesheet is a rebuild and a page reload — and
+      # the build empties this directory rather than replacing it, or the mount would go stale.
+      - ../apps/keycloak-theme/theme:/opt/keycloak/themes:ro
     environment:
       # Bootstrap admin for the console at http://localhost:8081/admin. Created on first start only.
       KC_BOOTSTRAP_ADMIN_USERNAME: admin

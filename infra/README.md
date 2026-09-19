@@ -286,10 +286,12 @@ The realm still takes it from the environment at import time, and the fallback b
 you forget.
 
 Unset, it falls back to the literal `unset-extension-id`, which is a valid URI and will never match a real
-flow — the realm imports, and sign-in from a real extension is refused with `Invalid parameter: redirect_uri`
-rather than silently bouncing a code somewhere. That is not prose: `KeycloakRealmWithoutAnExtensionIdTest`
+flow — the realm imports, and sign-in from a real extension is refused on Keycloak's error page naming
+`redirect_uri`, rather than silently bouncing a code somewhere. (The realm is `defaultLocale: nl` since T80,
+so the sentence around that parameter is Dutch — *Ongeldige parameter* — while the parameter's own name is
+not translated, which is what the test holds it to.) That is not prose: `KeycloakRealmWithoutAnExtensionIdTest`
 starts a Keycloak with the variable **unset**, and asserts both halves — the fallback URI is accepted, a real
-extension's is refused with that error. It is what you get when the substitution above is left out, so it
+extension's is refused on that page naming that parameter. It is what you get when the substitution above is left out, so it
 gets a container of its own rather than a paragraph.
 
 Two things have to hold for it, and each is proven where it lives: the realm file carries the

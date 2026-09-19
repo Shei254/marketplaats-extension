@@ -262,10 +262,30 @@ final class KeycloakFromCompose implements AutoCloseable {
 				EXTENSION_REDIRECT_URI, parameterOf(location, "code"), verifier));
 	}
 
-	/** What Keycloak said on the page a refused {@link #register} came back with. */
+	/**
+	 * What Keycloak said on the page a refused {@link #register} came back with — the message it hangs
+	 * off the field the refusal is about, without that field's label or the rest of the form.
+	 *
+	 * <p><strong>Found by element id rather than by the sentence inside it.</strong> This matched
+	 * {@code Invalid password:} until the realm gained {@code defaultLocale: nl} (T80), after which it
+	 * matched nothing, returned the whole page, and turned one changed setting into two failures that
+	 * read as a wall of HTML. The ids are the same in every language and the sentences are not, so what
+	 * a caller may assert on is whatever survives a translation: a number the policy is configured
+	 * with, or that two refusals differ. {@link #whatRegistrationWasRefusedOn} is the locale-proof half.
+	 */
 	String whyRegistrationWasRefused() {
-		Matcher message = Pattern.compile("Invalid password:([^<]*)").matcher(this.lastRegistrationPage);
+		Matcher message = Pattern.compile("id=\"input-error-[a-z]+\">\\s*<span[^>]*>(.*?)</span>",
+				Pattern.DOTALL).matcher(this.lastRegistrationPage);
 		return message.find() ? message.group(1).trim() : this.lastRegistrationPage;
+	}
+
+	/**
+	 * And which field that refusal was about — {@code password}, {@code email} — read from the id on the
+	 * same element, which Keycloak spells in English on a page rendered in any language.
+	 */
+	Optional<String> whatRegistrationWasRefusedOn() {
+		Matcher field = Pattern.compile("id=\"input-error-([a-z]+)\"").matcher(this.lastRegistrationPage);
+		return field.find() ? Optional.of(field.group(1)) : Optional.empty();
 	}
 
 	/** The claims of the access token a full sign-in mints, as the extension. */

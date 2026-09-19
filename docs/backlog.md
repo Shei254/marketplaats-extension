@@ -1626,6 +1626,85 @@ allows password reset and has an SMTP server, so that mail goes out in Keycloak'
 carrying the realm's label — the same three faults this ticket fixed one page earlier. Under the type
 registry it is a directory and a line.
 
+> **Corrected by T82 (2026-09-19), and the correction is most of why that ticket exists.** Two claims in the
+> paragraph above are wrong, and both were reasoned from the login page rather than read off a mail.
+> **It is not English:** `theme/base/email/messages/messages_nl.properties` ships inside Keycloak's own
+> themes jar, and with `defaultLocale: nl` the reset mail has been Dutch since the realm was written. **And
+> it is not a directory and a line:** an email theme's templates live under `html/` and `text/`, and
+> `scripts/build.mjs` copies one flat level. The faults it does have are different ones —
+> [ADR-0035](adr/0035-the-mail-is-ours-and-so-are-the-words.md).
+
+#### T82 · The mail that page sends is ours too · **M** · T80
+*No issue filed — this came in as "we should also customize the forgot password email template sent out to
+users so that we can have a consistent professional ux".*
+[ADR-0035](adr/0035-the-mail-is-ours-and-so-are-the-words.md) carries the argument.
+
+**The ticket began by disproving its own premise.** Three living files and one ADR sentence say this mail goes
+out in Keycloak's English. It goes out in Dutch, and has all along. What is actually wrong with it is four
+things:
+
+- **It names the realm.** `realmName` is `realm.getDisplayName()`, so a customer reads *"uw **mprelist
+  (production)** account"* — the internal identifier, with an environment label after it, one screen after
+  the page T80 put the brand on.
+- **It has no design.** `base/email/html/template.ftl` emits `<html><body>` and nests the body into it. The
+  default email theme is `parent=base` plus message overrides and adds nothing.
+- **It comes from nobody.** `smtpServer` carries no `fromDisplayName`, so the inbox row is a bare address —
+  read by more people than the body is.
+- **It says *u*.** Keycloak's Dutch is formal; the popup, `apps/web` and `brand.tagline` all say *je*.
+
+**And T80's mechanism is not here to be reused.** `base/login` writes every control
+`class="${properties.kcInputClass!}"`, which is the whole reason the login page cost no copy of anything.
+`base/email` has no `kc…Class` hooks at all: the body of each mail is one `msg()` string with its markup
+inside it. So the choice is to own the templates or to own the words, and this owns the words.
+
+- **One shell.** `src/email/html/template.ftl` replaces `base`'s and frames every mail the realm can send,
+  including ones not yet turned on. The per-mail templates are not forked.
+- **A generated message bundle**, written from `brand.json` by the build the way `theme.properties` already
+  is: `passwordReset{Subject,Body,BodyHtml}` and `executeActions{…}` — the two mails a customer can get —
+  **in both their HTML and plain-text forms**, because `base/email/text/` has no shell of its own and an
+  HTML-only override leaves the realm's name in the part plain-text clients render. `emailTest*` stays
+  Keycloak's: it goes to an administrator pressing Test.
+- **In *je*.** The register the rest of the product speaks. It opens a seam with the login page, which is
+  deferred by decision rather than left unsaid.
+- **A styled anchor inside the message**, from one helper. This is the one surface subject to `kcSanitize`:
+  `KeycloakSanitizerPolicy` calls `allowStyling`, so inline `style` survives — but markup in a *message* is
+  filtered by an allowlist where markup in the *shell* is not, which is the trap to remember when a preview
+  looks right and an inbox does not.
+- **The design system contributes values, not rules.** `palette`, `text`, `space` and `radius`, inlined at
+  build time. `var(--mp-…)` does not survive Gmail, so the most faithful sheet is the one that renders as
+  unstyled text. Light only; **wordmark, no image** — email themes get no resource URL, and `brand.domain` is
+  still the IP-derived nip.io host while a sent mail is permanent.
+- **`ThemeType` gains a typed `messages` field**, rendered through the `propertiesFile()` escaper that
+  already turns `é` into `\u00e9` — which is why the ambiguity between `Properties.load` and a UTF-8
+  `Reader` never has to be settled. **And `scripts/build.mjs` learns to copy templates recursively**, which
+  falsifies two sentences that were true when written and are rewritten with this ticket.
+- **Both realms name the theme and the sender.** `"emailTheme": "mprelist"`, and `fromDisplayName` as a
+  literal — the brand going back into the file it once drifted in, which is safe for the one reason the
+  drift was not: `KeycloakRealmTest` and `ProductionRealmTest` read `brand.json` and hold it, where the test
+  that let `Bumpr` through had been commented out.
+
+**The production half cannot be delivered by a file and cannot be probed.** A realm imports on first start
+only, so the running one will not pick `emailTheme` up; and there is no mail to fetch the way ADR-0034's
+deploy fetches the sign-in page, while reading it over the admin API needs the bootstrap account
+`production.env.example` says to stop using. So the existing warning names **both** settings and
+`mprelist-wizard`'s theme stage gains the second — documented, not enforced, for the third time.
+
+**Nothing of this is visible in production yet anyway.** `production.env.example`'s Mail block is commented
+out, so `MPRELIST_SMTP_HOST` is absent and no reset mail is sent there at all; `MPRELIST_SMTP_FROM` defaults
+to `no-reply@mprelist.invalid`, a reserved TLD that can never authenticate. This ships correct and invisible
+until go-live fills that block in.
+
+**Held as data, then read by a person.** The suite pins the keys against a dated list of the ones Keycloak
+asks for, the `MessageFormat` placeholder ceiling (`{0}`–`{3}` for a reset, `{0}`–`{4}` for execute-actions),
+un-doubled apostrophes — the failure that silently eats the rest of a sentence, which is why Keycloak's own
+English writes `account''s` — a sanitizer-safe tag allowlist, and colours traced to `palette`;
+`build.test.ts` gains the recursive case. **No rendered-mail test**: mounting this workspace's output into a
+Gradle test is the boundary ADR-0011 draws and `ProductionRealmTest` relies on. `docs/click-through.md` gains
+a step beside 3b — trigger a reset on the local stack and read the mail in Mailtrap.
+
+**Not in it:** the mark (waits on T56 for a domain worth embedding in something permanent); the login
+screens' Dutch; a second locale; and the verification mail's copy, which `verifyEmail` does not yet send.
+
 ---
 
 ## Deferred
@@ -1655,4 +1734,6 @@ T21).
 | Multi-Marktplaats-account support | T38 |
 | Firefox port | [ADR-0009](adr/0009-tech-stack.md) |
 | Relist history / outcome analytics screens | Not in iteration 1 |
+| The login screens' Dutch | [ADR-0035](adr/0035-the-mail-is-ours-and-so-are-the-words.md) — the mail T82 writes says *je* and the login page still runs on Keycloak's formal *u*. Closing the seam means owning the login theme's message bundle for the sign-in, registration and reset screens, which is a different size of decision from six keys |
+| The mark in the mail | [ADR-0035](adr/0035-the-mail-is-ours-and-so-are-the-words.md) — a sent mail is permanent and `brand.domain` is still the nip.io hostname derived from a VPS IP. One entry in `SITE_ICONS` and one `<img>` in the shell, once T56 moves the A record |
 | Bulk repost in the popup | [ADR-0027](adr/0027-the-popup-stops-offering-bulk-repost.md) — built (T68, T69) and withdrawn from the screen for go-live scope; the mechanism, the entitlement and the API refusal all stand. Back with T70, once go-live is stable |

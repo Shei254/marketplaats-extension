@@ -632,6 +632,17 @@ page cache and a concurrent `pg_dump`.
 git tag v1.0.0 && git push origin v1.0.0
 ```
 
+**Or run the wizard**, which walks the whole of it — the one-time cutover, the tag, the pipeline, and the
+three realm settings no deploy can reach — and checks each step as it goes:
+
+```bash
+./infra/deploy/mprelist-wizard
+```
+
+It runs on your machine, drives `ssh` and your browser, and writes nothing to `production.env`. Everything
+below is what it automates; read it if you would rather do it by hand, or to understand what the wizard is
+doing while it does it.
+
 That is the deploy. Actions runs the three test jobs, retags the digests `master` already built for that
 commit — `imagetools create`, not a second build — and connects over SSH with a key restricted in
 `authorized_keys` by `command="/usr/local/bin/mprelist-deploy"`: it can run that script and **cannot get a
@@ -679,6 +690,12 @@ either. The recovery that works is a human reading the Flyway error.
 deploy an image and cannot read the live Stripe key. The host still holds exactly one credential of its own,
 the read-only GHCR token — shipping the tree through the registry was chosen over a `git pull` partly so
 that it would stay exactly one.
+
+**A changed theme restarts Keycloak; an unchanged one does not.** Compose does not recreate a service
+because a bind-mounted directory's *contents* moved, and this Keycloak runs `start`, which caches themes —
+`start-dev` locally does not, which is why editing the theme on your laptop needs only a page reload. So the
+deploy fingerprints that tree across the swap and force-recreates the one service when the bytes differ. An
+ordinary release, where the theme has not moved, costs no sign-in outage at all.
 
 **The last step checks the page rather than the files.** After `up -d --wait` the script fetches the sign-in
 page and looks for a class only our theme draws. `loginTheme` is a realm *property* and a realm imports on

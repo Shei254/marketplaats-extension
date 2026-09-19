@@ -632,6 +632,17 @@ page cache and a concurrent `pg_dump`.
 git tag v1.0.0 && git push origin v1.0.0
 ```
 
+**Or run the wizard**, which walks the whole of it — the one-time cutover, the tag, the pipeline, and the
+three realm settings no deploy can reach — and checks each step as it goes:
+
+```bash
+./infra/deploy/mprelist-wizard
+```
+
+It runs on your machine, drives `ssh` and your browser, and writes nothing to `production.env`. Everything
+below is what it automates; read it if you would rather do it by hand, or to understand what the wizard is
+doing while it does it.
+
 That is the deploy. Actions runs the three test jobs, retags the digests `master` already built for that
 commit — `imagetools create`, not a second build — and connects over SSH with a key restricted in
 `authorized_keys` by `command="/usr/local/bin/mprelist-deploy"`: it can run that script and **cannot get a

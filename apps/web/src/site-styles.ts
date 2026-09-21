@@ -198,18 +198,24 @@ body {
   color: var(--mp-muted);
   line-height: 1.65;
 }
-
-/* The dashed box that says this text is not a lawyer's. Dashed on purpose: it is
-   the one thing on the page that is about the page rather than about the product,
-   and it should not read as another section of it. */
-.web-placeholder {
-  margin: 30px 0 0;
-  padding: 12px 14px;
-  border: 1px dashed var(--mp-line);
-  border-radius: var(--mp-radius-card);
-  font: var(--mp-text-caption) var(--mp-font-family);
-  color: var(--mp-muted);
-  line-height: 1.6;
+/* A section is several paragraphs now that the terms are a document rather than a
+   description, and two paragraphs at margin: 0 are one wall of text. The gap is
+   between them and never above the first, which the heading has already spaced. */
+.web-doc-body + .web-doc-body,
+.web-doc-body + .web-doc-list,
+.web-doc-list + .web-doc-body {
+  margin-top: var(--mp-space-sm);
 }
-.web-placeholder b { color: var(--mp-fg); }
+
+/* The one enumeration either document has: the grounds an account can be closed
+   on. Indented to the marker rather than hung off the page edge, so the items line
+   up with the paragraph that introduces them. */
+.web-doc-list {
+  margin: 0;
+  padding-left: 20px;
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  color: var(--mp-muted);
+  line-height: 1.65;
+}
+.web-doc-list li + li { margin-top: 4px; }
 `;

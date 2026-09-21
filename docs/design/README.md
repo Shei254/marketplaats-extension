@@ -25,7 +25,13 @@ table head or an input), `--ring` (a focus ring, which nothing had) and `--shado
 the lifted `--shadow`) — alongside the two the canvas already added, `--err-bg` and `--shadow`.
 
 The legal copy in `Privacy` and `Terms` is structure plus an honest description of what the product
-does. It is marked `[PLACEHOLDER]` and **needs a lawyer before the Web Store listing** (T58).
+does, marked `[PLACEHOLDER]`. **`/terms` has moved past this artboard**: the operator handed over a full
+Gebruiksvoorwaarden on 2026-09-22 and the page renders it, so the artboard is now the shape of a document
+this one outgrew. Redraw `Terms` from `legal.tsx` at the next re-seed.
+
+**`Privacy` has diverged too, in one place**: the dashed `[PLACEHOLDER]` box is drawn on both artboards and
+rendered on neither page. Its words are otherwise still the source. Drop the box from both at the re-seed —
+and from `canvas.json`'s sticky note, which says the same thing a third time.
 
 ## What reads these files
 

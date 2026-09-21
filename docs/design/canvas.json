@@ -93,7 +93,7 @@
       "x": 0,
       "y": 760,
       "w": 880,
-      "h": 1180,
+      "h": 860,
       "page": "web"
     },
     {
@@ -101,7 +101,7 @@
       "x": 920,
       "y": 760,
       "w": 880,
-      "h": 1240,
+      "h": 3880,
       "page": "web"
     },
     {
@@ -166,7 +166,7 @@
       "y": -140,
       "w": 420,
       "page": "web",
-      "text": "Privacy is structure plus an honest description of what AdBump does. Terms is the operator's own Gebruiksvoorwaarden \u2014 redraw it from legal.tsx. Neither page renders the [PLACEHOLDER] box any more."
+      "text": "Both drawn from apps/web's legal.tsx rather than the other way round. Privacy is an honest description of what AdBump does; Terms is the operator's own Gebruiksvoorwaarden, sixteen sections of binding text. Edit the copy there, not here."
     },
     {
       "id": "note-tokens",

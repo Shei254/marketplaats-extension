@@ -24,14 +24,16 @@ designed as itself rather than as the light one inverted. Three tokens are new �
 table head or an input), `--ring` (a focus ring, which nothing had) and `--shadow-sm` (a card at rest, beside
 the lifted `--shadow`) — alongside the two the canvas already added, `--err-bg` and `--shadow`.
 
-The legal copy in `Privacy` and `Terms` is structure plus an honest description of what the product
-does, marked `[PLACEHOLDER]`. **`/terms` has moved past this artboard**: the operator handed over a full
-Gebruiksvoorwaarden on 2026-09-22 and the page renders it, so the artboard is now the shape of a document
-this one outgrew. Redraw `Terms` from `legal.tsx` at the next re-seed.
+**`Privacy` and `Terms` are the two artboards drawn *from* the code**, and they are the exception to
+everything above. `Privacy` is still structure plus an honest description of what the product does, but
+`Terms` is the operator's own Gebruiksvoorwaarden (T36, 2026-09-22): sixteen sections of binding text that
+arrived as finished copy, not as a drawing. Neither carries the dashed `[PLACEHOLDER]` box any more.
 
-**`Privacy` has diverged too, in one place**: the dashed `[PLACEHOLDER]` box is drawn on both artboards and
-rendered on neither page. Its words are otherwise still the source. Drop the box from both at the re-seed —
-and from `canvas.json`'s sticky note, which says the same thing a third time.
+Both were redrawn out of `apps/web/src/public/legal.tsx` on 2026-09-22 — its `PRIVACY` and `TERMS`, in the
+page's own order, at the type sizes these artboards already used — so the *words* on them are the code's and
+the *frame* around those words is still the canvas's. **Redraw them the same way rather than editing the
+copy here**, which would be editing a legal document in a design file. `Terms` is ~3880px tall as a result,
+which is what sixteen sections of it come to; `canvas.json` carries the frame.
 
 ## What reads these files
 
@@ -58,11 +60,12 @@ are drawn in the product and on no artboard:
 `/admin` still has no artboard at all and is drawn out of the tokens, which is what
 [T54 (#85)](https://github.com/Shei254/marketplaats-extension/issues/85) decided and remains true.
 
-**And the copy here is in English, while both surfaces ship `lang="nl"`.** `legal.tsx` renders *"Wat AdBump
-doet"* where `Terms.dc.html` says *"What AdBump does"* — these artboards are the source for the *structure*
-of that copy, which is the claim `legal.tsx`'s own header makes, and the Dutch is the code's. Draw them in
-Dutch at the next re-seed. The product's **name** was substituted through every file here on 2026-09-19,
-when `brand.json` stopped saying Bumpr (T60), so it is the one thing in this copy that is current.
+**And the popup copy here is in English, while both surfaces ship `lang="nl"`.** `Main.dc.html` says
+*"Repost"* and *"relists left"* where the popup renders Dutch — these artboards are the source for the
+*structure* of that copy, and the Dutch is the code's. Draw them in Dutch at the next re-seed. The two legal
+artboards are no longer part of this: they were redrawn from `legal.tsx` and are in Dutch already. The
+product's **name** was substituted through every file here on 2026-09-19, when `brand.json` stopped saying
+Bumpr (T60), so it is the one thing in this copy that is current.
 
 ## Re-seeding
 

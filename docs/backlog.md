@@ -338,9 +338,20 @@ Rename `apps/dashboard` → `apps/web`. React + Vite, one build, consuming `pack
 Required for the Web Store listing, which needs a hosted privacy policy URL. Public, loginless — `/privacy`
 and `/terms`, linked from the header and footer of every page, which is what T50 held back until they
 existed.
-- The words are the canvas's and every claim on them is one the schema can keep. **They render
-  `[PLACEHOLDER]` on their own face**: the binding text needs a lawyer before T58 (#89), and a reader of the
-  deployed page has to be able to tell.
+- The privacy page's words are the canvas's and every claim on them is one the schema can keep. **The
+  terms are no longer the canvas's**: the operator handed over a full Gebruiksvoorwaarden on 2026-09-22 —
+  acceptance, registration, IP, termination with its grounds, warranties and liability, payment and
+  chargebacks, the 14-day herroepingsrecht, and the Marktplaats disclaimer T58 wants — rendered as written,
+  and the `[PLACEHOLDER]` box came off both pages with it.
+- **Three claims on the terms are ahead of the build and were kept deliberately**: a *gratis proefperiode*
+  (ADR-0006 ships none — the free tier is permanent), billing *per maand* (T62 sells monthly and annually),
+  and cancelling via *accountinstellingen* rather than the Stripe Customer Portal. The herroepingsrecht
+  clause leans on the first of them. Reconciling the three is work this ticket did not do.
+- **What the rewrite dropped is one section, *Opzeggen***: the operator's copy describes cancelling
+  differently, and a page naming two routes would contradict itself. *Abonnementen en limieten* stayed, cut
+  back to the facts that copy does not touch — the monthly grant, no carry-over, and a plan running out
+  returning somebody to the free tier rather than locking them out (ADR-0018). It names **no way to cancel**,
+  which is what keeps the two sections from disagreeing.
 - `/privacy` is the URL the Web Store listing carries, so once #89 is live the address is published somewhere
   we do not control. It is a string to choose and then leave alone.
 

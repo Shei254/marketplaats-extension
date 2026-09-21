@@ -34,17 +34,22 @@ npm run preview -w @mprelist/web    # dist/, served the way a host would
 | `/success` | Stripe's `success_url`. The payment landed; open the extension. |
 | `/cancel` | Stripe's `cancel_url`. Nothing was charged and nothing changed. |
 | `/privacy` | The privacy policy. **The Chrome Web Store listing (T58, #89) requires this URL**, so once that listing is live the address is published somewhere we do not control. |
-| `/terms` | What the product does, and that relisting deletes the ad first. |
+| `/terms` | The Gebruiksvoorwaarden, with the warning that relisting deletes the ad first kept near the top where it is read. |
 | `/admin` | The dashboard an operator maintains the catalog from. **The only authenticated thing in this build** (T54, #85). |
 | anything else, `/` included | "There's nothing at this address", pointing back at the toolbar |
 
 **`/` is deliberately the fallback.** There is no landing page on the design canvas, and inventing one is a
 decision for the ticket that also writes the Web Store listing (T58, #89) and settles the name (T60, #91).
 
-**The legal copy is marked `[PLACEHOLDER]` on the page itself**, not only in a comment. It is the canvas's
-structure and an honest description of what this product does — every claim on the privacy page is one the
-schema can keep — but the binding text needs a lawyer before #89 goes up, and somebody reading the deployed
-page has to be able to tell that without reading this repository.
+**The terms are the operator's own Gebruiksvoorwaarden**, handed over as finished copy on 2026-09-22 and
+rendered as written — the draft box both pages carried came off with them. What the operator wrote is what
+the page says, including three claims this build does not keep: a *gratis proefperiode* (ADR-0006 ships
+none), billing *per maand* (T62 sells a tier monthly **and** annually) and cancelling via
+*accountinstellingen*, which do not exist — it is the Stripe Customer Portal, reached from **Betaling
+beheren** in the popup. That was asked for and decided; `legal.tsx`'s own header records it rather than
+leaving the next reader to find it.
+
+**The privacy page is still the canvas's structure**, and every claim on it is one the schema can keep.
 
 ## Three things worth knowing
 

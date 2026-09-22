@@ -111,9 +111,17 @@ inode — and it does not; `scripts/build.test.ts` holds it to that. If the dire
 Keycloak does not fail: it logs `Failed to find LOGIN theme mprelist, using built-in themes` and serves its
 own, which looks like a theme that does not work rather than one that is not there.
 
-**Adding a theme type is a directory.** A Keycloak theme is `<name>/<type>/`, and `login` is the only type
-today; `email` — the password-reset mail, which currently goes out in Keycloak's own English — is a
-directory under `apps/keycloak-theme/src/` and a line in its registry, not a second workspace.
+**Adding a theme type is a directory** under `apps/keycloak-theme/src/` and a line in its registry, not a
+second workspace. There are two: `login`, the sign-in flow, and `email`, the mail a forgotten password sends
+(T82, [ADR-0035](../docs/adr/0035-the-mail-is-ours-and-so-are-the-words.md)). The second is a different shape
+from the first and is worth knowing about before touching it — `base/email` has no `kc…Class` hooks, so the
+words are ours rather than Keycloak's, and its templates sit under `html/` rather than at the type's root.
+
+**Both themes are realm properties, and a realm imports once.** `loginTheme` and `emailTheme` are in both
+realm exports and asserted by both realm suites, which settles a *new* stack and does nothing at all for one
+that already came up: those are set by hand, in Realm settings → Themes. `mprelist-deploy` fetches the
+sign-in page and warns when it is not ours; there is no page to fetch for a mail, so the email theme is the
+one setting nothing will ever check for you.
 
 **A Keycloak upgrade is two checks here.** This theme styles `base`'s templates, so a release that renames a
 `kc…Class` hook leaves an element unstyled — `src/login/theme.test.ts` carries the hook list with the

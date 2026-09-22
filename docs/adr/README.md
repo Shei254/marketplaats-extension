@@ -31,7 +31,7 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0018](0018-lapse-falls-back-to-the-default-tier.md) | A subscription that ends falls back to the default tier | Accepted, refines 0014, refined by 0032 |
 | [0019](0019-plans-are-stripe-first-and-webhook-synced.md) | Plans created in Stripe, synced to the Tier catalog by webhook | Accepted, refines 0014, refined by 0029 and 0031 |
 | [0020](0020-deployment.md) | Deployed as four containers on one host, from a second compose file | Accepted, amended by 0023 |
-| [0021](0021-design-system-stays-ours.md) | The design system stays ours, and stays a CSS string | Accepted, refines 0016, refined by 0033 |
+| [0021](0021-design-system-stays-ours.md) | The design system stays ours, and stays a CSS string | Accepted, refines 0016, refined by 0033 and 0035 |
 | [0022](0022-the-plan-screen-names-the-payment-methods.md) | The plan screen names the payment methods, read from Stripe | Accepted, refines 0006 |
 | [0023](0023-ci-builds-the-images-and-the-host-pulls.md) | CI builds the images, a registry holds them, the host pulls; TLS in a fifth container | Accepted, amends 0020, amended by 0034 |
 | [0024](0024-the-extension-addresses-are-built-in.md) | The extension's own addresses are built in, never served | Accepted, refines 0013 |
@@ -43,8 +43,9 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0030](0030-the-catalog-order-is-the-operators.md) | The catalog order is the operator's, and it is one sequence | Accepted, refines 0014 |
 | [0031](0031-the-free-tier-is-the-one-without-a-price.md) | The free tier is the one without a price, and an operator edits it | Accepted, refines 0014 and 0019, partly reversed by 0032 |
 | [0032](0032-every-tier-is-deletable-and-an-empty-catalog-is-a-state.md) | Every tier is deletable, and an empty catalog is a state | Accepted, amends 0014, refines 0018, partly reverses 0031 |
-| [0033](0033-the-login-page-is-ours-and-is-generated.md) | The login page is a surface of ours, and it is generated rather than written | Accepted, refines 0005, 0011 and 0021, amended by 0034 |
+| [0033](0033-the-login-page-is-ours-and-is-generated.md) | The login page is a surface of ours, and it is generated rather than written | Accepted, refines 0005, 0011 and 0021, amended by 0034, refined by 0035 |
 | [0034](0034-the-deployment-tree-ships-with-the-tag.md) | The deployment tree ships with the tag, and the host stops being a checkout | Accepted, amends 0023 and 0033 |
+| [0035](0035-the-mail-is-ours-and-so-are-the-words.md) | The mail that page sends is ours too, and owning it means owning the words | Accepted, refines 0021 and 0033 |
 
 **Amended by the 2026-08-13 session:** 0006 (Stripe narrowed to money + lifecycle), 0007 (gating depth,
 `/api/me` display state, `marktplaatsAccountId` dropped), 0009 (monorepo, React popup, Options page removed).
@@ -171,6 +172,22 @@ outlive it still carrying `metadata.tier_code` and `price.updated` re-adopts the
 stops new purchases while existing subscriptions **keep billing**, so a delete that only tidied the catalog
 would charge people for a plan that is gone. Stripe has no delete for a Price at all — verified against
 `stripe-java:29.2.0` rather than assumed — so archiving is what the word means there.
+
+**Amended by the 2026-09-19 mail session:** [0035](0035-the-mail-is-ours-and-so-are-the-words.md) asks
+ADR-0033's question one page later, about the mail that page sends, and finds that 0033's mechanism is not
+there to be reused: `base/email` has no `kc…Class` hooks, so the body of every mail is one `msg()` string with
+its markup inside it, and "our clothes" amounts to a `<body>` wrapper. The session opened on a premise that
+turned out to be false — three living files and an ADR sentence say that mail goes out **in English**, and it
+has been Dutch all along, because `messages_nl.properties` ships in Keycloak's own themes jar. What is
+actually wrong with it is that it calls the product *"mprelist (production)"*, has no design at all, comes
+from an address with no name on it, and says *u* to a product that says *je*. So the copy becomes ours —
+generated from `brand.json`, both the HTML and the plain-text half of every key — and [0021](0021-design-system-stays-ours.md)
+narrows on this surface only: in an inbox the design system is a set of **values**, because Gmail keeps no
+`:root` rule and the sheet that is most faithful to that ADR is the one that renders as unstyled text. The
+session also reversed a direction `ProductionRealmTest` had argued: the brand goes **back** into the realm
+file, as `smtpServer.fromDisplayName`, because no theme can reach the inbox row — and the reversal is safe for
+the reason the original drift was not, which is that this copy has a live test holding it to `brand.json`
+rather than a commented-out one. T82 is the ticket, and there is no GitHub issue, as with T76–T81.
 
 See also [../domain-model.md](../domain-model.md), [../glossary.md](../glossary.md) and
 [../enforcement-contract.md](../enforcement-contract.md).

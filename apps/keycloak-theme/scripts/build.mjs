@@ -67,11 +67,21 @@ const drawn = iconSet(master, [
 ]);
 
 let templateCount = 0;
+let bundleCount = 0;
 
-for (const { type, properties, resources, icons } of types) {
+for (const { type, properties, messages, resources, icons } of types) {
   const root = `${outdir}/${theme.THEME_NAME}/${type}`;
   await mkdir(root, { recursive: true });
   await writeFile(`${root}/theme.properties`, properties);
+
+  // The message bundles, at the one path Keycloak looks for them: `messages/` at
+  // the type's root, beside `theme.properties` rather than under `resources/`.
+  // Only `email` has any, and `src/theme.ts` says why.
+  for (const [name, contents] of Object.entries(messages)) {
+    await mkdir(`${root}/messages`, { recursive: true });
+    await writeFile(`${root}/messages/${name}`, contents);
+    bundleCount += 1;
+  }
 
   for (const [path, contents] of Object.entries(resources)) {
     await mkdir(dirname(`${root}/resources/${path}`), { recursive: true });
@@ -88,20 +98,51 @@ for (const { type, properties, resources, icons } of types) {
   // and they stay files an editor can check the FreeMarker of. They are the
   // `.ftl` files in `src/<type>/`, which is why that directory is named for
   // Keycloak's own spelling of the type rather than for anything of ours.
+  //
+  // **Walked rather than listed** (T82). A login theme's templates sit flat at
+  // the type's root; an email theme's sit under `html/` and `text/`, and
+  // Keycloak looks for them at exactly those paths. So what is copied is a
+  // relative path rather than a name, and the nesting under `src/<type>/` is the
+  // nesting Keycloak reads — which is the same rule the directory name already
+  // follows, one level down.
   const templateDir = new URL(`${type}/`, sourceDir);
-  const templates = (await readdir(templateDir)).filter((name) => name.endsWith(".ftl"));
-  for (const name of templates) {
-    await copyFile(new URL(name, templateDir), `${root}/${name}`);
+  for (const path of await templatePaths(templateDir)) {
+    await mkdir(dirname(`${root}/${path}`), { recursive: true });
+    await copyFile(new URL(path, templateDir), `${root}/${path}`);
+    templateCount += 1;
   }
-  templateCount += templates.length;
 }
 
 console.log(
   `Built the ${theme.THEME_NAME} theme into ${outdir}/ — `
     + `${types.length} type(s) (${types.map(({ type }) => type).join(", ")}), `
-    + `${templateCount} template(s), ${drawn.size} icon size(s). `
+    + `${templateCount} template(s), ${bundleCount} message bundle(s), `
+    + `${drawn.size} icon size(s). `
     + `Keycloak reads it on the next page load; each realm asks for it by name.`,
 );
+
+/**
+ * Every `.ftl` under a type's source directory, by its path relative to it.
+ *
+ * Sorted at each level, so the log below counts the same way twice and a reader
+ * comparing two builds is comparing the same order. Anything that is not a
+ * template is skipped rather than refused: `src/<type>/` is a *source* directory
+ * and holds the TypeScript that decides what the type is.
+ */
+async function templatePaths(dir, prefix = "") {
+  const entries = (await readdir(dir, { withFileTypes: true })).sort((a, b) =>
+    a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+  );
+  const found = [];
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      found.push(...(await templatePaths(new URL(`${entry.name}/`, dir), `${prefix}${entry.name}/`)));
+    } else if (entry.name.endsWith(".ftl")) {
+      found.push(`${prefix}${entry.name}`);
+    }
+  }
+  return found;
+}
 
 /**
  * `src/theme.ts`, bundled and evaluated.

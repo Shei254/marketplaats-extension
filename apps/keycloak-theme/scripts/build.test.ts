@@ -2,7 +2,7 @@ import { decodePng } from "@mprelist/ui/icon-png";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -65,22 +65,46 @@ describe("the built theme", () => {
     }
   });
 
-  it.each(types)("gives $type a stylesheet at the path its properties name", async ({ type }) => {
+  it.each(types)("inherits $type from base, and serves a stylesheet if it names one", async ({ type }) => {
+    // `parent=base` is the load-bearing half of both types: `base` carries the
+    // flow and styles none of it, so there is nothing to undo.
     const root = rootOf(type);
     const properties = await readFile(join(root, "theme.properties"), "utf8");
     expect(properties).toContain("parent=base");
+    // **Only where one is declared.** `email` has no stylesheet and cannot have
+    // one: a theme's `resources/` are served over HTTP to a browser, and a mail
+    // is rendered once and handed to an SMTP server with no URL to fetch from.
+    // Its styling is inline, which is `src/email/styles.ts` and ADR-0035.
     const [, styles] = /^styles=(.+)$/m.exec(properties) ?? [];
-    expect((await stat(join(root, "resources", styles ?? ""))).isFile()).toBe(true);
+    if (styles) {
+      expect((await stat(join(root, "resources", styles))).isFile()).toBe(true);
+    }
   });
 
-  it.each(types)("copies the templates that sit beside $type's source", async ({ type }) => {
+  it.each(types)("writes $type's message bundles where Keycloak looks for them", async ({ type, messages }) => {
+    // `messages/` at the type's root, beside `theme.properties` — not under
+    // `resources/`, which is the browser's. A bundle in the wrong place is not
+    // an error: Keycloak finds the parent theme's value and the mail goes out
+    // in Keycloak's own words, looking exactly as intended.
+    for (const [name, contents] of Object.entries(messages)) {
+      expect(await readFile(join(rootOf(type), "messages", name), "utf8"), name).toBe(contents);
+    }
+  });
+
+  it.each(types)("copies the templates that sit beside $type's source, nesting and all", async ({ type }) => {
     // The `.ftl` files in `src/<type>/` are the ones that type replaces, which
     // is the whole reason that directory carries Keycloak's spelling of the type.
-    const source = (await readdir(join(workspaceRoot, "src", type)))
-      .filter((name) => name.endsWith(".ftl"))
-      .sort();
-    const emitted = (await readdir(rootOf(type))).filter((name) => name.endsWith(".ftl")).sort();
+    //
+    // **Compared by relative path rather than by name** (T82). A login theme's
+    // templates sit flat at the type's root; an email theme's sit under `html/`,
+    // and Keycloak loads them from exactly there. Listing one level would pass
+    // this test on an email type by finding nothing on either side.
+    const ftl = (paths: string[]): string[] =>
+      paths.filter((path) => path.endsWith(".ftl")).map((path) => path.split(sep).join("/")).sort();
+    const source = ftl(await readdir(join(workspaceRoot, "src", type), { recursive: true }));
+    const emitted = ftl(await readdir(rootOf(type), { recursive: true }));
     expect(emitted).toEqual(source);
+    expect(emitted.length, `${type} replaces no template at all`).toBeGreaterThan(0);
   });
 
   it.each(types)("draws every icon $type declares at the size it declares it", async ({ type, icons }) => {

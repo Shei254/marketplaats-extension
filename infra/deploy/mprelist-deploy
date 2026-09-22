@@ -225,6 +225,11 @@ else
 	echo "mprelist-deploy:         The theme files are deployed; the realm is not asking for them." >&2
 	echo "mprelist-deploy:         A realm imports once, so this is set in the admin console, not in a file:" >&2
 	echo "mprelist-deploy:           $keycloak_url  →  Realm settings → Themes → Login theme → mprelist" >&2
+	echo "mprelist-deploy:         Set Email theme → mprelist in the same place while you are there." >&2
+	echo "mprelist-deploy:         Nothing here can check that one: there is no page to fetch for a mail, and" >&2
+	echo "mprelist-deploy:         reading the setting needs the admin account you were told to stop using." >&2
+	echo "mprelist-deploy:         Unset, a password reset arrives unstyled and names this realm rather than" >&2
+	echo "mprelist-deploy:         the product (T82)." >&2
 	echo "mprelist-deploy:         Localization (Dutch) and the realm display name are in the same position." >&2
 fi
 

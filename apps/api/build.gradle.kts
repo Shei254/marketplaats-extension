@@ -165,11 +165,15 @@ tasks.withType<Test>().configureEach {
         repository.file("infra/docker-compose.prod.yml"),
         repository.file("infra/production.env.example"),
         // The realm that deployment imports and the proxy in front of it (T56, #87). ProductionRealmTest
-        // starts a Keycloak on the first of them. `brand.json` was here too, for a test that held the realm's
-        // displayName to it; ADR-0033 moved the sign-in page off that field rather than keeping the copy in
-        // step, so nothing in this suite reads the brand and nothing here declares it.
+        // starts a Keycloak on the first of them.
         repository.file("infra/keycloak-production/mprelist-realm.json"),
         repository.file("infra/caddy/Caddyfile"),
+        // `brand.json`, which is here for the second time. It was dropped when ADR-0033 moved the sign-in
+        // page off the realm's displayName — the copy that had drifted to `Bumpr` — so that nothing in this
+        // suite read the brand at all. T82 (ADR-0035) puts exactly one copy back, `smtpServer`'s
+        // `fromDisplayName`, because the name on an envelope is the one thing no theme can reach; both realm
+        // suites hold it to this file, so an edit to it has to be able to turn them red.
+        repository.file("brand.json"),
         // The extension's pinned key, which CrossOriginTest derives the allowed origin from.
         repository.file("apps/extension/public/manifest.template.json"),
         // `.env.example`, which EnvironmentFileTest holds to the two files above and to application.yml —

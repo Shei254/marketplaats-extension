@@ -452,6 +452,38 @@ class KeycloakRealmTest {
 	}
 
 	/**
+	 * And the mail that reset sends is this product's, rather than Keycloak's (T82,
+	 * {@code docs/adr/0035-the-mail-is-ours-and-so-are-the-words.md}).
+	 *
+	 * <p>{@code emailTheme} is the frame and the words: without it the mail is two unstyled paragraphs
+	 * naming {@code realmName}, which is this realm's {@code displayName} and reads
+	 * <em>{@code mprelist (development)}</em> here. {@code fromDisplayName} is the inbox row, which no
+	 * theme can reach, and it is the one hand-written copy of the brand left in this file — safe because
+	 * of this line and not otherwise, which is the lesson of the {@code Bumpr} that sat in the production
+	 * realm while the test holding it was commented out.
+	 *
+	 * <p>Asserted on the file rather than against the running realm on purpose. A login theme shows up in
+	 * the page {@code andSomebodyWhoForgotTheirsIsOfferedTheWayBackIn} fetches; an email theme shows up
+	 * only in a mail, and reading one needs the Mailtrap credentials that are the developer's and never
+	 * this repository's. {@code docs/click-through.md} is where a human reads it.
+	 */
+	@Test
+	void andTheMailThatResetSendsIsOursRatherThanKeycloaks() {
+		JsonNode realm = Json.of(InfraFiles.textOf(InfraFiles.keycloakRealm()));
+		String brandName = Json.of(InfraFiles.textOf(InfraFiles.brandFile())).get("name").asText();
+
+		assertThat(realm.get("emailTheme").asText())
+				.withFailMessage("this realm does not ask for the `mprelist` email theme, so the "
+						+ "password-reset mail is Keycloak's own — unstyled, and naming the realm rather "
+						+ "than the product (ADR-0035).")
+				.isEqualTo("mprelist");
+		assertThat(realm.get("smtpServer").get("fromDisplayName").asText())
+				.withFailMessage("`smtpServer.fromDisplayName` is not the name in `brand.json`, so a mail "
+						+ "with a branded body arrives from a sender that is not (ADR-0035).")
+				.isEqualTo(brandName);
+	}
+
+	/**
 	 * And the shape a role check has to survive: a user holding <em>no realm role at all</em> gets no
 	 * {@code realm_access} claim rather than an empty one, so #27 reading {@code realm_access.roles} straight
 	 * through throws where it meant to deny.

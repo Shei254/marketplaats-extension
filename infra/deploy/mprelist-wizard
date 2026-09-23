@@ -348,7 +348,7 @@ note "loginTheme and emailTheme are realm *properties*, so a realm that came up"
 note "before T80 or T82 does not ask for our themes however perfectly the files"
 note "arrive. These are set once, by hand, and then they are set for good."
 printf '\n'
-ask KEYCLOAK_URL "Keycloak base URL (e.g. https://auth.187-7-19-175.nip.io):"
+ask KEYCLOAK_URL "Keycloak base URL (e.g. https://auth.adbump.nl):"
 write_env KEYCLOAK_URL "$KEYCLOAK_URL"
 open_url "$KEYCLOAK_URL/admin/master/console/#/mprelist/realm-settings/themes"
 printf '\n'

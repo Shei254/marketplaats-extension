@@ -231,7 +231,9 @@ that works, with a published password on it. Here every credential and every add
 default, so a half-filled `production.env` is a refusal naming what is missing rather than a guess. It never
 leaves the host: GitHub holds an SSH key restricted to one script, and no credential of this product's.
 
-The domain is T56 (#87)'s last open item; the production realm it imports is
+The domain landed on 2026-09-23 — `adbump.nl`, five names, real certificates — so what is left of T56 (#87)
+is the three things no commit can do: the realm's own origins in the Keycloak console, the Stripe webhook
+endpoint, and registering the published extension id. The production realm it imports is
 [`infra/keycloak-production`](infra/keycloak-production/), and `ProductionRealmTest` starts a real Keycloak on
 it, because that import happens once and undoing it is a `down -v`. You do not have to wait for the domain
 to deploy — the realm is `sslRequired: external`, so a bare IP is refused rather than served, and

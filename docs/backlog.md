@@ -650,6 +650,16 @@ realm exists and a real Keycloak is started on it by `ProductionRealmTest`, and 
 scripts are in `infra/deploy/`. The open items are the ones no commit can close: buy or choose the hostnames
 (T60), provision the VPS, create the Web Store draft to learn the id, and run the click-through.
 
+**The domain landed on 2026-09-23.** `adbump.nl`'s A record moved off Strato and onto the VPS, all four
+hostnames and the apex resolve, and all five hold browser-trusted Let's Encrypt certificates — so
+`MPRELIST_ACME_CA` is on the production directory and no longer on the staging one the example file ships.
+`deployment.json`, `brand.json` and the generated theme carry the new addresses; the Web Store draft exists
+and assigned `cefnlogjhmeceojlaoionfjpdkklmnaf`. What this ticket still owns, and none of it is a commit:
+the `mprelist-dashboard` client's redirect URIs and web origins in the Keycloak console (the realm imported
+the nip.io ones and the `${…}` templates went inert at first start), the Stripe webhook endpoint, and
+registering the published extension id on `mprelist-extension` beside the unpacked one. `infra/README.md`
+§ Hostnames before you own a domain records what the switch actually cost.
+
 Three things this ticket leaves standing, recorded rather than discovered later:
 - **The host's checkout is updated by hand**, deliberately. Doing it in the deploy script would mean a
   repository read key on that machine beside the read-only GHCR token, which ADR-0023 does not put there. So
@@ -765,18 +775,40 @@ is the one that gets a vague sentence and a rejection.
 
 | Permission | Why it is needed |
 |---|---|
-| `host_permissions` on marktplaats.nl | The extension reposts the user's own ads in their own Marktplaats session; every request it makes goes to that site and no other. |
-| `storage` | Holds the sign-in session, the ad snapshot that makes a repost recoverable, and the repost queue. |
-| `unlimitedStorage` | A snapshot carries the ad's photos, so one interrupted repost can exceed the default quota. |
-| `identity` | Sign-in is Authorization Code + PKCE against our own identity provider, opened by `launchWebAuthFlow`. |
-| `alarms` | Resumes a repost queue after the browser suspends the extension (T68). Reposts are spaced 30–60 seconds apart, which is longer than a service worker stays alive. |
+| `host_permissions` on marktplaats.nl | One pattern, `https://www.marktplaats.nl/*`. The extension reposts the user's own ads in their own Marktplaats session, which means reading their active listings and submitting a replacement — all of it in a content script that runs on that host and nowhere else. The permission's own consumer is `chrome.tabs.query`, which finds the tab the content script is in; **`tabs` is deliberately not requested**, so no other tab is visible, and saying so turns the permission into evidence of what this extension cannot see. |
+| `storage` | Four things, all local to the user's browser: the sign-in session, the snapshot that makes an interrupted repost recoverable, the timestamp that paces consecutive reposts, and the served configuration document. |
+| `unlimitedStorage` | A snapshot carries the ad's photos, because a repost deletes the original and re-uploads its content — so the photos are the only way to put an interrupted one back. A listing can exceed the default 10 MB quota, and exceeding it would mean an ad deleted from Marktplaats that this extension can no longer restore. |
+| `identity` | Sign-in is Authorization Code + PKCE against our own identity provider, opened by `launchWebAuthFlow`. `getRedirectURL` is the only other call; **`getProfileUserInfo` is never called**, so the permission reads no Chrome or Google profile — worth saying on the form, because the permission's name suggests otherwise. |
+| `alarms` | `service-worker.ts` registers `chrome.alarms.onAlarm` at the top level, so the permission is required for the worker to start at all. An alarm is what lets a paced sequence of reposts resume across the worker's suspension: the gaps are drawn wider than the ~30s a suspended MV3 worker survives, so no timer inside the worker can outlive one. |
+| Remote code | **None.** The answer on the form is *"No, I am not using remote code"*: no `eval`, no `new Function`, no dynamic `import()`, no remotely-hosted script, no `chrome.scripting` and no `userScripts`. The served document (#36) is JSON — endpoint paths and timing numbers that shipped code reads — so no code crosses the wire, and saying that unprompted is cheaper than being asked. |
+| Single purpose | Reposting the signed-in user's own Marktplaats advertisements so a listing that has sunk in the results is at the top again. Every capability above serves that one act. |
 
-**One justification needs a decision before it is filed.** `alarms` is the batch runner's only user, and the
-batch is withdrawn from the popup ([ADR-0027](adr/0027-the-popup-stops-offering-bulk-repost.md), T70) — so
-this listing asks for a permission no user of this build can reach. It cannot be dropped instead:
-`service-worker.ts` registers `chrome.alarms.onAlarm` at the top level, and a missing permission throws
-before anything else starts. Either the sentence describes the queue rather than the feature, or T70 lands
-first and it is true as written.
+**Two host patterns were dropped on 2026-09-23**, and what they cost was a review question with no
+answer. The manifest carried `https://*.marktplaats.nl/*` and `*://*.marktplaats.nl/*` beside the `www` one;
+the second is a superset of all three and reads, in the install prompt and on the form, as *all* HTTP and
+HTTPS on every `marktplaats.nl` subdomain. Nothing used either. Every endpoint is a path on `www`, the one
+absolute URL in the endpoint config is `www`, and the apex and plain HTTP both `301` to
+`https://www.marktplaats.nl/` — so no state a user can be in depends on them. Nor could they ever have: the
+**content script** is where every Marktplaats request is made, and its `matches` is `www`-only, so a wider
+host permission cannot widen what the extension reaches. The ad photos look like a counter-example and are
+not: `downloadPhoto` fetches them from `images.marktplaats.com`, a `.com` host **no** pattern here ever
+covered, and it works because that CDN answers `Access-Control-Allow-Origin: *`.
+
+**And the one that stays is not free-standing.** `content_scripts.matches` already requests host access to
+`www.marktplaats.nl`, so Chrome shows *"Read and change your data on www.marktplaats.nl"* whether or not
+`host_permissions` repeats it. Removing the field would therefore reduce neither what the extension can
+reach nor what the user is asked to grant — it would only cost `chrome.tabs.query` the ability to find a tab
+the user already has open, after a service-worker restart, with no way to re-discover one.
+
+**The `alarms` decision, filed 2026-09-23.** It was the one justification this table said needed deciding:
+`alarms` is the batch runner's only user, the batch is withdrawn from the popup
+([ADR-0027](adr/0027-the-popup-stops-offering-bulk-repost.md), T70), and so this listing asks for a
+permission no user of *this* build can reach. It cannot be dropped instead — the top-level listener throws
+without it. **Filed describing the mechanism rather than the feature**, which is the option this entry
+already named and is true of the shipped build sentence by sentence: the listener is registered at load, the
+permission is what lets the worker start, and an alarm is what carries a paced sequence across a suspension.
+What it deliberately does not claim is a bulk repost a user can press. If a reviewer asks to be shown one,
+the answer is T70 — not a rewrite of this sentence, which would then be describing something absent.
 
 #### [T60](https://github.com/Shei254/marketplaats-extension/issues/91) · Finalise the brand name · **S** · before T56 and T58
 Web Store name availability, domain availability, a trademark search. One edit to `brand.json` and a rebuild
@@ -786,10 +818,10 @@ Web Store name availability, domain availability, a trademark search. One edit t
 `brand.json`'s `supportEmail` is now `contact@adbump.nl` and it delivers. What remains of this ticket is
 Web Store name availability and the trademark search — both checks rather than commits.
 
-**`brand.domain` is not `adbump.nl`, deliberately.** That domain's A record still points at its registrar,
-and this field's only consumer is the two footer links on the sign-in page (`template.ftl`), which have to
-work — so it holds `www.187-7-19-175.nip.io`, where the site is actually served. T56 moves it, and
-`brand.json`'s `$note` says so beside the value rather than only here.
+**`brand.domain` is `www.adbump.nl` as of 2026-09-23.** It held `www.187-7-19-175.nip.io` until then, for
+the reason its `$note` gave: the field's only consumers are footer links that have to resolve, and the
+domain's A record still pointed at its registrar. T56 moved the record and this value with it — `www.` and
+not the apex, because the apex is a permanent redirect to the site.
 
 **The same session swept the last stale spellings of the old name**, which is the other half of "everything
 else is prose": the production realm's `displayName` (now the identifier's — see the glossary's **Brand
@@ -1683,8 +1715,9 @@ inside it. So the choice is to own the templates or to own the words, and this o
   looks right and an inbox does not.
 - **The design system contributes values, not rules.** `palette`, `text`, `space` and `radius`, inlined at
   build time. `var(--mp-…)` does not survive Gmail, so the most faithful sheet is the one that renders as
-  unstyled text. Light only; **wordmark, no image** — email themes get no resource URL, and `brand.domain` is
-  still the IP-derived nip.io host while a sent mail is permanent.
+  unstyled text. Light only; **wordmark, no image** — email themes get no resource URL, and `brand.domain` was
+  still the IP-derived nip.io host when this shipped, while a sent mail is permanent. That reason expired on
+  2026-09-23; the deferred **"The mark in the mail"** row further down is what is left of it.
 - **`ThemeType` gains a typed `messages` field**, rendered through the `propertiesFile()` escaper that
   already turns `é` into `\u00e9` — which is why the ambiguity between `Properties.load` and a UTF-8
   `Reader` never has to be settled. **And `scripts/build.mjs` learns to copy templates recursively**, which
@@ -1746,5 +1779,5 @@ T21).
 | Firefox port | [ADR-0009](adr/0009-tech-stack.md) |
 | Relist history / outcome analytics screens | Not in iteration 1 |
 | The login screens' Dutch | [ADR-0035](adr/0035-the-mail-is-ours-and-so-are-the-words.md) — the mail T82 writes says *je* and the login page still runs on Keycloak's formal *u*. Closing the seam means owning the login theme's message bundle for the sign-in, registration and reset screens, which is a different size of decision from six keys |
-| The mark in the mail | [ADR-0035](adr/0035-the-mail-is-ours-and-so-are-the-words.md) — a sent mail is permanent and `brand.domain` is still the nip.io hostname derived from a VPS IP. One entry in `SITE_ICONS` and one `<img>` in the shell, once T56 moves the A record |
+| The mark in the mail | [ADR-0035](adr/0035-the-mail-is-ours-and-so-are-the-words.md) — **unblocked on 2026-09-23**, when T56 made `brand.domain` a domain we own rather than a hostname derived from a VPS IP. The condition the deferral named is met; what is left is the work it named — one entry in `SITE_ICONS` and one `<img>` in the shell — and it is deferred now by nothing but scope |
 | Bulk repost in the popup | [ADR-0027](adr/0027-the-popup-stops-offering-bulk-repost.md) — built (T68, T69) and withdrawn from the screen for go-live scope; the mechanism, the entitlement and the API refusal all stand. Back with T70, once go-live is stable |

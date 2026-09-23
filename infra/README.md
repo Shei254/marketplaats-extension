@@ -320,6 +320,34 @@ assigns a different id than the one our key derives (ADR-0010's second row, and 
 happens, `npm run extension-key -w @mprelist/extension -- set <the Web Store public key>` rewrites the
 manifest and prints the new id; the production realm then has to be built with *that* one. T56 (#87) owns it.
 
+**It has happened: the Web Store assigned `cefnlogjhmeceojlaoionfjpdkklmnaf`** (2026-09-23). Two things
+about adopting it, and the first is the one that surprises people:
+
+- **`set` takes the public key and not the id, and the id cannot be turned back into one.** An id is the
+  first 16 bytes of SHA-256 of the DER key rendered `a`–`p` (`extensionIdFromKey`), so it is a one-way
+  function. It is in the dashboard on the item, under **Package → View public key**, as a PEM block: take
+  what is between the `-----BEGIN PUBLIC KEY-----` and `-----END PUBLIC KEY-----` lines and join it to one
+  line, since `set` accepts no whitespace. Then `npm run -s extension-id` must print the id above, which is
+  the check that the right string was pasted. Until it is, this repository's own key stands and the unpacked
+  build keeps the id below.
+- **Creating the item refuses a manifest carrying `key`** — *"key field is not allowed in manifest"* —
+  because a new item's id comes from the key the Store itself assigns, and ours would contradict it. The
+  build passes `key` through deliberately (it is what pins the unpacked id), so the *first* package is the
+  emitted `dist/` with that one member removed. Zip it **from inside** `dist/`, or the manifest is not at the
+  archive root. Uploads of an *update* to an item that already exists accept the field, and once the Store's
+  own key is adopted above there is nothing left to strip: the manifest's key is then the Store's.
+
+**Adopting the key is the fix, and registering both ids is not a substitute for it.** The realm will hold
+two: redirect URIs and web origins are lists, and
+[ADR-0010](../docs/adr/0010-extension-authentication.md) forbids a wildcard, not a second exact entry. **The
+API will not.** `application.yml`'s `allowed-origins` builds the extension's origin as
+`chrome-extension://${MPRELIST_EXTENSION_ID}` from a variable this compose file passes to the API as well as
+to Keycloak, and `CrossOriginCallers` allows no patterns and no `*` — so a deployed stack admits exactly one
+extension origin, whichever id that variable holds. The other build signs in and is then refused by CORS,
+which reaches the user as the popup's "unavailable" state and names nothing. So two ids coexist in the realm
+and never in the API, and one id is the only arrangement where the unpacked build and the published one both
+work against this stack.
+
 Because the import runs once, changing the **variable** achieves nothing on its own — the realm has already
 been read, and it is not read again. On a laptop that means `down -v` and start over, which is what the local
 stack is for.
@@ -521,7 +549,11 @@ Getting this order wrong is recoverable — the realm's contents stay editable i
 
 ## Hostnames before you own a domain
 
-The domain is T60 ([#91](https://github.com/Shei254/marketplaats-extension/issues/91))'s, and it has lead
+**This deployment has done the switch** — `adbump.nl`, on 2026-09-23 (T56, #87), and `deployment.json`,
+`brand.json` and all five `production.env` addresses — the four hostnames and the apex — name it now. What follows stays because it is the
+right way to stand a *new* deployment up before its domain exists, and because the switch itself is below.
+
+The domain was T60 ([#91](https://github.com/Shei254/marketplaats-extension/issues/91))'s, and it had lead
 time nothing else here shares — a trademark search and Web Store name availability. **You do not have to wait
 for it to deploy**, and you must not deploy on a bare IP either: the realm is `sslRequired: external`, so
 Keycloak answers `403 HTTPS required` to any non-local plain-HTTP caller. That is the setting working, and it
@@ -550,6 +582,17 @@ When the domain arrives, the switch is:
 | Stripe dashboard | The webhook endpoint. `success_url` and the Portal return follow `MPRELIST_WEB_BASE_URL` on their own |
 | Every existing session | Refused. `KC_HOSTNAME` changes the `iss` in every token and the API validates it. Free at zero users, a forced re-sign-in at any other number |
 | `deployment.json` + a rebuild | **The one that has a deadline.** See below |
+
+**What the switch actually cost, walked on 2026-09-23.** Three things bit, and none of them is a row above.
+**The registrar's own hosting is the default for a new subdomain** — at Strato, creating `auth` and `admin`
+pointed them at the registrar's web server, not at the VPS, and `api` did not exist at all; each one has to
+be set to *own IP address* by hand, and the panel offers no wildcard. **`MPRELIST_ACME_CA` is still staging**
+after the DNS is right, which is the file working as designed (§ TLS) and presents as
+`ERR_CERT_AUTHORITY_INVALID` in a browser on five certificates that were all issued correctly. And **an
+already-built extension keeps talking to the old hostnames**, where Caddy no longer has a site for them and
+so refuses the TLS handshake outright — the popup's "unavailable" state, from a failure below HTTP. `.nl` is
+on the Public Suffix List, unlike `nip.io`, so the per-registered-domain bucket stopped being shared the
+moment the domain became real.
 
 **Do all of this before the extension is published.** The extension's API and issuer addresses are compiled
 in and cannot be served to it (ADR-0024: the config document is fetched *from* `baseUrl`, and sign-in

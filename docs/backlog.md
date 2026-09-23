@@ -650,6 +650,16 @@ realm exists and a real Keycloak is started on it by `ProductionRealmTest`, and 
 scripts are in `infra/deploy/`. The open items are the ones no commit can close: buy or choose the hostnames
 (T60), provision the VPS, create the Web Store draft to learn the id, and run the click-through.
 
+**The domain landed on 2026-09-23.** `adbump.nl`'s A record moved off Strato and onto the VPS, all four
+hostnames and the apex resolve, and all five hold browser-trusted Let's Encrypt certificates — so
+`MPRELIST_ACME_CA` is on the production directory and no longer on the staging one the example file ships.
+`deployment.json`, `brand.json` and the generated theme carry the new addresses; the Web Store draft exists
+and assigned `cefnlogjhmeceojlaoionfjpdkklmnaf`. What this ticket still owns, and none of it is a commit:
+the `mprelist-dashboard` client's redirect URIs and web origins in the Keycloak console (the realm imported
+the nip.io ones and the `${…}` templates went inert at first start), the Stripe webhook endpoint, and
+registering the published extension id on `mprelist-extension` beside the unpacked one. `infra/README.md`
+§ Hostnames before you own a domain records what the switch actually cost.
+
 Three things this ticket leaves standing, recorded rather than discovered later:
 - **The host's checkout is updated by hand**, deliberately. Doing it in the deploy script would mean a
   repository read key on that machine beside the read-only GHCR token, which ADR-0023 does not put there. So
@@ -786,10 +796,10 @@ Web Store name availability, domain availability, a trademark search. One edit t
 `brand.json`'s `supportEmail` is now `contact@adbump.nl` and it delivers. What remains of this ticket is
 Web Store name availability and the trademark search — both checks rather than commits.
 
-**`brand.domain` is not `adbump.nl`, deliberately.** That domain's A record still points at its registrar,
-and this field's only consumer is the two footer links on the sign-in page (`template.ftl`), which have to
-work — so it holds `www.187-7-19-175.nip.io`, where the site is actually served. T56 moves it, and
-`brand.json`'s `$note` says so beside the value rather than only here.
+**`brand.domain` is `www.adbump.nl` as of 2026-09-23.** It held `www.187-7-19-175.nip.io` until then, for
+the reason its `$note` gave: the field's only consumers are footer links that have to resolve, and the
+domain's A record still pointed at its registrar. T56 moved the record and this value with it — `www.` and
+not the apex, because the apex is a permanent redirect to the site.
 
 **The same session swept the last stale spellings of the old name**, which is the other half of "everything
 else is prose": the production realm's `displayName` (now the identifier's — see the glossary's **Brand
@@ -1683,8 +1693,9 @@ inside it. So the choice is to own the templates or to own the words, and this o
   looks right and an inbox does not.
 - **The design system contributes values, not rules.** `palette`, `text`, `space` and `radius`, inlined at
   build time. `var(--mp-…)` does not survive Gmail, so the most faithful sheet is the one that renders as
-  unstyled text. Light only; **wordmark, no image** — email themes get no resource URL, and `brand.domain` is
-  still the IP-derived nip.io host while a sent mail is permanent.
+  unstyled text. Light only; **wordmark, no image** — email themes get no resource URL, and `brand.domain` was
+  still the IP-derived nip.io host when this shipped, while a sent mail is permanent. That reason expired on
+  2026-09-23; the deferred **"The mark in the mail"** row further down is what is left of it.
 - **`ThemeType` gains a typed `messages` field**, rendered through the `propertiesFile()` escaper that
   already turns `é` into `\u00e9` — which is why the ambiguity between `Properties.load` and a UTF-8
   `Reader` never has to be settled. **And `scripts/build.mjs` learns to copy templates recursively**, which
@@ -1746,5 +1757,5 @@ T21).
 | Firefox port | [ADR-0009](adr/0009-tech-stack.md) |
 | Relist history / outcome analytics screens | Not in iteration 1 |
 | The login screens' Dutch | [ADR-0035](adr/0035-the-mail-is-ours-and-so-are-the-words.md) — the mail T82 writes says *je* and the login page still runs on Keycloak's formal *u*. Closing the seam means owning the login theme's message bundle for the sign-in, registration and reset screens, which is a different size of decision from six keys |
-| The mark in the mail | [ADR-0035](adr/0035-the-mail-is-ours-and-so-are-the-words.md) — a sent mail is permanent and `brand.domain` is still the nip.io hostname derived from a VPS IP. One entry in `SITE_ICONS` and one `<img>` in the shell, once T56 moves the A record |
+| The mark in the mail | [ADR-0035](adr/0035-the-mail-is-ours-and-so-are-the-words.md) — **unblocked on 2026-09-23**, when T56 made `brand.domain` a domain we own rather than a hostname derived from a VPS IP. The condition the deferral named is met; what is left is the work it named — one entry in `SITE_ICONS` and one `<img>` in the shell — and it is deferred now by nothing but scope |
 | Bulk repost in the popup | [ADR-0027](adr/0027-the-popup-stops-offering-bulk-repost.md) — built (T68, T69) and withdrawn from the screen for go-live scope; the mechanism, the entitlement and the API refusal all stand. Back with T70, once go-live is stable |

@@ -63,9 +63,11 @@
                         <#-- The wordmark, and no image. A mail cannot serve a
                              theme resource — there is no `url` in an email
                              template's attributes — so a mark here would be an
-                             absolute link to `brandDomain`, which is today a
-                             hostname derived from a VPS IP address. A sent mail
-                             is permanent; that link would be. -->
+                             absolute link to `brandDomain`. That was the
+                             objection while `brandDomain` carried a VPS IP
+                             address and a sent mail is permanent; T56 retired it
+                             on 2026-09-23 and ADR-0035 is amended. What keeps
+                             this a wordmark now is scope, not permanence. -->
                         <span style="${properties.mailBrandStyle!}">${properties.brandName!}</span>
                         <p style="${properties.mailTaglineStyle!}">${properties.brandTagline!}</p>
                     </td>

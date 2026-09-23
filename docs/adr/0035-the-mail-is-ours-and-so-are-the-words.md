@@ -120,6 +120,11 @@ provisional and T56 is booked to replace. Every mail sent before that move would
 **11. A wordmark.** The brand name as styled text. Chosen, and reversible into option 10 in one line once
 there is a domain worth embedding.
 
+> **Amended 2026-09-23.** There is. T56 moved `adbump.nl` onto the VPS and `brand.domain` with it, so the
+> objection option 10 was refused on — that every mail sent would point at a hostname carrying a VPS IP
+> address, for ever — no longer holds. Nothing about this decision was wrong; its condition has simply been
+> met, and the choice between 10 and 11 is now an ordinary scope call rather than a permanence one.
+
 ### The envelope
 
 **12. `fromDisplayName` as a literal in the realm exports.** A hand-written copy of the brand in the one file

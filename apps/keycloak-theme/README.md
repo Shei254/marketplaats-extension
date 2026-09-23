@@ -100,7 +100,7 @@ So `src/email` is three decisions the login type never had to make ([ADR-0035](.
 |---|---|
 | **The copy is ours** | `copy.ts` generates `messages_nl.properties` from `brand.json`, for the two mails a customer can receive. It is what keeps `realmName` — an administrator's label, reading `mprelist (production)` — out of a sentence a customer reads, and it is why the mail says *je* where Keycloak's Dutch says *u* |
 | **The sheet is values, not rules** | `themeCss` is `:root { --mp-…: … }` and every component rule reads `var(--mp-…)`. Gmail keeps no `:root` rule and resolves no custom property, so `styles.ts` rewrites the rules as inline declarations and reads every *value* from `@mprelist/ui`. A change to a token reaches the mail; a change to `componentCss` does not |
-| **No mark, and light only** | The wordmark and nothing else — an `<img>` would need an absolute URL, and `brand.domain` is still a hostname derived from a VPS IP while a sent mail is permanent. One palette, because a mail carries no theme switch and `BRAND_MARK` is the same in both halves anyway |
+| **No mark, and light only** | The wordmark and nothing else — an `<img>` would need an absolute URL, and `brand.domain` carried a VPS IP address while a sent mail is permanent. T56 retired that objection on 2026-09-23 ([ADR-0035](../../docs/adr/0035-the-mail-is-ours-and-so-are-the-words.md), amended); the mark is deferred by scope now rather than by permanence. One palette, because a mail carries no theme switch and `BRAND_MARK` is the same in both halves anyway |
 
 **Two silent traps live in that bundle**, and `copy.test.ts` pins both. A lone `'` opens a quoted section in
 `java.text.MessageFormat` and swallows every placeholder after it — which is why Keycloak's own English

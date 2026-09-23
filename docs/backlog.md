@@ -775,18 +775,23 @@ is the one that gets a vague sentence and a rejection.
 
 | Permission | Why it is needed |
 |---|---|
-| `host_permissions` on marktplaats.nl | The extension reposts the user's own ads in their own Marktplaats session; every request it makes goes to that site and no other. |
-| `storage` | Holds the sign-in session, the ad snapshot that makes a repost recoverable, and the repost queue. |
-| `unlimitedStorage` | A snapshot carries the ad's photos, so one interrupted repost can exceed the default quota. |
-| `identity` | Sign-in is Authorization Code + PKCE against our own identity provider, opened by `launchWebAuthFlow`. |
-| `alarms` | Resumes a repost queue after the browser suspends the extension (T68). Reposts are spaced 30–60 seconds apart, which is longer than a service worker stays alive. |
+| `host_permissions` on marktplaats.nl | The extension reposts the user's own ads in their own Marktplaats session, which means reading their active listings and submitting a replacement. The content script runs on marktplaats.nl and nowhere else. |
+| `storage` | Four things, all local to the user's browser: the sign-in session, the snapshot that makes an interrupted repost recoverable, the timestamp that paces consecutive reposts, and the served configuration document. |
+| `unlimitedStorage` | A snapshot carries the ad's photos, because a repost deletes the original and re-uploads its content — so the photos are the only way to put an interrupted one back. A listing can exceed the default 10 MB quota, and exceeding it would mean an ad deleted from Marktplaats that this extension can no longer restore. |
+| `identity` | Sign-in is Authorization Code + PKCE against our own identity provider, opened by `launchWebAuthFlow`. `getRedirectURL` is the only other call; **`getProfileUserInfo` is never called**, so the permission reads no Chrome or Google profile — worth saying on the form, because the permission's name suggests otherwise. |
+| `alarms` | `service-worker.ts` registers `chrome.alarms.onAlarm` at the top level, so the permission is required for the worker to start at all. An alarm is what lets a paced sequence of reposts resume across the worker's suspension: the gaps are drawn wider than the ~30s a suspended MV3 worker survives, so no timer inside the worker can outlive one. |
+| Remote code | **None.** The answer on the form is *"No, I am not using remote code"*: no `eval`, no `new Function`, no dynamic `import()`, no remotely-hosted script, no `chrome.scripting` and no `userScripts`. The served document (#36) is JSON — endpoint paths and timing numbers that shipped code reads — so no code crosses the wire, and saying that unprompted is cheaper than being asked. |
+| Single purpose | Reposting the signed-in user's own Marktplaats advertisements so a listing that has sunk in the results is at the top again. Every capability above serves that one act. |
 
-**One justification needs a decision before it is filed.** `alarms` is the batch runner's only user, and the
-batch is withdrawn from the popup ([ADR-0027](adr/0027-the-popup-stops-offering-bulk-repost.md), T70) — so
-this listing asks for a permission no user of this build can reach. It cannot be dropped instead:
-`service-worker.ts` registers `chrome.alarms.onAlarm` at the top level, and a missing permission throws
-before anything else starts. Either the sentence describes the queue rather than the feature, or T70 lands
-first and it is true as written.
+**The `alarms` decision, filed 2026-09-23.** It was the one justification this table said needed deciding:
+`alarms` is the batch runner's only user, the batch is withdrawn from the popup
+([ADR-0027](adr/0027-the-popup-stops-offering-bulk-repost.md), T70), and so this listing asks for a
+permission no user of *this* build can reach. It cannot be dropped instead — the top-level listener throws
+without it. **Filed describing the mechanism rather than the feature**, which is the option this entry
+already named and is true of the shipped build sentence by sentence: the listener is registered at load, the
+permission is what lets the worker start, and an alarm is what carries a paced sequence across a suspension.
+What it deliberately does not claim is a bulk repost a user can press. If a reviewer asks to be shown one,
+the answer is T70 — not a rewrite of this sentence, which would then be describing something absent.
 
 #### [T60](https://github.com/Shei254/marketplaats-extension/issues/91) · Finalise the brand name · **S** · before T56 and T58
 Web Store name availability, domain availability, a trademark search. One edit to `brand.json` and a rebuild

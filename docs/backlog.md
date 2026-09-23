@@ -775,13 +775,30 @@ is the one that gets a vague sentence and a rejection.
 
 | Permission | Why it is needed |
 |---|---|
-| `host_permissions` on marktplaats.nl | The extension reposts the user's own ads in their own Marktplaats session, which means reading their active listings and submitting a replacement. The content script runs on marktplaats.nl and nowhere else. |
+| `host_permissions` on marktplaats.nl | One pattern, `https://www.marktplaats.nl/*`. The extension reposts the user's own ads in their own Marktplaats session, which means reading their active listings and submitting a replacement — all of it in a content script that runs on that host and nowhere else. The permission's own consumer is `chrome.tabs.query`, which finds the tab the content script is in; **`tabs` is deliberately not requested**, so no other tab is visible, and saying so turns the permission into evidence of what this extension cannot see. |
 | `storage` | Four things, all local to the user's browser: the sign-in session, the snapshot that makes an interrupted repost recoverable, the timestamp that paces consecutive reposts, and the served configuration document. |
 | `unlimitedStorage` | A snapshot carries the ad's photos, because a repost deletes the original and re-uploads its content — so the photos are the only way to put an interrupted one back. A listing can exceed the default 10 MB quota, and exceeding it would mean an ad deleted from Marktplaats that this extension can no longer restore. |
 | `identity` | Sign-in is Authorization Code + PKCE against our own identity provider, opened by `launchWebAuthFlow`. `getRedirectURL` is the only other call; **`getProfileUserInfo` is never called**, so the permission reads no Chrome or Google profile — worth saying on the form, because the permission's name suggests otherwise. |
 | `alarms` | `service-worker.ts` registers `chrome.alarms.onAlarm` at the top level, so the permission is required for the worker to start at all. An alarm is what lets a paced sequence of reposts resume across the worker's suspension: the gaps are drawn wider than the ~30s a suspended MV3 worker survives, so no timer inside the worker can outlive one. |
 | Remote code | **None.** The answer on the form is *"No, I am not using remote code"*: no `eval`, no `new Function`, no dynamic `import()`, no remotely-hosted script, no `chrome.scripting` and no `userScripts`. The served document (#36) is JSON — endpoint paths and timing numbers that shipped code reads — so no code crosses the wire, and saying that unprompted is cheaper than being asked. |
 | Single purpose | Reposting the signed-in user's own Marktplaats advertisements so a listing that has sunk in the results is at the top again. Every capability above serves that one act. |
+
+**Two host patterns were dropped on 2026-09-23**, and what they cost was a review question with no
+answer. The manifest carried `https://*.marktplaats.nl/*` and `*://*.marktplaats.nl/*` beside the `www` one;
+the second is a superset of all three and reads, in the install prompt and on the form, as *all* HTTP and
+HTTPS on every `marktplaats.nl` subdomain. Nothing used either. Every endpoint is a path on `www`, the one
+absolute URL in the endpoint config is `www`, and the apex and plain HTTP both `301` to
+`https://www.marktplaats.nl/` — so no state a user can be in depends on them. Nor could they ever have: the
+**content script** is where every Marktplaats request is made, and its `matches` is `www`-only, so a wider
+host permission cannot widen what the extension reaches. The ad photos look like a counter-example and are
+not: `downloadPhoto` fetches them from `images.marktplaats.com`, a `.com` host **no** pattern here ever
+covered, and it works because that CDN answers `Access-Control-Allow-Origin: *`.
+
+**And the one that stays is not free-standing.** `content_scripts.matches` already requests host access to
+`www.marktplaats.nl`, so Chrome shows *"Read and change your data on www.marktplaats.nl"* whether or not
+`host_permissions` repeats it. Removing the field would therefore reduce neither what the extension can
+reach nor what the user is asked to grant — it would only cost `chrome.tabs.query` the ability to find a tab
+the user already has open, after a service-worker restart, with no way to re-discover one.
 
 **The `alarms` decision, filed 2026-09-23.** It was the one justification this table said needed deciding:
 `alarms` is the batch runner's only user, the batch is withdrawn from the popup

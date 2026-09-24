@@ -105,6 +105,14 @@
       "page": "web"
     },
     {
+      "file": "Landing.dc.html",
+      "x": 1840,
+      "y": 0,
+      "w": 880,
+      "h": 1600,
+      "page": "web"
+    },
+    {
       "file": "Tokens.dc.html",
       "x": 0,
       "y": 0,
@@ -175,6 +183,14 @@
       "w": 440,
       "page": "tokens",
       "text": "This is what T28 (packages/ui) encodes.\n\nEvery value is lifted verbatim from the POC popup, so the design is continuous with what already ships. Two additions are called out on the sheet."
+    },
+    {
+      "id": "note-landing",
+      "x": 1840,
+      "y": -180,
+      "w": 460,
+      "page": "web",
+      "text": "Landing, at / (T58) \u2014 the Web Store listing's Homepage URL.\n\nThe copy is the listing's description, so the two say the same thing. Plan cards come live from GET /api/plans (names and prices are illustrative, formatted as the popup's priceOf does). The pricesUnavailable tweak draws a 503. An empty list drops the cards and the payment line, and an empty paymentMethods drops that line alone.\n\nOpen: that route is Bearer-only by contract today, so building this means amending it for anonymous callers.\n\nThe button goes to the Store by the draft's id, cefnlogjhmeceojlaoionfjpdkklmnaf. It 404s until the listing is approved."
     }
   ],
   "launch": {

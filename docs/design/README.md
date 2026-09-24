@@ -12,6 +12,7 @@ code, regenerated on every seed).
 | `QuotaExhausted.dc.html` · `Cooldown.dc.html` · `Dunning.dc.html` | the gated states — ads stay visible, buttons lock |
 | `PlanCards.dc.html` | the plan picker (T52) |
 | `Success.dc.html` · `Cancel.dc.html` · `Privacy.dc.html` · `Terms.dc.html` | `apps/web`'s public pages (T50, T36) |
+| `Landing.dc.html` | `/`, the Web Store listing's homepage (T58) — drawn, not yet built |
 | `Tokens.dc.html` | the token sheet **T28 encodes** |
 | `canvas.json` | artboard layout, the three pages, and the sticky notes |
 

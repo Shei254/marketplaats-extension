@@ -1800,6 +1800,85 @@ a step beside 3b — trigger a reset on the local stack and read the mail in Mai
 **Not in it:** the mark (waits on T56 for a domain worth embedding in something permanent); the login
 screens' Dutch; a second locale; and the verification mail's copy, which `verifyEmail` does not yet send.
 
+#### T83 · Nobody pays twice · **S** · T19, T52
+*No issue filed — this came out of the 2026-09-25 grilling on "the landing page must include our tiers so that
+it can go through Stripe review", as the first of three tickets (T83–T85).*
+
+**Nothing on the server stops a paying subscriber from opening a second Checkout.** `OpenCheckout` passes an
+existing `stripe_customer_id`, so Stripe knows the customer — and will still create a second subscription on
+it. The only guard today is the popup's: the current plan's card carries no buy button (`PlanCards.tsx`).
+T85 adds a second surface that sells, and a rule each client must remember is a double charge the day one
+forgets.
+
+- **`POST /api/checkout` refuses** a caller whose Subscription is paid and not terminal: `409`, with a reason
+  code in `packages/contracts/src/enforcement.ts` and `docs/enforcement-contract.md`. Beside "you can only
+  buy what the cards show", which `OpenCheckout` already states for the same kind of reason.
+- **The popup answers it with Betaling beheren** — the Customer Portal — through `handoffFailure`, as a
+  note rather than an apology.
+- **A plan switch is the Portal's, always** — Pro to Business, monthly to annual. `customer.subscription.updated`
+  already mirrors the new Price onto its Tier (`MirrorSubscriptions`), so no plan-change flow is built here.
+  **Operator step:** allow switching between the tagged Prices in Stripe's Customer Portal settings — a
+  dashboard setting, not a deploy; `docs/click-through.md` gains the walk.
+
+**Not in it:** our own upgrade or downgrade screen; proration of any kind.
+
+#### T84 · The site says what it sells · **M** · T49, T50, T76, T79
+*Same session. Stripe's activation form asks for a public, unprotected website "to check your company and
+what you sell" — and `https://www.adbump.nl/` answers with the not-found fallback, "Op dit adres staat
+niets". **This is the ticket that unblocks Stripe**; T85 is not needed for the review.*
+
+`apps/web/README.md` deferred a landing page to "the ticket that also writes the Web Store listing" (T58).
+This is it, split off from T58 because it is its own feature.
+
+- **`GET /api/plans` is readable without a token** — `GET` and the exact path, in `ResourceServerSecurity`
+  beside the webhook, which is the chain's own rule for opening a route. Its answer never depended on the
+  caller (`PlansOnOffer.cards()`); it needed a token only because of `anyRequest().authenticated()`. **An ADR**,
+  since it is the first anonymous route that is not Stripe's, and B (prices typed into the copy) and C (fetched
+  at build time) were weighed and rejected: money lives in Stripe alone (ADR-0014/0019).
+- **The answer gains the Free tier on offer** (glossary) — the priceless tier that is also the **Default
+  tier** *and* grants something, quota above `0` or unlimited. Absent in every other case: no priceless row,
+  a priceless default at `0` (ADR-0019's "there is no free tier"), or a priceless row nobody lands on. Name,
+  grant and features, and no price. The popup reads the same body and ignores the field until it wants it.
+- **Canvas first** (ADR-0016): `docs/design/Landing.dc.html`, light and dark, reviewed before any code. A
+  promotional page — a hero, the product in three short steps rather than in detail, then the **Plans** and
+  the Free tier on offer on the same page, no `/pricing` of its own. The hero's call to action scrolls to the
+  plans.
+- **`/` becomes `landing`** in `routes.ts`; every other unclaimed address stays `not-found`, and the README's
+  sentence about `/` is rewritten.
+- **Dutch, and the listing's forbidden words are a test** — *automatisch*, *officieel*, *toegestaan*,
+  *volgens de regels*, *veilig voor je account*, *geen risico* (`store/listing.md`) — held against the page's
+  copy the way `brand.test.ts` holds the brand.
+- **The plan cards carry no buy button yet**: *"Kies je abonnement in de extensie"*, no link. The Free tier
+  card carries none ever — there is nothing to buy. States as the popup's: loading, unavailable (`503`),
+  and nothing on sale (an empty list).
+- **Decided and left out:** a link to the Chrome Web Store — anywhere, before or after the listing is live;
+  an "incl. btw" label (the Prices are inclusive, so the number shown is the number paid); a KvK number,
+  btw-id or address in the footer — the first thing to add if Stripe comes back asking to verify the
+  business.
+
+**Follow-up in `store/listing.md`:** *"een gratis abonnement geeft een beperkt aantal herplaatsingen per
+maand"* is a copy of the Free tier on offer, and is false the day an operator withdraws it.
+
+#### T85 · The site sells, too · **M** · T83, T84, T54, T21
+*Same session.* The plan buttons T84 left inert become purchases. **This partly reverses ADR-0017** — the
+public routes stop being unable to know who anybody is, and the popup stops being the only place a plan is
+chosen — **so it carries an ADR**, whose sentence is: *a public page may ask who you are only to sell you
+something*. `no-identity.test.ts` is rewritten to hold that sentence rather than deleted.
+
+- **Sign-in only at the moment of buying.** No "Inloggen" in the header and no signed-in state on any page.
+  Pressing a plan's Rhythm runs PKCE through `mprelist-dashboard` (already registered for `www.`, and the
+  realm already allows registration), and the chosen tier code and Rhythm survive the round trip — the realm
+  redirects to the origin root only, where the admin sign-in also lands, so `/` tells a returning buyer from
+  a returning admin.
+- **The token lives in memory, for the hand-off only**: Checkout, or the Portal. No refresh, no sign-out.
+- **T83's `409` becomes Betaling beheren** on the site, with the same token.
+- **`/success` no longer assumes the extension**: the subscription is live — open the extension, or
+  download it if you have not yet. No Store link (T84). `Success.dc.html` changes first.
+- **Accepted, not solved:** somebody can pay before the extension is installable, including from a phone.
+  The subscription belongs to the App account, so it is waiting whenever they do sign in.
+
+**Not in it:** an account page; a customer session on the public site; buying the free tier.
+
 ---
 
 ## Deferred

@@ -235,6 +235,22 @@ describe("buying a plan", () => {
     await expect(client.checkout("pro", "month")).resolves.toEqual({ status: "unavailable" });
   });
 
+  it("reads somebody Stripe is already billing as already paying (T83)", async () => {
+    // A denial — the only answer this route gives that is about the caller — and
+    // the screen that asked already holds what to do about it: Betaling beheren.
+    const { client } = api({ answer: () => json({ reason: "ALREADY_PAYING" }, 409) });
+
+    await expect(client.checkout("pro", "month")).resolves.toEqual({ status: "already-paying" });
+  });
+
+  it("and a 409 that says nothing it recognises as unavailable", async () => {
+    // Read by the code and never the status, like every denial: a conflict this
+    // build cannot name is not a reason to tell somebody they already pay.
+    const { client } = api({ answer: () => empty(409) });
+
+    await expect(client.checkout("pro", "month")).resolves.toEqual({ status: "unavailable" });
+  });
+
   it("refuses an answer with no URL in it rather than opening nothing", async () => {
     const { client } = api({ answer: () => json({ url: "" }) });
 

@@ -37,6 +37,12 @@ describe("what to say when nothing opened", () => {
     expect(handoffFailure({ status: "gone" }, "portal")).toContain("niets te beheren");
   });
 
+  it("sends somebody who already pays to Betaling beheren rather than to another plan (T83)", () => {
+    // The button is on the same screen, under the cards; a switch is the Portal's,
+    // which prorates it rather than charging twice.
+    expect(handoffFailure({ status: "already-paying" }, "checkout")).toContain("Betaling beheren");
+  });
+
   it("says come back in a moment when Stripe could not be asked", () => {
     expect(handoffFailure({ status: "unavailable" }, "checkout")).toContain("Probeer het zo opnieuw");
     expect(handoffFailure({ status: "unavailable" }, "portal")).toContain("Probeer het zo opnieuw");

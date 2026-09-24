@@ -25,6 +25,11 @@ import com.stripe.param.checkout.SessionCreateParams;
  * before anybody said what it grants is therefore unbuyable by construction rather than by a second `where`
  * clause remembering to say so (ADR-0019).
  *
+ * <p><strong>Nobody pays twice</strong> (T83). Stripe knows a returning customer by the id below and will still
+ * create a second subscription on them, so somebody on Pro who presses Business would be charged for both.
+ * A payer is refused before anything else is looked at; a plan switch is the Customer Portal's, which
+ * prorates it.
+ *
  * <p><strong>A returning subscriber is the same customer.</strong> ADR-0018 has a cancelled subscriber fall
  * back to the free tier with {@code stripe_customer_id} kept, precisely so that resubscribing continues one
  * billing history instead of starting a second. So an existing customer id is passed to Stripe when we have
@@ -74,6 +79,13 @@ class OpenCheckout {
 	 * client forgot to send a field
 	 */
 	Checkout open(UserRef buyer, String tierCode, String interval) {
+		// Before what is on sale: a payer is going to the Portal whatever they asked for, and "that plan is gone"
+		// would send them looking for another to buy.
+		if (this.subscriptions.isPaying(buyer)) {
+			LOG.info("Stripe is already billing the buyer, so no second subscription was opened for `{}`",
+					tierCode);
+			return new Checkout.AlreadyPaying();
+		}
 		Optional<SellablePlan> plan = onSale(tierCode);
 		if (plan.isEmpty()) {
 			LOG.info("Nothing on sale under the code `{}`, so no Checkout session was opened", tierCode);

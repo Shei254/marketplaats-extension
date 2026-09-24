@@ -260,6 +260,16 @@ rather than a 404 — a host that does not (T55, #86) breaks this step *after* t
    than a month from signing up. Relist once to confirm.
    *If it still says Free:* the webhook is where to look, not the popup — `stripe listen` shows the
    `customer.subscription.created` delivery and its status, and a `400` there is the signing secret.
+6a. Still on Pro, press another plan's button (T83) — any plan on sale that is not the one you hold.
+   *Expect:* no tab opens, and the note under the cards reads **"Je hebt al een betaald abonnement. Wissel of
+   zeg op via Betaling beheren."** The API logs that no second subscription was opened; the Stripe dashboard
+   shows still one subscription on the customer.
+   Then **Betaling beheren → Update plan**, and pick that plan.
+   *First time only:* the Portal offers no **Update plan** until switching is allowed in the Stripe dashboard
+   (Settings → Billing → Customer portal → Subscriptions → *Customers can switch plans*), with the tagged
+   Prices added to its product list.
+   *Expect:* Stripe shows the prorated amount, `customer.subscription.updated` arrives, and the popup shows
+   the new plan — the mirror moves the tier from the Price, and nothing on our side opened a Checkout.
 7. Open the Customer Portal from the popup — **Plans → Manage billing** — and cancel **immediately** (not at
    period end, which is what the Portal offers by default — "cancel now" is in the test dashboard's own
    subscription view).

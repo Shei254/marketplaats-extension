@@ -194,6 +194,11 @@ class PortalSessionTest {
 				return customer;
 			}
 
+			@Override
+			public boolean isPaying(UserRef user) {
+				throw new UnsupportedOperationException("the Portal asks about the customer, never the status");
+			}
+
 		};
 	}
 

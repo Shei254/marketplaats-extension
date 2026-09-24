@@ -82,6 +82,14 @@ export const DENIAL_REASONS = [
   "QUOTA_EXCEEDED",
   /** Too fast for the pacing rails (ADR-0008). Carries `retryAfter`, in whole seconds. */
   "RATE_LIMITED",
+  /**
+   * Stripe is already billing the caller, so `POST /api/checkout` opens no
+   * second subscription (T83). **Not the gate's** — it is never an answer to a
+   * relist — and it is a denial for `NO_TIER`'s reason: a statement about the
+   * user, on a route the gate does not own. What to do about it is the Customer
+   * Portal, where a plan switch is prorated, so it adds nothing.
+   */
+  "ALREADY_PAYING",
 ] as const;
 
 export type DenialReason = (typeof DENIAL_REASONS)[number];
@@ -104,7 +112,9 @@ export type Denial =
   | { reason: "NO_TIER" }
   | { reason: "QUOTA_EXCEEDED"; resetAt: string }
   /** Whole seconds, rounded up, named after HTTP's own `Retry-After` and carried in the body rather than the header of that name. */
-  | { reason: "RATE_LIMITED"; retryAfter: number };
+  | { reason: "RATE_LIMITED"; retryAfter: number }
+  /** Adds nothing: the Portal link is already on the screen that asked. */
+  | { reason: "ALREADY_PAYING" };
 
 /** `POST /api/relist/authorize`. Quota and pacing are per user; there is no account id to send. */
 export interface AuthorizeRequest {

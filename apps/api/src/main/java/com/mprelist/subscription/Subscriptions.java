@@ -67,4 +67,23 @@ public interface Subscriptions {
 	 */
 	Optional<String> stripeCustomerFor(UserRef user);
 
+	/**
+	 * Whether Stripe is billing this account right now — the {@code paying} half of {@link SubscriberCount},
+	 * asked about one account rather than counted over a tier (T83).
+	 *
+	 * <p><strong>True through dunning, false after a terminal end.</strong> A card being retried is still a
+	 * subscription Stripe expects to charge, and a successful retry gives the tier straight back; a cancellation
+	 * clears the Stripe subscription and keeps the customer (ADR-0018), so a returning subscriber is not paying
+	 * and may buy again as themselves. The status is therefore not what is asked: whether a Stripe subscription
+	 * exists at all is.
+	 *
+	 * <p>A boolean rather than the id, for {@link Subscription}'s reason: the id is this module's, and the one
+	 * caller — {@code billing}, about to open a Checkout — needs to know only whether a second one would be a
+	 * second charge.
+	 *
+	 * @param user the account to answer about
+	 * @return whether Stripe holds a live subscription for it, and {@code false} for an account with no row
+	 */
+	boolean isPaying(UserRef user);
+
 }

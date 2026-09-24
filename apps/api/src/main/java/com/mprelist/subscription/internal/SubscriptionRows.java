@@ -84,6 +84,20 @@ class SubscriptionRows implements Subscriptions, SubscriptionMirror, TierSubscri
 				.optional();
 	}
 
+	/**
+	 * One column, no lock, for {@link #stripeCustomerFor(UserRef)}'s reasons. The race it leaves open is the
+	 * webhook for a purchase not having arrived yet — two Checkout tabs opened a second apart both pass — and
+	 * closing that would take holding a session open across Stripe's page, which nothing here does.
+	 */
+	@Override
+	public boolean isPaying(UserRef user) {
+		return this.db.sql("select stripe_subscription_id is not null from subscription where app_user_id = ?")
+				.param(user.id())
+				.query(Boolean.class)
+				.optional()
+				.orElse(false);
+	}
+
 	@Override
 	@Transactional(propagation = Propagation.MANDATORY)
 	public Subscription currentFor(UserRef user) {

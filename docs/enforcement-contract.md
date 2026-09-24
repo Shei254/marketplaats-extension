@@ -251,6 +251,15 @@ about their **software**. It therefore carries none, exactly like every other `4
   destroyed the moment that tab takes focus — expected, and what T50's success page catches.
 - **A `200` is an offer to pay, not an entitlement.** What moves the plan is Stripe saying the money did,
   through the webhook (T20, #30). Nothing here spends or grants anything.
+- **`409 ALREADY_PAYING`** when Stripe is already billing the caller (T83) — the one refusal here that is a
+  denial, so the one that carries `{ "reason": "ALREADY_PAYING" }` and nothing else. Stripe knows a returning
+  customer by the id below and would still open a second subscription on them, so somebody on Pro pressing
+  Business would be charged for both. **A plan switch is the Customer Portal's**: it prorates, and
+  `customer.subscription.updated` moves the tier. Asked before anything else, including whether the plan is on
+  sale, since a payer is going to the Portal whatever they asked for. "Billing" means a Stripe subscription
+  exists — true through dunning, false after a terminal end, since ADR-0018 clears it and keeps the customer.
+  Two Checkout tabs opened before the first purchase's webhook arrives both pass; nothing here holds a session
+  open across Stripe's page to close that.
 - **`404` with an empty body** when nothing is on sale under that code: unknown, unpublished, or a draft
   synced at quota 0 (ADR-0019). A client holding yesterday's plan cards gets this, and it is not an error on
   either side. The free tier is one of these — it has no Price, so it is not in the list this route buys from.

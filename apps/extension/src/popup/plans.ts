@@ -54,7 +54,7 @@ export const MANAGING = "manage-billing";
  * is no longer on sale — what a client holding yesterday's cards gets, and nobody's
  * error — and for the Portal it is an account Stripe has never billed, which is
  * every free user who has not bought anything. Neither is a fault to apologise for,
- * so neither sentence does.
+ * so neither sentence does. Nor is `already-paying`, which only Checkout answers.
  *
  * `signed-out` and `outdated` are not here: they are screens, not notes, and the
  * popup takes them somewhere else entirely.
@@ -64,6 +64,11 @@ export function handoffFailure(answer: HandoffAnswer, asked: "checkout" | "porta
     return asked === "checkout"
       ? "Dat abonnement wordt niet meer aangeboden."
       : "Je hebt nog niets betaald, dus er is niets te beheren.";
+  }
+  if (answer.status === "already-paying") {
+    // Checkout's alone (T83). The button it names is under the cards on this
+    // same screen, and a switch there is prorated rather than charged twice.
+    return "Je hebt al een betaald abonnement. Wissel of zeg op via Betaling beheren.";
   }
   if (answer.status === "unavailable") {
     return asked === "checkout"

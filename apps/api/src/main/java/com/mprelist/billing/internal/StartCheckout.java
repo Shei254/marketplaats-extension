@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import com.mprelist.enforcement.ReasonCode;
 import com.mprelist.identity.UserRef;
 
 /**
@@ -19,7 +20,11 @@ import com.mprelist.identity.UserRef;
  * a URL the popup opens in a tab, at which point the popup closes — expected, and the reason T50's success
  * page exists to catch the browser.
  *
- * <p><strong>Three answers, and the statuses are the difference between them.</strong> {@code 200} carries
+ * <p><strong>{@code 409 ALREADY_PAYING}</strong> (T83) refuses somebody Stripe is already billing, with the
+ * contract's denial body: unlike the refusals below it is a statement about the caller, and what they want —
+ * a different plan — is the Customer Portal's.
+ *
+ * <p><strong>Three other answers, and the statuses are the difference between them.</strong> {@code 200} carries
  * the URL. {@code 404} means nothing is on sale under that code — an unknown tier, an unpublished one, or a
  * draft — which is what a client holding yesterday's plan cards gets, and is not an error on either side.
  * {@code 503} means Stripe could not be asked, which is the only one of the three a retry fixes. Both
@@ -44,7 +49,7 @@ class StartCheckout {
 	 * not the Stripe price id, which is ours to look up and would let a client name a Price we never published
 	 */
 	@PostMapping(path = PATH, consumes = MediaType.APPLICATION_JSON_VALUE)
-	ResponseEntity<CheckoutSession> start(UserRef buyer, @RequestBody CheckoutRequest request) {
+	ResponseEntity<?> start(UserRef buyer, @RequestBody CheckoutRequest request) {
 		if (request == null || request.tierCode() == null || request.tierCode().isBlank()
 				|| request.interval() == null || request.interval().isBlank()) {
 			// Not "not for sale": nothing was asked for at all, which is a request this API could not read.
@@ -57,7 +62,18 @@ class StartCheckout {
 			case Checkout.Opened opened -> ResponseEntity.ok(new CheckoutSession(opened.url()));
 			case Checkout.NotForSale ignored -> ResponseEntity.notFound().build();
 			case Checkout.Unavailable ignored -> ResponseEntity.status(503).build();
+			// The denial shape, and the one answer here that is about the caller rather than the plan or Stripe.
+			case Checkout.AlreadyPaying ignored -> ResponseEntity.status(ReasonCode.ALREADY_PAYING.status())
+					.body(new Denied(ReasonCode.ALREADY_PAYING));
 		};
+	}
+
+	/**
+	 * The body of this route's one denial, {@code {"reason":"ALREADY_PAYING"}} — {@code display}'s
+	 * {@code Denied} again rather than shared, since that one is internal to its module; the <em>code</em> is
+	 * the shared part.
+	 */
+	record Denied(ReasonCode reason) {
 	}
 
 	/**

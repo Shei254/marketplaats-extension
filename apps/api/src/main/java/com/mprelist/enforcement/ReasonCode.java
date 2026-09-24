@@ -10,7 +10,7 @@ import org.springframework.http.HttpStatus;
  * <p>The mapping lives on the code rather than at the point of refusal, so that "quota exhausted is a 429" is
  * stated once. Nothing else in this application decides a denial's status.
  *
- * <p>Five of the contract's six are here. {@code UNAUTHENTICATED} is {@code identity}'s — it is answered by
+ * <p>Six of the contract's seven are here. {@code UNAUTHENTICATED} is {@code identity}'s — it is answered by
  * the filter chain before any route is reached, which is what makes it true of routes no ticket has written
  * yet (#19).
  *
@@ -114,7 +114,18 @@ public enum ReasonCode {
 	 * {@code TIER_WITHDRAWN} was the other candidate and would have been the one code here describing an
 	 * event rather than a condition.
 	 */
-	NO_TIER(HttpStatus.FORBIDDEN);
+	NO_TIER(HttpStatus.FORBIDDEN),
+
+	/**
+	 * Stripe is already billing this caller, so {@code POST /api/checkout} will not open a second subscription
+	 * on them (T83). What to do about it is the Customer Portal — a plan switch is prorated there, and the
+	 * webhook moves the tier — so it adds nothing: the client already holds the link.
+	 *
+	 * <p>{@code 409}, because the request is fine and the caller's own state is what it conflicts with. The
+	 * second code sent on a route this module does not own, after {@link #NO_TIER}, and for that code's reason:
+	 * one vocabulary of statements about the user, held to {@code packages/contracts} in one place.
+	 */
+	ALREADY_PAYING(HttpStatus.CONFLICT);
 
 	public HttpStatus status() {
 		return this.status;

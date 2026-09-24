@@ -188,8 +188,8 @@ services:
       # Which browser origins may call this API. The extension's is a `chrome-extension://` origin built from
       # the published id; the site's is **two**, because the admin corner is served from a hostname of its own
       # (T56, #87, ADR-0017) and an origin is a hostname. Comma-separated, which is how `allowed-origins`
-      # reads it — and both are needed: it is the admin corner that calls this API, and `www.` is what
-      # Checkout sends a browser back to. One without the other is a working payment flow beside an admin
+      # reads it — and both are needed: the admin corner calls this API, and so does `www.`'s landing page for
+      # the plan cards (T58), which is also what Checkout sends a browser back to. One without the other is a working payment flow beside an admin
       # screen no browser will call, which is a pair of symptoms nobody would connect.
       MPRELIST_EXTENSION_ID: ${MPRELIST_EXTENSION_ID:?the published extension id, imported into the realm once}
       MPRELIST_WEB_ORIGIN: ${MPRELIST_WEB_BASE_URL:?where the site is served from},${MPRELIST_ADMIN_BASE_URL:?where the admin corner is served from}

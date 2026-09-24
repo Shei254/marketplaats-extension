@@ -30,6 +30,10 @@ Both of the endpoints this file used to name as missing now exist and are in it:
 **Nothing here is written ahead of the endpoint it describes** — that is a guess which later reads as a
 contract, and it stays the rule for the next one.
 
+**Beside it, the readings of the wire fields both clients read**: `money.ts` (T66), `features.ts` (T69),
+`quota.ts` (T73), and `wording.ts` (T58) — how a plan reads aloud, shared by the popup's plan cards and the
+site's landing page ([ADR-0011](../../docs/adr/0011-repository-layout.md), amended by T58).
+
 **Every quota on the read side is `number | null`** since T73
 ([ADR-0029](../../docs/adr/0029-unlimited-is-null-and-zero-still-grants-nothing.md)): `null` is an unlimited
 tier and `0` still grants nothing. TypeScript's strict-null does for the four clients what `Integer` does for

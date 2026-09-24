@@ -2,8 +2,10 @@ import { Icon, UiStyles } from "@mprelist/ui";
 import type { JSX } from "react";
 
 import { BRAND } from "./brand";
+import { Landing } from "./public/landing";
 import { PrivacyPage, TermsPage } from "./public/legal";
 import { BillingPage, CancelPage, NotFoundPage, SuccessPage } from "./public/pages";
+import type { LoadPlans } from "./public/plans-on-offer";
 import { PATHS, pageFor, type Page } from "./routes";
 import { siteCss } from "./site-styles";
 
@@ -20,8 +22,21 @@ import { siteCss } from "./site-styles";
  * with "there's nothing here" is worse than a link that arrives with its page.
  * They are in the header and the footer on every page, as the canvas draws them,
  * and the one you are reading is marked rather than repeated as a link to itself.
+ *
+ * **`loadPlans` is the one thing the landing page asks after it is drawn** (T58):
+ * `GET /api/plans`, with no token. Handed in rather than called here, so this stays
+ * a function of its props and `main.tsx` stays the only file that knows where the
+ * API is.
  */
-export function Site({ pathname, year }: { pathname: string; year: number }): JSX.Element {
+export function Site({
+  pathname,
+  year,
+  loadPlans,
+}: {
+  pathname: string;
+  year: number;
+  loadPlans: LoadPlans;
+}): JSX.Element {
   const showing = pageFor(pathname);
   return (
     <div className="mp-root web-stage">
@@ -42,7 +57,9 @@ export function Site({ pathname, year }: { pathname: string; year: number }): JS
             <DocumentLink to="terms" showing={showing} />
           </nav>
         </header>
-        <main className="web-page">{page(showing)}</main>
+        <main className={showing === "landing" ? "web-page web-page--landing" : "web-page"}>
+          {page(showing, loadPlans)}
+        </main>
         <footer className="web-footer">
           <span>
             © {year} {BRAND.name}
@@ -52,6 +69,14 @@ export function Site({ pathname, year }: { pathname: string; year: number }): JS
             <a href={`mailto:${BRAND.supportEmail}`}>{BRAND.supportEmail}</a>
           </span>
         </footer>
+        {/* The landing page's last line, under the footer where the artboard puts it:
+            the Web Store's Impersonation policy expects it of a listing that uses
+            somebody else's name, and this page is where that listing points. */}
+        {showing === "landing" ? (
+          <p className="web-disclaimer">
+            {BRAND.name} is een onafhankelijk product en is niet gelieerd aan Marktplaats.
+          </p>
+        ) : null}
       </div>
     </div>
   );
@@ -74,8 +99,10 @@ function DocumentLink({ to, showing }: { to: "privacy" | "terms"; showing: Page 
 }
 
 /** Total over the route table, so a page added there without one here does not compile. */
-function page(name: Page): JSX.Element {
+function page(name: Page, loadPlans: LoadPlans): JSX.Element {
   switch (name) {
+    case "landing":
+      return <Landing loadPlans={loadPlans} />;
     case "privacy":
       return <PrivacyPage />;
     case "terms":

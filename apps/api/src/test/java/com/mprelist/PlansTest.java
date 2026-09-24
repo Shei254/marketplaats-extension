@@ -323,12 +323,42 @@ class PlansTest {
 		assertThat(refused.body()).doesNotContain("plans").isEmpty();
 	}
 
+	/**
+	 * The one read this API answers without a token (T58): the site's landing page shows the same cards to a
+	 * visitor who has no account yet, and nothing in them is per-user. The answer is the same one the popup
+	 * gets, so the two surfaces cannot show different prices.
+	 */
 	@Test
-	void andItIsClosedLikeEveryOtherRoute() {
-		// Nothing here is per-user, which is not a reason to open one route in an API that is closed by
-		// default: the caller is the popup, and it is holding a token already.
-		HttpResponse<String> refused = Http
+	void aVisitorWithNoTokenIsShownTheSameCards() {
+		HttpResponse<String> anonymous = Http
 				.send(HttpRequest.newBuilder(uri()).timeout(TIMEOUT).GET().build());
+
+		assertThat(anonymous.statusCode()).isEqualTo(200);
+		assertThat(Json.of(anonymous)).isEqualTo(Json.of(get()));
+	}
+
+	/**
+	 * Opening the route does not stop a token that <em>is</em> presented from being checked: a caller whose
+	 * token is bad hears so, rather than being quietly served as a stranger and never finding out.
+	 */
+	@Test
+	void butATokenThatIsPresentedIsStillChecked() {
+		HttpResponse<String> refused = Http.send(HttpRequest.newBuilder(uri())
+				.timeout(TIMEOUT)
+				.header("Authorization", "Bearer " + IDP.tokenSignedByAKeyThisIssuerNeverPublished())
+				.GET()
+				.build());
+
+		assertThat(refused.statusCode()).isEqualTo(401);
+	}
+
+	/** GET only, and this path only: whatever else reaches it is the 401 every other unknown call gets. */
+	@Test
+	void andNothingButTheReadIsOpened() {
+		HttpResponse<String> refused = Http.send(HttpRequest.newBuilder(uri())
+				.timeout(TIMEOUT)
+				.POST(HttpRequest.BodyPublishers.noBody())
+				.build());
 
 		assertThat(refused.statusCode()).isEqualTo(401);
 	}

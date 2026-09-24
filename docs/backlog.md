@@ -852,6 +852,15 @@ the answer is T70 — not a rewrite of this sentence, which would then be descri
   tile is the mark without text; the 128 icon stays full-bleed. All of it lives in `store/media/`, ignored,
   because it shows a real account.
 
+**The homepage is a page now, 2026-09-25.** The listing's Homepage URL is the site's root, which answered
+*"Op dit adres staat niets"* until `docs/design/Landing.dc.html` decided what goes there: the listing's own
+description in the site's card, and the plan cards. **`GET /api/plans` answers without a token** for it —
+the one read the API opens, since nothing in it is per-user, and the popup still sends its token and gets
+the same answer ([`enforcement-contract.md`](enforcement-contract.md)). The public site's one call is
+`apps/web/src/public/plans-on-offer.ts`, which omits credentials, and `no-identity.test.ts` holds it to
+that. The words a plan is read aloud in moved to `@mprelist/contracts` so the two surfaces cannot word one
+price two ways. The install button links to the Store by the draft's id, so it is a `404` until approval.
+
 #### [T60](https://github.com/Shei254/marketplaats-extension/issues/91) · Finalise the brand name · **S** · before T56 and T58
 Web Store name availability, domain availability, a trademark search. One edit to `brand.json` and a rebuild
 (T48) — everything else is prose, the listing, and the realm's origins.

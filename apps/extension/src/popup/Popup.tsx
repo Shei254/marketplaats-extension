@@ -1,4 +1,5 @@
 import { UiStyles } from "@mprelist/ui";
+import { waysToPay } from "@mprelist/contracts";
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 
 import type { WireRelistOutcome } from "../background/messages";
@@ -28,7 +29,6 @@ import {
   MANAGING,
   NOT_OPENING,
   PLANS_LOADING,
-  waysToPay,
   type Handoff,
   type PlansView,
 } from "./plans";

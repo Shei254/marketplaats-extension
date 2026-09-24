@@ -1,8 +1,8 @@
 import { Badge, Button, Icon, Note, Skeleton } from "@mprelist/ui";
-import type { DisplayState, Plan, PlanPrice } from "@mprelist/contracts";
+import { cardGrantOf, priceAndRhythmOf, type DisplayState, type Plan, type PlanPrice } from "@mprelist/contracts";
 import type { JSX } from "react";
 
-import { grantOf, priceAndRhythmOf, type Handoff, type PlansView } from "./plans";
+import type { Handoff, PlansView } from "./plans";
 import { grantLine } from "./screens";
 
 /**
@@ -132,7 +132,7 @@ function PlanCard({
       </div>
       {/* The quota, described in the rhythm of the first price — which is the
           cheapest, and the one somebody reads the card by. */}
-      <p className="popup-plan-card-grant">{grantOf(plan, plan.prices[0]?.interval ?? "month")}</p>
+      <p className="popup-plan-card-grant">{cardGrantOf(plan)}</p>
       {current ? (
         <Button shape="block" tone="done" aria-label={`${plan.tier.name} is je abonnement`}>
           Je abonnement

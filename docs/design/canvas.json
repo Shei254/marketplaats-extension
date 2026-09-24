@@ -190,7 +190,7 @@
       "y": -180,
       "w": 460,
       "page": "web",
-      "text": "Landing, at / (T58) \u2014 the Web Store listing's Homepage URL.\n\nThe copy is the listing's description, so the two say the same thing. Plan cards come live from GET /api/plans (names and prices are illustrative, formatted as the popup's priceOf does). The pricesUnavailable tweak draws a 503. An empty list drops the cards and the payment line, and an empty paymentMethods drops that line alone.\n\nOpen: that route is Bearer-only by contract today, so building this means amending it for anonymous callers.\n\nThe button goes to the Store by the draft's id, cefnlogjhmeceojlaoionfjpdkklmnaf. It 404s until the listing is approved."
+      "text": "Landing, at / (T58) \u2014 the Web Store listing's Homepage URL.\n\nThe copy is the listing's description, so the two say the same thing. Plan cards come live from GET /api/plans (names and prices are illustrative, formatted as the popup's priceOf does). The pricesUnavailable tweak draws a 503. An empty list drops the cards and the payment line, and an empty paymentMethods drops that line alone.\n\nGET /api/plans answers without a token since T58, so a visitor sees the same cards the popup does.\n\nThe button goes to the Store by the draft's id, cefnlogjhmeceojlaoionfjpdkklmnaf. It 404s until the listing is approved."
     }
   ],
   "launch": {

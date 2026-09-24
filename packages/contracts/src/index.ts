@@ -8,9 +8,11 @@
  * object whose one flag three separate readers had to agree about, and
  * `./features` is that agreement (T69; ADR-0026). A quota is nullable on four wire
  * shapes and had five readers spelling that out four ways, and `./quota` is the one
- * spelling (T73; ADR-0029). They are the only runtime code here that is not a list
- * of the enum values the wire uses, and all three are here for the same reason: two
- * copies of a rule about one field is the pair that drifts.
+ * spelling (T73; ADR-0029). And a plan is read aloud on two surfaces since the
+ * site's landing page (T58), and `./wording` is how it reads. They are the only
+ * runtime code here that is not a list of the enum values the wire uses, and all
+ * four are here for the same reason: two copies of a rule about one field is the
+ * pair that drifts.
  *
  * Consumed as TypeScript source: both consumers bundle, so a build step here
  * would only produce a second artefact to keep in step.
@@ -75,3 +77,5 @@ export {
 } from "./money";
 
 export { isQuota } from "./quota";
+
+export { cardGrantOf, grantOf, priceAndRhythmOf, priceOf, UNLIMITED_REPOSTS, waysToPay } from "./wording";

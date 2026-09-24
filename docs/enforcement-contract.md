@@ -172,8 +172,11 @@ about their **software**. It therefore carries none, exactly like every other `4
 ## Endpoints
 
 ### `GET /api/plans` — what can be bought
-- **Auth:** `Authorization: Bearer <Keycloak access token>`. Nothing here is per-user, but the API is closed
-  by default and there is no reason to open one route.
+- **Auth: none required** (T58). The one read this API answers without a token, because nothing in it is
+  per-user and the site's landing page shows the same cards to a visitor with no account yet. It was
+  Bearer-only until then, on the grounds that there was no reason to open one route; the landing page is the
+  reason. The popup still sends its token and gets the same answer, a token that is presented is still
+  checked (a bad one is `401`), and only `GET` on this exact path is opened.
 - **Returns `200`:** the **published** tiers carrying a `stripePriceId`, each as a **Plan** — our half joined
   with Stripe's:
 

@@ -276,7 +276,7 @@ function urlIn(body: unknown): string | null {
  * entry says nothing about the rest.
  *
  * The tokens are not checked against a list of known methods. What this product
- * can *name* is `waysToPay`'s in `popup/plans.ts`, and a token nobody has named is
+ * can *name* is `waysToPay`'s in `@mprelist/contracts`, and a token nobody has named is
  * simply not rendered — deciding that here would put the vocabulary in two places.
  */
 export function asPaymentMethods(body: unknown): string[] {

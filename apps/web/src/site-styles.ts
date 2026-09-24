@@ -218,4 +218,230 @@ body {
   line-height: 1.65;
 }
 .web-doc-list li + li { margin-top: 4px; }
+/* The landing page (T58), docs/design/Landing.dc.html: a hero, then sections that
+   run edge to edge across the card, so the frame's padding moves onto each of them
+   rather than around the lot. */
+.web-page--landing {
+  padding: 0;
+  text-align: left;
+}
+.web-hero {
+  padding: 52px 30px 40px;
+  text-align: center;
+}
+.web-hero-title {
+  margin: 0 0 12px;
+  font: var(--mp-text-display) var(--mp-font-family);
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+}
+.web-hero-copy { max-width: 520px; }
+/* An anchor wearing the design system's primary button, because it leaves the
+   site: a link a screen reader announces as one, drawn as the one thing to press. */
+.web-install {
+  width: auto;
+  display: inline-flex;
+  padding: 11px 20px;
+  text-decoration: none;
+}
+.web-install:hover { color: var(--mp-on-accent); text-decoration: none; }
+.web-hero-micro { margin-top: 12px; }
+
+.web-compare {
+  display: flex;
+  gap: 18px;
+  max-width: 600px;
+  margin: 38px auto 0;
+  padding: 18px;
+  border: 1px solid var(--mp-line);
+  border-radius: var(--mp-radius-card);
+  background: var(--mp-subtle);
+}
+.web-compare-column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.web-compare-title {
+  margin: 0 0 4px;
+  font: var(--mp-text-caption) var(--mp-font-family);
+  font-weight: 600;
+  color: var(--mp-muted);
+  text-align: left;
+}
+.web-compare-arrow {
+  align-self: center;
+  padding-top: 18px;
+  color: var(--mp-muted);
+}
+.web-compare-row {
+  display: flex;
+  align-items: center;
+  gap: var(--mp-space-sm);
+  padding: 8px 10px;
+  border: 1px solid var(--mp-line);
+  border-radius: var(--mp-radius-block);
+  background: var(--mp-bg);
+  font: var(--mp-text-caption) var(--mp-font-family);
+  color: var(--mp-muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.web-compare-row b { color: var(--mp-fg); }
+.web-compare-row--yours {
+  border-color: var(--mp-accent);
+  color: var(--mp-fg);
+  box-shadow: 0 0 0 3px var(--mp-ring);
+}
+.web-compare-thumb {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: var(--mp-radius-skeleton);
+  background: var(--mp-line);
+}
+.web-compare-top {
+  margin-left: auto;
+  font: var(--mp-text-micro) var(--mp-font-family);
+  font-weight: 650;
+  color: var(--mp-accent);
+}
+
+.web-section {
+  padding: 34px 30px;
+  border-top: 1px solid var(--mp-line);
+}
+.web-section--subtle { background: var(--mp-subtle); }
+.web-section-title {
+  margin: 0 0 14px;
+  font: var(--mp-text-title) var(--mp-font-family);
+  font-size: 17px;
+  letter-spacing: -0.01em;
+}
+.web-section-copy {
+  margin: 0 0 16px;
+  max-width: 600px;
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  color: var(--mp-muted);
+  line-height: 1.6;
+}
+
+/* Three numbered steps side by side, the number a tile rather than a list marker
+   so it reads as a step and not as a footnote. */
+.web-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+  display: flex;
+  gap: 22px;
+}
+.web-steps li {
+  flex: 1;
+  display: flex;
+  gap: 11px;
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  line-height: 1.55;
+  counter-increment: step;
+}
+.web-steps li::before {
+  content: counter(step);
+  width: 26px;
+  height: 26px;
+  flex: none;
+  margin-top: -3px;
+  border-radius: var(--mp-radius-pill);
+  background: var(--mp-hover);
+  color: var(--mp-accent);
+  font-weight: 650;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.web-points {
+  margin: 0;
+  padding: 0;
+  max-width: 640px;
+  list-style: none;
+}
+.web-points li {
+  position: relative;
+  margin: 0 0 9px;
+  padding-left: 18px;
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  line-height: 1.6;
+}
+.web-points li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 9px;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--mp-radius-pill);
+  background: var(--mp-accent);
+}
+
+.web-plans {
+  display: flex;
+  gap: var(--mp-space-md);
+}
+.web-plan {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 15px;
+  border: 1px solid var(--mp-line);
+  border-radius: var(--mp-radius-card);
+  background: var(--mp-bg);
+  box-shadow: var(--mp-shadow-sm);
+}
+.web-plan p { margin: 0; }
+.web-plan-name { font: var(--mp-text-title) var(--mp-font-family); }
+.web-plan .web-plan-grant {
+  margin-bottom: 6px;
+  font: var(--mp-text-caption) var(--mp-font-family);
+  color: var(--mp-muted);
+}
+.web-plan-price {
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  font-variant-numeric: tabular-nums;
+}
+.web-pay-with {
+  margin: 14px 0 0;
+  font: var(--mp-text-caption) var(--mp-font-family);
+  color: var(--mp-muted);
+}
+.web-plans-unavailable {
+  padding: 18px;
+  border: 1px dashed var(--mp-line);
+  border-radius: var(--mp-radius-card);
+  background: var(--mp-subtle);
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  color: var(--mp-muted);
+  text-align: center;
+}
+.web-plans-unavailable p { margin: 0 0 10px; }
+.web-plans-unavailable b { color: var(--mp-fg); }
+
+.web-disclaimer {
+  margin: 0;
+  padding: 0 30px var(--mp-space-md);
+  font: var(--mp-text-micro) var(--mp-font-family);
+  color: var(--mp-muted);
+}
+
+/* A phone: the three side-by-side rows become columns, and the comparison stacks. */
+@media (max-width: 640px) {
+  .web-hero, .web-section { padding-left: var(--mp-space-md); padding-right: var(--mp-space-md); }
+  .web-steps, .web-plans, .web-compare { flex-direction: column; }
+  .web-compare-arrow { align-self: center; padding: 0; transform: rotate(90deg); }
+}
 `;

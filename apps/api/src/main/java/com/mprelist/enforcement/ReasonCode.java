@@ -10,7 +10,7 @@ import org.springframework.http.HttpStatus;
  * <p>The mapping lives on the code rather than at the point of refusal, so that "quota exhausted is a 429" is
  * stated once. Nothing else in this application decides a denial's status.
  *
- * <p>Six of the contract's seven are here. {@code UNAUTHENTICATED} is {@code identity}'s — it is answered by
+ * <p>Seven of the contract's eight are here. {@code UNAUTHENTICATED} is {@code identity}'s — it is answered by
  * the filter chain before any route is reached, which is what makes it true of routes no ticket has written
  * yet (#19).
  *
@@ -125,7 +125,17 @@ public enum ReasonCode {
 	 * second code sent on a route this module does not own, after {@link #NO_TIER}, and for that code's reason:
 	 * one vocabulary of statements about the user, held to {@code packages/contracts} in one place.
 	 */
-	ALREADY_PAYING(HttpStatus.CONFLICT);
+	ALREADY_PAYING(HttpStatus.CONFLICT),
+
+	/**
+	 * The mirror of {@link #ALREADY_PAYING}, on the route next to it: a <strong>Plan switch</strong> changes
+	 * the subscription Stripe is billing, and this caller has none (T85, ADR-0036). What they want is Checkout,
+	 * which the same card offers them once the client knows — so it adds nothing.
+	 *
+	 * <p>{@code 409} for the same reason: the request is fine and the caller's own state is what it conflicts
+	 * with.
+	 */
+	NOT_PAYING(HttpStatus.CONFLICT);
 
 	public HttpStatus status() {
 		return this.status;

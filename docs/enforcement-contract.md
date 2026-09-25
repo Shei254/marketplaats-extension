@@ -265,7 +265,8 @@ about their **software**. It therefore carries none, exactly like every other `4
   customer by the id below and would still open a second subscription on them, so somebody on Pro pressing
   Business would be charged for both. **A plan switch is the Customer Portal's**: it prorates, and
   `customer.subscription.updated` moves the tier. Asked before anything else, including whether the plan is on
-  sale, since a payer is going to the Portal whatever they asked for. "Billing" means a Stripe subscription
+  sale, since a payer is going to the Portal whatever they asked for. The site offers the same payer its own
+  **Plan switch** instead (T85, below). "Billing" means a Stripe subscription
   exists — true through dunning, false after a terminal end, since ADR-0018 clears it and keeps the customer.
   Two Checkout tabs opened before the first purchase's webhook arrives both pass; nothing here holds a session
   open across Stripe's page to close that.
@@ -282,6 +283,28 @@ about their **software**. It therefore carries none, exactly like every other `4
   address to match on (#108). It carries an existing `stripe_customer_id` when the account has one, so a
   subscriber who cancelled and came back (ADR-0018) continues one billing history rather than starting a
   second.
+
+### `POST /api/plan-switch/preview` and `POST /api/plan-switch` — a Plan switch
+- **Auth:** `Authorization: Bearer <Keycloak access token>`. Called by the site (T85,
+  [ADR-0036](adr/0036-the-site-sells-and-a-subscriber-switches-in-place.md)); the popup's door to the same
+  act is the Customer Portal.
+- **Request:** `{ "tierCode": "power", "interval": "month" }` — `POST /api/checkout`'s body, with its `400`
+  for one that is missing either field or is not JSON.
+- **A Plan switch changes the Price on the subscription Stripe is already billing**, in place: immediate,
+  prorated both ways (`always_invoice`), and applied only once paid (`pending_if_incomplete`). It never
+  opens a second subscription, which is the failure `409 ALREADY_PAYING` above is written against.
+- **The preview returns `200`:** `{ "amount": 743, "currency": "eur" }` — Stripe's own invoice for the same
+  switch, which the site shows in a confirmation dialog before anything is charged. **Negative is a credit**:
+  a downgrade leaves it on the Stripe customer against the next invoices. It spends nothing.
+- **The switch returns `200`:** `{ "confirmAt": null }` when it is made — the webhook then moves the tier, as
+  for any Price change — or `{ "confirmAt": "https://invoice.stripe.com/…" }` when the charge needs the payer
+  (3-D Secure) and nothing has moved yet. A switch to the Price already billed is a `200` that sends nothing
+  to Stripe.
+- **`409 NOT_PAYING`** when Stripe is billing the caller for nothing — `ALREADY_PAYING` the other way round,
+  and the one refusal here that is a denial: `{ "reason": "NOT_PAYING" }`, adding nothing, since the same card
+  offers Checkout.
+- **`404` and `503` with empty bodies**, exactly as `POST /api/checkout` answers them: nothing on sale under
+  that code and rhythm, or Stripe could not be asked.
 
 ### `POST /api/portal` — where "manage billing" becomes a Stripe page
 - **Auth:** `Authorization: Bearer <Keycloak access token>`. Called by the **popup**, which opens the returned

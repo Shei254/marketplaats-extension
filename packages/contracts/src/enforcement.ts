@@ -90,6 +90,12 @@ export const DENIAL_REASONS = [
    * Portal, where a plan switch is prorated, so it adds nothing.
    */
   "ALREADY_PAYING",
+  /**
+   * The mirror of `ALREADY_PAYING`, on the route beside it: a Plan switch
+   * changes the subscription Stripe is billing, and this caller has none (T85,
+   * ADR-0036). What they want is Checkout, so it adds nothing.
+   */
+  "NOT_PAYING",
 ] as const;
 
 export type DenialReason = (typeof DENIAL_REASONS)[number];
@@ -114,7 +120,9 @@ export type Denial =
   /** Whole seconds, rounded up, named after HTTP's own `Retry-After` and carried in the body rather than the header of that name. */
   | { reason: "RATE_LIMITED"; retryAfter: number }
   /** Adds nothing: the Portal link is already on the screen that asked. */
-  | { reason: "ALREADY_PAYING" };
+  | { reason: "ALREADY_PAYING" }
+  /** Adds nothing: the same card offers Checkout once the client knows. */
+  | { reason: "NOT_PAYING" };
 
 /** `POST /api/relist/authorize`. Quota and pacing are per user; there is no account id to send. */
 export interface AuthorizeRequest {
@@ -390,6 +398,35 @@ export interface CheckoutRequest {
  */
 export interface CheckoutSession {
   url: string;
+}
+
+/**
+ * `POST /api/plan-switch/preview` and `POST /api/plan-switch` — a **Plan
+ * switch**: the Price on the Stripe subscription a payer already has, changed
+ * in place and never by a second Checkout (T85, ADR-0036). The body is
+ * {@link CheckoutRequest}'s, and so are the `404` and the `503`; the denial is
+ * `409 NOT_PAYING`.
+ */
+export type SwitchRequest = CheckoutRequest;
+
+/**
+ * What the switch would invoice now, from Stripe's own preview — never an
+ * amount a client works out. **Negative is a credit**: a downgrade, left on the
+ * Stripe customer against the next invoices.
+ */
+export interface SwitchPreview {
+  /** In the currency's smallest unit, as {@link PlanPrice.amount} is. */
+  amount: number;
+  currency: string;
+}
+
+/**
+ * The switch, made — or waiting on the payer. `confirmAt` is `null` when it is
+ * done, and the invoice's hosted page when the charge needs them first (3-D
+ * Secure); nothing moves until it is paid there.
+ */
+export interface SwitchMade {
+  confirmAt: string | null;
 }
 
 /**

@@ -1859,25 +1859,46 @@ This is it, split off from T58 because it is its own feature.
 **Follow-up in `store/listing.md`:** *"een gratis abonnement geeft een beperkt aantal herplaatsingen per
 maand"* is a copy of the Free tier on offer, and is false the day an operator withdraws it.
 
-#### T85 · The site sells, too · **M** · T83, T84, T54, T21
-*Same session.* The plan buttons T84 left inert become purchases. **This partly reverses ADR-0017** — the
-public routes stop being unable to know who anybody is, and the popup stops being the only place a plan is
-chosen — **so it carries an ADR**, whose sentence is: *a public page may ask who you are only to sell you
-something*. `no-identity.test.ts` is rewritten to hold that sentence rather than deleted.
+#### T85 · The site sells, too · **L** · T83, T84, T54, T21, T62
+*Same day, second session.* The first draft of this ticket — sign-in only at the moment of buying, no
+signed-in state, switching through the Portal — was re-grilled on "the plans … dont have buttons if a user
+wanted to subscribe, also the card are really too plain … a switcher for monthly and yearly prices … and it
+also doesnt show the free tier", and came out larger. [ADR-0036](adr/0036-the-site-sells-and-a-subscriber-switches-in-place.md)
+carries the argument; **Plan switch** is in the glossary. `no-identity.test.ts` is rewritten to hold what
+stays true — the success, cancel and billing pages still learn nothing — rather than deleted.
 
-- **Sign-in only at the moment of buying.** No "Inloggen" in the header and no signed-in state on any page.
-  Pressing a plan's Rhythm runs PKCE through `mprelist-dashboard` (already registered for `www.`, and the
-  realm already allows registration), and the chosen tier code and Rhythm survive the round trip — the realm
-  redirects to the origin root only, where the admin sign-in also lands, so `/` tells a returning buyer from
-  a returning admin.
-- **The token lives in memory, for the hand-off only**: Checkout, or the Portal. No refresh, no sign-out.
-- **T83's `409` becomes Betaling beheren** on the site, with the same token.
-- **`/success` no longer assumes the extension**: the subscription is live — open the extension, or
-  download it if you have not yet. No Store link (T84). `Success.dc.html` changes first.
+- **A customer session on `/`** — `mprelist-dashboard`, PKCE, the token in memory, and a secret-free
+  `localStorage` flag that drives one `prompt=none` round trip on load. The realm redirects to the origin root
+  only, where the admin sign-in also lands, so `/` tells a returning buyer from a returning admin. Header:
+  *Inloggen*; signed in, the email with *Betaling beheren* (Portal) and *Uitloggen*.
+- **Buttons.** Free tier or no tier: *Kies* → Checkout. Subscriber: "Huidig" on theirs, *Overstappen* on the
+  rest. A choice made signed out survives sign-in in `sessionStorage` and continues to Checkout only when it
+  is still a purchase — never into a switch. T83's `409` is shown as *Betaling beheren*, should it ever reach
+  the site.
+- **A Plan switch route** — the Price on the existing Stripe subscription, immediate, prorated both ways,
+  `pending_if_incomplete`; a confirmation dialog from Stripe's invoice preview; 3-D Secure via the hosted
+  invoice page. The cards move once `/api/me` reflects the webhook.
+- **The free card is the Free tier on offer** (T84). Signed out *Gratis beginnen* → the Store; on it
+  "Huidig"; paying *Opzeggen* → the Portal.
+- **A Maandelijks / Jaarlijks switcher**, on the landing page only: shown only when some plan has a `year`
+  price, starts on monthly, a monthly-only plan stays with *"Alleen maandelijks"*, the saving is computed from
+  the plan's two prices, and its position is the Rhythm bought or switched to.
+- **Cards led by the number of reposts**, in the direction chosen from a throwaway prototype — branch
+  `prototype/landing-plan-cards`, variant **A**: gradient cards, a quota meter relative to the largest plan,
+  the largest card filled with the mark's gradient and lifted. No benefit lists. `Landing.dc.html` is redrawn
+  first (ADR-0016).
+- **`/success`** gains *"Nog niet geïnstalleerd? Toevoegen aan Chrome"*; **`/cancel`** links to
+  `/#abonnementen`.
+- **`frame-ancestors 'none'` and a tight CSP** in `apps/web/nginx.conf.template`.
 - **Accepted, not solved:** somebody can pay before the extension is installable, including from a phone.
   The subscription belongs to the App account, so it is waiting whenever they do sign in.
 
-**Not in it:** an account page; a customer session on the public site; buying the free tier.
+**Not in it:** the popup's cards, which keep T83's Portal door; scheduling downgrades for period end; showing
+the Stripe credit; an account page.
+
+#### T86 · The popup's mark is off-centre · **XS**
+*Same session.* The badge at the popup's top left (`screens.tsx`, `mp-mark popup-mark`) is not symmetrical,
+and the white glyph inside it is not centred.
 
 ---
 

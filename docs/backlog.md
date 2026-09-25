@@ -1907,6 +1907,18 @@ is the glyph's, not the popup's: both paths move up 1.25 in `packages/ui`'s `Ico
 artboard together, so every tile is balanced at once (the signed-out badge, the site, admin), and
 `icons.test.tsx` holds the ink's centre to the box's.
 
+
+#### T87 · An annual price buys a monthly grant · **S** · **shipped**
+*2026-09-25.* The landing page's Jaarlijks switch changed *"herplaatsingen per maand"* to *"per jaar"* along
+with the price. It was not only wording: a payer's **Quota period** was Stripe's billing period, never rolled,
+so annual Pro granted its 50 **once a year**. Decided in [ADR-0037](adr/0037-an-annual-price-buys-a-monthly-grant.md):
+a **Rhythm** changes the price and never the grant.
+
+- **Backend first.** `Subscriptions.currentFor` answers the month of Stripe's window that contains now,
+  anchored on Stripe's start and ending at its end; the row keeps Stripe's period, so no migration.
+- **Then the words.** `grantOf` drops its Rhythm and says *per maand*, so both the landing page and the popup's
+  cards stop following the switcher.
+- **Accepted:** a Rhythm switch restarts Stripe's period and with it the grant.
 ---
 
 ## Deferred

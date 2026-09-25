@@ -1,0 +1,74 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    .t{
+      --bg:#ffffff; --fg:#0f172a; --muted:#64748b; --line:#e2e8f0; --hover:#f1f5f9;
+      --subtle:#f8fafc;
+      --accent:#2563eb; --accent-hover:#1d4ed8; --on-accent:#ffffff;
+      --ok:#15803d; --ok-bg:#f0fdf4; --warn:#b45309; --warn-bg:#fffbeb;
+      --err:#b91c1c; --err-bg:#fef2f2; --disabled:#94a3b8;
+      --stage:#eef2f6;
+      --ring:rgba(37,99,235,.32);
+      --shadow-sm:0 1px 2px rgba(15,23,42,.06);
+      --shadow:0 1px 3px rgba(15,23,42,.08), 0 8px 24px rgba(15,23,42,.08);
+    }
+    .t.dark{
+      --bg:#14181f; --fg:#e6eaf2; --muted:#97a1b3; --line:#262c36; --hover:#1c2230;
+      --subtle:#1a1f29;
+      --accent:#60a5fa; --accent-hover:#93c5fd; --on-accent:#0b1220;
+      --ok:#4ade80; --ok-bg:#0f2419; --warn:#fbbf24; --warn-bg:#2a2110;
+      --err:#fb7185; --err-bg:#2b1418; --disabled:#4c566a;
+      --stage:#0b0e13;
+      --ring:rgba(96,165,250,.36);
+      --shadow-sm:0 1px 2px rgba(0,0,0,.5);
+      --shadow:0 1px 3px rgba(0,0,0,.6), 0 12px 28px rgba(0,0,0,.45);
+    }
+    body{ margin:0; font:14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    *{ box-sizing:border-box; }
+    a{ color:var(--accent); text-decoration:none; }
+    a:hover{ color:var(--accent-hover); text-decoration:underline; }
+    @keyframes spin{ to{ transform:rotate(360deg); } }
+    .sp{ width:11px; height:11px; border:2px solid currentColor; border-right-color:transparent;
+         border-radius:50%; animation:spin .7s linear infinite; }
+    .sp-lg{ width:22px; height:22px; border-width:2.5px; }
+    @media (prefers-reduced-motion: reduce){ .sp{ animation-duration:2s; } }
+    .sk{ background:var(--line); border-radius:4px; }
+    .when-unavail{ display:none; }
+    .unavail .when-ok{ display:none; }
+    .unavail .when-unavail{ display:block; }
+    .h2{ margin:0 0 14px; font-size:17px; font-weight:650; letter-spacing:-.01em; }
+    .sec{ padding:34px 30px; border-top:1px solid var(--line); }
+    .row{ display:flex; align-items:center; gap:8px; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:var(--bg); font-size:12px; color:var(--muted); }
+    .thumb{ width:26px; height:26px; border-radius:5px; background:var(--line); flex:none; }
+    .num{ width:26px; height:26px; border-radius:50%; background:var(--hover); color:var(--accent); font-weight:650; font-size:13px; display:flex; align-items:center; justify-content:center; flex:none; }
+    .card{ flex:1; border:1px solid var(--line); border-radius:10px; padding:14px 15px; background:var(--bg); box-shadow:var(--shadow-sm); }
+    .price{ font-variant-numeric:tabular-nums; font-weight:650; font-size:14px; }
+    .per{ color:var(--muted); font-size:12.5px; font-weight:400; }
+  </style>
+</helmet>
+<div class="{{classes}}" style="background:var(--stage); padding:28px; display:flex; justify-content:center;"><div style="width:824px; background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); overflow:hidden;"><div style="display:flex; align-items:center; justify-content:space-between; padding:16px 30px; border-bottom:1px solid var(--line);"><div style="display:flex; align-items:center; gap:9px;"><span style="display:inline-flex; color:var(--accent);"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12.5 10 6.5l6 6"></path><path d="M5 16h10"></path></svg></span><span style="font-weight:650; letter-spacing:-.01em; font-size:15px;">AdBump</span></div><div style="display:flex; gap:20px;"><a href="#" style="color:var(--muted); font-weight:400; font-size:13px;">Privacy</a><a href="#" style="color:var(--muted); font-weight:400; font-size:13px;">Voorwaarden</a></div></div>
+<div style="padding:52px 30px 40px; text-align:center;"><h1 style="margin:0 0 12px; font-size:30px; font-weight:700; letter-spacing:-.025em; line-height:1.2;">Zet je advertentie weer bovenaan</h1><p style="margin:0 auto 26px; max-width:520px; font-size:15px; color:var(--muted); line-height:1.6;">Nieuwe advertenties staan op Marktplaats bovenaan; na een paar dagen zakt de jouwe weg. Met AdBump herplaats je hem vanuit je browser, met alle tekst en foto’s, en staat hij weer bovenaan de recente advertenties.</p><a href="https://chromewebstore.google.com/detail/cefnlogjhmeceojlaoionfjpdkklmnaf" style="display:inline-flex; align-items:center; gap:8px; padding:11px 20px; border-radius:9px; font-size:14.5px; font-weight:600; color:var(--on-accent); background:linear-gradient(135deg,var(--accent),var(--accent-hover)); text-decoration:none; box-shadow:var(--shadow-sm);">Toevoegen aan Chrome<svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4h5v5"></path><path d="M16 4 9.2 10.8"></path><path d="M14 12v3.2A1.8 1.8 0 0 1 12.2 17H4.8A1.8 1.8 0 0 1 3 15.2V7.8A1.8 1.8 0 0 1 4.8 6H8"></path></svg></a><p style="margin:12px 0 0; font-size:12.5px; color:var(--muted);">Gratis te installeren · werkt in Chrome</p>
+<div style="display:flex; gap:18px; max-width:600px; margin:38px auto 0; padding:18px; border:1px solid var(--line); border-radius:12px; background:var(--subtle);"><div style="flex:1; display:flex; flex-direction:column; gap:6px;"><p style="margin:0 0 4px; font-size:12px; font-weight:600; color:var(--muted); text-align:left;">Na een paar dagen</p><div class="row"><span class="thumb"></span><span>Nieuw geplaatst · vandaag</span></div><div class="row"><span class="thumb"></span><span>Nieuw geplaatst · gisteren</span></div><div class="row"><span class="thumb"></span><span>Nieuw geplaatst · 2 dagen</span></div><div class="row" style="border-color:var(--accent); color:var(--fg); box-shadow:0 0 0 3px var(--ring);"><span class="thumb"></span><span><b style="color:var(--fg);">Jouw fiets</b> · 5 dagen</span></div></div><div style="display:flex; align-items:center; color:var(--muted); padding-top:18px;"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10h12"></path><path d="M11 5l5 5-5 5"></path></svg></div><div style="flex:1; display:flex; flex-direction:column; gap:6px;"><p style="margin:0 0 4px; font-size:12px; font-weight:600; color:var(--muted); text-align:left;">Na herplaatsen</p><div class="row" style="border-color:var(--accent); color:var(--fg); box-shadow:0 0 0 3px var(--ring);"><span class="thumb"></span><span><b style="color:var(--fg);">Jouw fiets</b> · zojuist</span><span style="margin-left:auto; font-size:11px; font-weight:650; color:var(--accent);">Bovenaan</span></div><div class="row"><span class="thumb"></span><span>Nieuw geplaatst · vandaag</span></div><div class="row"><span class="thumb"></span><span>Nieuw geplaatst · gisteren</span></div><div class="row"><span class="thumb"></span><span>Nieuw geplaatst · 2 dagen</span></div></div></div></div>
+<div class="sec"><h2 class="h2">Zo werkt het</h2><div style="display:flex; gap:22px;"><div style="flex:1; display:flex; gap:11px; align-items:flex-start;"><span class="num">1</span><p style="margin:3px 0 0; font-size:13.5px; line-height:1.55;">Open marktplaats.nl en log in zoals je gewend bent.</p></div><div style="flex:1; display:flex; gap:11px; align-items:flex-start;"><span class="num">2</span><p style="margin:3px 0 0; font-size:13.5px; line-height:1.55;">Klik op het AdBump-icoon in je werkbalk en log in met je AdBump-account.</p></div><div style="flex:1; display:flex; gap:11px; align-items:flex-start;"><span class="num">3</span><p style="margin:3px 0 0; font-size:13.5px; line-height:1.55;">Kies een van je advertenties en klik op <b>Herplaats</b>.</p></div></div></div>
+<div class="sec" style="background:var(--subtle);"><h2 class="h2">Goed om te weten</h2><ul style="margin:0; padding:0; list-style:none; max-width:640px;"><li style="margin:0 0 9px; padding-left:18px; position:relative; font-size:13.5px; line-height:1.6;"><span style="position:absolute; left:0; top:9px; width:6px; height:6px; border-radius:50%; background:var(--accent);"></span>Herplaatsen verwijdert je advertentie en plaatst hem direct opnieuw, met alle tekst en foto’s.</li><li style="margin:0 0 9px; padding-left:18px; position:relative; font-size:13.5px; line-height:1.6;"><span style="position:absolute; left:0; top:9px; width:6px; height:6px; border-radius:50%; background:var(--accent);"></span>Alles gebeurt in je eigen browser, onder je eigen Marktplaats-login. AdBump ziet je Marktplaats-wachtwoord niet, en de tekst en foto’s van je advertenties komen nooit bij ons.</li><li style="margin:0 0 9px; padding-left:18px; position:relative; font-size:13.5px; line-height:1.6;"><span style="position:absolute; left:0; top:9px; width:6px; height:6px; border-radius:50%; background:var(--accent);"></span>Je hebt een AdBump-account nodig. Aanmelden is gratis, en een gratis abonnement geeft een beperkt aantal herplaatsingen per maand.</li></ul></div>
+<div class="sec"><h2 class="h2">Abonnementen</h2><p style="margin:0 0 16px; font-size:13.5px; color:var(--muted); line-height:1.6; max-width:600px;">Wil je vaker herplaatsen, dan kies je in de extensie een betaald abonnement:</p>
+<div class="when-ok"><div style="display:flex; gap:12px;"><div class="card"><p style="margin:0; font-weight:650; font-size:14.5px;">Pro</p><p style="margin:4px 0 10px; font-size:12.5px; color:var(--muted);">50 herplaatsingen per maand</p><p style="margin:4px 0 0;"><span class="price">€ 9,99</span> <span class="per">per maand</span></p><p style="margin:4px 0 0;"><span class="price">€ 99,00</span> <span class="per">per jaar</span></p></div><div class="card"><p style="margin:0; font-weight:650; font-size:14.5px;">Power</p><p style="margin:4px 0 10px; font-size:12.5px; color:var(--muted);">200 herplaatsingen per maand</p><p style="margin:4px 0 0;"><span class="price">€ 19,99</span> <span class="per">per maand</span></p><p style="margin:4px 0 0;"><span class="price">€ 199,00</span> <span class="per">per jaar</span></p></div><div class="card"><p style="margin:0; font-weight:650; font-size:14.5px;">Onbeperkt</p><p style="margin:4px 0 10px; font-size:12.5px; color:var(--muted);">Onbeperkt herplaatsen</p><p style="margin:4px 0 0;"><span class="price">€ 39,99</span> <span class="per">per maand</span></p></div></div><p style="margin:14px 0 0; font-size:12.5px; color:var(--muted);">Je kunt betalen met iDEAL, PayPal of creditcard.</p></div>
+<div class="when-unavail"><div style="padding:18px; border:1px dashed var(--line); border-radius:10px; background:var(--subtle); font-size:13.5px; color:var(--muted); text-align:center;">De prijzen kunnen nu niet worden geladen. Je vindt ze ook in de extensie, onder <b style="color:var(--fg);">Kies een abonnement</b>.<br><a href="#" style="display:inline-block; margin-top:8px; font-weight:600;">Opnieuw proberen</a></div></div></div>
+<div style="padding:16px 30px; border-top:1px solid var(--line); display:flex; justify-content:space-between; gap:12px; font-size:12px; color:var(--muted);"><span>© 2026 AdBump</span><span><a href="#">Privacy</a> · <a href="#">Voorwaarden</a> · <a href="#">contact@adbump.nl</a></span></div><p style="margin:0; padding:0 30px 16px; font-size:11.5px; color:var(--muted);">AdBump is een onafhankelijk product en is niet gelieerd aan Marktplaats.</p></div></div>
+</x-dc>
+<script data-dc-script data-props='{"dark":{"editor":"boolean","default":false},"pricesUnavailable":{"editor":"boolean","default":false}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { classes: (this.props.dark ? 't dark' : 't') + (this.props.pricesUnavailable ? ' unavail' : '') };
+  }
+}
+</script>
+</body>
+</html>

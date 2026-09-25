@@ -1,8 +1,8 @@
 import { Badge, Button, Icon, IconButton, Meter, Note, Skeleton, Spinner } from "@mprelist/ui";
-import type { DisplayState } from "@mprelist/contracts";
+import { UNLIMITED_REPOSTS, type DisplayState } from "@mprelist/contracts";
 import type { JSX, ReactNode } from "react";
 
-import { grantsNothing, MANAGING, UNLIMITED_REPOSTS, type Handoff, type PlansView } from "./plans";
+import { grantsNothing, MANAGING, type Handoff, type PlansView } from "./plans";
 
 
 /**
@@ -537,7 +537,7 @@ export function PlansScreen({
   /**
    * The finished sentence — "Je kunt betalen met iDEAL, PayPal of creditcard." — or
    * `null`, which renders
-   * nothing at all. Built by `waysToPay` in `plans.ts`; this end only places it.
+   * nothing at all. Built by `waysToPay` in `@mprelist/contracts`; this end only places it.
    */
   payWith: string | null;
   /** `PlanCards` — the cards own the loading and failed states of the list itself. */

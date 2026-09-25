@@ -62,7 +62,7 @@ class ResourceServerSecurity {
 				// then closed until that ticket opens it, rather than open until someone notices. #36's
 				// client config is the first that may want opening, and it can say so itself.
 				.authorizeHttpRequests(routes -> {
-					// The one route no token reaches, and it is named here rather than contributed from the
+					// The two routes no token reaches, and each is named here rather than contributed from the
 					// module that serves it. That is the rule `RoutesNeedingARole` states for itself: a module
 					// may say its routes need a role, and opening one is a decision that belongs in the chain
 					// where a reviewer meets it.
@@ -76,6 +76,14 @@ class ResourceServerSecurity {
 					// POST only, and the exact path: a GET to it is an unauthenticated caller reaching a route
 					// this application does not serve, which should be the 401 every other unknown path gets.
 					routes.requestMatchers(HttpMethod.POST, STRIPE_WEBHOOK).permitAll();
+					// The second, and the only read (T58): the site's landing page shows the plan cards to a
+					// visitor who has no account yet. Nothing in them is per-user — they are the catalog's
+					// published tiers and Stripe's cached prices — so the answer is the popup's, word for word.
+					// A token that *is* presented is still checked by the bearer filter before this rule is
+					// consulted, so a bad one is still a 401 rather than a stranger served quietly.
+					//
+					// GET only, and the exact path, for the same reason as the line above.
+					routes.requestMatchers(HttpMethod.GET, PLANS).permitAll();
 					guarded.orderedStream()
 							.forEach(rule -> routes.requestMatchers(rule.pattern()).hasRole(rule.realmRole()));
 					routes.anyRequest().authenticated();
@@ -231,6 +239,12 @@ class ResourceServerSecurity {
 	 * all of them.
 	 */
 	private static final String STRIPE_WEBHOOK = "/api/stripe/webhook";
+
+	/**
+	 * What can be bought (T49), which {@code display} serves. A second copy of its path for the reason
+	 * {@link #STRIPE_WEBHOOK} gives, held to the other by {@code PlansTest}, which asks it without a token.
+	 */
+	private static final String PLANS = "/api/plans";
 
 	private static final AuthenticationEntryPoint CHALLENGE = new BearerTokenAuthenticationEntryPoint();
 

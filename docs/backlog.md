@@ -740,6 +740,15 @@ deployed API. ADR-0006 is explicit that **Stripe Tax calculates and does not fil
   grants access. This product sells subscriptions and nothing else, so until that lands PayPal is on the
   plan screen and unusable at Checkout — a worse state than not offering it. It is the one item here
   with a lead time nobody controls, so it goes first rather than last.
+- **Production's tiers are test-mode tiers, and a key swap does not carry them over** (found 2026-09-24,
+  preparing T58). Production was set up against test keys, so every paid tier row there points at a
+  *test-mode* Price — and live mode has different objects with different ids. Swap the keys alone and every
+  `/api/plans` lookup misses, which T49's all-or-nothing rule turns into a plan screen that fails for
+  everybody, the Web Store reviewer included. So the swap is three steps, all in the dashboards and none in
+  the repo: live keys into the host's `.env`; the Products and Prices recreated in live mode, whose webhooks
+  draft the new tiers; those published, and the test-mode tiers deleted in `/admin` (ADR-0032). Any test
+  subscriber left behind keeps a test customer id, so their *Betaling beheren* fails — nobody real, but
+  expected rather than a bug.
 
 #### [T46](https://github.com/Shei254/marketplaats-extension/issues/54) · Client-side pacing and jitter between relists · **M** · T26 · **shipped**
 **Moved here from "deferred", deliberately**, because serialisation (one relist at a time) is not a gap
@@ -809,6 +818,48 @@ already named and is true of the shipped build sentence by sentence: the listene
 permission is what lets the worker start, and an alarm is what carries a paced sequence across a suspension.
 What it deliberately does not claim is a bulk repost a user can press. If a reviewer asks to be shown one,
 the answer is T70 — not a rewrite of this sentence, which would then be describing something absent.
+
+**The rest of the form, decided 2026-09-24**, before the first submission. The field-by-field text to paste is
+[`store/listing.md`](../store/listing.md); what follows is why it says what it says.
+- **The package is CI's zip, and the draft's key is committed.** The draft exists and its public key is in
+  `manifest.template.json`, so every upload from now on carries the Store's own key — which the Store
+  accepts, where it refuses any `key` on a *first* upload. The CI zip has `manifest.json` at its root; a
+  hand-made `dist.zip` that nested it under `dist/` was found beside it and removed, and `*.zip` is now
+  ignored.
+- **The reviewer gets an account and a video, never a Marktplaats login.** A reviewer can see nothing
+  without both an AdBump account and a Marktplaats account with a live ad, and "could not verify the
+  functionality" is the commonest rejection. So: a reviewer account on the **Default tier**, set up by hand
+  and checked for reposts left just before submitting; *Test instructions* in English that quote the Dutch
+  labels the reviewer will see; and an unlisted video of a real repost. A real Marktplaats login is not
+  handed over — the reviewer's IP would trip Marktplaats's checks on the operator's own account.
+- **Data usage ticks three boxes**: personally identifiable information (email, account id), authentication
+  information (the tokens the extension keeps), website content (ad text and photos read and kept locally,
+  the ad id sent). Not financial information — payment is Stripe's, on the site, and `/privacy` says so. All
+  three certifications. Over-disclosing costs nothing; a box left empty beside a marktplaats.nl host
+  permission reads as concealment. `/privacy` stays Dutch, with an English line in *Test instructions*.
+- **The description states that a repost deletes first — one sentence, the outcome and not the mechanism.**
+  The *Misleading or Unexpected Behavior* policy requires that a description "directly state the
+  functionality", and an irreversible delete is the one a user would not guess.
+- **And it says nothing Marktplaats's terms contradict.** Their
+  [Algemene Gebruiksvoorwaarden](https://www.marktplaats.nl/i/help/over-marktplaats/voorwaarden-en-privacybeleid/algemene-gebruiksvoorwaarden.dot.html)
+  forbid placing ads "via een geautomatiseerd systeem, of op enige andere wijze anders dan via de 'Plaats
+  Advertentie' knop" (7.4) and placing a free ad more than once (2.2.4) — the risk ADR-0002 accepted. The
+  Store's policies do not police a third party's terms, so this is not a rejection; it is the takedown
+  complaint that could follow one. So never *automatisch*, *officieel*, *toegestaan*, *veilig voor je
+  account* or anything implying Marktplaats's approval, and always *Niet gelieerd aan Marktplaats*, which
+  the *Impersonation* policy expects of a listing using someone else's name.
+- **Screenshots are the real popup over a real marktplaats.nl page**, personal details blurred; the promo
+  tile is the mark without text; the 128 icon stays full-bleed. All of it lives in `store/media/`, ignored,
+  because it shows a real account.
+
+**The homepage is a page now, 2026-09-25.** The listing's Homepage URL is the site's root, which answered
+*"Op dit adres staat niets"* until `docs/design/Landing.dc.html` decided what goes there: the listing's own
+description in the site's card, and the plan cards. **`GET /api/plans` answers without a token** for it —
+the one read the API opens, since nothing in it is per-user, and the popup still sends its token and gets
+the same answer ([`enforcement-contract.md`](enforcement-contract.md)). The public site's one call is
+`apps/web/src/public/plans-on-offer.ts`, which omits credentials, and `no-identity.test.ts` holds it to
+that. The words a plan is read aloud in moved to `@mprelist/contracts` so the two surfaces cannot word one
+price two ways. The install button links to the Store by the draft's id, so it is a `404` until approval.
 
 #### [T60](https://github.com/Shei254/marketplaats-extension/issues/91) · Finalise the brand name · **S** · before T56 and T58
 Web Store name availability, domain availability, a trademark search. One edit to `brand.json` and a rebuild

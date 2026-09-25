@@ -22,11 +22,12 @@
  * true is the sentence this type is named for — every page here is public, and a
  * reader of the table cannot mistake the admin corner for one.
  *
- * Everything else — including `/` — is `not-found` on purpose: there is no landing
- * page designed on the canvas, and inventing one is a decision for the ticket that
- * also writes the Web Store listing.
+ * **`/` is the landing page** (T58, #89), which the Web Store listing names as the
+ * homepage — the same kind of published address as `/privacy`. It was `not-found`
+ * until `docs/design/Landing.dc.html` decided what goes there. Everything else is
+ * `not-found`.
  */
-export type Page = "success" | "cancel" | "billing" | "privacy" | "terms" | "not-found";
+export type Page = "landing" | "success" | "cancel" | "billing" | "privacy" | "terms" | "not-found";
 
 /** Every page that has an address of its own — which is every page but the fallback. */
 type Routable = Exclude<Page, "not-found">;
@@ -42,6 +43,7 @@ type Routable = Exclude<Page, "not-found">;
  * compile, and neither does a path for a page that does not exist.
  */
 export const PATHS = {
+  landing: "/",
   success: "/success",
   cancel: "/cancel",
   billing: "/billing",

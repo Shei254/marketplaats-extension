@@ -4,8 +4,11 @@ import { describe, expect, it } from "vitest";
 import { Site } from "./Site";
 import { BRAND } from "./brand";
 
+/** A question that is never answered: these assertions are about the frame, not the cards. */
+const NEVER = (): Promise<never> => new Promise(() => {});
+
 const render = (pathname: string): string =>
-  renderToStaticMarkup(<Site pathname={pathname} year={2026} />);
+  renderToStaticMarkup(<Site pathname={pathname} year={2026} loadPlans={NEVER} />);
 
 describe("what the site serves", () => {
   it("draws the success page at the path Stripe is given", () => {
@@ -33,8 +36,29 @@ describe("what the site serves", () => {
     expect(render("/terms")).toContain("de oorspronkelijke advertentie wordt verwijderd");
   });
 
-  it("draws the not-found page everywhere else, including the root", () => {
-    expect(render("/")).toContain("Op dit adres staat niets");
+  it("draws the landing page at the root, which the Web Store lists as our homepage", () => {
+    const landing = render("/");
+
+    expect(landing).toContain("Zet je advertentie weer bovenaan");
+    expect(landing).toContain('class="web-page web-page--landing"');
+  });
+
+  it("draws the landing page across the whole window, and every other page in the card", () => {
+    expect(render("/")).toContain('class="mp-root web-stage web-stage--wide"');
+    expect(render("/")).not.toContain('class="web-card"');
+    expect(render("/")).toContain('class="web-header web-header--over"');
+    expect(render("/success")).toContain('class="web-card"');
+  });
+
+  it("says under the landing page's footer that it is not Marktplaats's", () => {
+    // Where the artboard puts it: the page's last line, below the footer.
+    const landing = render("/");
+
+    expect(landing.indexOf("niet gelieerd aan Marktplaats")).toBeGreaterThan(landing.indexOf("</footer>"));
+    expect(render("/success")).not.toContain("niet gelieerd aan Marktplaats");
+  });
+
+  it("draws the not-found page everywhere else", () => {
     expect(render("/whatever")).toContain("Op dit adres staat niets");
   });
 });

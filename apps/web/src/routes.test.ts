@@ -46,6 +46,7 @@ describe("the route table", () => {
     // there the address is printed somewhere we do not control, so this is a
     // string to choose and then leave alone.
     expect(PATHS).toEqual({
+      landing: "/",
       success: "/success",
       cancel: "/cancel",
       billing: "/billing",
@@ -71,10 +72,11 @@ describe("the route table", () => {
     expect(pageFor("/billing/")).toBe("billing");
   });
 
-  it("has nothing at the root, deliberately", () => {
-    // There is no landing page on the canvas, and inventing one is a decision for
-    // the ticket that also writes the Web Store listing (T58, #89).
-    expect(pageFor("/")).toBe("not-found");
+  it("answers the root with the landing page, which the Web Store lists as our homepage", () => {
+    // T58 (#89): the listing's Homepage URL is the site's root, and it was the
+    // not-found page until `docs/design/Landing.dc.html` decided what goes there.
+    expect(pageFor("/")).toBe("landing");
+    expect(isDocument("landing")).toBe(false);
   });
 
   it("gives an address nobody claimed a page rather than a blank screen", () => {

@@ -31,15 +31,22 @@ npm run preview -w @mprelist/web    # dist/, served the way a host would
 
 | Path | |
 |---|---|
+| `/` | The landing page, and the Web Store listing's Homepage URL (T58). **The one page drawn across the whole window** rather than in the card: a hero in the mark's gradient with the install button and an animated demo of a repost, three steps, the plan cards from `GET /api/plans` (asked without a token), and the install button again. Its words are fewer than the listing's and claim nothing the listing does not. |
 | `/success` | Stripe's `success_url`. The payment landed; open the extension. |
 | `/cancel` | Stripe's `cancel_url`. Nothing was charged and nothing changed. |
 | `/privacy` | The privacy policy. **The Chrome Web Store listing (T58, #89) requires this URL**, so once that listing is live the address is published somewhere we do not control. |
 | `/terms` | The Gebruiksvoorwaarden, with the warning that relisting deletes the ad first kept near the top where it is read. |
 | `/admin` | The dashboard an operator maintains the catalog from. **The only authenticated thing in this build** (T54, #85). |
-| anything else, `/` included | "There's nothing at this address", pointing back at the toolbar |
+| anything else | "There's nothing at this address", pointing back at the toolbar |
 
-**`/` is deliberately the fallback.** There is no landing page on the design canvas, and inventing one is a
-decision for the ticket that also writes the Web Store listing (T58, #89) and settles the name (T60, #91).
+**`/` was the fallback until T58**, which drew `docs/design/Landing.dc.html` alongside the Web Store
+listing it is the homepage of, and built it. It was then redesigned in code first — full width, Geist, the
+gradient hero, and without the listing's "Goed om te weten", which the Terms and the Privacy page carry —
+and the artboard is behind it until it is redrawn from the page.
+
+**This site is set in Geist, self-hosted.** The woff2 comes from `@fontsource-variable/geist` and Vite
+bundles it into `assets/`, so the font is one more file from this origin and never a request to a font
+CDN. The popup stays on `system-ui`; `src/site-styles.ts` says why.
 
 **The terms are the operator's own Gebruiksvoorwaarden**, handed over as finished copy on 2026-09-22 and
 rendered as written — the draft box both pages carried came off with them. What the operator wrote is what
@@ -55,10 +62,12 @@ leaving the next reader to find it.
 
 **The public routes never learn who anybody is**, and that is the decision rather than an omission. Stripe
 redirects a browser here the moment a payment lands; the webhook (T20, #30) is what moves the subscription,
-so there is nothing on these pages worth authenticating for and no question to ask the API.
+so there is nothing on these pages worth authenticating for, and nothing to ask the API about anybody.
 `src/public/no-identity.test.ts` holds the whole directory to it — no `fetch`, no storage, no cookie —
 walking by directory so that `src/admin/`, the one authenticated corner, is the named exception rather than
-a hole.
+a hole. The landing page's plan cards (T58) are the one call outside it: `src/public/plans-on-offer.ts`
+asks `GET /api/plans` with credentials omitted and no headers, and the same test holds that file to exactly
+that — so the page still learns nothing about who is looking at it.
 
 **One build, one `index.html`, which is a deploy-time obligation.** Every public path is answered by the
 same file and the router runs in the browser, so a host that returns 404 for `/success` breaks the flow
@@ -93,8 +102,8 @@ renders, so its `{{ brand … }}` tokens are substituted by a plugin in
 [`vite.config.ts`](vite.config.ts), which throws on an unknown key or a token left standing — the same rule
 the extension's build follows.
 
-[`packages/contracts`](../../packages/contracts/README.md) — the API's wire types, for the admin corner. It is
-the only thing here that talks to the API at all, and it arrived with it (T54, #85).
+[`packages/contracts`](../../packages/contracts/README.md) — the API's wire types, which arrived with the admin
+corner (T54, #85), and since T58 how a plan reads aloud, which the landing page shares with the popup.
 
 ## The admin corner
 

@@ -103,3 +103,16 @@ the `mprelist-dashboard` client. The realm's *import* is first-start-only, but i
 in the admin console — see `infra/README.md` § Deploying, where that distinction is now stated rather than
 implied.
 
+## Amended 2026-09-25 (T58) — the site shows the plans, and still sells nothing
+
+The Web Store listing's Homepage URL is the site's root, and the landing page there shows the plan cards a
+visitor would be choosing between. So `GET /api/plans` **answers without a token**: it is the one read the
+API opens, because nothing in it is per-user, and the popup still sends its token and gets the same answer.
+
+What this decision said stays true. **The popup still owns the plan choice** — the landing page's cards have
+no button, and Checkout is still opened only from the popup, which knows who is buying. **The public pages
+still never learn who anybody is**: the one call they make is `apps/web/src/public/plans-on-offer.ts`, with
+credentials omitted and no headers, and `no-identity.test.ts` holds that file to exactly that. How a plan is
+worded moved to `@mprelist/contracts` (ADR-0011, amended the same day), so the two surfaces cannot price one
+plan two ways.
+

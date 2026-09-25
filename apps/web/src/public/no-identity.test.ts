@@ -14,9 +14,15 @@ import { describe, expect, it } from "vitest";
  *
  * `/admin` (T54, #85) is the exception the ADR names and it lives in `src/admin/`,
  * which is why this walks by directory rather than by file.
+ *
+ * **One file outside it may call `fetch`** (T58): the landing page's plan cards ask
+ * `GET /api/plans`, which answers a visitor with no token. What is asserted of that
+ * file instead is that the one call it makes carries no identity — no cookie, no
+ * `Authorization` — so the ADR's sentence still holds of the whole public bundle.
  */
 const SRC = fileURLToPath(new URL("..", import.meta.url));
 const AUTHENTICATED = "admin";
+const ANONYMOUS_FETCH = join("public", "plans-on-offer.ts");
 
 /** What learning who somebody is looks like, spelled as the APIs that do it. */
 const IDENTITY = [
@@ -64,10 +70,21 @@ describe("the public bundle", () => {
 
   for (const path of files) {
     const source = readFileSync(path, "utf8");
+    const anonymousFetch = path.endsWith(ANONYMOUS_FETCH);
     it(`asks nobody who they are — ${path.slice(SRC.length)}`, () => {
       for (const api of IDENTITY) {
+        if (anonymousFetch && api === "fetch(") continue;
         expect(source, api).not.toContain(api);
       }
     });
   }
+
+  it("and the one call it makes says nothing about who is asking", () => {
+    const source = readFileSync(join(SRC, ANONYMOUS_FETCH), "utf8");
+
+    expect([...source.matchAll(/fetch\(/g)]).toHaveLength(1);
+    expect(source).toContain('credentials: "omit"');
+    expect(source).not.toContain("Authorization");
+    expect(source).not.toContain('credentials: "include"');
+  });
 });

@@ -39,7 +39,7 @@ class CrossOriginTest {
 	private static final MintedTokens IDP = MintedTokens.servingItsKeys();
 
 	/** The origin this suite runs the application with, in the shape a real extension sends. */
-	private static final String EXTENSION = "chrome-extension://dolloiambeojifmnofjchofbnepodiof";
+	private static final String EXTENSION = "chrome-extension://cefnlogjhmeceojlaoionfjpdkklmnaf";
 
 	/** And {@code apps/web}'s, which its admin corner calls this API from (T54, #85). */
 	private static final String WEB = "http://localhost:5173";

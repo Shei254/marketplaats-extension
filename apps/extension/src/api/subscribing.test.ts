@@ -170,7 +170,7 @@ describe("reading the plans off the wire", () => {
 
 describe("reading the ways to pay off the wire", () => {
   it("is Stripe's own spelling, passed through unedited", () => {
-    // What each is *called* is `waysToPay`'s in popup/plans.ts. Translating here
+    // What each is *called* is `waysToPay`'s in @mprelist/contracts. Translating here
     // would put the vocabulary in two places, one layer apart.
     expect(asPaymentMethods({ paymentMethods: ["ideal", "paypal"] })).toEqual(["ideal", "paypal"]);
   });

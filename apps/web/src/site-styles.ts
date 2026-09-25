@@ -1,3 +1,6 @@
+import { fontFamily } from "@mprelist/ui";
+import geist from "@fontsource-variable/geist/files/geist-latin-wght-normal.woff2?url";
+
 /**
  * This site's own rules — the stage, the card, its header and its footer, and the
  * one centred block every public page is (T50, #81).
@@ -17,8 +20,26 @@
  * radii as 10–12px and this uses that token for both. What the artboards have that
  * the sheet did not is the 24px heading, and that became a token rather than a
  * literal here (`--mp-text-display`).
+ *
+ * **This site is set in Geist; the popup is not.** The family is the one token this
+ * surface redefines rather than takes, on `.web-stage`, so every rule here and in
+ * `@mprelist/ui` that reads `var(--mp-font-family)` picks it up and nothing else
+ * changes. The popup keeps `system-ui` because it has to paint the instant it
+ * opens, and a font there would be a file packed into the extension. The woff2 is
+ * bundled by Vite from `@fontsource-variable/geist` and served from this origin:
+ * a font from Google's servers would tell Google who reads these pages, which is
+ * the thing `no-identity.test.ts` exists to rule out. Latin only — Dutch needs
+ * nothing past it, and the `swap` means a slow file costs a reflow, never words.
  */
 export const siteCss = `
+@font-face {
+  font-family: "Geist Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("${geist}") format("woff2-variations");
+}
+
 body {
   margin: 0;
   /* The stage is the page behind the card, and the only surface in this product
@@ -29,6 +50,7 @@ body {
 /* .mp-root paints itself --mp-bg, which is the card's colour, not the page's.
    Same specificity, later rule: this is the stage. */
 .web-stage {
+  --mp-font-family: "Geist Variable", ${fontFamily};
   min-height: 100vh;
   padding: 28px var(--mp-space-md);
   background: var(--mp-stage);
@@ -218,4 +240,434 @@ body {
   line-height: 1.65;
 }
 .web-doc-list li + li { margin-top: 4px; }
+/* The landing page (T58): the whole width of the window, not the card. Every band
+   spans edge to edge and keeps its content to one 1120px measure by padding rather
+   than by a wrapper — the gutter is whichever is larger, 24px or half of what is
+   left over — so the header, the bands and the footer all line up on one edge. */
+.web-stage--wide {
+  --web-gutter: max(24px, calc((100% - 1120px) / 2));
+  display: block;
+  position: relative;
+  padding: 0;
+  background: var(--mp-bg);
+}
+
+/* The header, lying on the hero rather than above it. White because what is under
+   it is the mark's gradient in both themes. */
+.web-header--over {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  padding: 22px var(--web-gutter);
+  border-bottom: 0;
+  color: var(--mp-on-brand);
+}
+.web-header--over .web-mark {
+  box-shadow: 0 0 0 1.5px var(--mp-on-brand);
+}
+.web-header--over .web-nav a,
+.web-header--over .web-nav a:hover {
+  color: var(--mp-on-brand);
+}
+.web-header--over .web-nav a:hover { text-decoration: underline; }
+
+.web-page--landing {
+  padding: 0;
+  text-align: left;
+}
+
+/* The mark's gradient is the hero, and the one rule it obeys is the one the mark
+   does: nothing is written on the teal end (white on --mp-brand-from is 1.27:1).
+   So the teal is put in the corner the demo card covers — top right here, the
+   bottom on a phone — and every word stands on the blue half, where white is
+   about 8:1. The mark does not flip with the theme, and neither does this. */
+.web-hero,
+.web-closing {
+  color: var(--mp-on-brand);
+  background-color: var(--mp-brand-to);
+}
+.web-hero {
+  position: relative;
+  box-sizing: border-box;
+  min-height: 100svh;
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 56px;
+  padding: 112px var(--web-gutter) 96px;
+  background-image: linear-gradient(240deg, var(--mp-brand-from) 0%, var(--mp-brand-to) 55%);
+}
+.web-hero-title {
+  margin: 0 0 18px;
+  font: var(--mp-text-display) var(--mp-font-family);
+  font-size: clamp(42px, 5.2vw, 68px);
+  font-weight: 700;
+  letter-spacing: -0.045em;
+  line-height: 1.02;
+}
+.web-hero-copy {
+  margin: 0 0 32px;
+  max-width: 440px;
+  font: var(--mp-text-body) var(--mp-font-family);
+  font-size: 18px;
+  line-height: 1.5;
+  opacity: 0.9;
+}
+.web-hero-micro {
+  margin: 14px 0 0;
+  font: var(--mp-text-caption) var(--mp-font-family);
+  opacity: 0.8;
+}
+
+/* An anchor wearing the design system's button, because it leaves the site: a link
+   a screen reader announces as one, drawn as the one thing to press. It is the mark
+   inverted — white, with the mark's blue as its ink — because a primary button on
+   the gradient would be blue on blue. */
+.mp-btn.web-install,
+.mp-btn.web-install:hover {
+  width: auto;
+  padding: 14px 24px;
+  border-radius: var(--mp-radius-pill);
+  font-size: 15px;
+  color: var(--mp-brand-to);
+  background: var(--mp-on-brand);
+  text-decoration: none;
+  box-shadow: var(--mp-shadow);
+}
+.mp-btn.web-install { transition: transform var(--mp-fast) var(--mp-ease); }
+.mp-btn.web-install:hover { transform: translateY(-1px); }
+
+/* "Scroll": a chevron drawn from two borders, since the icon set is held to the
+   artboards and none of them draws one. */
+.web-scroll {
+  position: absolute;
+  left: 50%;
+  bottom: 28px;
+  width: 36px;
+  height: 36px;
+  margin-left: -18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--mp-radius-pill);
+  color: var(--mp-on-brand);
+  opacity: 0.8;
+}
+.web-scroll::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  margin-top: -5px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+}
+.web-scroll:hover { opacity: 1; }
+
+/* Where a reposted ad lands, shown rather than said: four recent ads, the
+   visitor's sinking to the bottom and rising back to the top, on a loop.
+   Drawn in this product's tokens and nobody else's, so nothing here dresses up as
+   Marktplaats.
+
+   **The still frame is the markup.** The rows are in their "after" order and the
+   "before" words are hidden, so with the animation off — reduced motion below —
+   what is left is the outcome. The animation only ever starts from there: the
+   visitor's row is pushed three rows down and the others one row up, then both
+   let go. That arithmetic is why a row has a fixed height: 44px and an 8px gap is
+   a 52px step, and the keyframes are written in it. */
+.web-repost {
+  padding: 22px;
+  border-radius: 20px;
+  background: var(--mp-bg);
+  color: var(--mp-fg);
+  box-shadow: var(--mp-shadow);
+  transform: rotate(-1.5deg);
+}
+.web-repost-caption {
+  margin: 0 0 14px;
+  font: var(--mp-text-label) var(--mp-font-family);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mp-muted);
+}
+/* Two words in one place, one of them showing: the before and after of a caption
+   or a timestamp, stacked in a single grid cell so neither moves the line. */
+.web-swap { display: inline-grid; }
+.web-swap > * { grid-area: 1 / 1; }
+.web-before { opacity: 0; }
+
+.web-repost-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.web-repost-row {
+  box-sizing: border-box;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: var(--mp-space-sm);
+  padding: 0 12px;
+  border: 1px solid var(--mp-line);
+  border-radius: var(--mp-radius-block);
+  background: var(--mp-bg);
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  color: var(--mp-muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.web-repost-row b { color: var(--mp-fg); font-weight: 600; }
+.web-repost-row--yours {
+  position: relative;
+  z-index: 1;
+  border-color: var(--mp-accent);
+  color: var(--mp-fg);
+  box-shadow: 0 0 0 3px var(--mp-ring), var(--mp-shadow-sm);
+}
+.web-repost-thumb {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: var(--mp-radius-note);
+  background: var(--mp-line);
+}
+.web-repost-row--yours .web-repost-thumb {
+  background-color: var(--mp-brand-to);
+  background-image: linear-gradient(135deg, var(--mp-brand-from), var(--mp-brand-to));
+}
+.web-repost-top {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: var(--mp-radius-pill);
+  background: var(--mp-ok-bg);
+  font: var(--mp-text-micro) var(--mp-font-family);
+  font-weight: 650;
+  color: var(--mp-ok);
+}
+
+.web-repost .web-before { animation: web-show-before 8s var(--mp-ease) infinite; }
+.web-repost .web-after { animation: web-show-after 8s var(--mp-ease) infinite; }
+.web-repost-row--yours { animation: web-sink-and-rise 8s var(--mp-ease) infinite; }
+.web-repost-row:not(.web-repost-row--yours) { animation: web-make-room 8s var(--mp-ease) infinite; }
+
+@keyframes web-sink-and-rise {
+  0%, 30% { transform: translateY(156px); }
+  42%, 86% { transform: translateY(0); }
+  100% { transform: translateY(156px); }
+}
+@keyframes web-make-room {
+  0%, 30% { transform: translateY(-52px); }
+  42%, 86% { transform: translateY(0); }
+  100% { transform: translateY(-52px); }
+}
+@keyframes web-show-before {
+  0%, 34% { opacity: 1; }
+  38%, 88% { opacity: 0; }
+  94%, 100% { opacity: 1; }
+}
+@keyframes web-show-after {
+  0%, 34% { opacity: 0; }
+  38%, 88% { opacity: 1; }
+  94%, 100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Two classes each, to outweigh the :not() that sets the other rows moving —
+     one class loses to it, and those rows would freeze a row too high. */
+  .web-repost .web-before,
+  .web-repost .web-after,
+  .web-repost .web-repost-row { animation: none; }
+  .mp-btn.web-install:hover { transform: none; }
+}
+
+/* The bands under the hero. */
+.web-band {
+  padding: 96px var(--web-gutter);
+}
+.web-band--subtle {
+  background: var(--mp-subtle);
+  border-top: 1px solid var(--mp-line);
+  border-bottom: 1px solid var(--mp-line);
+}
+.web-band-title {
+  margin: 0 0 36px;
+  font: var(--mp-text-display) var(--mp-font-family);
+  font-size: clamp(30px, 4vw, 44px);
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+}
+.web-band-copy {
+  margin: -20px 0 32px;
+  max-width: 560px;
+  font: var(--mp-text-body) var(--mp-font-family);
+  font-size: 16px;
+  color: var(--mp-muted);
+  line-height: 1.55;
+}
+
+/* Three steps as three tiles. The mark's gradient is a bar along each tile's top
+   edge and never under the number, which is the accent: the teal end is not a
+   colour words go on, and a number is words. */
+.web-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+.web-steps li {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 28px 26px 30px;
+  border: 1px solid var(--mp-line);
+  border-radius: 16px;
+  background: var(--mp-bg);
+  box-shadow: var(--mp-shadow-sm);
+  counter-increment: step;
+}
+.web-steps li::before {
+  content: counter(step, decimal-leading-zero);
+  margin-bottom: 18px;
+  font: var(--mp-text-display) var(--mp-font-family);
+  font-size: 44px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  color: var(--mp-accent);
+  font-variant-numeric: tabular-nums;
+}
+.web-steps li::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background-image: linear-gradient(90deg, var(--mp-brand-from), var(--mp-brand-to));
+}
+.web-step-title {
+  font: var(--mp-text-title) var(--mp-font-family);
+  font-size: 18px;
+  letter-spacing: -0.015em;
+}
+.web-step-copy {
+  font: var(--mp-text-body) var(--mp-font-family);
+  color: var(--mp-muted);
+}
+
+.web-plans {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 20px;
+}
+.web-plan {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 26px;
+  border: 1px solid var(--mp-line);
+  border-radius: 16px;
+  background: var(--mp-bg);
+  box-shadow: var(--mp-shadow-sm);
+}
+/* The plan that grants the most, ringed in the mark: a border the gradient shows
+   through, and nothing written on it. It says which plan is the largest, which the
+   numbers on it already do — not which is popular, which nothing here knows. */
+.web-plan--featured {
+  /* One pixel of padding traded for the pixel of border, so the words on this card
+     sit where they do on its neighbours. */
+  padding: 25px;
+  border: 2px solid transparent;
+  background:
+    linear-gradient(var(--mp-bg), var(--mp-bg)) padding-box,
+    linear-gradient(135deg, var(--mp-brand-from), var(--mp-brand-to)) border-box;
+  box-shadow: var(--mp-shadow);
+}
+.web-plan p { margin: 0; }
+.web-plan-name {
+  font: var(--mp-text-title) var(--mp-font-family);
+  font-size: 20px;
+  letter-spacing: -0.02em;
+}
+.web-plan .web-plan-grant {
+  margin-bottom: 14px;
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  color: var(--mp-muted);
+}
+.web-plan-price {
+  font: var(--mp-text-body) var(--mp-font-family);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.web-pay-with {
+  margin: 20px 0 0;
+  font: var(--mp-text-caption) var(--mp-font-family);
+  color: var(--mp-muted);
+}
+.web-plans-unavailable {
+  padding: 24px;
+  border: 1px dashed var(--mp-line);
+  border-radius: 16px;
+  background: var(--mp-bg);
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  color: var(--mp-muted);
+  text-align: center;
+}
+.web-plans-unavailable p { margin: 0 0 10px; }
+.web-plans-unavailable b { color: var(--mp-fg); }
+
+/* The second install button, bookending the page in the hero's colours. The words
+   are centred and the band is short, so there is no side of it to give the teal
+   to: it is a glow in the bottom-left corner, 30% of the way to the far one, which
+   stops short of the centre line on a phone as well. */
+.web-closing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  background-image: radial-gradient(circle at 0% 100%, var(--mp-brand-from), transparent 30%);
+}
+.web-closing .web-band-title { margin-bottom: 28px; }
+
+.web-stage--wide .web-footer {
+  padding: 28px var(--web-gutter) 12px;
+  border-top: 0;
+}
+.web-disclaimer {
+  margin: 0;
+  padding: 0 var(--mp-space-md) var(--mp-space-md);
+  font: var(--mp-text-micro) var(--mp-font-family);
+  color: var(--mp-muted);
+}
+.web-stage--wide .web-disclaimer {
+  padding: 0 var(--web-gutter) 28px;
+}
+
+/* A tablet and down: one column. The hero's gradient turns to put the teal under
+   the demo card, which is now below the words rather than beside them. */
+@media (max-width: 860px) {
+  .web-hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 48px;
+    padding-top: 104px;
+    background-image: linear-gradient(0deg, var(--mp-brand-from) 0%, var(--mp-brand-to) 42%);
+  }
+  .web-scroll { display: none; }
+  .web-repost { transform: none; }
+  .web-steps { grid-template-columns: minmax(0, 1fr); }
+  .web-band { padding-top: 64px; padding-bottom: 64px; }
+}
+/* A phone: the header's links would crowd the name. */
+@media (max-width: 480px) {
+  .web-header--over .web-nav { gap: var(--mp-space-md); }
+}
 `;

@@ -1,6 +1,8 @@
 import { createRoot } from "react-dom/client";
 
 import { BrowserAdminApp, returningFromSignIn } from "./admin/BrowserAdminApp";
+import { deployedConfig } from "./admin/deployed-config";
+import { plansOnOffer } from "./public/plans-on-offer";
 import { isAdminPath } from "./routes";
 import { Site } from "./Site";
 
@@ -33,12 +35,21 @@ import { Site } from "./Site";
  * than with a 404. `vite dev` and `vite preview` already do.
  */
 const root = document.getElementById("root");
+
+/**
+ * Where the landing page asks what is on sale (T58): the API address `/config.js`
+ * served, read the way the admin corner reads it. Bound once, so the landing page's
+ * effect sees the same function on every render.
+ */
+const apiBaseUrl = deployedConfig(window.__MPRELIST_WEB_CONFIG__, location.origin).apiBaseUrl;
+const loadPlans = () => plansOnOffer(apiBaseUrl, fetch);
+
 if (!root) throw new Error("index.html has no #root to render into");
 
 createRoot(root).render(
   isAdminPath(location.pathname) || returningFromSignIn(location.search) ? (
     <BrowserAdminApp />
   ) : (
-    <Site pathname={location.pathname} year={new Date().getFullYear()} />
+    <Site pathname={location.pathname} year={new Date().getFullYear()} loadPlans={loadPlans} />
   ),
 );

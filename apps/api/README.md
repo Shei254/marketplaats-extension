@@ -1499,8 +1499,8 @@ Stripe's own tokens — `ideal`, `paypal`, `card` — read from the account's **
 configuration, which is the one Checkout applies because `OpenCheckout` names none. It is the deliberate
 exception to the paragraph above: a failed fetch is `[]` beside a perfectly good `200`, and every card is
 still there. Taking the methods away leaves the comparison untouched, so blanking a working plan screen
-because a reassurance failed would lose a sale to protect a nicety. The popup owns the display names and the
-order; a token it cannot spell is dropped from the sentence rather than shown raw, which is why the API logs
+because a reassurance failed would lose a sale to protect a nicety. The clients own the display names and the
+order (`waysToPay` in `@mprelist/contracts`, shared by the popup and the landing page since T58); a token it cannot spell is dropped from the sentence rather than shown raw, which is why the API logs
 the whole offered set on every refresh — that log is where a missing name is visible.
 
 **Two caches, similar names, different trades.** `mprelist.stripe.price-cache` bounds how long a *mistake* is

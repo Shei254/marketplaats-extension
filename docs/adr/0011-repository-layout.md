@@ -59,6 +59,16 @@ currency's own rules"*.
 **What it fixed on arrival:** the popup divided by a hundred, which is right for a euro and wrong for every
 currency without cents.
 
+## Amended by T58 (2026-09-25)
+`wording.ts` joins `money.ts`: how a plan from `GET /api/plans` reads aloud — "€ 9,99 per maand", "50
+herplaatsingen per maand", "Je kunt betalen met iDEAL, PayPal of creditcard." It was the popup's alone until
+the site's landing page began showing the same cards (ADR-0017, amended the same day).
+
+**This is closer to presentation than `money.ts` is**, and it is here anyway for the reason `money.ts` gave:
+every function in it reads one wire field — `amount` and `currency`, `interval`, `relistQuotaPerPeriod`,
+`paymentMethods` — and two clients reading those fields two ways is the drift this package exists to stop. A
+second consumer of Dutch copy that is *not* about a wire field would be the moment for a package of its own.
+
 ## What T59 cost (2026-08-20)
 The "mixed Gradle + npm CI" above, priced. It is **two jobs in one workflow, neither carrying a `needs:`** —
 no artefact crosses between the two toolchains and no version is shared, so the mixture costs a second job

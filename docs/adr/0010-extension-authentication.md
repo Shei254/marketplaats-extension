@@ -90,6 +90,11 @@ could go stale. The one place our derivation is checked against Chrome's is step
 `dolloiambeojifmnofjchofbnepodiof`, matching `npm run extension-id`. So the derivation in
 `scripts/extension-key.mjs` is not merely self-consistent — it agrees with the implementation that matters.
 
+> **Switched 2026-09-24 (T58).** The Web Store draft exists, and `extension-key … set` put its public key into
+> the manifest, so the id is now `cefnlogjhmeceojlaoionfjpdkklmnaf` for the unpacked build and the published one
+> alike. `dolloiambeojifmnofjchofbnepodiof` above is the id this section is a record of. The API's default
+> origin and `.env.example` followed on 2026-09-25, when `CrossOriginTest` noticed they had not.
+
 **The remaining risk is the one this ADR named:** forgetting the switch at publish. It is written into
 [#87 (T56 · Domain, TLS, and the production realm)](https://github.com/Shei254/marketplaats-extension/issues/87)
 rather than left to memory, because the production realm is built from scratch there and is the last moment

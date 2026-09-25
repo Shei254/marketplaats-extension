@@ -62,7 +62,7 @@ mprelist:
   #
   # Comma-separated, matched exactly, no patterns.
   cors:
-    allowed-origins: chrome-extension://${MPRELIST_EXTENSION_ID:dolloiambeojifmnofjchofbnepodiof},${MPRELIST_WEB_ORIGIN:http://localhost:5173}
+    allowed-origins: chrome-extension://${MPRELIST_EXTENSION_ID:cefnlogjhmeceojlaoionfjpdkklmnaf},${MPRELIST_WEB_ORIGIN:http://localhost:5173}
 
   # #82: the signing secret of the Stripe webhook endpoint, and the whole of the authentication on the one
   # route here that no bearer token reaches. Stripe signs the exact bytes it sends with it.

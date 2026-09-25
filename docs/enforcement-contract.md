@@ -187,8 +187,17 @@ about their **software**. It therefore carries none, exactly like every other `4
         "features": {},
         "prices": [ { "amount": 999,  "currency": "eur", "interval": "month" },
                     { "amount": 9900, "currency": "eur", "interval": "year"  } ] } ],
+    "freeTier": { "tier": { "code": "free", "name": "Gratis" },
+                  "relistQuotaPerPeriod": 3,
+                  "features": {} },
     "paymentMethods": [ "ideal", "paypal", "card" ] }
   ```
+
+- **`freeTier` is the Free tier on offer** (T84, glossary): the tier with no Price, when it is also the
+  **Default tier** and grants more than `0` — `null` is unlimited here too. Beside `plans` and never in it,
+  because a Plan always has a price. **`null` rather than omitted when there is none**, whichever the reason —
+  no priceless tier, one nobody lands on, or a default withdrawn to `0` — since a client draws no free card in
+  all three. Our half only, so it never takes the answer down with Stripe: a `503` is still about the prices.
 
 - **`paymentMethods` is what the Stripe dashboard has turned on** (T65, #137,
   [ADR-0022](adr/0022-the-plan-screen-names-the-payment-methods.md)), in Stripe's own spelling and in the
@@ -236,12 +245,12 @@ about their **software**. It therefore carries none, exactly like every other `4
 - **An empty list is a different thing and is a `200`**: nothing is on sale, which is true of every stack
   whose Stripe Prices have not been created yet (T22, #28). Answering "unavailable" there would report a
   fault that is not there.
-- Consumed by the **popup**, which holds the access token and opens the Checkout URL in a tab; `apps/web`
-  has no login and never calls this (ADR-0017).
+- Consumed by the **popup**, which holds the access token and opens the Checkout URL in a tab, and since T85
+  by the **landing page**, for a signed-in visitor ([ADR-0036](adr/0036-the-site-sells-and-a-subscriber-switches-in-place.md)).
 
 ### `POST /api/checkout` — where a plan card becomes a payment
-- **Auth:** `Authorization: Bearer <Keycloak access token>`. Called by the **popup**, which holds one already;
-  `apps/web` has no login and never calls this (ADR-0017).
+- **Auth:** `Authorization: Bearer <Keycloak access token>`. Called by the **popup**, which holds one already,
+  and since T85 by the **landing page** for a visitor who has signed in there (ADR-0036).
 - **Body:** `{ "tierCode": "pro", "interval": "month" }` — the stable handle, never a Stripe price id, which
   is ours to resolve; a client naming a price id could name one we never published. **`interval` is as
   required as the code** (T62, #128): a tier may be sold monthly and annually, so the code alone names two
@@ -251,6 +260,16 @@ about their **software**. It therefore carries none, exactly like every other `4
   destroyed the moment that tab takes focus — expected, and what T50's success page catches.
 - **A `200` is an offer to pay, not an entitlement.** What moves the plan is Stripe saying the money did,
   through the webhook (T20, #30). Nothing here spends or grants anything.
+- **`409 ALREADY_PAYING`** when Stripe is already billing the caller (T83) — the one refusal here that is a
+  denial, so the one that carries `{ "reason": "ALREADY_PAYING" }` and nothing else. Stripe knows a returning
+  customer by the id below and would still open a second subscription on them, so somebody on Pro pressing
+  Business would be charged for both. **A plan switch is the Customer Portal's**: it prorates, and
+  `customer.subscription.updated` moves the tier. Asked before anything else, including whether the plan is on
+  sale, since a payer is going to the Portal whatever they asked for. The site offers the same payer its own
+  **Plan switch** instead (T85, below). "Billing" means a Stripe subscription
+  exists — true through dunning, false after a terminal end, since ADR-0018 clears it and keeps the customer.
+  Two Checkout tabs opened before the first purchase's webhook arrives both pass; nothing here holds a session
+  open across Stripe's page to close that.
 - **`404` with an empty body** when nothing is on sale under that code: unknown, unpublished, or a draft
   synced at quota 0 (ADR-0019). A client holding yesterday's plan cards gets this, and it is not an error on
   either side. The free tier is one of these — it has no Price, so it is not in the list this route buys from.
@@ -265,10 +284,32 @@ about their **software**. It therefore carries none, exactly like every other `4
   subscriber who cancelled and came back (ADR-0018) continues one billing history rather than starting a
   second.
 
+### `POST /api/plan-switch/preview` and `POST /api/plan-switch` — a Plan switch
+- **Auth:** `Authorization: Bearer <Keycloak access token>`. Called by the site (T85,
+  [ADR-0036](adr/0036-the-site-sells-and-a-subscriber-switches-in-place.md)); the popup's door to the same
+  act is the Customer Portal.
+- **Request:** `{ "tierCode": "power", "interval": "month" }` — `POST /api/checkout`'s body, with its `400`
+  for one that is missing either field or is not JSON.
+- **A Plan switch changes the Price on the subscription Stripe is already billing**, in place: immediate,
+  prorated both ways (`always_invoice`), and applied only once paid (`pending_if_incomplete`). It never
+  opens a second subscription, which is the failure `409 ALREADY_PAYING` above is written against.
+- **The preview returns `200`:** `{ "amount": 743, "currency": "eur" }` — Stripe's own invoice for the same
+  switch, which the site shows in a confirmation dialog before anything is charged. **Negative is a credit**:
+  a downgrade leaves it on the Stripe customer against the next invoices. It spends nothing.
+- **The switch returns `200`:** `{ "confirmAt": null }` when it is made — the webhook then moves the tier, as
+  for any Price change — or `{ "confirmAt": "https://invoice.stripe.com/…" }` when the charge needs the payer
+  (3-D Secure) and nothing has moved yet. A switch to the Price already billed is a `200` that sends nothing
+  to Stripe.
+- **`409 NOT_PAYING`** when Stripe is billing the caller for nothing — `ALREADY_PAYING` the other way round,
+  and the one refusal here that is a denial: `{ "reason": "NOT_PAYING" }`, adding nothing, since the same card
+  offers Checkout.
+- **`404` and `503` with empty bodies**, exactly as `POST /api/checkout` answers them: nothing on sale under
+  that code and rhythm, or Stripe could not be asked.
+
 ### `POST /api/portal` — where "manage billing" becomes a Stripe page
 - **Auth:** `Authorization: Bearer <Keycloak access token>`. Called by the **popup**, which opens the returned
-  URL in a tab exactly as it opens a Checkout one; `apps/web` has no customer login and never calls this
-  (ADR-0017).
+  URL in a tab exactly as it opens a Checkout one, and since T85 by the **landing page** — *Betaling beheren*
+  and *Opzeggen* (ADR-0036).
 - **No body.** Who is asking comes from the token, and everything the Portal offers — the card, the invoices,
   the cancel button — is configured in Stripe's dashboard rather than named here. It is a `POST` because each
   call creates a short-lived single-use session at Stripe, so two calls are two sessions.
@@ -530,8 +571,8 @@ that ADR's own "revisit if" anticipated. Same audience and same guard as the adm
 
 ### `GET /api/me` — display state, **never a grant**
 - **Auth:** `Authorization: Bearer <Keycloak access token>`.
-- **Returns `200`:** `{ subscriptionStatus, tier, quotaRemaining, relistQuotaPerPeriod, resetAt, features }`
-  — shipped (#26), with the grant added by #41:
+- **Returns `200`:** `{ subscriptionStatus, tier, quotaRemaining, relistQuotaPerPeriod, resetAt, features,
+  paying, rhythm }` — shipped (#26), with the grant added by #41 and the billing pair by T85:
 
   ```json
   { "subscriptionStatus": "ACTIVE",
@@ -539,8 +580,17 @@ that ADR's own "revisit if" anticipated. Same audience and same guard as the adm
     "quotaRemaining": 2,
     "relistQuotaPerPeriod": 3,
     "resetAt": "2026-09-14T08:31:22.101Z",
-    "features": {} }
+    "features": {},
+    "paying": false,
+    "rhythm": null }
   ```
+
+  **`paying` and `rhythm` say what Stripe is billing** (T85, [ADR-0036](adr/0036-the-site-sells-and-a-subscriber-switches-in-place.md)).
+  `paying` is true through dunning and false after a terminal end — the same reading `POST /api/checkout`'s
+  `409 ALREADY_PAYING` makes — and is what tells the site whether a card is Checkout or a **Plan switch**.
+  `rhythm` is the **Rhythm** of the Price they are billed at, so their own card can offer the other one;
+  `null` when not paying, and when the Price is one no card sells or has not been mirrored since T85. The
+  popup reads neither, and treats an answer without them as not paying.
 
   **`relistQuotaPerPeriod` is the other half of "2 of 3"** — the sentence the popup draws, and one a client
   holding only the numerator cannot. It is the tier's grant and does not move when a unit is spent; lowering

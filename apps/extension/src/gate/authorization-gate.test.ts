@@ -104,6 +104,10 @@ describe("a denial", () => {
       QUOTA_EXCEEDED: "upgrade",
       RATE_LIMITED: "cooldown",
       NO_TIER: "no-tier",
+      // Checkout's and the Plan switch's, never a relist's (T83, T85): a gate meeting one has been answered
+      // by something that is not the gate, which is the safe reading's case.
+      ALREADY_PAYING: "retry",
+      NOT_PAYING: "retry",
     };
 
     for (const reason of DENIAL_REASONS) {

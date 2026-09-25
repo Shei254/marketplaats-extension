@@ -36,6 +36,8 @@ const PLAN: DisplayState = {
   relistQuotaPerPeriod: 3,
   resetAt: "2026-09-14T08:31:22.101Z",
   features: {},
+  paying: false,
+  rhythm: null,
 };
 
 const RELISTED: WireRelistOutcome = {

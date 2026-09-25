@@ -67,4 +67,42 @@ public interface Subscriptions {
 	 */
 	Optional<String> stripeCustomerFor(UserRef user);
 
+	/**
+	 * Whether Stripe is billing this account right now — the {@code paying} half of {@link SubscriberCount},
+	 * asked about one account rather than counted over a tier (T83).
+	 *
+	 * <p><strong>True through dunning, false after a terminal end.</strong> A card being retried is still a
+	 * subscription Stripe expects to charge, and a successful retry gives the tier straight back; a cancellation
+	 * clears the Stripe subscription and keeps the customer (ADR-0018), so a returning subscriber is not paying
+	 * and may buy again as themselves. The status is therefore not what is asked: whether a Stripe subscription
+	 * exists at all is.
+	 *
+	 * <p>A boolean rather than the id, for {@link Subscription}'s reason: the id is this module's, and the one
+	 * caller — {@code billing}, about to open a Checkout — needs to know only whether a second one would be a
+	 * second charge.
+	 *
+	 * @param user the account to answer about
+	 * @return whether Stripe holds a live subscription for it, and {@code false} for an account with no row
+	 */
+	boolean isPaying(UserRef user);
+
+	/**
+	 * The Stripe subscription billing this account, for the one thing that has to name it: a <strong>Plan
+	 * switch</strong>, which changes the Price on it in place rather than opening a second (T85, ADR-0036).
+	 *
+	 * @param user the account to answer about
+	 * @return its live subscription's id, or nothing where Stripe is billing it for nothing
+	 */
+	Optional<String> stripeSubscriptionFor(UserRef user);
+
+	/**
+	 * The Stripe Price that subscription is billed at, as the last mirrored event said (T85). What the site
+	 * reads a paying subscriber's <strong>Rhythm</strong> from, so their own card can offer the other.
+	 *
+	 * @param user the account to answer about
+	 * @return the Price id, or nothing where nobody is paying — or where a subscriber from before T85 has had
+	 * no event since, which is "rhythm unknown" rather than an error
+	 */
+	Optional<String> stripePriceFor(UserRef user);
+
 }

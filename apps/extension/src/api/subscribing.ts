@@ -44,6 +44,12 @@ export type PlansAnswer =
 export type HandoffAnswer =
   | { status: "opened"; url: string }
   | { status: "gone" }
+  /**
+   * `409 ALREADY_PAYING` (T83): Stripe is already billing this account, so
+   * Checkout opens no second subscription. Only Checkout sends it, and the
+   * answer to it is the Portal, where a plan switch is prorated.
+   */
+  | { status: "already-paying" }
   | { status: "signed-out" }
   | { status: "outdated" }
   | { status: "unavailable" };
@@ -161,6 +167,12 @@ export class Subscribing {
     if (response.status === 401) return { status: "signed-out" };
     if (response.status === 426) return { status: "outdated" };
     if (response.status === 404) return { status: "gone" };
+    if (response.status === 409) {
+      // By the code, never the status: a conflict this build cannot name is not
+      // a reason to tell somebody they already pay.
+      const body: unknown = await response.json().catch(() => null);
+      return reasonIn(body) === "ALREADY_PAYING" ? { status: "already-paying" } : UNAVAILABLE;
+    }
     if (!response.ok) return UNAVAILABLE;
 
     const url = urlIn(await response.json().catch(() => null));
@@ -169,6 +181,10 @@ export class Subscribing {
 }
 
 const UNAVAILABLE = { status: "unavailable" } as const;
+
+function reasonIn(body: unknown): unknown {
+  return typeof body === "object" && body !== null ? (body as Record<string, unknown>)["reason"] : undefined;
+}
 
 /**
  * The plans, checked rather than trusted — every field of every card, and the

@@ -7,7 +7,7 @@ import com.mprelist.catalog.TierName;
 import com.mprelist.subscription.SubscriptionStatus;
 
 /**
- * The body of {@code GET /api/me}: the five fields {@code docs/enforcement-contract.md} names, serialized as
+ * The body of {@code GET /api/me}: the fields {@code docs/enforcement-contract.md} names, serialized as
  * this record stands.
  *
  * <p>One type rather than a domain answer plus a response mapped from it, for {@code Verdict}'s reason: the
@@ -48,7 +48,15 @@ import com.mprelist.subscription.SubscriptionStatus;
  * @param features the flags the tier carries, as the {@code tier.features} object holds them. Empty on every
  * tier in the catalog today, and rendered as an empty object rather than omitted: "this plan grants no flags"
  * is an answer, where a missing field is a client's guess
+ * @param paying whether Stripe is billing this account right now (T85, ADR-0036) — true through dunning,
+ * false after a terminal end, exactly as {@code POST /api/checkout} reads it for T83's {@code 409}. What tells
+ * the site's cards apart: somebody not paying is offered Checkout, somebody paying a <strong>Plan
+ * switch</strong>. Not the same question as the tier, since the default tier may be given a price
+ * @param rhythm the <strong>Rhythm</strong> they are billed at — {@code month}, {@code year} — so that their
+ * own card can offer the other one. {@code null} when they are not paying, and also for a subscriber from
+ * before T85 whose Price has not been mirrored since, which a client reads as "rhythm unknown"
  */
 record DisplayState(SubscriptionStatus subscriptionStatus, TierName tier, Integer quotaRemaining,
-		Integer relistQuotaPerPeriod, OffsetDateTime resetAt, Map<String, Object> features) {
+		Integer relistQuotaPerPeriod, OffsetDateTime resetAt, Map<String, Object> features, boolean paying,
+		String rhythm) {
 }

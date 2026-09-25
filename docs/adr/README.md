@@ -27,7 +27,7 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0014](0014-tier-catalog-and-entitlements.md) | Tier catalog & entitlements ours, keyed to Stripe Prices | Accepted, refines 0006, refined by 0026, 0029, 0030 and 0031, amended by 0032 |
 | [0015](0015-frozen-internal-api-golden-tests.md) | Internal-API layer frozen by golden-payload tests | Accepted |
 | [0016](0016-vertical-slices-and-review-gates.md) | Iteration 1 cut into vertical slices, each ending at a manual review | Accepted |
-| [0017](0017-web-surface-and-subscribing.md) | One web app, loginless public routes; subscribing starts in the popup | Accepted, amends 0011, refined by 0023 |
+| [0017](0017-web-surface-and-subscribing.md) | One web app, loginless public routes; subscribing starts in the popup | Accepted, amends 0011, refined by 0023, superseded in part by 0036 |
 | [0018](0018-lapse-falls-back-to-the-default-tier.md) | A subscription that ends falls back to the default tier | Accepted, refines 0014, refined by 0032 |
 | [0019](0019-plans-are-stripe-first-and-webhook-synced.md) | Plans created in Stripe, synced to the Tier catalog by webhook | Accepted, refines 0014, refined by 0029 and 0031 |
 | [0020](0020-deployment.md) | Deployed as four containers on one host, from a second compose file | Accepted, amended by 0023 |
@@ -46,6 +46,7 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0033](0033-the-login-page-is-ours-and-is-generated.md) | The login page is a surface of ours, and it is generated rather than written | Accepted, refines 0005, 0011 and 0021, amended by 0034, refined by 0035 |
 | [0034](0034-the-deployment-tree-ships-with-the-tag.md) | The deployment tree ships with the tag, and the host stops being a checkout | Accepted, amends 0023 and 0033 |
 | [0035](0035-the-mail-is-ours-and-so-are-the-words.md) | The mail that page sends is ours too, and owning it means owning the words | Accepted, refines 0021 and 0033 |
+| [0036](0036-the-site-sells-and-a-subscriber-switches-in-place.md) | The site sells, and a subscriber switches plan in place rather than buying a second one | Accepted, supersedes part of 0017, refines 0019 and 0031 |
 
 **Amended by the 2026-08-13 session:** 0006 (Stripe narrowed to money + lifecycle), 0007 (gating depth,
 `/api/me` display state, `marktplaatsAccountId` dropped), 0009 (monorepo, React popup, Options page removed).

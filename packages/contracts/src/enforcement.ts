@@ -82,6 +82,20 @@ export const DENIAL_REASONS = [
   "QUOTA_EXCEEDED",
   /** Too fast for the pacing rails (ADR-0008). Carries `retryAfter`, in whole seconds. */
   "RATE_LIMITED",
+  /**
+   * Stripe is already billing the caller, so `POST /api/checkout` opens no
+   * second subscription (T83). **Not the gate's** — it is never an answer to a
+   * relist — and it is a denial for `NO_TIER`'s reason: a statement about the
+   * user, on a route the gate does not own. What to do about it is the Customer
+   * Portal, where a plan switch is prorated, so it adds nothing.
+   */
+  "ALREADY_PAYING",
+  /**
+   * The mirror of `ALREADY_PAYING`, on the route beside it: a Plan switch
+   * changes the subscription Stripe is billing, and this caller has none (T85,
+   * ADR-0036). What they want is Checkout, so it adds nothing.
+   */
+  "NOT_PAYING",
 ] as const;
 
 export type DenialReason = (typeof DENIAL_REASONS)[number];
@@ -104,7 +118,11 @@ export type Denial =
   | { reason: "NO_TIER" }
   | { reason: "QUOTA_EXCEEDED"; resetAt: string }
   /** Whole seconds, rounded up, named after HTTP's own `Retry-After` and carried in the body rather than the header of that name. */
-  | { reason: "RATE_LIMITED"; retryAfter: number };
+  | { reason: "RATE_LIMITED"; retryAfter: number }
+  /** Adds nothing: the Portal link is already on the screen that asked. */
+  | { reason: "ALREADY_PAYING" }
+  /** Adds nothing: the same card offers Checkout once the client knows. */
+  | { reason: "NOT_PAYING" };
 
 /** `POST /api/relist/authorize`. Quota and pacing are per user; there is no account id to send. */
 export interface AuthorizeRequest {
@@ -230,6 +248,19 @@ export interface DisplayState {
   resetAt: string;
   /** The tier's flags as stored. `{}` on every tier today, and sent rather than omitted. */
   features: Record<string, unknown>;
+  /**
+   * **Whether Stripe is billing this account right now** (T85, ADR-0036): true
+   * through dunning, false after a terminal end — exactly what `POST
+   * /api/checkout` reads for its `409 ALREADY_PAYING`. Somebody not paying is
+   * offered Checkout; somebody paying, a Plan switch.
+   */
+  paying: boolean;
+  /**
+   * The **Rhythm** they are billed at — `month`, `year` — so their own card can
+   * offer the other one. `null` when not paying, and for a payer whose Price no
+   * card sells or has not been mirrored since T85: "unknown", not an error.
+   */
+  rhythm: string | null;
 }
 
 /**
@@ -281,6 +312,15 @@ export interface Plan {
   prices: PlanPrice[];
 }
 
+/** The free card's half of a {@link Plan}: what it is called and grants, and no price. */
+export interface FreeTier {
+  tier: TierName;
+  /** `null` is unlimited (ADR-0029), and never `0`: a free tier granting nothing is not on offer. */
+  relistQuotaPerPeriod: number | null;
+  /** The tier's flags as stored. */
+  features: Record<string, unknown>;
+}
+
 /**
  * `GET /api/plans`. **Only what can be bought**: the published tiers carrying a
  * Stripe Price, so the free tier is absent and so is every draft the sync created
@@ -294,6 +334,16 @@ export interface Plan {
  */
 export interface Plans {
   plans: Plan[];
+  /**
+   * **The Free tier on offer** (T84): the priceless tier, when it is also where
+   * new accounts land and grants more than nothing — the free thing a visitor
+   * can honestly be promised. Beside `plans` and never in it, because a Plan
+   * always has a price.
+   *
+   * `null` rather than omitted when there is none, whichever the reason: no
+   * priceless tier, one nobody lands on, or a default withdrawn to `0`.
+   */
+  freeTier: FreeTier | null;
   /**
    * **What a buyer can pay with**, in Stripe's own spelling — `ideal`, `paypal`,
    * `card`, `sepa_debit` (T65, #137). Read from the Stripe dashboard when the
@@ -348,6 +398,35 @@ export interface CheckoutRequest {
  */
 export interface CheckoutSession {
   url: string;
+}
+
+/**
+ * `POST /api/plan-switch/preview` and `POST /api/plan-switch` — a **Plan
+ * switch**: the Price on the Stripe subscription a payer already has, changed
+ * in place and never by a second Checkout (T85, ADR-0036). The body is
+ * {@link CheckoutRequest}'s, and so are the `404` and the `503`; the denial is
+ * `409 NOT_PAYING`.
+ */
+export type SwitchRequest = CheckoutRequest;
+
+/**
+ * What the switch would invoice now, from Stripe's own preview — never an
+ * amount a client works out. **Negative is a credit**: a downgrade, left on the
+ * Stripe customer against the next invoices.
+ */
+export interface SwitchPreview {
+  /** In the currency's smallest unit, as {@link PlanPrice.amount} is. */
+  amount: number;
+  currency: string;
+}
+
+/**
+ * The switch, made — or waiting on the payer. `confirmAt` is `null` when it is
+ * done, and the invoice's hosted page when the charge needs them first (3-D
+ * Secure); nothing moves until it is paid there.
+ */
+export interface SwitchMade {
+  confirmAt: string | null;
 }
 
 /**

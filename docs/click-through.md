@@ -260,6 +260,16 @@ rather than a 404 — a host that does not (T55, #86) breaks this step *after* t
    than a month from signing up. Relist once to confirm.
    *If it still says Free:* the webhook is where to look, not the popup — `stripe listen` shows the
    `customer.subscription.created` delivery and its status, and a `400` there is the signing secret.
+6a. Still on Pro, press another plan's button (T83) — any plan on sale that is not the one you hold.
+   *Expect:* no tab opens, and the note under the cards reads **"Je hebt al een betaald abonnement. Wissel of
+   zeg op via Betaling beheren."** The API logs that no second subscription was opened; the Stripe dashboard
+   shows still one subscription on the customer.
+   Then **Betaling beheren → Update plan**, and pick that plan.
+   *First time only:* the Portal offers no **Update plan** until switching is allowed in the Stripe dashboard
+   (Settings → Billing → Customer portal → Subscriptions → *Customers can switch plans*), with the tagged
+   Prices added to its product list.
+   *Expect:* Stripe shows the prorated amount, `customer.subscription.updated` arrives, and the popup shows
+   the new plan — the mirror moves the tier from the Price, and nothing on our side opened a Checkout.
 7. Open the Customer Portal from the popup — **Plans → Manage billing** — and cancel **immediately** (not at
    period end, which is what the Portal offers by default — "cancel now" is in the test dashboard's own
    subscription view).
@@ -604,6 +614,48 @@ number.
 one ad at a time and has nothing to count a batch with, which ADR-0025 records as a consequence rather than a
 gap to close.
 
+
+## After Go-Live · I can buy and switch plan on the site (T85)
+
+**Proves:** a visitor can subscribe from `/` without the extension, a subscriber switches plan in place —
+priced by Stripe before anything is charged — and nobody is ever sold a second subscription.
+[ADR-0036](adr/0036-the-site-sells-and-a-subscriber-switches-in-place.md).
+
+> Needs `MPRELIST_STRIPE_SECRET_KEY`, a running `stripe listen` (see slice C), a plan sold at **both**
+> rhythms (create one in `/admin` with monthly and yearly), and a second plan. Test cards: `4242 4242 4242
+> 4242` pays; `4000 0027 6000 3184` asks for 3-D Secure.
+
+1. Open `/` in a private window.
+   *Expect:* the header says **Inloggen**; the plans band shows the free card first (**Gratis beginnen**,
+   linking the Web Store) and a **Maandelijks / Jaarlijks** switcher on *Maandelijks*. Each card leads with its
+   number of reposts; the plan granting most is filled with the gradient and says **Meeste herplaatsingen**.
+2. Press **Jaarlijks**.
+   *Expect:* the two-rhythm plan shows its yearly price, "… per maand · bespaar N%" and **herplaatsingen per
+   jaar**; a plan sold monthly only keeps its card, with its monthly price and **Alleen maandelijks**.
+3. Still on *Jaarlijks*, press **Kies** on the two-rhythm plan, and register a new account.
+   *Expect:* no second click — you land on Stripe Checkout **for the yearly price**. Pay with `4242…`.
+   The success page says to open the toolbar icon, and offers **Toevoegen aan Chrome** below.
+4. Go back to `/`.
+   *Expect:* no login page flashes past — at most a redirect — and the header says **Mijn account**. That plan's
+   yearly card says **Huidig abonnement**; its monthly price says **Overstappen naar maandelijks**; every other
+   plan says **Overstappen naar …**; the free card says **Opzeggen**.
+5. Press **Overstappen naar** the other plan.
+   *Expect:* a dialog says what Stripe will charge **now** and what the plan costs after, and nothing has
+   changed in Stripe yet. **Annuleren** closes it with nothing charged. Open it again and press **Overstappen**.
+   *Expect:* "Gelukt", and within a few seconds that plan's card says **Huidig abonnement**. In Stripe the
+   customer still has **one** subscription, now on the new Price, with a proration invoice.
+6. Switch back to the cheaper plan.
+   *Expect:* the dialog says you **krijgt … tegoed**, not a minus sign; after confirming, the Stripe customer
+   carries that credit.
+7. Put `4000 0027 6000 3184` on the customer (*Mijn account → Betaling beheren*), then switch up again.
+   *Expect:* after **Overstappen** the browser goes to Stripe's invoice page to confirm. Until you do, the
+   subscription is **unchanged** in Stripe and the card on `/` still says what it said.
+8. Sign in at `/` as a subscriber, sign out (*Mijn account → Uitloggen*), then press **Kies** on another plan
+   and sign in as that subscriber.
+   *Expect:* you are **not** taken to Checkout and nothing is charged: the page comes back with that card
+   ringed, for a deliberate **Overstappen**.
+9. Open `/` in another site's `<iframe>` (a scratch HTML file served from anywhere else).
+   *Expect:* the browser refuses to draw it — `frame-ancestors 'none'`. Needs the nginx image, not `vite dev`.
 
 ## After Go-Live · I can delete a plan (T77)
 

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { BRAND } from "../brand";
 import { BillingPage, CancelPage, NotFoundPage, SuccessPage } from "./pages";
+import { STORE_URL } from "./store";
 
 const PAGES = {
   success: <SuccessPage />,
@@ -100,11 +101,13 @@ describe("every public page", () => {
         expect(markup.toLowerCase()).not.toMatch(/sign in|log in|create an account/);
       });
 
-      it("links nowhere at all", () => {
-        // The only link on this site is the support address in the frame. A page
-        // that linked out would be a page with something to click on, and the one
-        // thing these say is that the product is somewhere else.
-        expect(markup).not.toContain("<a ");
+      it("links nowhere but to where the extension is had, or back to the plans", () => {
+        // These pages say the product is somewhere else, so the only links on them
+        // point there (T85): the Store, for a buyer who paid on the site before
+        // installing, and the plans, for one who stopped at Checkout.
+        const links = [...markup.matchAll(/<a href="([^"]*)"/g)].map(([, href]) => href);
+        expect(links.every((href) => href === STORE_URL || href === "/#abonnementen")).toBe(true);
+        expect([...markup.matchAll(/<a\b/g)]).toHaveLength(links.length);
       });
     });
   }

@@ -11,6 +11,8 @@ const PLAN: DisplayState = {
   relistQuotaPerPeriod: 3,
   resetAt: "2026-09-14T08:31:22.101Z",
   features: {},
+  paying: false,
+  rhythm: null,
 };
 
 interface Call {
@@ -199,6 +201,19 @@ describe("the body", () => {
     const lapsed: DisplayStateAnswer["status"] = "ready";
     expect(lapsed).toBe("ready");
     expect(asDisplayState({ ...PLAN, subscriptionStatus: "PAST_DUE" })?.subscriptionStatus).toBe("PAST_DUE");
+  });
+
+  it("keeps whether Stripe is billing them and at which rhythm (T85)", () => {
+    const shown = asDisplayState({ ...PLAN, paying: true, rhythm: "year" });
+
+    expect(shown?.paying).toBe(true);
+    expect(shown?.rhythm).toBe("year");
+  });
+
+  it("reads an API from before T85 as not paying, rather than turning the answer away", () => {
+    const { paying: _paying, rhythm: _rhythm, ...older } = PLAN;
+
+    expect(asDisplayState(older)).toMatchObject({ paying: false, rhythm: null });
   });
 
   it("keeps the flags the tier carries, empty or not", () => {

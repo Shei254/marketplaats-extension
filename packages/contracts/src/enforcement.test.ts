@@ -76,7 +76,7 @@ describe("the denial reasons", () => {
   });
 
   it("are the ones the API can actually answer with", () => {
-    // Four live on `enforcement`'s own enum; `UNAUTHENTICATED` is `identity`'s,
+    // All but one live on `enforcement`'s own enum; `UNAUTHENTICATED` is `identity`'s,
     // written by the filter chain before any route is reached, which is what makes
     // it true of routes no ticket has written yet. Asserted where each one lives.
     //
@@ -84,7 +84,7 @@ describe("the denial reasons", () => {
     // reason this assertion exists: `NO_TIER` is the first code answered by a route
     // the gate does not own — `GET /api/me` sends it too — so `display` needed the
     // word, and a second spelling of it there would be a string nothing compares to
-    // anything.
+    // anything. `ALREADY_PAYING` (T83) is the second, sent by `billing`.
     const gateCodes = javaEnumConstants("enforcement/ReasonCode");
     const filterChain = repoFile(
       "apps/api/src/main/java/com/mprelist/identity/internal/ResourceServerSecurity.java",

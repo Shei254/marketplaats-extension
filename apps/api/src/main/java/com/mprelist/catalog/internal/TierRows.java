@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.mprelist.catalog.Adoption;
 import com.mprelist.catalog.CatalogEntry;
 import com.mprelist.catalog.Entitlement;
+import com.mprelist.catalog.FreeTierOnOffer;
 import com.mprelist.catalog.PriceAdoptions;
 import com.mprelist.catalog.SellablePlan;
 import com.mprelist.catalog.TaggedPrice;
@@ -196,6 +197,26 @@ class TierRows implements TierCatalog, PriceAdoptions, TierEdits {
 	 * (T20, #30). What is on sale is {@link #published()} and is a different question asked by a different
 	 * caller.
 	 */
+	/**
+	 * One statement for the three conditions, so that none of them is a second query somebody could forget.
+	 * {@code relist_quota_per_period is null} is unlimited (ADR-0029), and is on offer; {@code 0} is the
+	 * withdrawn free tier (ADR-0019), and is not.
+	 */
+	@Override
+	public Optional<FreeTierOnOffer> freeTierOnOffer() {
+		return this.db.sql("""
+				select code, name, relist_quota_per_period, max_marktplaats_accounts, features::text
+				  from tier
+				 where is_default
+				   and not exists (select 1 from tier_price where tier_price.tier_id = tier.id)
+				   and (relist_quota_per_period is null or relist_quota_per_period > 0)
+				""")
+				.query((row, number) -> new FreeTierOnOffer(new TierName(row.getString("code"), row.getString("name")),
+						new Entitlement(quotaStored(row), row.getInt("max_marktplaats_accounts"),
+								flagsIn(row.getString("features")))))
+				.optional();
+	}
+
 	@Override
 	public Optional<TierId> tierSoldAs(String stripePriceId) {
 		return this.db.sql("select tier_id from tier_price where stripe_price_id = ?")

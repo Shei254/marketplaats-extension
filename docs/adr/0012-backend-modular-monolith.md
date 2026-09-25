@@ -24,7 +24,7 @@ com.mprelist
 ├── catalog/        public: TierId, TierName, TierPrice, TierCatalog, Entitlement,
 │   │                       CatalogEntry, SellablePlan, TierEdit, TierEdits, TierEdited,
 │   │                       Adoption, PriceAdoptions, TaggedPrice, TierTeardown,
-│   │                       StripeCleanup, OutstandingCleanup
+│   │                       StripeCleanup, OutstandingCleanup, FreeTierOnOffer
 │   └── internal/                 ◀ the tier table and the tear-down queue, through JdbcClient
 ├── subscription/   public: SubscriptionStatus, Subscription, QuotaPeriod, Subscriptions,
 │   │                       SubscriptionMirror, SubscriberOnStripe, Mirroring,

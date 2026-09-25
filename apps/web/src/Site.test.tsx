@@ -1,8 +1,9 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { Site } from "./Site";
 import { BRAND } from "./brand";
+import { STORE_URL } from "./public/store";
+import { Site } from "./Site";
 
 /** A question that is never answered: these assertions are about the frame, not the cards. */
 const NEVER = (): Promise<never> => new Promise(() => {});
@@ -79,15 +80,18 @@ describe("the frame", () => {
     expect(markup).toContain('class="web-brand"');
   });
 
-  it("links to both documents and to the support address, and to nothing else", () => {
-    // Five links on the whole site: Privacy and Terms in the header, the same two
-    // and the support address in the footer. They arrived with T36 (#45), the
-    // ticket that wrote the pages — a link to an address answered with "there's
-    // nothing at this address" is worse than one that arrives with its page.
+  it("links to both documents and to the support address, and on this page to the Store", () => {
+    // Five links in the frame: Privacy and Terms in the header, the same two and
+    // the support address in the footer. They arrived with T36 (#45), the ticket
+    // that wrote the pages — a link to an address answered with "there's nothing
+    // at this address" is worse than one that arrives with its page. The sixth is
+    // the success page's own since T85: somebody who paid on the site may not have
+    // installed the extension yet.
     expect(markup).toContain(`href="mailto:${BRAND.supportEmail}"`);
     expect([...markup.matchAll(/href="\/privacy"/g)]).toHaveLength(2);
     expect([...markup.matchAll(/href="\/terms"/g)]).toHaveLength(2);
-    expect([...markup.matchAll(/<a\b/g)]).toHaveLength(5);
+    expect([...markup.matchAll(/<a\b/g)]).toHaveLength(6);
+    expect(markup).toContain(`href="${STORE_URL}"`);
   });
 
   it("marks the document being read rather than linking it to itself", () => {

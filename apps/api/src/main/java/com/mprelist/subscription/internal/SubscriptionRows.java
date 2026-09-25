@@ -84,6 +84,37 @@ class SubscriptionRows implements Subscriptions, SubscriptionMirror, TierSubscri
 				.optional();
 	}
 
+	/**
+	 * One column, no lock, for {@link #stripeCustomerFor(UserRef)}'s reasons. The race it leaves open is the
+	 * webhook for a purchase not having arrived yet — two Checkout tabs opened a second apart both pass — and
+	 * closing that would take holding a session open across Stripe's page, which nothing here does.
+	 */
+	@Override
+	public Optional<String> stripeSubscriptionFor(UserRef user) {
+		return this.db.sql("select stripe_subscription_id from subscription where app_user_id = ?")
+				.param(user.id())
+				.query(String.class)
+				.optional();
+	}
+
+	@Override
+	public Optional<String> stripePriceFor(UserRef user) {
+		return this.db.sql("select stripe_price_id from subscription where app_user_id = ? "
+				+ "and stripe_subscription_id is not null")
+				.param(user.id())
+				.query(String.class)
+				.optional();
+	}
+
+	@Override
+	public boolean isPaying(UserRef user) {
+		return this.db.sql("select stripe_subscription_id is not null from subscription where app_user_id = ?")
+				.param(user.id())
+				.query(Boolean.class)
+				.optional()
+				.orElse(false);
+	}
+
 	@Override
 	@Transactional(propagation = Propagation.MANDATORY)
 	public Subscription currentFor(UserRef user) {
@@ -193,11 +224,12 @@ class SubscriptionRows implements Subscriptions, SubscriptionMirror, TierSubscri
 		this.db.sql("""
 				update subscription
 				   set tier_id = cast(? as uuid), status = ?, period_start = ?, period_end = ?,
-				       stripe_customer_id = ?, stripe_subscription_id = ?, mirrored_through = ?
+				       stripe_customer_id = ?, stripe_subscription_id = ?, stripe_price_id = ?,
+				       mirrored_through = ?
 				 where id = ?
 				""")
 				.params(landing.map(TierId::id).orElse(null), stored(status), period.start(), period.end(),
-						who.customerId(), who.subscriptionId(), saidAt, row.get().id())
+						who.customerId(), who.subscriptionId(), stripePriceId, saidAt, row.get().id())
 				.update();
 		return tier.isPresent() ? Mirroring.MIRRORED : Mirroring.MIRRORED_ONTO_THE_TIER_THEY_WERE_ALREADY_ON;
 	}
@@ -237,7 +269,8 @@ class SubscriptionRows implements Subscriptions, SubscriptionMirror, TierSubscri
 		this.db.sql("""
 				update subscription
 				   set tier_id = cast(? as uuid), status = 'active', period_start = ?, period_end = ?,
-				       stripe_customer_id = ?, stripe_subscription_id = null, mirrored_through = ?
+				       stripe_customer_id = ?, stripe_subscription_id = null, stripe_price_id = null,
+				       mirrored_through = ?
 				 where id = ?
 				""")
 				.params(this.tiers.defaultTier().map(TierId::id).orElse(null), ours.start(), ours.end(),

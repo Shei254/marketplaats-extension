@@ -1,10 +1,10 @@
 import { createRoot } from "react-dom/client";
 
+import { BrowserSite, isCustomerArrival } from "./account/BrowserSite";
 import { BrowserAdminApp, returningFromSignIn } from "./admin/BrowserAdminApp";
 import { deployedConfig } from "./admin/deployed-config";
 import { plansOnOffer } from "./public/plans-on-offer";
 import { isAdminPath } from "./routes";
-import { Site } from "./Site";
 
 /**
  * The entry point, and the only file here that touches the document.
@@ -46,10 +46,11 @@ const loadPlans = () => plansOnOffer(apiBaseUrl, fetch);
 
 if (!root) throw new Error("index.html has no #root to render into");
 
+// Keycloak sends both sign-ins back to `/`. The customer session's own
+// in-flight record is what says this one is a buyer's (T85); otherwise a `?code=`
+// is the admin corner's, as it always was.
+const adminArriving = returningFromSignIn(location.search) && !isCustomerArrival(location.search);
+
 createRoot(root).render(
-  isAdminPath(location.pathname) || returningFromSignIn(location.search) ? (
-    <BrowserAdminApp />
-  ) : (
-    <Site pathname={location.pathname} year={new Date().getFullYear()} loadPlans={loadPlans} />
-  ),
+  isAdminPath(location.pathname) || adminArriving ? <BrowserAdminApp /> : <BrowserSite loadPlans={loadPlans} />,
 );

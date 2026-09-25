@@ -45,6 +45,8 @@ function planWith(
     relistQuotaPerPeriod,
     resetAt: "2026-10-01T00:00:00Z",
     features,
+    paying: false,
+    rhythm: null,
   };
 }
 

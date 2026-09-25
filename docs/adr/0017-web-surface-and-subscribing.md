@@ -1,6 +1,6 @@
 # ADR-0017: One web app with loginless public routes; subscribing starts in the popup
 
-**Status:** Accepted (2026-08-20)
+**Status:** Accepted (2026-08-20), superseded in part by [ADR-0036](0036-the-site-sells-and-a-subscriber-switches-in-place.md)
 **Scope:** Full app. Amends ADR-0011's reservation of `apps/dashboard`, and settles what T33–T36 were for.
 
 ## Context
@@ -116,3 +116,9 @@ credentials omitted and no headers, and `no-identity.test.ts` holds that file to
 worded moved to `@mprelist/contracts` (ADR-0011, amended the same day), so the two surfaces cannot price one
 plan two ways.
 
+## Superseded in part 2026-09-25 (ADR-0036)
+
+The landing page now sells, and the site has a customer sign-in: "the popup owns the plan choice" and "the
+public routes never learn who anybody is" — including the T58 amendment above — no longer hold for `/`. See
+[ADR-0036](0036-the-site-sells-and-a-subscriber-switches-in-place.md). The success, cancel and billing pages
+still learn nothing about who is looking. T85 is the work.

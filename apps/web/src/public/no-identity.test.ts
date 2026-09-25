@@ -13,7 +13,12 @@ import { describe, expect, it } from "vitest";
  * call `fetch` on mount and look identical.
  *
  * `/admin` (T54, #85) is the exception the ADR names and it lives in `src/admin/`,
- * which is why this walks by directory rather than by file.
+ * which is why this walks by directory rather than by file. **Since T85 there is a
+ * second**: the landing page sells, so it has a visitor who may be signed in
+ * (ADR-0036), and that session lives in `src/account/` for the same reason. What
+ * stays true is what this now holds — everything under `public/`, the pages and
+ * the landing page itself included, is a function of what it is handed and asks
+ * nobody anything by itself.
  *
  * **One file outside it may call `fetch`** (T58): the landing page's plan cards ask
  * `GET /api/plans`, which answers a visitor with no token. What is asserted of that
@@ -21,7 +26,8 @@ import { describe, expect, it } from "vitest";
  * `Authorization` — so the ADR's sentence still holds of the whole public bundle.
  */
 const SRC = fileURLToPath(new URL("..", import.meta.url));
-const AUTHENTICATED = "admin";
+/** Where identity code lives: the admin corner, and the customer session on `/` (T85). */
+const AUTHENTICATED = new Set(["admin", "account"]);
 const ANONYMOUS_FETCH = join("public", "plans-on-offer.ts");
 
 /** What learning who somebody is looks like, spelled as the APIs that do it. */
@@ -40,7 +46,7 @@ const IDENTITY = [
 function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name);
-    if (entry.isDirectory()) return entry.name === AUTHENTICATED ? [] : sources(path);
+    if (entry.isDirectory()) return AUTHENTICATED.has(entry.name) ? [] : sources(path);
     // The test files themselves name every one of these, which is the point of them.
     if (/\.test\.tsx?$/.test(entry.name)) return [];
     return /\.tsx?$/.test(entry.name) ? [path] : [];
@@ -62,10 +68,14 @@ describe("the public bundle", () => {
     // the day something identity-shaped moved *out* of it nothing would notice.
     const admin = readFileSync(join(SRC, "admin", "admin-session.ts"), "utf8");
     const browser = readFileSync(join(SRC, "admin", "BrowserAdminApp.tsx"), "utf8");
+    const customer = readFileSync(join(SRC, "account", "BrowserSite.tsx"), "utf8");
 
     expect(browser).toContain("sessionStorage");
     expect(admin).toContain("access_token");
-    expect(files.some((path) => path.includes(`${AUTHENTICATED}/`))).toBe(false);
+    expect(customer).toContain("localStorage");
+    for (const dir of AUTHENTICATED) {
+      expect(files.some((path) => path.includes(`${dir}/`))).toBe(false);
+    }
   });
 
   for (const path of files) {

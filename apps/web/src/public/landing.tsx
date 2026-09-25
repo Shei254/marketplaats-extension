@@ -1,14 +1,14 @@
-import {
-  cardGrantOf,
-  priceAndRhythmOf,
-  waysToPay,
-  type Plan,
-} from "@mprelist/contracts";
-import { Button, Icon, Skeleton } from "@mprelist/ui";
+import { Icon } from "@mprelist/ui";
 import { useCallback, useEffect, useState, type JSX } from "react";
 
 import { BRAND } from "../brand";
+import { PlanSection } from "./plan-cards";
 import type { LoadPlans, PlansOnOffer } from "./plans-on-offer";
+import { STORE_URL } from "./store";
+import { NOBODY, type Account } from "./viewer";
+
+export { largestOf } from "./plan-cards";
+export { STORE_URL } from "./store";
 
 /**
  * The landing page at `/` (T58, #89), which the Web Store listing names as the
@@ -25,27 +25,27 @@ import type { LoadPlans, PlansOnOffer } from "./plans-on-offer";
  * repost deletes first, what reaches us — is in the Terms and the Privacy page,
  * which the header links on this page as on every other.
  *
- * **The plan cards are the popup's, read aloud the same way.** `GET /api/plans` is
- * asked with no token and answers what it answers the popup, and the wording comes
- * from `@mprelist/contracts` rather than a second copy. Nothing is sold from here:
- * Checkout opens from the popup, which knows who is buying (ADR-0017).
+ * **The plans are sold from here too** (T85, ADR-0036). `GET /api/plans` is asked
+ * with no token, and the wording comes from `@mprelist/contracts` rather than a
+ * second copy; who is looking, and what each button does for them, comes in as an
+ * `Account` from `src/account/`, so nothing in this file learns it by itself.
  *
  * `docs/design/Landing.dc.html` still draws the page this replaced. This one was
  * built first and the artboard is redrawn from it; `docs/design/README.md` says so.
  */
 
-/**
- * The listing, by the id the Store gave the draft (T56). The id never changes, so
- * the link is right from the day the listing is approved, and a `404` until then.
- */
-export const STORE_URL =
-  "https://chromewebstore.google.com/detail/cefnlogjhmeceojlaoionfjpdkklmnaf";
 
 /**
  * The page, holding the one thing it learns after it is drawn: what is on sale.
  * `loadPlans` is handed in, so what is asked and when can be driven by a test.
  */
-export function Landing({ loadPlans }: { loadPlans: LoadPlans }): JSX.Element {
+export function Landing({
+  loadPlans,
+  account = NOBODY,
+}: {
+  loadPlans: LoadPlans;
+  account?: Account;
+}): JSX.Element {
   const [plans, setPlans] = useState<PlansOnOffer | "loading">("loading");
 
   const ask = useCallback(() => {
@@ -61,16 +61,18 @@ export function Landing({ loadPlans }: { loadPlans: LoadPlans }): JSX.Element {
 
   useEffect(ask, [ask]);
 
-  return <LandingPage plans={plans} onRetry={ask} />;
+  return <LandingPage plans={plans} onRetry={ask} account={account} />;
 }
 
 /** The page as a function of what the plans question has answered so far. */
 export function LandingPage({
   plans,
   onRetry,
+  account = NOBODY,
 }: {
   plans: PlansOnOffer | "loading";
   onRetry: () => void;
+  account?: Account;
 }): JSX.Element {
   return (
     <>
@@ -107,9 +109,10 @@ export function LandingPage({
         </ol>
       </section>
 
-      <section className="web-band web-band--subtle">
+      <section className="web-band web-band--subtle" id="abonnementen">
         <h2 className="web-band-title">Abonnementen</h2>
-        <PlanCards plans={plans} onRetry={onRetry} />
+        <p className="web-band-copy">Begin gratis, of kies een abonnement als je vaker wilt herplaatsen.</p>
+        <PlanSection plans={plans} onRetry={onRetry} account={account} installUrl={STORE_URL} />
       </section>
 
       <section className="web-band web-closing">
@@ -131,103 +134,6 @@ function Install(): JSX.Element {
       Toevoegen aan Chrome
       <Icon name="external" />
     </a>
-  );
-}
-
-/** Where plans are chosen, leading into the cards — or ending the section when there are none. */
-function LeadIn({ intoCards }: { intoCards: boolean }): JSX.Element {
-  return (
-    <p className="web-band-copy">
-      Wil je vaker herplaatsen, dan kies je in de extensie een betaald
-      abonnement{intoCards ? ":" : "."}
-    </p>
-  );
-}
-
-function PlanCards({
-  plans,
-  onRetry,
-}: {
-  plans: PlansOnOffer | "loading";
-  onRetry: () => void;
-}): JSX.Element {
-  if (plans === "loading") {
-    return (
-      <>
-        <LeadIn intoCards />
-        <div className="web-plans" aria-busy="true">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="web-plan">
-              <Skeleton width="45%" height={14} />
-              <Skeleton width="80%" height={12} />
-              <Skeleton width="60%" height={12} />
-            </div>
-          ))}
-        </div>
-      </>
-    );
-  }
-  if (plans.status === "unavailable") {
-    return (
-      <>
-        <LeadIn intoCards={false} />
-        <div className="web-plans-unavailable">
-          <p>
-            De prijzen kunnen nu niet worden geladen. Je vindt ze ook in de
-            extensie, onder <b>Kies een abonnement</b>.
-          </p>
-          <Button tone="retry" shape="rect" onClick={onRetry}>
-            Opnieuw proberen
-          </Button>
-        </div>
-      </>
-    );
-  }
-  // An empty list is an answer: nothing is on sale, so there is nothing to draw
-  // and nothing to pay for. The sentence still says where plans are chosen.
-  if (plans.plans.length === 0) return <LeadIn intoCards={false} />;
-  const payWith = waysToPay(plans.paymentMethods);
-  const featured = largestOf(plans.plans);
-  return (
-    <>
-      <LeadIn intoCards />
-      <div className="web-plans">
-        {plans.plans.map((plan) => (
-          <PlanCard key={plan.tier.code} plan={plan} featured={plan.tier.code === featured} />
-        ))}
-      </div>
-      {payWith ? <p className="web-pay-with">{payWith}</p> : null}
-    </>
-  );
-}
-
-/**
- * The tier that grants the most repostings — unlimited above any number — when
- * there is more than one to be larger than. `undefined` when there is one plan or
- * when two tie for it, since a ring around one of two equals picks at random.
- *
- * It is a fact read off the cards, not an opinion about them: nothing here knows
- * what sells, so nothing is called popular.
- */
-export function largestOf(plans: readonly Plan[]): string | undefined {
-  if (plans.length < 2) return undefined;
-  const grant = (plan: Plan) => plan.relistQuotaPerPeriod ?? Number.POSITIVE_INFINITY;
-  const most = Math.max(...plans.map(grant));
-  const largest = plans.filter((plan) => grant(plan) === most);
-  return largest.length === 1 ? largest[0]?.tier.code : undefined;
-}
-
-function PlanCard({ plan, featured }: { plan: Plan; featured: boolean }): JSX.Element {
-  return (
-    <div className={featured ? "web-plan web-plan--featured" : "web-plan"}>
-      <p className="web-plan-name">{plan.tier.name}</p>
-      <p className="web-plan-grant">{cardGrantOf(plan)}</p>
-      {plan.prices.map((price) => (
-        <p key={price.interval} className="web-plan-price">
-          {priceAndRhythmOf(price)}
-        </p>
-      ))}
-    </div>
   );
 }
 

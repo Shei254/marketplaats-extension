@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.mprelist.catalog.Entitlement;
 import com.mprelist.catalog.TierCatalog;
 import com.mprelist.catalog.TierId;
+import com.mprelist.catalog.TierPrice;
 import com.mprelist.enforcement.Quotas;
 import com.mprelist.enforcement.RemainingQuota;
 import com.mprelist.identity.UserRef;
@@ -69,8 +70,24 @@ class DisplayStates {
 		}
 		RemainingQuota left = this.quotas.leftFor(caller, plan);
 		Entitlement granted = this.tiers.entitlementOf(tier.get());
+		boolean paying = this.subscriptions.isPaying(caller);
+		String rhythm = paying ? this.subscriptions.stripePriceFor(caller).flatMap(this::rhythmSoldAs).orElse(null)
+				: null;
 		return new Shown.Plan(new DisplayState(plan.status(), this.tiers.nameOf(tier.get()),
-				left.quotaRemaining(), granted.relistsPerPeriod(), left.resetAt(), granted.features()));
+				left.quotaRemaining(), granted.relistsPerPeriod(), left.resetAt(), granted.features(), paying,
+				rhythm));
+	}
+
+	/**
+	 * The Rhythm a Price is sold at, read off the cards on sale. A Price no published tier sells — a plan taken
+	 * off sale, or repriced since — has no card to offer the other rhythm on, so "unknown" costs nothing.
+	 */
+	private Optional<String> rhythmSoldAs(String stripePriceId) {
+		return this.tiers.published().stream()
+				.flatMap(plan -> plan.prices().stream())
+				.filter(price -> price.stripePriceId().equals(stripePriceId))
+				.map(TierPrice::interval)
+				.findFirst();
 	}
 
 	private final Subscriptions subscriptions;

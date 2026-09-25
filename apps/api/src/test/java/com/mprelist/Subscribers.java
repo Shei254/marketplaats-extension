@@ -138,6 +138,15 @@ final class Subscribers {
 				user.account());
 	}
 
+	/**
+	 * An account Stripe is billing right now, at that Price — what the mirror writes on every event about a
+	 * live subscription (T85). The Price need not be one any tier sells, which is a repriced plan.
+	 */
+	void billedByStripe(Subscriber user, String subscription, String price) {
+		this.db.update("update subscription set stripe_customer_id = 'cus_' || ?, stripe_subscription_id = ?, "
+				+ "stripe_price_id = ? where app_user_id = ?", subscription, subscription, price, user.account());
+	}
+
 	/** A subscription with a Stripe counterpart, whose window is Stripe's to move rather than ours. */
 	void mirroredFromStripe(Subscriber user) {
 		this.db.update("update subscription set stripe_subscription_id = ? where app_user_id = ?",

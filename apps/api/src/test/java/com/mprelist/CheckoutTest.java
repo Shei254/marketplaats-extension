@@ -19,6 +19,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
+import com.mprelist.Subscribers.Subscriber;
+
 /**
  * {@code POST /api/checkout} as a route (T19, #29): who may call it, and what each refusal looks like from
  * outside.
@@ -56,6 +58,8 @@ class CheckoutTest {
 
 	@BeforeEach
 	void oneTierOnSaleAndOneDraft() {
+		this.rows = new Subscribers(this.db, IDP, "checkout-suite-");
+		this.rows.nobodyHasRelistedYet();
 		this.db.update("delete from tier where code not in ('free', 'pro', 'power')");
 		TierPrices.nothingIsPriced(this.db);
 		TierPrices.soldByTheMonth(this.db, "pro", "price_pro");
@@ -156,6 +160,40 @@ class CheckoutTest {
 		assertThat(refused.statusCode()).isEqualTo(401);
 	}
 
+	// --- somebody already paying (T83) --------------------------------------------------------------------
+
+	/**
+	 * Somebody Stripe is already billing is refused a second subscription, and told why: it is a statement
+	 * about them — the one kind of {@code 4xx} that carries a {@code reason} — and what to do about it is the
+	 * Customer Portal, where a switch is prorated rather than charged twice.
+	 *
+	 * <p>{@code 409} and not {@code 503}, although no Stripe is configured here: the answer is read off our own
+	 * mirror before Stripe would be asked.
+	 */
+	@Test
+	void somebodyAlreadyPayingIsSentToManageWhatTheyHave() {
+		Subscriber payer = this.rows.entitledTo(50);
+		this.rows.billedAsStripeCustomer(payer, "cus_paying");
+		this.rows.mirroredFromStripe(payer);
+
+		HttpResponse<String> refused = buy(payer.token(), "pro", "month");
+
+		assertThat(refused.statusCode()).isEqualTo(409);
+		assertThat(refused.body()).isEqualTo("{\"reason\":\"ALREADY_PAYING\"}");
+	}
+
+	/**
+	 * While somebody who cancelled is not paying: ADR-0018 cleared their subscription and kept their customer,
+	 * so they get as far as Stripe — unconfigured here, hence the {@code 503} — to buy again as themselves.
+	 */
+	@Test
+	void whileSomebodyWhoCancelledMayBuyAgain() {
+		Subscriber returning = this.rows.entitledTo(3);
+		this.rows.billedAsStripeCustomer(returning, "cus_returning");
+
+		assertThat(buy(returning.token(), "pro", "month").statusCode()).isEqualTo(503);
+	}
+
 	// --- the calls themselves ------------------------------------------------------------------------------
 
 	private HttpResponse<String> buy(String tierCode) {
@@ -167,10 +205,18 @@ class CheckoutTest {
 		return post("{\"tierCode\":\"" + tierCode + "\",\"interval\":\"" + interval + "\"}");
 	}
 
+	private HttpResponse<String> buy(String token, String tierCode, String interval) {
+		return post(token, "{\"tierCode\":\"" + tierCode + "\",\"interval\":\"" + interval + "\"}");
+	}
+
 	private HttpResponse<String> post(String body) {
+		return post(IDP.token(), body);
+	}
+
+	private HttpResponse<String> post(String token, String body) {
 		return Http.send(HttpRequest.newBuilder(uri())
 				.timeout(TIMEOUT)
-				.header("Authorization", "Bearer " + IDP.token())
+				.header("Authorization", "Bearer " + token)
 				.header("Content-Type", "application/json")
 				.POST(HttpRequest.BodyPublishers.ofString(body, UTF_8))
 				.build());
@@ -185,6 +231,8 @@ class CheckoutTest {
 
 	@Autowired
 	private JdbcTemplate db;
+
+	private Subscribers rows;
 
 	private static final Duration TIMEOUT = Duration.ofSeconds(20);
 

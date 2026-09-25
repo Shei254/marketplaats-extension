@@ -129,6 +129,12 @@ function lockedBy(body: unknown): LockedState {
       // Carries nothing, and there is nothing it could carry: what to do about it
       // is not this user's to do (T77, ADR-0032).
       return { state: "no-tier" };
+    case "ALREADY_PAYING":
+    case "NOT_PAYING":
+      // Checkout's refusal and the Plan switch's (T83, T85), never a relist's.
+      // Meeting either here means something other than the gate answered, which
+      // is the safe reading's case.
+      return { state: "retry" };
     case "UNAUTHENTICATED":
       // The contract renders this as "unavailable, retry" like any other failure
       // the user cannot act on. T24 (#33) refreshes before this call is made, so a

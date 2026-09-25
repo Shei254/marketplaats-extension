@@ -199,6 +199,52 @@ class CheckoutSessionTest {
 				.isEqualTo(new Checkout.NotForSale());
 	}
 
+	// --- somebody already paying (T83) ----------------------------------------------------------------------
+
+	/**
+	 * Stripe would take the money. It knows the customer — the id above is passed precisely so it does — and
+	 * still creates a second subscription on it, so somebody on Pro who presses Business is charged for both.
+	 * A plan switch is the Customer Portal's, which prorates it; this route sells a first subscription only.
+	 */
+	@Test
+	void somebodyStripeIsAlreadyBillingOpensNoSecondSubscription() {
+		Checkout answered = checkout(List.of(PRO), Optional.of("cus_paying"), true).open(BUYER, "pro", "month");
+
+		assertThat(answered).isEqualTo(new Checkout.AlreadyPaying());
+		assertThat(this.posted).isNull();
+	}
+
+	/**
+	 * Asked before what is on sale, because it is the more useful answer: a payer holding yesterday's cards is
+	 * going to the Portal either way, and "that plan is gone" would send them looking for another to buy.
+	 */
+	@Test
+	void whateverTheyAskedFor() {
+		assertThat(checkout(List.of(PRO), Optional.of("cus_paying"), true).open(BUYER, "starter", "month"))
+				.isEqualTo(new Checkout.AlreadyPaying());
+	}
+
+	/** And it needs no Stripe to say so: the mirror is ours, and the answer is about the caller. */
+	@Test
+	void evenWithNoStripeToAsk() {
+		OpenCheckout unconfigured = new OpenCheckout(catalogOf(List.of(PRO)),
+				subscriberWith(Optional.of("cus_paying"), true), new StripeAccount(""), pages("https://example.test"));
+
+		assertThat(unconfigured.open(BUYER, "pro", "month")).isEqualTo(new Checkout.AlreadyPaying());
+	}
+
+	/**
+	 * While somebody who cancelled is not paying, and buys again as the same customer — ADR-0018 keeps their
+	 * customer id and clears the subscription, which is the whole of the difference between the two.
+	 */
+	@Test
+	void whileSomebodyWhoCancelledIsNot() {
+		Checkout opened = checkout(List.of(PRO), Optional.of("cus_returning"), false).open(BUYER, "pro", "month");
+
+		assertThat(opened).isInstanceOf(Checkout.Opened.class);
+		assertThat(this.posted).containsEntry("customer", "cus_returning");
+	}
+
 	// --- what a retry could fix ----------------------------------------------------------------------------
 
 	@Test
@@ -256,7 +302,12 @@ class CheckoutSessionTest {
 	// --- the collaborators, by hand ------------------------------------------------------------------------
 
 	private OpenCheckout checkout(List<SellablePlan> onSale, Optional<String> customer) {
-		return new OpenCheckout(catalogOf(onSale), subscriberWith(customer), account(), pages("https://example.test"));
+		return checkout(onSale, customer, false);
+	}
+
+	private OpenCheckout checkout(List<SellablePlan> onSale, Optional<String> customer, boolean paying) {
+		return new OpenCheckout(catalogOf(onSale), subscriberWith(customer, paying), account(),
+				pages("https://example.test"));
 	}
 
 	private static WebPages pages(String baseUrl) {
@@ -296,6 +347,11 @@ class CheckoutSessionTest {
 			}
 
 			@Override
+			public Optional<com.mprelist.catalog.FreeTierOnOffer> freeTierOnOffer() {
+				throw new UnsupportedOperationException("the free tier is never bought");
+			}
+
+			@Override
 			public Optional<TierId> tierSoldAs(String stripePriceId) {
 				throw new UnsupportedOperationException("that is the webhook's question, not this one's");
 			}
@@ -304,6 +360,10 @@ class CheckoutSessionTest {
 	}
 
 	private static Subscriptions subscriberWith(Optional<String> customer) {
+		return subscriberWith(customer, false);
+	}
+
+	private static Subscriptions subscriberWith(Optional<String> customer, boolean paying) {
 		return new Subscriptions() {
 
 			@Override
@@ -314,6 +374,21 @@ class CheckoutSessionTest {
 			@Override
 			public Optional<String> stripeCustomerFor(UserRef user) {
 				return customer;
+			}
+
+			@Override
+			public Optional<String> stripeSubscriptionFor(UserRef user) {
+				throw new UnsupportedOperationException("that is a plan switch's question");
+			}
+
+			@Override
+			public Optional<String> stripePriceFor(UserRef user) {
+				throw new UnsupportedOperationException("that is a plan switch's question");
+			}
+
+			@Override
+			public boolean isPaying(UserRef user) {
+				return paying;
 			}
 
 		};

@@ -141,6 +141,9 @@ body {
   font: var(--mp-text-caption) var(--mp-font-family);
   color: var(--mp-muted);
 }
+/* The success page's install link and the cancel page's way back to the plans (T85). */
+.web-micro a,
+.web-callout a { color: var(--mp-accent); }
 
 /* The one instruction that matters on every one of these pages: the product is
    the extension, and it is in the toolbar rather than on this page. */
@@ -563,51 +566,247 @@ body {
   color: var(--mp-muted);
 }
 
+/* The plans (T85): prototype A. Each card leads with its number of reposts in the
+   mark's gradient, a meter under it measured against the largest finite grant on
+   the page, and its button at the foot. The largest plan is filled with the
+   gradient and lifted — it says which plan grants most, which its number already
+   does, and not which is popular, which nothing here knows. */
 .web-plans {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 20px;
+  align-items: stretch;
 }
 .web-plan {
+  position: relative;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 26px;
+  padding: 26px 22px 22px;
   border: 1px solid var(--mp-line);
-  border-radius: 16px;
+  border-radius: 20px;
   background: var(--mp-bg);
   box-shadow: var(--mp-shadow-sm);
 }
-/* The plan that grants the most, ringed in the mark: a border the gradient shows
-   through, and nothing written on it. It says which plan is the largest, which the
-   numbers on it already do — not which is popular, which nothing here knows. */
-.web-plan--featured {
-  /* One pixel of padding traded for the pixel of border, so the words on this card
-     sit where they do on its neighbours. */
-  padding: 25px;
-  border: 2px solid transparent;
-  background:
-    linear-gradient(var(--mp-bg), var(--mp-bg)) padding-box,
-    linear-gradient(135deg, var(--mp-brand-from), var(--mp-brand-to)) border-box;
-  box-shadow: var(--mp-shadow);
-}
 .web-plan p { margin: 0; }
+.web-plan--featured {
+  border-color: transparent;
+  color: var(--mp-on-brand);
+  background: linear-gradient(160deg, var(--mp-brand-from), var(--mp-brand-to));
+  box-shadow: var(--mp-shadow);
+  transform: translateY(-8px);
+}
+/* The card somebody pressed before signing in, when they turned out to be paying
+   already: shown rather than switched to, since a switch charges a saved card. */
+.web-plan--picked { box-shadow: 0 0 0 3px var(--mp-ring), var(--mp-shadow); }
+.web-plan-flag {
+  position: absolute;
+  top: -12px;
+  left: 22px;
+  padding: 4px 10px;
+  border-radius: var(--mp-radius-pill);
+  font: var(--mp-text-caption) var(--mp-font-family);
+  font-weight: 650;
+  color: var(--mp-bg);
+  background: var(--mp-fg);
+}
 .web-plan-name {
-  font: var(--mp-text-title) var(--mp-font-family);
-  font-size: 20px;
-  letter-spacing: -0.02em;
-}
-.web-plan .web-plan-grant {
-  margin-bottom: 14px;
-  font: var(--mp-text-secondary) var(--mp-font-family);
-  color: var(--mp-muted);
-}
-.web-plan-price {
   font: var(--mp-text-body) var(--mp-font-family);
-  font-weight: 600;
+  font-weight: 650;
+  opacity: 0.8;
+}
+.web-plan-number {
+  margin-top: 14px !important;
+  font-family: var(--mp-font-family);
+  font-size: 64px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+  background: linear-gradient(135deg, var(--mp-brand-from), var(--mp-brand-to));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.web-plan--featured .web-plan-number { background: none; color: inherit; }
+.web-plan .web-plan-grant {
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  opacity: 0.75;
+}
+.web-plan-meter {
+  height: 6px;
+  margin: 18px 0;
+  overflow: hidden;
+  border-radius: var(--mp-radius-pill);
+  background: var(--mp-line);
+}
+.web-plan--featured .web-plan-meter { background: color-mix(in srgb, var(--mp-on-brand) 25%, transparent); }
+.web-plan-meter span {
+  display: block;
+  height: 100%;
+  border-radius: var(--mp-radius-pill);
+  background: linear-gradient(90deg, var(--mp-brand-from), var(--mp-brand-to));
+}
+.web-plan--featured .web-plan-meter span { background: var(--mp-on-brand); }
+/* Unlimited: full, and fading out rather than ending, since there is no end. */
+.web-plan-meter span.is-open { mask-image: linear-gradient(90deg, var(--mp-fg) 70%, transparent); }
+.web-plan-price {
+  font: var(--mp-text-secondary) var(--mp-font-family);
   font-variant-numeric: tabular-nums;
 }
+.web-plan-price b { font-size: 26px; letter-spacing: -0.02em; }
+.web-plan-note {
+  min-height: 1.3em;
+  margin: 4px 0 18px !important;
+  font: var(--mp-text-caption) var(--mp-font-family);
+  opacity: 0.75;
+}
+.web-plan-btn {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  margin-top: auto;
+  padding: 12px 16px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  font: var(--mp-text-body) var(--mp-font-family);
+  font-weight: 650;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+.web-plan-btn:focus-visible { outline: 2px solid transparent; box-shadow: 0 0 0 3px var(--mp-ring); }
+.web-plan-btn:disabled { cursor: default; opacity: 0.6; }
+.web-plan-btn--primary {
+  color: var(--mp-on-brand);
+  background: linear-gradient(135deg, var(--mp-brand-from), var(--mp-brand-to)) border-box;
+}
+.web-plan-btn--secondary { color: var(--mp-fg); background: var(--mp-bg); border-color: var(--mp-line); }
+.web-plan-btn--current { color: var(--mp-ok); background: var(--mp-ok-bg); cursor: default; }
+.web-plan-btn--quiet { color: inherit; background: none; text-decoration: underline; opacity: 0.8; }
+.web-plan--featured .web-plan-btn--primary { color: var(--mp-brand-to); background: var(--mp-on-brand); }
+.web-plan--featured .web-plan-btn--secondary {
+  color: var(--mp-on-brand);
+  background: color-mix(in srgb, var(--mp-on-brand) 15%, transparent);
+  border-color: color-mix(in srgb, var(--mp-on-brand) 40%, transparent);
+}
+
+/* Maandelijks / Jaarlijks: this page's only, and shown only when some plan is sold
+   yearly. The saving is computed from the plans' own prices. */
+.web-rhythm {
+  display: inline-flex;
+  gap: 4px;
+  margin: 0 0 32px;
+  padding: 4px;
+  border: 1px solid var(--mp-line);
+  border-radius: var(--mp-radius-pill);
+  background: var(--mp-bg);
+}
+.web-rhythm button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 18px;
+  border: 0;
+  border-radius: var(--mp-radius-pill);
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  font-weight: 650;
+  color: var(--mp-muted);
+  background: none;
+  cursor: pointer;
+}
+.web-rhythm button.is-on {
+  color: var(--mp-on-brand);
+  background: linear-gradient(135deg, var(--mp-brand-from), var(--mp-brand-to));
+}
+.web-rhythm-save {
+  padding: 2px 7px;
+  border-radius: var(--mp-radius-pill);
+  font: var(--mp-text-micro) var(--mp-font-family);
+  font-weight: 650;
+  color: var(--mp-ok);
+  background: var(--mp-ok-bg);
+}
+.web-rhythm button.is-on .web-rhythm-save {
+  color: inherit;
+  background: color-mix(in srgb, var(--mp-on-brand) 22%, transparent);
+}
+.web-plans-notice {
+  margin: 0 0 24px;
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  color: var(--mp-fg);
+}
+
+/* Overstappen, confirmed: Stripe's amount before anything is charged. */
+.web-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: var(--web-gutter);
+  background: color-mix(in srgb, var(--mp-fg) 45%, transparent);
+}
+.web-dialog {
+  box-sizing: border-box;
+  width: min(440px, 100%);
+  padding: 28px;
+  border-radius: 20px;
+  background: var(--mp-bg);
+  color: var(--mp-fg);
+  box-shadow: var(--mp-shadow);
+}
+.web-dialog-title {
+  margin: 0 0 12px;
+  font: var(--mp-text-title) var(--mp-font-family);
+  font-size: 20px;
+}
+.web-dialog-copy {
+  margin: 0 0 24px;
+  font: var(--mp-text-body) var(--mp-font-family);
+  color: var(--mp-muted);
+  line-height: 1.5;
+}
+.web-dialog-actions { display: flex; gap: 12px; }
+.web-dialog-actions .web-plan-btn { margin-top: 0; }
+
+/* The header's account corner on /, in the header's own colour. */
+.web-account {
+  padding: 0;
+  border: 0;
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  font-weight: 650;
+  color: inherit;
+  background: none;
+  cursor: pointer;
+}
+.web-account:hover { text-decoration: underline; }
+.web-account-menu { position: relative; }
+.web-account-items {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  padding: 6px;
+  border: 1px solid var(--mp-line);
+  border-radius: 12px;
+  background: var(--mp-bg);
+  box-shadow: var(--mp-shadow);
+}
+.web-account-items button {
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 8px;
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  text-align: left;
+  color: var(--mp-fg);
+  background: none;
+  cursor: pointer;
+}
+.web-account-items button:hover { background: var(--mp-subtle); }
 .web-pay-with {
   margin: 20px 0 0;
   font: var(--mp-text-caption) var(--mp-font-family);

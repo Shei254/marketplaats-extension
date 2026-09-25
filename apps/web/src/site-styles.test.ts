@@ -34,6 +34,14 @@ describe("this surface's rules", () => {
     expect(siteCss).toMatch(/\.web-wordmark \{[^}]*font-family: "Montserrat", [^;]+;[^}]*font-weight: 600;/s);
   });
 
+  it("draw the landing header's mark bare and large, beside a large wordmark", () => {
+    // On the gradient the tile is a gradient on a gradient: the operator's
+    // design has the white glyph alone, at about the wordmark's height.
+    expect(siteCss).toMatch(/\.web-header--over \.web-mark \{[^}]*background: none;[^}]*box-shadow: none;/s);
+    expect(siteCss).toMatch(/\.web-header--over \.web-mark svg \{[^}]*width: 44px;[^}]*height: 44px;/s);
+    expect(siteCss).toMatch(/\.web-header--over \.web-wordmark \{[^}]*font-size: 24px;/s);
+  });
+
   it("are well-formed, since an unbalanced brace discards everything after it", () => {
     expect(siteCss.split("{")).toHaveLength(siteCss.split("}").length);
   });

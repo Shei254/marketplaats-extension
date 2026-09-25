@@ -34,6 +34,9 @@ const UNLIMITED: Plan = {
 
 const FREE: FreeTier = { tier: { code: "free", name: "Gratis" }, relistQuotaPerPeriod: 3, features: {} };
 
+const PAY_WITH =
+  "Uw betaling wordt veilig verwerkt via Stripe. U kunt eenvoudig kiezen uit verschillende " +
+  "betaalmethoden, waaronder iDEAL | Wero, PayPal, creditcard en debitcard.";
 const ON_SALE: PlansOnOffer = { status: "ready", plans: [PRO, UNLIMITED], freeTier: null, paymentMethods: ["card", "ideal"] };
 
 const page = (plans: PlansOnOffer | "loading"): string =>
@@ -109,8 +112,17 @@ describe("the plan cards", () => {
     expect(page(ON_SALE).toLowerCase()).not.toContain("populair");
   });
 
-  it("say how a buyer can pay, in the popup's order", () => {
-    expect(page(ON_SALE)).toContain("Je kunt betalen met iDEAL of creditcard.");
+  it("say how a buyer can pay, in the operator's own words", () => {
+    expect(page(ON_SALE)).toContain(PAY_WITH);
+  });
+
+  it("say it whatever Stripe says it offers, since the sentence is fixed copy", () => {
+    expect(page({ ...ON_SALE, paymentMethods: [] })).toContain(PAY_WITH);
+    expect(page({ ...ON_SALE, paymentMethods: ["twint"] } as PlansOnOffer)).toContain(PAY_WITH);
+  });
+
+  it("and not beside a free card alone, where there is nothing to pay for", () => {
+    expect(page({ ...ON_SALE, plans: [], freeTier: FREE })).not.toContain("Stripe");
   });
 
   it("offer the switcher when some plan is sold yearly, and not otherwise", () => {
@@ -134,12 +146,8 @@ describe("the plan cards", () => {
     const markup = page({ status: "ready", plans: [], freeTier: null, paymentMethods: ["ideal"] });
 
     expect(markup).not.toContain('class="web-plan"');
-    expect(markup).not.toContain("Je kunt betalen met");
+    expect(markup).not.toContain("Stripe");
     expect(markup).not.toContain("niet worden geladen");
-  });
-
-  it("leave the payment sentence out when there is nothing it can name", () => {
-    expect(page({ ...ON_SALE, paymentMethods: ["twint"] } as PlansOnOffer)).not.toContain("Je kunt betalen met");
   });
 
   it("say so when the prices could not be had, and never guess one", () => {

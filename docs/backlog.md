@@ -1897,9 +1897,15 @@ stays true — the success, cancel and billing pages still learn nothing — rat
 **Not in it:** the popup's cards, which keep T83's Portal door; scheduling downgrades for period end; showing
 the Stripe credit; an account page.
 
-#### T86 · The popup's mark is off-centre · **XS**
+#### T86 · The popup's mark is off-centre · **XS** · **shipped**
 *Same session.* The badge at the popup's top left (`screens.tsx`, `mp-mark popup-mark`) is not symmetrical,
 and the white glyph inside it is not centred.
+
+**The tile was square; the glyph was drawn low.** Its ink ran from y 5.55 to 16.95 in its 20×20 box, 1.25
+below centre, which the canvas never showed because it sets the header mark loose beside the word. The fix
+is the glyph's, not the popup's: both paths move up 1.25 in `packages/ui`'s `Icon` and on every canvas
+artboard together, so every tile is balanced at once (the signed-out badge, the site, admin), and
+`icons.test.tsx` holds the ink's centre to the box's.
 
 ---
 

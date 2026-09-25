@@ -583,6 +583,26 @@ class StripeSubscriptionMirrorTest {
 				.isEqualTo(utc(subscriptionOf(buyer).periodEnd()));
 	}
 
+	/**
+	 * An annual subscription is shown a month (T87, ADR-0037): the row keeps the year Stripe billed, and
+	 * {@code resetAt} is the end of the month of it the buyer is in — the day their reposts come back, not the
+	 * day Stripe renews.
+	 */
+	@Test
+	void anAnnualSubscriptionIsShownTheMonthItIsInWhileTheRowKeepsTheYear() {
+		Account buyer = whoJustSignedIn();
+		OffsetDateTime bought = utc(ANY_TIME);
+		Sub annual = subscriptionOf(buyer).forThePeriod(ANY_TIME, bought.plusYears(1).toInstant());
+
+		this.stripe.delivered(started(annual));
+
+		assertThat(windowOf(buyer)).isEqualTo(List.of(bought, bought.plusYears(1)));
+		JsonNode shown = Json.of(displayStateOf(buyer.token()));
+		assertThat(OffsetDateTime.parse(shown.get("resetAt").asString()).withOffsetSameInstant(ZoneOffset.UTC))
+				.isEqualTo(bought.plusMonths(1));
+		assertThat(shown.get("quotaRemaining").asInt()).isEqualTo(quotaOf("pro"));
+	}
+
 	// --- the events, as Stripe sends them ---------------------------------------------------------------
 
 	/** {@code customer.subscription.created}: what a completed Checkout produces. */

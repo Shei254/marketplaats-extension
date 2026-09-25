@@ -1,6 +1,7 @@
 package com.mprelist.subscription;
 
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 
 /**
  * The window a subscription's usage is counted in — {@code docs/glossary.md}'s "quota period", which every
@@ -44,6 +45,49 @@ public record QuotaPeriod(OffsetDateTime start, OffsetDateTime end) {
 	 */
 	public boolean hasClosedBy(OffsetDateTime instant) {
 		return !this.end.isAfter(instant);
+	}
+
+	/**
+	 * The month of this window that contains {@code now} — what usage is counted in when the window is a Stripe
+	 * billing period (T87, ADR-0037). An annual price buys the monthly grant twelve times, so a year is twelve of
+	 * these; a window of about a month is exactly one.
+	 *
+	 * <p>Months are counted from this window's start, and the last one ends at its end, so the twelfth closes
+	 * when Stripe renews. A remainder shorter than a month is folded into the last month rather than made a
+	 * month of its own: Stripe bills a plan bought on the 31st from 28 February to 31 March, and a three-day
+	 * sliver there would be a second grant nobody paid for.
+	 *
+	 * <p>A {@code now} outside the window answers the nearest month inside it, never one past it. A closed payer's
+	 * window means Stripe's webhook has not arrived, and the next period is Stripe's to say (#30).
+	 */
+	public QuotaPeriod monthContaining(OffsetDateTime now) {
+		long months = Math.max(1, wholeMonthsBetween(this.start, this.end));
+		long month = Math.min(Math.max(0, wholeMonthsBetween(this.start, now)), months - 1);
+		OffsetDateTime end = month == months - 1 ? this.end : this.start.plusMonths(month + 1);
+		return new QuotaPeriod(this.start.plusMonths(month), end);
+	}
+
+	/**
+	 * The month counted from {@code anchor} that contains {@code now}, with no end to stop at — the free roll's
+	 * window (#20), anchored on the subscription's creation.
+	 */
+	public static QuotaPeriod monthFrom(OffsetDateTime anchor, OffsetDateTime now) {
+		long month = wholeMonthsBetween(anchor, now);
+		return new QuotaPeriod(anchor.plusMonths(month), anchor.plusMonths(month + 1));
+	}
+
+	/**
+	 * How many whole months from {@code anchor} have passed by {@code instant}, where a month from the anchor
+	 * is {@code anchor.plusMonths(n)}.
+	 *
+	 * <p>Not {@code ChronoUnit.MONTHS.between} alone, which disagrees with {@code plusMonths} at the clamp: from
+	 * 31 January 09:15 it counts 28 February 10:00 as no months at all, though {@code plusMonths(1)} — 28
+	 * February 09:15 — has passed. Answering that would be a window already closed when it is handed out, and a
+	 * reservation stamped now would fall outside it.
+	 */
+	private static long wholeMonthsBetween(OffsetDateTime anchor, OffsetDateTime instant) {
+		long months = ChronoUnit.MONTHS.between(anchor, instant);
+		return anchor.plusMonths(months + 1).isAfter(instant) ? months : months + 1;
 	}
 
 }

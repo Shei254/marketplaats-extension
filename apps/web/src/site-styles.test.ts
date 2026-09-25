@@ -27,6 +27,13 @@ describe("this surface's rules", () => {
     expect(siteCss).toMatch(/\.web-card \{[^}]*background: var\(--mp-bg\)/s);
   });
 
+  it("set the wordmark in Montserrat SemiBold, from a file served by this origin", () => {
+    // Never Google's servers: `no-identity.test.ts` and the privacy page's
+    // "Niemand" both depend on the page asking nobody else for anything.
+    expect(siteCss).toMatch(/@font-face \{[^}]*font-family: "Montserrat";[^}]*font-weight: 600;[^}]*src: url\("(?!https?:)[^"]+"\)/s);
+    expect(siteCss).toMatch(/\.web-wordmark \{[^}]*font-family: "Montserrat", [^;]+;[^}]*font-weight: 600;/s);
+  });
+
   it("are well-formed, since an unbalanced brace discards everything after it", () => {
     expect(siteCss.split("{")).toHaveLength(siteCss.split("}").length);
   });

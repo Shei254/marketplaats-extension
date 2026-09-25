@@ -1,5 +1,6 @@
 import { fontFamily } from "@mprelist/ui";
 import geist from "@fontsource-variable/geist/files/geist-latin-wght-normal.woff2?url";
+import montserrat from "@fontsource/montserrat/files/montserrat-latin-600-normal.woff2?url";
 
 /**
  * This site's own rules — the stage, the card, its header and its footer, and the
@@ -30,6 +31,10 @@ import geist from "@fontsource-variable/geist/files/geist-latin-wght-normal.woff
  * a font from Google's servers would tell Google who reads these pages, which is
  * the thing `no-identity.test.ts` exists to rule out. Latin only — Dutch needs
  * nothing past it, and the `swap` means a slow file costs a reflow, never words.
+ *
+ * **The brand name is set in Montserrat SemiBold** (2026-09-25, the operator's
+ * choice), in the site header and the admin corner only — the wordmark, not the
+ * page. One weight, one Latin woff2, served from here for Geist's reason.
  */
 export const siteCss = `
 @font-face {
@@ -38,6 +43,19 @@ export const siteCss = `
   font-display: swap;
   font-weight: 100 900;
   src: url("${geist}") format("woff2-variations");
+}
+@font-face {
+  font-family: "Montserrat";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url("${montserrat}") format("woff2");
+}
+
+/* The brand name beside the mark, on the websites (not the popup). */
+.web-wordmark {
+  font-family: "Montserrat", ${fontFamily};
+  font-weight: 600;
 }
 
 body {

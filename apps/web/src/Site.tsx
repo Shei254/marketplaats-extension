@@ -53,9 +53,9 @@ export function Site({
       <header className={wide ? "web-header web-header--over" : "web-header"}>
         <span className="web-brand">
           <span className="mp-mark web-mark">
-            <Icon name="logo" />
+            <Icon name="site-logo" />
           </span>
-          {BRAND.name}
+          <span className="web-wordmark">{BRAND.name}</span>
         </span>
         <nav className="web-nav">
           <DocumentLink to="privacy" showing={showing} />

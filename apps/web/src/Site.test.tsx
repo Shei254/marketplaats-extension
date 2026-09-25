@@ -43,8 +43,15 @@ describe("what the site serves", () => {
     expect(landing).toContain('class="web-page web-page--landing"');
   });
 
+  it("draws the landing page across the whole window, and every other page in the card", () => {
+    expect(render("/")).toContain('class="mp-root web-stage web-stage--wide"');
+    expect(render("/")).not.toContain('class="web-card"');
+    expect(render("/")).toContain('class="web-header web-header--over"');
+    expect(render("/success")).toContain('class="web-card"');
+  });
+
   it("says under the landing page's footer that it is not Marktplaats's", () => {
-    // Where the artboard puts it: the last line of the card, below the footer.
+    // Where the artboard puts it: the page's last line, below the footer.
     const landing = render("/");
 
     expect(landing.indexOf("niet gelieerd aan Marktplaats")).toBeGreaterThan(landing.indexOf("</footer>"));

@@ -5,12 +5,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { Landing, LandingPage, STORE_URL } from "./landing";
+import { Landing, LandingPage, STORE_URL, largestOf } from "./landing";
 import type { PlansOnOffer } from "./plans-on-offer";
 
 /**
- * The landing page (T58), as `docs/design/Landing.dc.html` draws it: the listing's
- * copy, and the plan cards `GET /api/plans` answers a visitor with no token.
+ * The landing page (T58): a few of the listing's claims in fewer words, the install
+ * link twice, and the plan cards `GET /api/plans` answers a visitor with no token.
  */
 const PRO: Plan = {
   tier: { code: "pro", name: "Pro" },
@@ -37,15 +37,15 @@ const page = (plans: PlansOnOffer | "loading"): string =>
 describe("the landing page's copy", () => {
   const markup = page("loading");
 
-  it("says what the product does, in the listing's words", () => {
+  it("says what the product does, in fewer words than the listing and none it lacks", () => {
     expect(markup).toContain("Zet je advertentie weer bovenaan");
     expect(markup).toContain("Zo werkt het");
   });
 
-  it("says that a repost deletes first, which is the one thing a user would not guess", () => {
-    // The Web Store's Misleading or Unexpected Behavior policy, and T58's decision
-    // for the listing: the outcome in one sentence, not the mechanism.
-    expect(markup).toContain("Herplaatsen verwijdert je advertentie en plaatst hem direct opnieuw");
+  it("leaves what the listing calls good to know to the Terms and the Privacy page", () => {
+    // Decided with the full-width redesign: the delete-first sentence is section 5
+    // of the Terms (Site.test.tsx asserts it is there), and the header links both.
+    expect(markup).not.toContain("Goed om te weten");
   });
 
   it("never says Marktplaats approves", () => {
@@ -62,6 +62,18 @@ describe("the landing page's copy", () => {
     expect(markup).toContain(`href="${STORE_URL}"`);
     expect(markup).toContain("Toevoegen aan Chrome");
   });
+
+  it("offers it again at the end of the page, as the same link", () => {
+    expect(markup.split(`href="${STORE_URL}"`)).toHaveLength(3);
+  });
+
+  it("draws the demo's still frame as the outcome: the visitor's ad on top", () => {
+    // The animation starts from the markup, and reduced motion leaves only the
+    // markup — so the first row has to be the visitor's, already "Bovenaan".
+    const demo = markup.slice(markup.indexOf('class="web-repost-list"'));
+    expect(demo.indexOf("Jouw fiets")).toBeLessThan(demo.indexOf("Nieuw geplaatst"));
+    expect(demo).toContain('<span class="web-repost-top web-after">Bovenaan</span>');
+  });
 });
 
 describe("the plan cards", () => {
@@ -73,6 +85,23 @@ describe("the plan cards", () => {
     expect(markup).toMatch(/€\s9,99 per maand/);
     expect(markup).toMatch(/€\s99,00 per jaar/);
     expect(markup).toContain("Onbeperkt herplaatsen");
+  });
+
+  it("ring the plan that grants the most, which unlimited always does", () => {
+    const markup = page(ON_SALE);
+
+    expect(markup.match(/class="web-plan web-plan--featured"/g)).toHaveLength(1);
+    expect(markup.indexOf("web-plan--featured")).toBeGreaterThan(markup.indexOf("Pro"));
+    expect(largestOf([PRO, UNLIMITED])).toBe("max");
+  });
+
+  it("ring none when there is nothing to be larger than, or two are equal", () => {
+    expect(largestOf([PRO])).toBeUndefined();
+    expect(largestOf([PRO, { ...PRO, tier: { code: "pro2", name: "Pro 2" } }])).toBeUndefined();
+  });
+
+  it("call no plan popular, since nothing here knows", () => {
+    expect(page(ON_SALE).toLowerCase()).not.toContain("populair");
   });
 
   it("say how a buyer can pay, in the popup's order", () => {

@@ -12,7 +12,7 @@ code, regenerated on every seed).
 | `QuotaExhausted.dc.html` · `Cooldown.dc.html` · `Dunning.dc.html` | the gated states — ads stay visible, buttons lock |
 | `PlanCards.dc.html` | the plan picker (T52) |
 | `Success.dc.html` · `Cancel.dc.html` · `Privacy.dc.html` · `Terms.dc.html` | `apps/web`'s public pages (T50, T36) |
-| `Landing.dc.html` | `/`, the Web Store listing's homepage (T58) |
+| `Landing.dc.html` | `/`, the Web Store listing's homepage (T58) — **behind the code**, see below |
 | `Tokens.dc.html` | the token sheet **T28 encodes** |
 | `canvas.json` | artboard layout, the three pages, and the sticky notes |
 
@@ -57,6 +57,13 @@ are drawn in the product and on no artboard:
 | Sections as **cards** | `/admin`, and the popup's plan cards | `--mp-bg` on `--mp-stage`, 1px `--mp-line`, `--mp-radius-card`, `--mp-shadow-sm` |
 | A **focus ring** | every control on both surfaces | `0 0 0 3px var(--mp-ring)`, with a transparent 2px outline under it |
 | The **logo tile** | all three headers | the mark on `--mp-accent`, 24px, `--mp-radius-block` |
+
+**And `/` was redesigned in code first** (T58, 2026-09-25), so `Landing.dc.html` still draws the card
+version. Redraw it from `apps/web/src/public/landing.tsx` and `site-styles.ts`: the whole window rather than
+the card; Geist on this site only; a `100svh` hero in the mark's gradient with the teal kept in the corner the
+demo card covers; the demo as one list whose own row rises to the top; three step tiles with a gradient top
+edge; plan cards with the largest ringed in the gradient; a closing gradient band with the install button
+again; and no "Goed om te weten".
 
 `/admin` still has no artboard at all and is drawn out of the tokens, which is what
 [T54 (#85)](https://github.com/Shei254/marketplaats-extension/issues/85) decided and remains true.

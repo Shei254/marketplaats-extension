@@ -12,19 +12,26 @@ import type { LoadPlans, PlansOnOffer } from "./plans-on-offer";
 
 /**
  * The landing page at `/` (T58, #89), which the Web Store listing names as the
- * homepage. The drawing is `docs/design/Landing.dc.html`.
+ * homepage. The whole window rather than the card every other page is: a hero in
+ * the mark's gradient that fills the first screen, the three steps, the plans, and
+ * the install button again at the bottom.
  *
- * **The words are the listing's.** `store/listing.md`'s description is what the
- * reviewer and a searcher read, and this page is where its Homepage URL takes
- * them. Saying something different here would be two accounts of one product, so
- * the steps and the three things to know are the same sentences. It keeps the
- * listing's rules as well: the delete comes first, Marktplaats is named as
- * somebody else's, and none of the words that imply its approval appear.
+ * **The words are fewer than the listing's, and claim nothing it does not.**
+ * `store/listing.md` is written for a reviewer and says everything; this page is
+ * where a visitor decides, and says the least that gets them there. Each line here
+ * is something the listing already says — and the listing's rules hold of every
+ * one: Marktplaats is named as somebody else's, and none of the words that imply
+ * its approval appear. What the listing's "Goed om te weten" covers — that a
+ * repost deletes first, what reaches us — is in the Terms and the Privacy page,
+ * which the header links on this page as on every other.
  *
  * **The plan cards are the popup's, read aloud the same way.** `GET /api/plans` is
  * asked with no token and answers what it answers the popup, and the wording comes
  * from `@mprelist/contracts` rather than a second copy. Nothing is sold from here:
  * Checkout opens from the popup, which knows who is buying (ADR-0017).
+ *
+ * `docs/design/Landing.dc.html` still draws the page this replaced. This one was
+ * built first and the artboard is redrawn from it; `docs/design/README.md` says so.
  */
 
 /**
@@ -68,79 +75,69 @@ export function LandingPage({
   return (
     <>
       <section className="web-hero">
-        <h1 className="web-hero-title">Zet je advertentie weer bovenaan</h1>
-        <p className="web-copy web-hero-copy">
-          Nieuwe advertenties staan op Marktplaats bovenaan; na een paar dagen
-          zakt de jouwe weg. Met {BRAND.name} herplaats je hem vanuit je
-          browser, met alle tekst en foto’s, en staat hij weer bovenaan de
-          recente advertenties.
-        </p>
-        <a
-          className="mp-btn mp-btn--block mp-btn--primary web-install"
-          href={STORE_URL}
-        >
-          Toevoegen aan Chrome
-          <Icon name="external" />
-        </a>
-        <p className="web-micro web-hero-micro">
-          Gratis te installeren · werkt in Chrome
-        </p>
-        <BeforeAndAfter />
+        <div>
+          <h1 className="web-hero-title">Zet je advertentie weer bovenaan</h1>
+          <p className="web-hero-copy">
+            Herplaats hem vanuit je browser, met alle tekst en foto’s.
+          </p>
+          <Install />
+          <p className="web-hero-micro">Gratis te installeren · werkt in Chrome</p>
+        </div>
+        <Repost />
+        <a className="web-scroll" href="#zo-werkt-het" aria-label="Verder naar Zo werkt het" />
       </section>
 
-      <section className="web-section">
-        <h2 className="web-section-title">Zo werkt het</h2>
-        {/* Each step's words in one span: the item is a flex row beside its number,
-            and bare text beside a <b> would be three flex items rather than a sentence. */}
+      <section className="web-band" id="zo-werkt-het">
+        <h2 className="web-band-title">Zo werkt het</h2>
         <ol className="web-steps">
           <li>
-            <span>Open marktplaats.nl en log in zoals je gewend bent.</span>
+            <span className="web-step-title">Open Marktplaats</span>
+            <span className="web-step-copy">En log in zoals je gewend bent.</span>
           </li>
           <li>
-            <span>
-              Klik op het {BRAND.name}-icoon in je werkbalk en log in met je{" "}
-              {BRAND.name}-account.
-            </span>
+            <span className="web-step-title">Log in bij {BRAND.name}</span>
+            <span className="web-step-copy">Via het icoon in je werkbalk.</span>
           </li>
           <li>
-            <span>
-              Kies een van je advertenties en klik op <b>Herplaats</b>.
+            <span className="web-step-title">
+              Klik op <b>Herplaats</b>
             </span>
+            <span className="web-step-copy">Je advertentie staat weer bovenaan.</span>
           </li>
         </ol>
       </section>
 
-      <section className="web-section web-section--subtle">
-        <h2 className="web-section-title">Goed om te weten</h2>
-        <ul className="web-points">
-          <li>
-            Herplaatsen verwijdert je advertentie en plaatst hem direct opnieuw,
-            met alle tekst en foto’s.
-          </li>
-          <li>
-            Alles gebeurt in je eigen browser, onder je eigen Marktplaats-login.{" "}
-            {BRAND.name} ziet je Marktplaats-wachtwoord niet, en de tekst en
-            foto’s van je advertenties komen nooit bij ons.
-          </li>
-          <li>
-            Je hebt een {BRAND.name}-account nodig. Aanmelden is gratis, en een
-            gratis abonnement geeft een beperkt aantal herplaatsingen per maand.
-          </li>
-        </ul>
-      </section>
-
-      <section className="web-section">
-        <h2 className="web-section-title">Abonnementen</h2>
+      <section className="web-band web-band--subtle">
+        <h2 className="web-band-title">Abonnementen</h2>
         <PlanCards plans={plans} onRetry={onRetry} />
       </section>
+
+      <section className="web-band web-closing">
+        <h2 className="web-band-title">Begin gratis</h2>
+        <Install />
+        <p className="web-hero-micro">Werkt in Chrome</p>
+      </section>
     </>
+  );
+}
+
+/**
+ * Where the extension is had: the Store listing, twice on the page — once at the
+ * top and once at the end of it — and both the same element.
+ */
+function Install(): JSX.Element {
+  return (
+    <a className="mp-btn mp-btn--primary web-install" href={STORE_URL}>
+      Toevoegen aan Chrome
+      <Icon name="external" />
+    </a>
   );
 }
 
 /** Where plans are chosen, leading into the cards — or ending the section when there are none. */
 function LeadIn({ intoCards }: { intoCards: boolean }): JSX.Element {
   return (
-    <p className="web-section-copy">
+    <p className="web-band-copy">
       Wil je vaker herplaatsen, dan kies je in de extensie een betaald
       abonnement{intoCards ? ":" : "."}
     </p>
@@ -190,12 +187,13 @@ function PlanCards({
   // and nothing to pay for. The sentence still says where plans are chosen.
   if (plans.plans.length === 0) return <LeadIn intoCards={false} />;
   const payWith = waysToPay(plans.paymentMethods);
+  const featured = largestOf(plans.plans);
   return (
     <>
       <LeadIn intoCards />
       <div className="web-plans">
         {plans.plans.map((plan) => (
-          <PlanCard key={plan.tier.code} plan={plan} />
+          <PlanCard key={plan.tier.code} plan={plan} featured={plan.tier.code === featured} />
         ))}
       </div>
       {payWith ? <p className="web-pay-with">{payWith}</p> : null}
@@ -203,9 +201,25 @@ function PlanCards({
   );
 }
 
-function PlanCard({ plan }: { plan: Plan }): JSX.Element {
+/**
+ * The tier that grants the most repostings — unlimited above any number — when
+ * there is more than one to be larger than. `undefined` when there is one plan or
+ * when two tie for it, since a ring around one of two equals picks at random.
+ *
+ * It is a fact read off the cards, not an opinion about them: nothing here knows
+ * what sells, so nothing is called popular.
+ */
+export function largestOf(plans: readonly Plan[]): string | undefined {
+  if (plans.length < 2) return undefined;
+  const grant = (plan: Plan) => plan.relistQuotaPerPeriod ?? Number.POSITIVE_INFINITY;
+  const most = Math.max(...plans.map(grant));
+  const largest = plans.filter((plan) => grant(plan) === most);
+  return largest.length === 1 ? largest[0]?.tier.code : undefined;
+}
+
+function PlanCard({ plan, featured }: { plan: Plan; featured: boolean }): JSX.Element {
   return (
-    <div className="web-plan">
+    <div className={featured ? "web-plan web-plan--featured" : "web-plan"}>
       <p className="web-plan-name">{plan.tier.name}</p>
       <p className="web-plan-grant">{cardGrantOf(plan)}</p>
       {plan.prices.map((price) => (
@@ -218,62 +232,46 @@ function PlanCard({ plan }: { plan: Plan }): JSX.Element {
 }
 
 /**
- * Where a reposted ad lands, drawn rather than said: four rows of recent ads, the
- * visitor's sunk to the bottom and then back on top. No Marktplaats styling — the
- * rows are this product's own tokens, so nothing here dresses up as their site.
+ * Where a reposted ad lands, shown rather than said: four recent ads, the visitor's
+ * sinking to the bottom and rising back to the top. The motion is all in
+ * `site-styles.ts`; the markup is the still frame — the rows in their "after"
+ * order, with each "before" word beside its "after" one and hidden — which is what
+ * a visitor who asked for reduced motion sees.
+ *
+ * No Marktplaats styling: the rows are this product's own tokens, so nothing here
+ * dresses up as their site.
  */
-function BeforeAndAfter(): JSX.Element {
+function Repost(): JSX.Element {
   return (
-    <div className="web-compare" aria-hidden="true">
-      <Column
-        title="Na een paar dagen"
-        rows={["vandaag", "gisteren", "2 dagen"]}
-        yours="5 dagen"
-        yoursFirst={false}
-      />
-      <span className="web-compare-arrow">→</span>
-      <Column
-        title="Na herplaatsen"
-        rows={["vandaag", "gisteren", "2 dagen"]}
-        yours="zojuist"
-        yoursFirst
-      />
+    <div className="web-repost" aria-hidden="true">
+      <p className="web-repost-caption">
+        <Swap before="Na een paar dagen" after="Na herplaatsen" />
+      </p>
+      <div className="web-repost-list">
+        <div className="web-repost-row web-repost-row--yours">
+          <span className="web-repost-thumb" />
+          <span>
+            <b>Jouw fiets</b> · <Swap before="5 dagen" after="zojuist" />
+          </span>
+          <span className="web-repost-top web-after">Bovenaan</span>
+        </div>
+        {["vandaag", "gisteren", "2 dagen"].map((when) => (
+          <div key={when} className="web-repost-row">
+            <span className="web-repost-thumb" />
+            <span>Nieuw geplaatst · {when}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
-function Column({
-  title,
-  rows,
-  yours,
-  yoursFirst,
-}: {
-  title: string;
-  rows: string[];
-  yours: string;
-  yoursFirst: boolean;
-}): JSX.Element {
-  const mine = (
-    <div className="web-compare-row web-compare-row--yours">
-      <span className="web-compare-thumb" />
-      <span>
-        <b>Jouw fiets</b> · {yours}
-      </span>
-      {yoursFirst ? <span className="web-compare-top">Bovenaan</span> : null}
-    </div>
-  );
-  const others = rows.map((when) => (
-    <div key={when} className="web-compare-row">
-      <span className="web-compare-thumb" />
-      <span>Nieuw geplaatst · {when}</span>
-    </div>
-  ));
+/** One place, two words: the one the loop starts on, and the one it lands on. */
+function Swap({ before, after }: { before: string; after: string }): JSX.Element {
   return (
-    <div className="web-compare-column">
-      <p className="web-compare-title">{title}</p>
-      {yoursFirst ? mine : null}
-      {others}
-      {yoursFirst ? null : mine}
-    </div>
+    <span className="web-swap">
+      <span className="web-before">{before}</span>
+      <span className="web-after">{after}</span>
+    </span>
   );
 }

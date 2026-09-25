@@ -1870,7 +1870,8 @@ stays true — the success, cancel and billing pages still learn nothing — rat
 - **A customer session on `/`** — `mprelist-dashboard`, PKCE, the token in memory, and a secret-free
   `localStorage` flag that drives one `prompt=none` round trip on load. The realm redirects to the origin root
   only, where the admin sign-in also lands, so `/` tells a returning buyer from a returning admin. Header:
-  *Inloggen*; signed in, the email with *Betaling beheren* (Portal) and *Uitloggen*.
+  *Inloggen*; signed in, **Mijn account** with *Betaling beheren* (Portal) and *Uitloggen* — not the email,
+  which this application does not hold (#108) and this client's tokens do not carry.
 - **Buttons.** Free tier or no tier: *Kies* → Checkout. Subscriber: "Huidig" on theirs, *Overstappen* on the
   rest. A choice made signed out survives sign-in in `sessionStorage` and continues to Checkout only when it
   is still a purchase — never into a switch. T83's `409` is shown as *Betaling beheren*, should it ever reach
@@ -1885,8 +1886,8 @@ stays true — the success, cancel and billing pages still learn nothing — rat
   the plan's two prices, and its position is the Rhythm bought or switched to.
 - **Cards led by the number of reposts**, in the direction chosen from a throwaway prototype — branch
   `prototype/landing-plan-cards`, variant **A**: gradient cards, a quota meter relative to the largest plan,
-  the largest card filled with the mark's gradient and lifted. No benefit lists. `Landing.dc.html` is redrawn
-  first (ADR-0016).
+  the largest card filled with the mark's gradient and lifted. No benefit lists. The prototype stood in for
+  the canvas; `Landing.dc.html` is redrawn at the next re-seed, as `docs/design/README.md` records.
 - **`/success`** gains *"Nog niet geïnstalleerd? Toevoegen aan Chrome"*; **`/cancel`** links to
   `/#abonnementen`.
 - **`frame-ancestors 'none'` and a tight CSP** in `apps/web/nginx.conf.template`.

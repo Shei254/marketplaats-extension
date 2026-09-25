@@ -10,6 +10,16 @@ server {
     server_name  _;
     root         /usr/share/nginx/html;
 
+    # **No page of this site may be framed, and no script runs but its own** (T85, ADR-0036). Since the landing
+    # page sells, a signed-in visitor's *Overstappen* charges a saved card, which makes a page someone else can
+    # frame invisibly a clickjacking target; the confirmation dialog is the other half of that answer.
+    # `script-src 'self'` is the bundle and `/config.js`, which is all `index.html` loads — the site's styles
+    # are injected `<style>` elements, so `style-src` is left alone.
+    #
+    # Said here for every path, and again in each `location` below that sets a header of its own: nginx
+    # inherits `add_header` into a location only when the location sets none.
+    add_header Content-Security-Policy "frame-ancestors 'none'; script-src 'self'; object-src 'none'; base-uri 'self'" always;
+
     # **The deployment's patch over what the bundle was built with**, in the shape `GET /api/client-config`
     # already serves the extension (ADR-0013): the built-in defaults are `admin-config.ts`'s, this says only
     # where they are wrong, and an empty value is not a value — `deployed-config.ts` reads a blank as absent
@@ -37,6 +47,7 @@ server {
     # It names the hashed bundle, so a cached copy of it is a cached copy of the previous release.
     location = /index.html {
         add_header Cache-Control "no-store" always;
+        add_header Content-Security-Policy "frame-ancestors 'none'; script-src 'self'; object-src 'none'; base-uri 'self'" always;
     }
 
     # **Every public path is answered with the one `index.html`** — the obligation the backlog states for

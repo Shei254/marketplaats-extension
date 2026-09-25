@@ -2,10 +2,12 @@ import { Icon, UiStyles } from "@mprelist/ui";
 import type { JSX } from "react";
 
 import { BRAND } from "./brand";
+import { AccountControl } from "./public/account-control";
 import { Landing } from "./public/landing";
 import { PrivacyPage, TermsPage } from "./public/legal";
 import { BillingPage, CancelPage, NotFoundPage, SuccessPage } from "./public/pages";
 import type { LoadPlans } from "./public/plans-on-offer";
+import type { Account } from "./public/viewer";
 import { PATHS, pageFor, type Page } from "./routes";
 import { siteCss } from "./site-styles";
 
@@ -36,10 +38,13 @@ export function Site({
   pathname,
   year,
   loadPlans,
+  account,
 }: {
   pathname: string;
   year: number;
   loadPlans: LoadPlans;
+  /** The landing page's visitor (T85); absent, every page is drawn for nobody in particular. */
+  account?: Account;
 }): JSX.Element {
   const showing = pageFor(pathname);
   const wide = showing === "landing";
@@ -55,10 +60,11 @@ export function Site({
         <nav className="web-nav">
           <DocumentLink to="privacy" showing={showing} />
           <DocumentLink to="terms" showing={showing} />
+          {wide && account ? <AccountControl account={account} /> : null}
         </nav>
       </header>
       <main className={wide ? "web-page web-page--landing" : "web-page"}>
-        {page(showing, loadPlans)}
+        {page(showing, loadPlans, account)}
       </main>
       <footer className="web-footer">
         <span>
@@ -109,10 +115,10 @@ function DocumentLink({ to, showing }: { to: "privacy" | "terms"; showing: Page 
 }
 
 /** Total over the route table, so a page added there without one here does not compile. */
-function page(name: Page, loadPlans: LoadPlans): JSX.Element {
+function page(name: Page, loadPlans: LoadPlans, account: Account | undefined): JSX.Element {
   switch (name) {
     case "landing":
-      return <Landing loadPlans={loadPlans} />;
+      return <Landing loadPlans={loadPlans} account={account} />;
     case "privacy":
       return <PrivacyPage />;
     case "terms":

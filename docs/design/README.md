@@ -65,6 +65,13 @@ demo card covers; the demo as one list whose own row rises to the top; three ste
 edge; plan cards with the largest ringed in the gradient; a closing gradient band with the install button
 again; and no "Goed om te weten".
 
+**And the plan cards went further in T85** ([ADR-0036](../adr/0036-the-site-sells-and-a-subscriber-switches-in-place.md)),
+chosen from a throwaway prototype rather than from an artboard — branch `prototype/landing-plan-cards`,
+variant A. At the same re-seed draw: each card led by its number of reposts in the gradient, with a 6px meter
+against the largest grant and its button at the foot; the largest plan *filled* with the gradient and lifted
+8px, flagged "Meeste herplaatsingen"; the free card first; a *Maandelijks / Jaarlijks* pill above; the
+Overstappen confirmation dialog; and *Inloggen* / *Mijn account* in the header.
+
 `/admin` still has no artboard at all and is drawn out of the tokens, which is what
 [T54 (#85)](https://github.com/Shei254/marketplaats-extension/issues/85) decided and remains true.
 

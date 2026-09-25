@@ -2,6 +2,7 @@ import { Icon } from "@mprelist/ui";
 import type { JSX, ReactNode } from "react";
 
 import { BRAND } from "../brand";
+import { STORE_URL } from "./store";
 
 /**
  * The public pages, as functions of nothing at all (T50, #81).
@@ -11,7 +12,13 @@ import { BRAND } from "../brand";
  * lands; the webhook (T20, #30) is what moves the subscription, so there is
  * nothing on this screen worth authenticating for and no question to ask the API.
  * `no-identity.test.ts` holds the whole directory to that: no fetch, no storage,
- * no cookie, in a bundle a stranger reaches without signing in.
+ * no cookie, in a bundle a stranger reaches without signing in. That stayed true
+ * when the landing page began selling (T85, ADR-0036): the session that does it
+ * lives in `src/account/`, and none of these pages is handed it.
+ *
+ * **They no longer assume the extension is installed** (T85): somebody who paid on
+ * the site may not have it yet, so the success page says where it is had, and the
+ * cancel page points back at the plans as well as at the toolbar.
  *
  * The words and the layout are the canvas's — `docs/design/Success.dc.html` and
  * `Cancel.dc.html` — with the product's name substituted from `brand.json` rather
@@ -48,6 +55,10 @@ export function SuccessPage(): JSX.Element {
         Klik op het <b>{BRAND.name}</b>-icoon in je werkbalk
       </Callout>
       <p className="web-micro">Hier hoef je niets te doen — je kunt dit tabblad sluiten.</p>
+      <p className="web-micro">
+        Nog niet geïnstalleerd? <a href={STORE_URL}>Toevoegen aan Chrome</a> — je abonnement staat
+        klaar zodra je inlogt.
+      </p>
     </>
   );
 }
@@ -63,7 +74,9 @@ export function CancelPage(): JSX.Element {
         Je hebt het afrekenen afgebroken, dus er is niets betaald en er is niets veranderd. Je
         gratis herplaatsingen staan er nog gewoon.
       </p>
-      <Callout>Open {BRAND.name} opnieuw wanneer je het nog eens wilt proberen</Callout>
+      <Callout>
+        Probeer het opnieuw vanuit {BRAND.name} of via <a href="/#abonnementen">de abonnementen</a>
+      </Callout>
     </>
   );
 }

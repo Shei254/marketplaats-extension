@@ -65,6 +65,19 @@ export type Arrival =
 /** What `sessionStorage` holds between leaving for Keycloak and coming back. */
 const IN_FLIGHT = "mprelist.admin.sign-in";
 
+/**
+ * How a sign-in differs by who started it (T85). The customer session on `/`
+ * runs this same exchange against the same client, and the realm sends both back
+ * to the origin root — so each keeps its own in-flight record under its own key,
+ * which is how `/` tells a returning buyer from a returning operator. `prompt`
+ * is `none` for the customer's silent check on load: Keycloak answers from its
+ * own session, or with `login_required`, and never shows a page.
+ */
+export interface SignInOptions {
+  key?: string;
+  prompt?: "none";
+}
+
 interface InFlight {
   verifier: string;
   state: string;
@@ -85,11 +98,15 @@ export async function beginSignIn(
   storage: Storage,
   navigate: (url: string) => void,
   returnTo: string,
+  options: SignInOptions = {},
 ): Promise<void> {
   const endpoints = await fetchOidcEndpoints(config.issuer, http);
   const verifier = createVerifier();
   const state = createState();
-  storage.setItem(IN_FLIGHT, JSON.stringify({ verifier, state, returnTo } satisfies InFlight));
+  storage.setItem(
+    options.key ?? IN_FLIGHT,
+    JSON.stringify({ verifier, state, returnTo } satisfies InFlight),
+  );
 
   const authorize = new URL(endpoints.authorizationEndpoint);
   authorize.searchParams.set("response_type", "code");
@@ -101,6 +118,7 @@ export async function beginSignIn(
   // S256 and never `plain`: the realm requires it of this client, and a `plain`
   // challenge is the verifier itself travelling in the URL, which is no protection.
   authorize.searchParams.set("code_challenge_method", "S256");
+  if (options.prompt) authorize.searchParams.set("prompt", options.prompt);
   navigate(authorize.toString());
 }
 
@@ -115,6 +133,7 @@ export async function completeSignIn(
   config: AdminConfig,
   http: Http,
   storage: Storage,
+  key: string = IN_FLIGHT,
 ): Promise<Arrival> {
   const params = new URLSearchParams(search);
   const error = params.get("error");
@@ -124,13 +143,13 @@ export async function completeSignIn(
   if (error) {
     // Keycloak refusing is a sentence it wrote, and it names what is misconfigured
     // better than anything invented here would.
-    storage.removeItem(IN_FLIGHT);
+    storage.removeItem(key);
     return { status: "failed", message: params.get("error_description") ?? error };
   }
   if (!code || !state) return { status: "not-a-sign-in" };
 
-  const inFlight = readInFlight(storage);
-  storage.removeItem(IN_FLIGHT);
+  const inFlight = readInFlight(storage, key);
+  storage.removeItem(key);
   if (!inFlight) {
     return { status: "failed", message: "This sign-in did not start in this tab. Try again." };
   }
@@ -265,8 +284,8 @@ function claimsIn(accessToken: string): Record<string, unknown> | null {
   }
 }
 
-function readInFlight(storage: Storage): InFlight | null {
-  const stored = storage.getItem(IN_FLIGHT);
+function readInFlight(storage: Storage, key: string): InFlight | null {
+  const stored = storage.getItem(key);
   if (!stored) return null;
   try {
     const parsed = JSON.parse(stored) as Partial<InFlight>;

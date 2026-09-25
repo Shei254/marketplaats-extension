@@ -245,12 +245,12 @@ about their **software**. It therefore carries none, exactly like every other `4
 - **An empty list is a different thing and is a `200`**: nothing is on sale, which is true of every stack
   whose Stripe Prices have not been created yet (T22, #28). Answering "unavailable" there would report a
   fault that is not there.
-- Consumed by the **popup**, which holds the access token and opens the Checkout URL in a tab; `apps/web`
-  has no login and never calls this (ADR-0017).
+- Consumed by the **popup**, which holds the access token and opens the Checkout URL in a tab, and since T85
+  by the **landing page**, for a signed-in visitor ([ADR-0036](adr/0036-the-site-sells-and-a-subscriber-switches-in-place.md)).
 
 ### `POST /api/checkout` — where a plan card becomes a payment
-- **Auth:** `Authorization: Bearer <Keycloak access token>`. Called by the **popup**, which holds one already;
-  `apps/web` has no login and never calls this (ADR-0017).
+- **Auth:** `Authorization: Bearer <Keycloak access token>`. Called by the **popup**, which holds one already,
+  and since T85 by the **landing page** for a visitor who has signed in there (ADR-0036).
 - **Body:** `{ "tierCode": "pro", "interval": "month" }` — the stable handle, never a Stripe price id, which
   is ours to resolve; a client naming a price id could name one we never published. **`interval` is as
   required as the code** (T62, #128): a tier may be sold monthly and annually, so the code alone names two
@@ -308,8 +308,8 @@ about their **software**. It therefore carries none, exactly like every other `4
 
 ### `POST /api/portal` — where "manage billing" becomes a Stripe page
 - **Auth:** `Authorization: Bearer <Keycloak access token>`. Called by the **popup**, which opens the returned
-  URL in a tab exactly as it opens a Checkout one; `apps/web` has no customer login and never calls this
-  (ADR-0017).
+  URL in a tab exactly as it opens a Checkout one, and since T85 by the **landing page** — *Betaling beheren*
+  and *Opzeggen* (ADR-0036).
 - **No body.** Who is asking comes from the token, and everything the Portal offers — the card, the invoices,
   the cancel button — is configured in Stripe's dashboard rather than named here. It is a `POST` because each
   call creates a short-lived single-use session at Stripe, so two calls are two sessions.

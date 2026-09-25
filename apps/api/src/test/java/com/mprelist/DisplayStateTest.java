@@ -94,7 +94,7 @@ class DisplayStateTest {
 		assertThat(shown.statusCode()).isEqualTo(200);
 		JsonNode state = Json.of(shown);
 		assertThat(state.propertyNames()).containsExactlyInAnyOrder("subscriptionStatus", "tier", "quotaRemaining",
-				"relistQuotaPerPeriod", "resetAt", "features");
+				"relistQuotaPerPeriod", "resetAt", "features", "paying", "rhythm");
 		assertThat(state.get("subscriptionStatus").asString()).isEqualTo("ACTIVE");
 		assertThat(state.get("quotaRemaining").asInt()).isEqualTo(3);
 		assertThat(resetAtIn(state)).isEqualTo(this.rows.windowOf(user).end());
@@ -392,6 +392,49 @@ class DisplayStateTest {
 
 		assertThat(features.isObject()).isTrue();
 		assertThat(features.isEmpty()).isTrue();
+	}
+
+	// --- what Stripe is billing (T85) ----------------------------------------------------------------------
+
+	/** Nobody Stripe is billing: the ordinary free account, which the site offers Checkout. */
+	@Test
+	void somebodyStripeIsNotBillingIsShownAsNotPaying() {
+		Subscriber user = aSubscriberEntitledTo(3);
+
+		JsonNode state = Json.of(displayStateOf(user));
+
+		assertThat(state.get("paying").asBoolean()).isFalse();
+		assertThat(state.get("rhythm").isNull()).isTrue();
+	}
+
+	/**
+	 * A payer, and the Rhythm their Price is sold at — which is how the site's own card for their tier knows
+	 * to offer the other one as a Plan switch rather than calling both "Huidig" (ADR-0036).
+	 */
+	@Test
+	void aPayerIsShownTheRhythmTheirPriceIsSoldAt() {
+		Subscriber user = aSubscriberEntitledTo(3);
+		String code = String.valueOf(this.rows.tierOf(user).get("code"));
+		TierPrices.soldAt(this.db, code, "price_" + code + "_yearly", "year");
+		this.db.update("update tier set published = true where code = ?", code);
+		this.rows.billedByStripe(user, "sub_" + code, "price_" + code + "_yearly");
+
+		JsonNode state = Json.of(displayStateOf(user));
+
+		assertThat(state.get("paying").asBoolean()).isTrue();
+		assertThat(state.get("rhythm").asString()).isEqualTo("year");
+	}
+
+	/** A Price no card sells — a plan repriced since — is still somebody paying, at a rhythm nobody can offer. */
+	@Test
+	void whileAPriceNoCardSellsIsARhythmNobodyKnows() {
+		Subscriber user = aSubscriberEntitledTo(3);
+		this.rows.billedByStripe(user, "sub_repriced", "price_nobody_sells");
+
+		JsonNode state = Json.of(displayStateOf(user));
+
+		assertThat(state.get("paying").asBoolean()).isTrue();
+		assertThat(state.get("rhythm").isNull()).isTrue();
 	}
 
 	// --- the calls ----------------------------------------------------------------------------------------

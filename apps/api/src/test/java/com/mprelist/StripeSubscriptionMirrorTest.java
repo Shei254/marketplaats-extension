@@ -129,6 +129,20 @@ class StripeSubscriptionMirrorTest {
 	}
 
 	/**
+	 * And the Price it is billed at (T85): what a Plan switch changes, and what the site reads a payer's
+	 * Rhythm from.
+	 */
+	@Test
+	void andThePriceItIsBilledAt() {
+		Account buyer = whoJustSignedIn();
+		Sub bought = subscriptionOf(buyer);
+
+		this.stripe.delivered(started(bought));
+
+		assertThat(planOf(buyer)).containsEntry("stripe_price_id", bought.price());
+	}
+
+	/**
 	 * A trial mirrors through with no special case anywhere, which is what ADR-0006 means by putting trials on
 	 * the Price rather than in our code: {@code trialing} is an allowed status, so the subscriber is entitled
 	 * to the tier they are trialing and the day it lapses Stripe says so with another event.
@@ -274,7 +288,8 @@ class StripeSubscriptionMirrorTest {
 		this.stripe.delivered(ended(bought.as("canceled"), ANY_TIME.plusSeconds(60)));
 
 		assertThat(planOf(buyer)).containsEntry("stripe_customer_id", bought.customer())
-				.containsEntry("stripe_subscription_id", null);
+				.containsEntry("stripe_subscription_id", null)
+				.containsEntry("stripe_price_id", null);
 	}
 
 	/** A subscription whose first payment never completed ends the same way, and is the other terminal status. */
@@ -731,7 +746,8 @@ class StripeSubscriptionMirrorTest {
 	private Map<String, Object> planOf(Account account) {
 		return this.db.queryForMap("""
 				select tier.code as tier, subscription.status, subscription.created_at,
-				       subscription.stripe_customer_id, subscription.stripe_subscription_id
+				       subscription.stripe_customer_id, subscription.stripe_subscription_id,
+				       subscription.stripe_price_id
 				  from subscription join tier on tier.id = subscription.tier_id
 				 where subscription.app_user_id = ?
 				""", account.id());

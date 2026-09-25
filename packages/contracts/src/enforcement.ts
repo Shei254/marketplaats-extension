@@ -240,6 +240,19 @@ export interface DisplayState {
   resetAt: string;
   /** The tier's flags as stored. `{}` on every tier today, and sent rather than omitted. */
   features: Record<string, unknown>;
+  /**
+   * **Whether Stripe is billing this account right now** (T85, ADR-0036): true
+   * through dunning, false after a terminal end — exactly what `POST
+   * /api/checkout` reads for its `409 ALREADY_PAYING`. Somebody not paying is
+   * offered Checkout; somebody paying, a Plan switch.
+   */
+  paying: boolean;
+  /**
+   * The **Rhythm** they are billed at — `month`, `year` — so their own card can
+   * offer the other one. `null` when not paying, and for a payer whose Price no
+   * card sells or has not been mirrored since T85: "unknown", not an error.
+   */
+  rhythm: string | null;
 }
 
 /**

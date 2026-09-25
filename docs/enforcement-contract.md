@@ -548,8 +548,8 @@ that ADR's own "revisit if" anticipated. Same audience and same guard as the adm
 
 ### `GET /api/me` — display state, **never a grant**
 - **Auth:** `Authorization: Bearer <Keycloak access token>`.
-- **Returns `200`:** `{ subscriptionStatus, tier, quotaRemaining, relistQuotaPerPeriod, resetAt, features }`
-  — shipped (#26), with the grant added by #41:
+- **Returns `200`:** `{ subscriptionStatus, tier, quotaRemaining, relistQuotaPerPeriod, resetAt, features,
+  paying, rhythm }` — shipped (#26), with the grant added by #41 and the billing pair by T85:
 
   ```json
   { "subscriptionStatus": "ACTIVE",
@@ -557,8 +557,17 @@ that ADR's own "revisit if" anticipated. Same audience and same guard as the adm
     "quotaRemaining": 2,
     "relistQuotaPerPeriod": 3,
     "resetAt": "2026-09-14T08:31:22.101Z",
-    "features": {} }
+    "features": {},
+    "paying": false,
+    "rhythm": null }
   ```
+
+  **`paying` and `rhythm` say what Stripe is billing** (T85, [ADR-0036](adr/0036-the-site-sells-and-a-subscriber-switches-in-place.md)).
+  `paying` is true through dunning and false after a terminal end — the same reading `POST /api/checkout`'s
+  `409 ALREADY_PAYING` makes — and is what tells the site whether a card is Checkout or a **Plan switch**.
+  `rhythm` is the **Rhythm** of the Price they are billed at, so their own card can offer the other one;
+  `null` when not paying, and when the Price is one no card sells or has not been mirrored since T85. The
+  popup reads neither, and treats an answer without them as not paying.
 
   **`relistQuotaPerPeriod` is the other half of "2 of 3"** — the sentence the popup draws, and one a client
   holding only the numerator cannot. It is the tier's grant and does not move when a unit is spent; lowering

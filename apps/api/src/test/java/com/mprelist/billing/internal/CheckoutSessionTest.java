@@ -377,6 +377,16 @@ class CheckoutSessionTest {
 			}
 
 			@Override
+			public Optional<String> stripeSubscriptionFor(UserRef user) {
+				throw new UnsupportedOperationException("that is a plan switch's question");
+			}
+
+			@Override
+			public Optional<String> stripePriceFor(UserRef user) {
+				throw new UnsupportedOperationException("that is a plan switch's question");
+			}
+
+			@Override
 			public boolean isPaying(UserRef user) {
 				return paying;
 			}

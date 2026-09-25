@@ -182,6 +182,10 @@ export function asDisplayState(body: unknown): DisplayState | null {
     relistQuotaPerPeriod,
     resetAt,
     features: features as Record<string, unknown>,
+    // T85's two, read leniently: the popup draws neither, and an API from
+    // before them is somebody this client has no reason to turn away.
+    paying: fields["paying"] === true,
+    rhythm: typeof fields["rhythm"] === "string" ? fields["rhythm"] : null,
   };
 }
 

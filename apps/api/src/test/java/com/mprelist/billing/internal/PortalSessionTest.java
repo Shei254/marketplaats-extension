@@ -195,6 +195,16 @@ class PortalSessionTest {
 			}
 
 			@Override
+			public Optional<String> stripeSubscriptionFor(UserRef user) {
+				throw new UnsupportedOperationException("that is a plan switch's question");
+			}
+
+			@Override
+			public Optional<String> stripePriceFor(UserRef user) {
+				throw new UnsupportedOperationException("that is a plan switch's question");
+			}
+
+			@Override
 			public boolean isPaying(UserRef user) {
 				throw new UnsupportedOperationException("the Portal asks about the customer, never the status");
 			}

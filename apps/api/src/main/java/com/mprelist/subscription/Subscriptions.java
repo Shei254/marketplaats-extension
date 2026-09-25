@@ -86,4 +86,23 @@ public interface Subscriptions {
 	 */
 	boolean isPaying(UserRef user);
 
+	/**
+	 * The Stripe subscription billing this account, for the one thing that has to name it: a <strong>Plan
+	 * switch</strong>, which changes the Price on it in place rather than opening a second (T85, ADR-0036).
+	 *
+	 * @param user the account to answer about
+	 * @return its live subscription's id, or nothing where Stripe is billing it for nothing
+	 */
+	Optional<String> stripeSubscriptionFor(UserRef user);
+
+	/**
+	 * The Stripe Price that subscription is billed at, as the last mirrored event said (T85). What the site
+	 * reads a paying subscriber's <strong>Rhythm</strong> from, so their own card can offer the other.
+	 *
+	 * @param user the account to answer about
+	 * @return the Price id, or nothing where nobody is paying — or where a subscriber from before T85 has had
+	 * no event since, which is "rhythm unknown" rather than an error
+	 */
+	Optional<String> stripePriceFor(UserRef user);
+
 }

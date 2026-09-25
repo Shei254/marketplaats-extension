@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import com.mprelist.billing.StripePaymentMethods;
 import com.mprelist.billing.StripePrice;
 import com.mprelist.billing.StripePrices;
+import com.mprelist.catalog.FreeTierOnOffer;
 import com.mprelist.catalog.SellablePlan;
 import com.mprelist.catalog.TierCatalog;
 import com.mprelist.catalog.TierName;
@@ -78,7 +79,8 @@ class PlansOnOffer {
 		}
 		// Asked last and allowed to answer nothing: the cards above are the page, and this is a line under
 		// its title.
-		return Optional.of(new Plans(List.copyOf(cards), this.methods.offered()));
+		return Optional.of(new Plans(List.copyOf(cards), this.catalog.freeTierOnOffer().map(PlansOnOffer::card)
+				.orElse(null), this.methods.offered()));
 	}
 
 	/**
@@ -127,7 +129,22 @@ class PlansOnOffer {
 	 * second vocabulary travelling beside the first. <strong>Always present and never null</strong>, because
 	 * empty already means the one thing a client would do with absent: say nothing.
 	 */
-	record Plans(List<Plan> plans, List<String> paymentMethods) {
+	/**
+	 * The free card, from the Free tier on offer (T84): our half only, since there is no Stripe half. Its
+	 * grant is shaped as a {@link Plan}'s is, so a client draws both from one reading of the number.
+	 */
+	private static FreeTier card(FreeTierOnOffer free) {
+		return new FreeTier(free.tier(), free.grants().relistsPerPeriod(), free.grants().features());
+	}
+
+	/**
+	 * {@code freeTier} is {@code null} rather than omitted when there is none — the answer is "no free thing
+	 * to promise", which a client reads the same way whichever of the three reasons it has.
+	 */
+	record Plans(List<Plan> plans, FreeTier freeTier, List<String> paymentMethods) {
+	}
+
+	record FreeTier(TierName tier, Integer relistQuotaPerPeriod, Map<String, Object> features) {
 	}
 
 	/**

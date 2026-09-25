@@ -347,6 +347,11 @@ class CheckoutSessionTest {
 			}
 
 			@Override
+			public Optional<com.mprelist.catalog.FreeTierOnOffer> freeTierOnOffer() {
+				throw new UnsupportedOperationException("the free tier is never bought");
+			}
+
+			@Override
 			public Optional<TierId> tierSoldAs(String stripePriceId) {
 				throw new UnsupportedOperationException("that is the webhook's question, not this one's");
 			}

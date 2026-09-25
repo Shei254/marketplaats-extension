@@ -187,8 +187,17 @@ about their **software**. It therefore carries none, exactly like every other `4
         "features": {},
         "prices": [ { "amount": 999,  "currency": "eur", "interval": "month" },
                     { "amount": 9900, "currency": "eur", "interval": "year"  } ] } ],
+    "freeTier": { "tier": { "code": "free", "name": "Gratis" },
+                  "relistQuotaPerPeriod": 3,
+                  "features": {} },
     "paymentMethods": [ "ideal", "paypal", "card" ] }
   ```
+
+- **`freeTier` is the Free tier on offer** (T84, glossary): the tier with no Price, when it is also the
+  **Default tier** and grants more than `0` — `null` is unlimited here too. Beside `plans` and never in it,
+  because a Plan always has a price. **`null` rather than omitted when there is none**, whichever the reason —
+  no priceless tier, one nobody lands on, or a default withdrawn to `0` — since a client draws no free card in
+  all three. Our half only, so it never takes the answer down with Stripe: a `503` is still about the prices.
 
 - **`paymentMethods` is what the Stripe dashboard has turned on** (T65, #137,
   [ADR-0022](adr/0022-the-plan-screen-names-the-payment-methods.md)), in Stripe's own spelling and in the

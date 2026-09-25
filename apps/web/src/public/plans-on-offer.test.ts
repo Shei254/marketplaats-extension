@@ -12,6 +12,7 @@ const PLANS: Plans = {
       prices: [{ amount: 999, currency: "eur", interval: "month" }],
     },
   ],
+  freeTier: { tier: { code: "free", name: "Gratis" }, relistQuotaPerPeriod: 3, features: {} },
   paymentMethods: ["ideal", "card"],
 };
 
@@ -77,7 +78,16 @@ describe("asking what is on sale (T58)", () => {
     expect(await plansOnOffer("https://api.example.test", api.fetch)).toEqual({
       status: "ready",
       plans: [],
+      freeTier: null,
       paymentMethods: [],
     });
+  });
+
+  it("reads an answer with no free tier on offer as none", async () => {
+    const api = answering(async () => Response.json({ plans: [], freeTier: null, paymentMethods: [] }));
+
+    const answer = await plansOnOffer("https://api.example.test", api.fetch);
+
+    expect(answer.status === "ready" && answer.freeTier).toBeNull();
   });
 });

@@ -29,7 +29,7 @@ const UNLIMITED: Plan = {
   prices: [{ amount: 3999, currency: "eur", interval: "month" }],
 };
 
-const ON_SALE: PlansOnOffer = { status: "ready", plans: [PRO, UNLIMITED], paymentMethods: ["card", "ideal"] };
+const ON_SALE: PlansOnOffer = { status: "ready", plans: [PRO, UNLIMITED], freeTier: null, paymentMethods: ["card", "ideal"] };
 
 const page = (plans: PlansOnOffer | "loading"): string =>
   renderToStaticMarkup(<LandingPage plans={plans} onRetry={() => {}} />);
@@ -117,7 +117,7 @@ describe("the plan cards", () => {
   });
 
   it("draw nothing when nothing is on sale, rather than a fault", () => {
-    const markup = page({ status: "ready", plans: [], paymentMethods: ["ideal"] });
+    const markup = page({ status: "ready", plans: [], freeTier: null, paymentMethods: ["ideal"] });
 
     // The lead-in still says where plans are chosen, and does not trail off into
     // a colon with nothing after it.

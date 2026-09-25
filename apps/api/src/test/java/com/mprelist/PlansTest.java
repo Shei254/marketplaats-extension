@@ -80,6 +80,9 @@ class PlansTest {
 		TierPrices.soldByTheMonth(this.db, "pro", "price_pro");
 		TierPrices.soldByTheMonth(this.db, "power", "price_power");
 		this.db.update("update tier set published = true where code in ('pro', 'power')");
+		// The seed's free tier, as T84's cases below leave it otherwise: the default, and granting 3.
+		this.db.update("update tier set is_default = false where code <> 'free'");
+		this.db.update("update tier set is_default = true, relist_quota_per_period = 3 where code = 'free'");
 		PRICES.clear();
 		PRICES.put("price_pro", new StripePrice(999, "eur", "month"));
 		PRICES.put("price_power", new StripePrice(1999, "eur", "month"));
@@ -188,6 +191,49 @@ class PlansTest {
 	@Test
 	void theFreeTierIsNotOnSale() {
 		assertThat(codesOnOffer()).doesNotContain("free");
+	}
+
+	// --- the Free tier on offer (T84) -----------------------------------------------------------------------
+
+	/**
+	 * Beside the cards and never among them: a Plan always has a price, and this is the one tier that cannot.
+	 * What a visitor is promised is what they would land on by signing in, so it is the grant as stored.
+	 */
+	@Test
+	void theFreeTierOnOfferComesBesideTheCards() {
+		JsonNode free = Json.of(get()).get("freeTier");
+
+		assertThat(free.get("tier").get("code").asString()).isEqualTo("free");
+		assertThat(free.get("relistQuotaPerPeriod").asInt()).isEqualTo(3);
+		assertThat(free.get("features").isObject()).isTrue();
+		assertThat(free.has("prices")).isFalse();
+	}
+
+	/** ADR-0019's "there is no free tier" is a default at `0`, and it promises nothing. */
+	@Test
+	void butAFreeTierWithdrawnToNothingIsNotOnOffer() {
+		this.db.update("update tier set relist_quota_per_period = 0 where code = 'free'");
+
+		assertThat(Json.of(get()).get("freeTier").isNull()).isTrue();
+	}
+
+	/** Nor is one nobody lands on: new accounts go to the default, and here that is a tier with a price. */
+	@Test
+	void norIsOneThatIsNotWhereNewAccountsLand() {
+		this.db.update("update tier set is_default = false where code = 'free'");
+		this.db.update("update tier set is_default = true where code = 'pro'");
+
+		assertThat(Json.of(get()).get("freeTier").isNull()).isTrue();
+	}
+
+	/** Unlimited is `null` here as everywhere (ADR-0029), and an unlimited free tier is very much on offer. */
+	@Test
+	void whileAnUnlimitedOneIsOnOfferWithNoNumber() {
+		this.db.update("update tier set relist_quota_per_period = null where code = 'free'");
+
+		JsonNode free = Json.of(get()).get("freeTier");
+		assertThat(free.get("tier").get("code").asString()).isEqualTo("free");
+		assertThat(free.get("relistQuotaPerPeriod").isNull()).isTrue();
 	}
 
 	/**

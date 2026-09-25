@@ -291,6 +291,15 @@ export interface Plan {
   prices: PlanPrice[];
 }
 
+/** The free card's half of a {@link Plan}: what it is called and grants, and no price. */
+export interface FreeTier {
+  tier: TierName;
+  /** `null` is unlimited (ADR-0029), and never `0`: a free tier granting nothing is not on offer. */
+  relistQuotaPerPeriod: number | null;
+  /** The tier's flags as stored. */
+  features: Record<string, unknown>;
+}
+
 /**
  * `GET /api/plans`. **Only what can be bought**: the published tiers carrying a
  * Stripe Price, so the free tier is absent and so is every draft the sync created
@@ -304,6 +313,16 @@ export interface Plan {
  */
 export interface Plans {
   plans: Plan[];
+  /**
+   * **The Free tier on offer** (T84): the priceless tier, when it is also where
+   * new accounts land and grants more than nothing — the free thing a visitor
+   * can honestly be promised. Beside `plans` and never in it, because a Plan
+   * always has a price.
+   *
+   * `null` rather than omitted when there is none, whichever the reason: no
+   * priceless tier, one nobody lands on, or a default withdrawn to `0`.
+   */
+  freeTier: FreeTier | null;
   /**
    * **What a buyer can pay with**, in Stripe's own spelling — `ideal`, `paypal`,
    * `card`, `sepa_debit` (T65, #137). Read from the Stripe dashboard when the

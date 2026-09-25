@@ -44,6 +44,7 @@ export {
   type Denial,
   type DenialReason,
   type DisplayState,
+  type FreeTier,
   type NewPlan,
   type NewPrice,
   type Plan,

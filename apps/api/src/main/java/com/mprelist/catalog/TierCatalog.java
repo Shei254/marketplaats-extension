@@ -102,6 +102,16 @@ public interface TierCatalog {
 	List<SellablePlan> published();
 
 	/**
+	 * The <strong>Free tier on offer</strong> (T84): the priceless tier, when it is also where new accounts
+	 * land and grants more than nothing. Beside {@link #published()} rather than in it, because a Plan always
+	 * has a price and this never does.
+	 *
+	 * @return that tier, or nothing — which is the ordinary answer on a catalog with no priceless row, with a
+	 * priceless row nobody lands on, or with a default tier withdrawn to {@code 0}
+	 */
+	Optional<FreeTierOnOffer> freeTierOnOffer();
+
+	/**
 	 * The tier a Stripe Price is the price of — the other direction of the link ADR-0014 makes between what a
 	 * plan costs and what it grants, and what turns "Stripe says they are paying for {@code price_pro}" into a
 	 * tier to put somebody on (T20, #30).

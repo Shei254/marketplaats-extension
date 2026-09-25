@@ -29,7 +29,9 @@ export async function plansOnOffer(apiBaseUrl: string, fetch: Fetch): Promise<Pl
     const response = await fetch(`${apiBaseUrl}/api/plans`, { credentials: "omit" });
     if (response.status !== 200) return UNAVAILABLE;
     const body: unknown = await response.json();
-    return isPlans(body) ? { status: "ready", ...body } : UNAVAILABLE;
+    // An API from before T84 sends no `freeTier`: read that as none rather than
+    // as `undefined`, which the page would otherwise have to check for twice.
+    return isPlans(body) ? { status: "ready", ...body, freeTier: body.freeTier ?? null } : UNAVAILABLE;
   } catch {
     return UNAVAILABLE;
   }

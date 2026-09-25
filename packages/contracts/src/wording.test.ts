@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Plan } from "./enforcement";
-import { cardGrantOf, grantOf, priceOf, waysToPay } from "./wording";
+import { grantOf, priceOf, waysToPay } from "./wording";
 
 /** The one rhythm this fixture is sold at, named because several assertions want it. */
 const FIRST_PRICE = { amount: 999, currency: "eur", interval: "month" } as const;
@@ -60,38 +60,24 @@ describe("what a plan costs", () => {
 });
 
 describe("what a plan grants", () => {
-  it("is the quota over the period it is billed for", () => {
-    expect(grantOf(PRO, "month")).toBe("50 herplaatsingen per maand");
+  it("is the quota per month", () => {
+    expect(grantOf(PRO)).toBe("50 herplaatsingen per maand");
   });
 
-  it("reads the interval rather than assuming a month", () => {
-    // A yearly Price is a thing the Stripe dashboard can create, and a card that
-    // called it monthly would be off by twelve.
-    expect(grantOf(PRO, "year")).toBe("50 herplaatsingen per jaar");
-    expect(grantOf(PRO, "week")).toBe("50 herplaatsingen per week");
-  });
+  it("is per month whatever rhythm the plan is sold at", () => {
+    // ADR-0037: a rhythm changes the price and never the grant, so annual Pro
+    // is Pro's monthly grant twelve times rather than once a year.
+    const yearlyOnly: Plan = { ...PRO, prices: [{ amount: 9900, currency: "eur", interval: "year" }] };
 
-  it("spells an interval it has never heard of rather than calling it a month", () => {
-    expect(grantOf(PRO, "quarter")).toBe(
-      "50 herplaatsingen per quarter",
-    );
+    expect(grantOf(yearlyOnly)).toBe("50 herplaatsingen per maand");
   });
 
   it("agrees with the number it is describing", () => {
-    expect(grantOf({ ...PRO, relistQuotaPerPeriod: 1 }, "month")).toBe("1 herplaatsing per maand");
-  });
-});
-
-describe("the grant a plan card carries", () => {
-  it("is over the plan's first rhythm, which the wire sends cheapest first", () => {
-    const yearlyFirst: Plan = { ...PRO, prices: [{ amount: 9900, currency: "eur", interval: "year" }, FIRST_PRICE] };
-
-    expect(cardGrantOf(PRO)).toBe("50 herplaatsingen per maand");
-    expect(cardGrantOf(yearlyFirst)).toBe("50 herplaatsingen per jaar");
+    expect(grantOf({ ...PRO, relistQuotaPerPeriod: 1 })).toBe("1 herplaatsing per maand");
   });
 
-  it("names no rhythm on an unlimited plan", () => {
-    expect(cardGrantOf({ ...PRO, relistQuotaPerPeriod: null })).toBe("Onbeperkt herplaatsen");
+  it("names no period on an unlimited plan", () => {
+    expect(grantOf({ ...PRO, relistQuotaPerPeriod: null })).toBe("Onbeperkt herplaatsen");
   });
 });
 

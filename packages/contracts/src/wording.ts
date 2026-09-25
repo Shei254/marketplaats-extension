@@ -56,37 +56,24 @@ export function priceOf(price: PlanPrice): string {
 export const UNLIMITED_REPOSTS = "Onbeperkt herplaatsen";
 
 /**
- * "50 herplaatsingen per maand" — what the plan grants, per the period it is
- * billed over.
+ * "50 herplaatsingen per maand" — what the plan grants, which is always per month.
  *
- * The interval is Stripe's vocabulary (`day`, `week`, `month`, `year`) and is read
- * rather than assumed: a yearly Price is a thing the dashboard can create, and a
- * card that called it monthly would be off by twelve. Anything else is rendered as
- * Stripe spelled it — a new interval should read oddly rather than be silently
- * called a month.
+ * **Whatever rhythm the plan is sold at** (T87, ADR-0037). A rhythm changes the
+ * price and never the grant: annual Pro is Pro's monthly grant twelve times at a
+ * discount, and the backend counts an annual payer's usage a month at a time. So
+ * the line takes no rhythm, and a card that follows a Maandelijks / Jaarlijks
+ * switch moves its price and leaves this alone. Before T87 it read the rhythm and
+ * said "per jaar" under an annual price — which was then true, and was the bug.
  *
- * Since T62 (#128) the rhythm is passed in rather than taken off the plan: a plan
- * has several, and what a quota line describes is the one being looked at.
- *
- * **An unlimited tier names no rhythm** (T73, ADR-0029). "Onbeperkt herplaatsen
+ * **An unlimited tier names no period** (T73, ADR-0029). "Onbeperkt herplaatsen
  * per maand" would be inviting the reader to look for the limit the sentence is there
- * to say does not exist — and the button beside it already says which rhythm they
- * would be paying at. It is the same string the popup's own strip draws for the
+ * to say does not exist. It is the same string the popup's own strip draws for the
  * plan somebody is already on.
  */
-export function grantOf(plan: Plan, interval: string): string {
+export function grantOf(plan: Plan): string {
   if (plan.relistQuotaPerPeriod === null) return UNLIMITED_REPOSTS;
   const relists = `${plan.relistQuotaPerPeriod} herplaatsing${plan.relistQuotaPerPeriod === 1 ? "" : "en"}`;
-  return `${relists} ${every(interval)}`;
-}
-
-/**
- * The grant line a plan card carries: the quota over the plan's first rhythm, since
- * `prices` is cheapest rhythm first and never empty on the wire (T62, #128). Both
- * surfaces draw a card with it, so the choice of rhythm is made once.
- */
-export function cardGrantOf(plan: Plan): string {
-  return grantOf(plan, plan.prices[0]?.interval ?? "month");
+  return `${relists} per maand`;
 }
 
 /**
@@ -126,7 +113,7 @@ function every(interval: string): string {
  * how most of the country pays online, and ADR-0006 chose Stripe over a card-only
  * arrangement precisely to keep it. PayPal is next as the name a hesitant buyer
  * recognises fastest, then card. Deciding this here rather than at the API is the
- * same division `priceOf` and `grantOf` already keep: the backend sends Stripe's
+ * same division `priceOf` and `priceAndRhythmOf` already keep: the backend sends Stripe's
  * vocabulary and the client decides how it reads.
  *
  * **A method that does not belong in the sentence is left out of this list**, where
@@ -162,7 +149,7 @@ const WAYS_TO_PAY: ReadonlyArray<readonly [token: string, name: string]> = [
  * line is there to get them to it rather than to enumerate it.
  *
  * A token that is not in `WAYS_TO_PAY` is dropped rather than shown raw — a
- * departure from `grantOf` and `priceOf` above, and worth saying why. Those render
+ * departure from `priceAndRhythmOf` and `priceOf` above, and worth saying why. Those render
  * what Stripe spelled because the alternative was *mistranslation*: an unknown
  * interval called "a month" is a lie about money. Here the alternative is silence,
  * "of sepa_debit" in the one line whose job is to reassure is worse than absent,

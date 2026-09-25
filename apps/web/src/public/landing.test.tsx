@@ -291,9 +291,20 @@ describe("the landing page, asking", () => {
 
     expect(host.textContent).toMatch(/€\s99,00 per jaar/);
     expect(host.textContent).toMatch(/€\s8,25 per maand · bespaar 17%/);
-    expect(host.textContent).toContain("herplaatsingen per jaar");
     expect(host.textContent).toContain("Alleen maandelijks");
     expect(host.textContent).toContain("Max");
+  });
+
+  it("keeps every grant per month under Jaarlijks, since a rhythm changes the price and not the grant", async () => {
+    // ADR-0037: annual Pro is Pro's monthly grant twelve times, never once a year.
+    await act(async () => {
+      root.render(<Landing loadPlans={async () => ON_SALE} />);
+    });
+
+    await act(async () => button("Jaarlijks")?.click());
+
+    expect(host.textContent).toContain("herplaatsingen per maand");
+    expect(host.textContent).not.toContain("herplaatsingen per jaar");
   });
 
   it("signs a visitor in with the card and rhythm they pressed", async () => {

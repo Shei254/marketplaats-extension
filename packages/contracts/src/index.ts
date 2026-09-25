@@ -82,4 +82,4 @@ export {
 
 export { isQuota } from "./quota";
 
-export { cardGrantOf, grantOf, priceAndRhythmOf, priceOf, UNLIMITED_REPOSTS, waysToPay } from "./wording";
+export { grantOf, priceAndRhythmOf, priceOf, UNLIMITED_REPOSTS, waysToPay } from "./wording";

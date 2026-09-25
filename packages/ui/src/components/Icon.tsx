@@ -11,6 +11,7 @@ import type { JSX, SVGProps } from "react";
  */
 export type IconName =
   | "logo"
+  | "site-logo"
   | "refresh"
   | "lock"
   | "check"
@@ -37,6 +38,21 @@ const ICONS: Record<IconName, IconSpec> = {
       <>
         <path d="M4 11.25 10 5.25l6 6" />
         <path d="M5 14.75h10" />
+      </>
+    ),
+  },
+  // The operator's redrawn mark (2026-09-25), on the websites only for now: a
+  // narrower chevron with its bar as wide and closer beneath it, traced from the
+  // supplied artwork (98% overlap at 20×20) and centred in its box as T86 asks. The
+  // popup, the success/cancel callout (which pictures the toolbar icon) and the
+  // generated extension icons keep `logo` until they follow.
+  "site-logo": {
+    size: 20,
+    strokeWidth: 1.95,
+    shapes: (
+      <>
+        <path d="M4.9 10.9 10 5.8l5.1 5.1" />
+        <path d="M4.9 14.2h10.2" />
       </>
     ),
   },

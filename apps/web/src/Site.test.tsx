@@ -80,6 +80,11 @@ describe("the frame", () => {
     expect(markup).toContain('class="web-brand"');
   });
 
+  it("sets the name in the header as the wordmark, beside the websites' redrawn mark", () => {
+    expect(markup).toContain(`<span class="web-wordmark">${BRAND.name}</span>`);
+    expect(markup).toContain('d="M4.9 10.9 10 5.8l5.1 5.1"');
+  });
+
   it("links to both documents and to the support address, and on this page to the Store", () => {
     // Five links in the frame: Privacy and Terms in the header, the same two and
     // the support address in the footer. They arrived with T36 (#45), the ticket

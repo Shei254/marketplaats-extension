@@ -186,9 +186,9 @@ export function AdminApp({
           <header className="admin-plain-bar">
             <span className="admin-brand">
               <span className="mp-mark admin-mark">
-                <Icon name="logo" />
+                <Icon name="site-logo" />
               </span>
-              {BRAND.name}
+              <span className="web-wordmark">{BRAND.name}</span>
               {/* What this build *is*, rather than part of the product's name. */}
               <span className="admin-brand-tag">admin</span>
             </span>

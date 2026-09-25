@@ -48,12 +48,12 @@ describe("Icon", () => {
     expect(renderToStaticMarkup(<Icon name="check" size={26} />)).toContain('width="26"');
   });
 
-  it("draws the brand mark centred in its own box, so a tile around it is balanced", () => {
+  it.each(["logo", "site-logo"] as const)("draws the brand mark (%s) centred in its own box, so a tile around it is balanced", (name) => {
     // Every surface sets the mark in a square tile, and a glyph that sits low in
     // its 20×20 box sits low in every tile at once (T86). The stroke is round and
     // one width throughout, so it widens the ink equally on every side and the
     // centre of the ink is the centre of the vertices.
-    const markup = renderToStaticMarkup(<Icon name="logo" />);
+    const markup = renderToStaticMarkup(<Icon name={name} />);
     expect(markup).toContain('stroke-linecap="round"');
     expect(markup).toContain('stroke-linejoin="round"');
     const points = shapesIn(markup).flatMap(polylinePoints);
@@ -64,6 +64,17 @@ describe("Icon", () => {
 
     expect(centre(0)).toBeCloseTo(10, 5);
     expect(centre(1)).toBeCloseTo(10, 5);
+  });
+
+  it("draws the websites' mark as the operator's redrawn one: a narrower chevron, its bar as wide and closer", () => {
+    // The popup and the extension's icons keep `logo` until they follow.
+    expect(shapesIn(renderToStaticMarkup(<Icon name="site-logo" />))).not.toEqual(
+      shapesIn(renderToStaticMarkup(<Icon name="logo" />)),
+    );
+    const [chevron = [], bar = []] = shapesIn(renderToStaticMarkup(<Icon name="site-logo" />)).map(polylinePoints);
+    const xs = (points: number[][]) => points.map((point) => point[0] ?? NaN);
+    expect(Math.min(...xs(bar))).toBeCloseTo(Math.min(...xs(chevron)), 5);
+    expect(Math.max(...xs(bar))).toBeCloseTo(Math.max(...xs(chevron)), 5);
   });
 
   it("is stroked in the colour it inherits, never one of its own", () => {

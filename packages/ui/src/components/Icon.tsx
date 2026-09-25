@@ -35,8 +35,8 @@ const ICONS: Record<IconName, IconSpec> = {
     strokeWidth: 1.9,
     shapes: (
       <>
-        <path d="M4 12.5 10 6.5l6 6" />
-        <path d="M5 16h10" />
+        <path d="M4 11.25 10 5.25l6 6" />
+        <path d="M5 14.75h10" />
       </>
     ),
   },

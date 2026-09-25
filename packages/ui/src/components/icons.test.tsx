@@ -48,6 +48,22 @@ describe("Icon", () => {
     expect(renderToStaticMarkup(<Icon name="check" size={26} />)).toContain('width="26"');
   });
 
+  it("draws the brand mark centred in its own box, so a tile around it is balanced", () => {
+    // Every surface sets the mark in a square tile, and a glyph that sits low in
+    // its 20×20 box sits low in every tile at once (T86). The ink includes the
+    // stroke, which is what the eye weighs.
+    const markup = renderToStaticMarkup(<Icon name="logo" />);
+    const half = Number(/stroke-width="([^"]*)"/.exec(markup)?.[1]) / 2;
+    const points = shapesIn(markup).flatMap(polylinePoints);
+    const centre = (axis: 0 | 1) => {
+      const values = points.map((point) => point[axis]);
+      return (Math.min(...values) - half + Math.max(...values) + half) / 2;
+    };
+
+    expect(centre(0)).toBeCloseTo(10, 5);
+    expect(centre(1)).toBeCloseTo(10, 5);
+  });
+
   it("is stroked in the colour it inherits, never one of its own", () => {
     // One tick glyph on a green pill in the popup and on an accent callout in
     // apps/web. A fill would need a second copy of it.
@@ -58,3 +74,40 @@ describe("Icon", () => {
     }
   });
 });
+
+/**
+ * The vertices of a path made of straight lines — `M`/`L`/`H`/`V` and their
+ * relative forms, which is all the brand mark is drawn with. A curve command is
+ * refused rather than approximated, so a redrawn mark cannot pass by accident.
+ */
+function polylinePoints(shape: string): [number, number][] {
+  const d = /\bd=(.*)$/.exec(shape)?.[1] ?? "";
+  const tokens = d.match(/[a-zA-Z]|-?\d*\.?\d+/g) ?? [];
+  const points: [number, number][] = [];
+  let x = 0;
+  let y = 0;
+  let command = "";
+  for (let i = 0; i < tokens.length; ) {
+    if (/[a-zA-Z]/.test(tokens[i]!)) command = tokens[i++]!;
+    const next = () => Number(tokens[i++]);
+    const relative = command === command.toLowerCase();
+    switch (command.toUpperCase()) {
+      case "M":
+      case "L": {
+        const [dx, dy] = [next(), next()];
+        [x, y] = relative ? [x + dx, y + dy] : [dx, dy];
+        break;
+      }
+      case "H":
+        x = relative ? x + next() : next();
+        break;
+      case "V":
+        y = relative ? y + next() : next();
+        break;
+      default:
+        throw new Error(`the mark is drawn in straight lines; got \`${command}\``);
+    }
+    points.push([x, y]);
+  }
+  return points;
+}

@@ -19,8 +19,8 @@ Placeholders in `<angle brackets>` are filled in by hand when submitting. The im
 
 | Field | Value |
 |---|---|
-| Name | *(from the manifest)* `AdBump` |
-| Summary | *(from the manifest)* `Herplaats je Marktplaats-advertenties met één klik, zodat ze weer bovenaan staan.` |
+| Name | *(from the manifest, `brand.storeName`)* `AdBump - advertentie booster voor Marktplaats` |
+| Summary | *(from the manifest)* `Direct je marktplaats advertenties herplaatsen` |
 | Category | Lifestyle → **Shopping** |
 | Language | **Nederlands** |
 | Store icon | `apps/extension/dist/icons/icon-128.png` |

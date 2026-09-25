@@ -33,7 +33,7 @@ const ESCAPES: Array<[RegExp, string]> = [
  *
  * **Everything outside printable ASCII becomes `\uXXXX`.** `Properties.load` of
  * an `InputStream` decodes ISO-8859-1; the same file read through a UTF-8
- * `Reader` decodes UTF-8; and `brand.tagline` carries "één", so the two readings
+ * `Reader` decodes UTF-8; and a brand string can carry "één", so the two readings
  * differ on a file this repository has to be right about without knowing which
  * one Keycloak picked. The escape is the spelling both agree on, and it costs
  * nothing — nobody reads the generated file for pleasure.

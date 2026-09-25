@@ -233,7 +233,7 @@ describe("extension build", () => {
       action: { default_title: string };
     };
 
-    expect(manifest.name).toBe(brand.name);
+    expect(manifest.name).toBe(brand.storeName);
     expect(manifest.action.default_title).toBe(brand.name);
     expect(manifest.description).toBe(brand.tagline);
     expect(await readFile(join(production.dir, "popup.html"), "utf8")).toContain(brand.name);

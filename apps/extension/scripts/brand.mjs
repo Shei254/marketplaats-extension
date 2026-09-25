@@ -26,7 +26,7 @@ const NOT_A_VALUE = /^\$/;
  * declared and hoped for: a `brand.json` missing `name` would otherwise reach a
  * template, resolve to `undefined`, and ship as the string "undefined".
  */
-const REQUIRED = ["name", "tagline", "domain", "supportEmail", "icon"];
+const REQUIRED = ["name", "storeName", "tagline", "domain", "supportEmail", "icon"];
 
 /** @returns {Promise<Record<string, string>>} */
 export async function readBrand(url = BRAND) {

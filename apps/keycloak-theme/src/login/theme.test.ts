@@ -2,6 +2,7 @@ import { componentCss, themeCss } from "@mprelist/ui";
 import { describe, expect, it } from "vitest";
 
 import brand from "../../../../brand.json";
+import { propertiesFile } from "../properties";
 import { themeTypes } from "../theme";
 import { loginCss } from "./css";
 import { HOOKS, loginStylesheet } from "./index";
@@ -88,10 +89,10 @@ describe("theme.properties", () => {
     expect(properties).toContain(`brandName=${brand.name}\n`);
     expect(properties).toContain(`brandDomain=${brand.domain}\n`);
     expect(properties).toContain(`brandSupportEmail=${brand.supportEmail}\n`);
-    // Escaped, because the tagline has an "é" in it and a properties file is
-    // read as one of two charsets. `properties.test.ts` is where that is argued.
-    expect(properties).toContain("brandTagline=Herplaats je Marktplaats");
-    expect(properties).not.toContain("één");
+    // Escaped as the file escapes it, because a tagline may carry an "é" and a
+    // properties file is read as one of two charsets. `properties.test.ts` is
+    // where that is argued; this only holds the value to `brand.json`.
+    expect(properties).toContain(propertiesFile({ brandTagline: brand.tagline }));
   });
 
   it("defines every hook the inherited templates read", () => {

@@ -12,6 +12,8 @@
  */
 export interface Brand {
   name: string;
+  /** The manifest's `name`: the Web Store listing's title, and nowhere else. */
+  storeName: string;
   tagline: string;
   domain: string;
   supportEmail: string;

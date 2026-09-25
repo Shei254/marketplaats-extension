@@ -1,8 +1,8 @@
 {
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAudOfQhzCpYicfy6if3zPRnrIwX5hcvGPPfi5U0+tda9ZkJCDrRwP2mEZXGi+McJBBw5eze87pfx7vtGta0/Lv13iBK+yxWmZyX/ACdTkXKzoYyUBSWI+j5+9E3N/p8Mt5szqcwaO2+aPv76/TMclhQ9azO8k5tQd0VU5kQscw1HDxqIKJjLiRdwnzsJRxOBxcKHdW0mGAD4aVyENppk43ssTB20JCaDDF618qv3l3Aa5wHMyHJnNxF2XN4N9gAsmlWFTg/haKoIZP4ROb22hK2q2nv9kfOoOU5u5JtpleSE0qv/EJOzHnFNa76kJnvs8WGsaVPr1k0JikRHZQdC+CwIDAQAB",
   "manifest_version": 3,
-  "name": "{{brand.name}}",
-  "version": "0.0.2",
+  "name": "{{brand.storeName}}",
+  "version": "0.0.3",
   "description": "{{brand.tagline}}",
   "permissions": ["storage", "unlimitedStorage", "identity", "alarms"],
   "host_permissions": ["https://www.marktplaats.nl/*"],

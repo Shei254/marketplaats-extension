@@ -3,7 +3,6 @@ import {
   grantOf,
   priceAndRhythmOf,
   priceOf,
-  waysToPay,
   type FreeTier,
   type Plan,
   type PlanPrice,
@@ -31,6 +30,23 @@ import type { Account, Choice, SwitchPreviewAnswer, Viewer } from "./viewer";
  * per month at every rhythm (T87, ADR-0037). The popup keeps a button per rhythm
  * instead.
  */
+
+/**
+ * How a buyer pays, under the cards — the operator's own copy, as written
+ * (2026-09-25), and three deliberate departures worth knowing before "fixing":
+ *
+ * - **It says *u*.** The rest of this page, the popup and the mail say *je*
+ *   (ADR-0035); this one sentence is formal because the operator asked for it.
+ * - **It is fixed, not built from what Stripe offers.** The popup still names
+ *   only the methods Stripe's Checkout offers (`waysToPay`, T65); this names
+ *   iDEAL | Wero whether or not the Stripe account has it switched on.
+ * - **The landing page's only.** The popup keeps `waysToPay`'s sentence.
+ *
+ * Shown only beside something to buy: a free card alone has nothing to pay for.
+ */
+const PAY_WITH =
+  "Uw betaling wordt veilig verwerkt via Stripe. U kunt eenvoudig kiezen uit verschillende " +
+  "betaalmethoden, waaronder iDEAL | Wero, PayPal, creditcard en debitcard.";
 
 /** A card's button, as a function of who is looking — kept pure so it can be read off in a test. */
 export type CardAction =
@@ -173,7 +189,6 @@ export function PlanSection({
   );
   const soldYearly = onSale.some((plan) => plan.prices.some((price) => price.interval === "year"));
   const shownInterval = soldYearly ? interval : "month";
-  const payWith = waysToPay(plans.paymentMethods);
   const picked = account.viewer.kind === "signed-in" ? account.viewer.picked : null;
 
   return (
@@ -203,7 +218,7 @@ export function PlanSection({
           />
         ))}
       </div>
-      {payWith ? <p className="web-pay-with">{payWith}</p> : null}
+      {onSale.length > 0 ? <p className="web-pay-with">{PAY_WITH}</p> : null}
       {switching ? (
         <SwitchDialog
           plan={switching.plan}

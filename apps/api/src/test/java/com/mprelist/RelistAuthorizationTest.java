@@ -721,8 +721,8 @@ class RelistAuthorizationTest {
 	/**
 	 * But a window Stripe owns is left alone, because it is not ours to move. A payer's period is copied from
 	 * Stripe's own (#30), so one that has closed means a webhook has not arrived yet — and rolling it here would
-	 * invent a period Stripe did not grant: a month's quota to an annual plan every month, and a fresh one to a
-	 * subscriber whose next webhook says {@code past_due}.
+	 * invent a period Stripe did not grant: a fresh month's quota to a subscriber whose next webhook says
+	 * {@code past_due}.
 	 *
 	 * <p>Nothing is purchasable until #28 and #29, so no row carries a Stripe subscription today. The branch is
 	 * asserted rather than left to be discovered by the first person who pays.
@@ -736,6 +736,43 @@ class RelistAuthorizationTest {
 
 		assertThat(authorize(user, "ad-1").statusCode()).isEqualTo(200);
 		assertThat(this.rows.windowOf(user)).isEqualTo(closed);
+	}
+
+	/**
+	 * An annual payer is granted the monthly quota every month (T87, ADR-0037): a Rhythm changes the price and
+	 * never the grant. Stripe's window is a year; what the gate counts in is the month of it that contains now,
+	 * so a unit spent last month is not held against this one.
+	 */
+	@Test
+	void anAnnualPayerIsGrantedTheQuotaAgainEveryMonthOfTheirYear() {
+		Subscriber user = aSubscriberEntitledTo(1);
+		itIsMirroredFromStripe(user);
+		OffsetDateTime bought = Subscribers.now().truncatedTo(ChronoUnit.SECONDS).minusMonths(2).minusDays(3);
+		itsWindowIs(user, bought, bought.plusYears(1));
+		this.rows.unitHeldBy(user, bought.plusMonths(1).plusDays(2));
+
+		assertThat(authorize(user, "ad-1").statusCode()).isEqualTo(200);
+	}
+
+	/**
+	 * And the grant is still a month's, counted from the day they bought: a unit spent this month is held, and
+	 * the quota comes back when the month does, not when Stripe renews. The row keeps Stripe's year — the month
+	 * is read out of it, never written over it.
+	 */
+	@Test
+	void andAUnitSpentThisMonthIsHeldUntilTheMonthEnds() {
+		Subscriber user = aSubscriberEntitledTo(1);
+		itIsMirroredFromStripe(user);
+		OffsetDateTime bought = Subscribers.now().truncatedTo(ChronoUnit.SECONDS).minusMonths(2).minusDays(3);
+		itsWindowIs(user, bought, bought.plusYears(1));
+		this.rows.unitHeldBy(user, bought.plusMonths(2).plusDays(1));
+
+		HttpResponse<String> refused = authorize(user, "ad-1");
+
+		assertThat(refused.statusCode()).isEqualTo(429);
+		assertThat(OffsetDateTime.parse(Json.of(refused).get("resetAt").asString())
+				.withOffsetSameInstant(ZoneOffset.UTC)).isEqualTo(bought.plusMonths(3));
+		assertThat(this.rows.windowOf(user)).isEqualTo(new Window(bought, bought.plusYears(1)));
 	}
 
 	/**

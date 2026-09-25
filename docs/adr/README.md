@@ -47,6 +47,7 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0034](0034-the-deployment-tree-ships-with-the-tag.md) | The deployment tree ships with the tag, and the host stops being a checkout | Accepted, amends 0023 and 0033 |
 | [0035](0035-the-mail-is-ours-and-so-are-the-words.md) | The mail that page sends is ours too, and owning it means owning the words | Accepted, refines 0021 and 0033 |
 | [0036](0036-the-site-sells-and-a-subscriber-switches-in-place.md) | The site sells, and a subscriber switches plan in place rather than buying a second one | Accepted, supersedes part of 0017, refines 0019 and 0031 |
+| [0037](0037-an-annual-price-buys-a-monthly-grant.md) | An annual price buys a monthly grant | Accepted, refines 0014 and 0019 |
 
 **Amended by the 2026-08-13 session:** 0006 (Stripe narrowed to money + lifecycle), 0007 (gating depth,
 `/api/me` display state, `marktplaatsAccountId` dropped), 0009 (monorepo, React popup, Options page removed).

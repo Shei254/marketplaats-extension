@@ -2,7 +2,6 @@ package com.mprelist.subscription.internal;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -141,8 +140,13 @@ class SubscriptionRows implements Subscriptions, SubscriptionMirror, TierSubscri
 		// start after a `now` the caller already holds — the reservation it goes on to write would then be
 		// stamped before its own period and counted against nobody's quota.
 		OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
-		return row.windowIsOursToRoll() && row.period().hasClosedBy(now) ? rolledForward(row, now)
-				: row.asSeenByOthers();
+		if (row.windowIsOursToRoll()) {
+			return row.period().hasClosedBy(now) ? rolledForward(row, now) : row.asSeenByOthers(row.period());
+		}
+		// Stripe's window is left as its webhook wrote it, and counted in a month at a time: an annual price
+		// buys the monthly grant twelve times (T87, ADR-0037). Read out of the row rather than written over it,
+		// so the webhook stays the only writer of a window Stripe owns.
+		return row.asSeenByOthers(row.period().monthContaining(now));
 	}
 
 	/**
@@ -176,8 +180,7 @@ class SubscriptionRows implements Subscriptions, SubscriptionMirror, TierSubscri
 	 * bought, rather than onto a window starting the moment it was cancelled.
 	 */
 	private static QuotaPeriod ourOwnWindowAt(OffsetDateTime anchor, OffsetDateTime now) {
-		long wholeMonths = ChronoUnit.MONTHS.between(anchor, now);
-		return new QuotaPeriod(anchor.plusMonths(wholeMonths), anchor.plusMonths(wholeMonths + 1));
+		return QuotaPeriod.monthFrom(anchor, now);
 	}
 
 	// --- the Stripe mirror (#30, T20) ---------------------------------------------------------------------
@@ -358,8 +361,8 @@ class SubscriptionRows implements Subscriptions, SubscriptionMirror, TierSubscri
 		 * Whether a closed window here is ours to advance. A free subscription's is, and is the case #20 left
 		 * open. A payer's is <strong>not</strong>: theirs is copied from Stripe's own billing period (#30), so a
 		 * closed one means a webhook has not arrived yet, and rolling it would invent a period Stripe did not
-		 * grant — a month's quota handed to an annual plan every month, and to a lapsed payer whose next
-		 * webhook says {@code past_due}. Since #30 rows do carry one, and the flag turns itself off again
+		 * grant — a fresh month's quota to a lapsed payer whose next webhook says {@code past_due}. An annual
+		 * payer's month is not a roll: it is read out of Stripe's year and never written (T87, ADR-0037). Since #30 rows do carry one, and the flag turns itself off again
 		 * exactly where ADR-0018 says it should: a subscription Stripe has finished with has its id cleared,
 		 * which is what hands the window back to the roll below.
 		 */
@@ -367,8 +370,8 @@ class SubscriptionRows implements Subscriptions, SubscriptionMirror, TierSubscri
 			return !this.stripes;
 		}
 
-		Subscription asSeenByOthers() {
-			return new Subscription(this.tier, this.status, this.period);
+		Subscription asSeenByOthers(QuotaPeriod counted) {
+			return new Subscription(this.tier, this.status, counted);
 		}
 
 	}

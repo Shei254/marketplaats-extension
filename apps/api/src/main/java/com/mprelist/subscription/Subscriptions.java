@@ -27,6 +27,9 @@ public interface Subscriptions {
 	 * from a free account's second month the stored {@code period_end} sits in the past. Rolled here because
 	 * this is the only code that reads the window, and a caller that had to notice a closed one would be a
 	 * caller that can forget to. A window Stripe owns is <strong>not</strong> rolled — see below.</li>
+	 * <li><strong>A window Stripe owns is answered a month at a time</strong> (T87, ADR-0037): the month of it
+	 * that contains now, counted from its start. An annual price buys the monthly grant twelve times, so the
+	 * period answered here is a month even while the row holds Stripe's year.</li>
 	 * <li><strong>The row is locked for the calling transaction.</strong> The reader is a gate that checks a
 	 * quota and then spends against it (#22), and a check-then-write is only atomic if something serialises two
 	 * of them: this is that something, and it is one row per user, so it costs nothing to anybody but the same

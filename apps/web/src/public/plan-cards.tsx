@@ -27,7 +27,9 @@ import type { Account, Choice, SwitchPreviewAnswer, Viewer } from "./viewer";
  * **The switcher is this page's only.** It shows when some plan is sold yearly,
  * starts on monthly, and never hides a card: a plan sold monthly only stays,
  * with its monthly price and "Alleen maandelijks". Its position is the Rhythm a
- * button buys or switches to. The popup keeps a button per rhythm instead.
+ * button buys or switches to. It moves the price and never the grant, which is
+ * per month at every rhythm (T87, ADR-0037). The popup keeps a button per rhythm
+ * instead.
  */
 
 /** A card's button, as a function of who is looking — kept pure so it can be read off in a test. */
@@ -310,7 +312,7 @@ function PlanCard({
     <div className={classes.filter(Boolean).join(" ")}>
       {featured ? <span className="web-plan-flag">Meeste herplaatsingen</span> : null}
       <p className="web-plan-name">{plan.tier.name}</p>
-      <Grant grant={plan.relistQuotaPerPeriod} words={grantWords(plan, at)} ceiling={ceiling} />
+      <Grant grant={plan.relistQuotaPerPeriod} words={grantWords(plan)} ceiling={ceiling} />
       {price ? (
         <p className="web-plan-price">
           <b>{priceOf(price)}</b> {at === "year" ? "per jaar" : at === "month" ? "per maand" : ""}
@@ -363,14 +365,14 @@ function Grant({ grant, words, ceiling }: { grant: number | null; words: string;
 }
 
 /** "herplaatsingen per maand", under the number — `grantOf` without the number it already shows. */
-function grantWords(plan: Plan, interval: string): string {
+function grantWords(plan: Plan): string {
   if (plan.relistQuotaPerPeriod === null) return UNLIMITED_REPOSTS.toLowerCase();
-  return grantOf(plan, interval).replace(/^\d+\s+/, "");
+  return grantOf(plan).replace(/^\d+\s+/, "");
 }
 
-/** The free tier rolls monthly on our own clock (ADR-0018), whatever the switcher says. */
+/** The free tier as a plan with nothing to pay, which is all `grantWords` reads of it. */
 function freeWords(free: FreeTier): string {
-  return grantWords({ ...free, prices: [] }, "month");
+  return grantWords({ ...free, prices: [] });
 }
 
 function rhythmWord(interval: string): string {

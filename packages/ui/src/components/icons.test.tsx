@@ -50,14 +50,16 @@ describe("Icon", () => {
 
   it("draws the brand mark centred in its own box, so a tile around it is balanced", () => {
     // Every surface sets the mark in a square tile, and a glyph that sits low in
-    // its 20×20 box sits low in every tile at once (T86). The ink includes the
-    // stroke, which is what the eye weighs.
+    // its 20×20 box sits low in every tile at once (T86). The stroke is round and
+    // one width throughout, so it widens the ink equally on every side and the
+    // centre of the ink is the centre of the vertices.
     const markup = renderToStaticMarkup(<Icon name="logo" />);
-    const half = Number(/stroke-width="([^"]*)"/.exec(markup)?.[1]) / 2;
+    expect(markup).toContain('stroke-linecap="round"');
+    expect(markup).toContain('stroke-linejoin="round"');
     const points = shapesIn(markup).flatMap(polylinePoints);
     const centre = (axis: 0 | 1) => {
       const values = points.map((point) => point[axis]);
-      return (Math.min(...values) - half + Math.max(...values) + half) / 2;
+      return (Math.min(...values) + Math.max(...values)) / 2;
     };
 
     expect(centre(0)).toBeCloseTo(10, 5);
@@ -81,7 +83,8 @@ describe("Icon", () => {
  * refused rather than approximated, so a redrawn mark cannot pass by accident.
  */
 function polylinePoints(shape: string): [number, number][] {
-  const d = /\bd=(.*)$/.exec(shape)?.[1] ?? "";
+  const d = /^path d=([^=]*)$/.exec(shape)?.[1];
+  if (d === undefined) throw new Error(`the mark is drawn in bare paths; got \`${shape}\``);
   const tokens = d.match(/[a-zA-Z]|-?\d*\.?\d+/g) ?? [];
   const points: [number, number][] = [];
   let x = 0;

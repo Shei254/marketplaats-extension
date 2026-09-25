@@ -285,8 +285,30 @@ body {
   border-bottom: 0;
   color: var(--mp-on-brand);
 }
+/* On the gradient the mark is the operator's design (2026-09-25): the white
+   glyph alone, no tile, at about the wordmark's cap height — a tile here was a
+   gradient on a gradient. The other pages and admin keep the tile, since a white
+   glyph on a white header is nothing. The box is larger than its ink, so the
+   margin pulls the ink back onto the gutter and the gap is the ink's, not the
+   box's. */
+.web-header--over .web-brand {
+  gap: 0;
+}
 .web-header--over .web-mark {
-  box-shadow: 0 0 0 1.5px var(--mp-on-brand);
+  width: auto;
+  height: auto;
+  margin-left: -9px;
+  background: none;
+  box-shadow: none;
+}
+.web-header--over .web-mark svg {
+  width: 44px;
+  height: 44px;
+}
+.web-header--over .web-wordmark {
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: 0;
 }
 .web-header--over .web-nav a,
 .web-header--over .web-nav a:hover {
@@ -886,5 +908,9 @@ body {
 /* A phone: the header's links would crowd the name. */
 @media (max-width: 480px) {
   .web-header--over .web-nav { gap: var(--mp-space-md); }
+  /* The same mark, a size down, so the name and the three links share a row. */
+  .web-header--over .web-mark { margin-left: -6px; }
+  .web-header--over .web-mark svg { width: 30px; height: 30px; }
+  .web-header--over .web-wordmark { font-size: 17px; }
 }
 `;

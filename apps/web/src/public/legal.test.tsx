@@ -48,6 +48,13 @@ describe("the terms", () => {
     expect(markup).toContain("gaan niet mee naar de volgende periode");
   });
 
+  it("bill a paying customer at the rhythm they bought, not monthly regardless", () => {
+    // T87, ADR-0037: a plan is sold per maand and per jaar, and what changes
+    // between the two is the price and the billing, never the grant.
+    expect(markup).toContain("per maand of per jaar gefactureerd");
+    expect(markup).not.toContain("automatisch per maand gefactureerd");
+  });
+
   it("do not promise Marktplaats will not object", () => {
     // ADR-0008 is explicit that pacing reduces the risk and cannot remove it, and
     // this is the page where that has to be said out loud rather than implied.

@@ -15,9 +15,11 @@ import { BRAND } from "../brand";
  *
  * **What is rendered is what the operator wrote, including where it does not match
  * this build.** The terms describe a gratis proefperiode (ADR-0006 ships none —
- * the free tier is permanent), billing per maand (T62, #128 sells a tier monthly
- * *and* annually) and cancelling via accountinstellingen (there are none; it is
- * the Stripe Customer Portal, reached from **Betaling beheren** in the popup).
+ * the free tier is permanent) and cancelling via accountinstellingen (there are
+ * none; it is the Stripe Customer Portal, reached from **Betaling beheren** in the
+ * popup). They also said billing was per maand, which T62 (#128) made untrue by
+ * selling a tier annually too; that one sentence was corrected on 2026-09-25 at
+ * the operator's request (T87), and the rest stand as written.
  * That was asked for and decided on 2026-09-22; it is recorded here rather than
  * silently corrected, because the herroepingsrecht clause leans on the trial and
  * whoever reconciles the two will want to know it was a choice and not an
@@ -254,7 +256,8 @@ export const TERMS: LegalDocument = {
           "terugbetaald, inclusief eventuele kosten die als gevolg van de chargeback zijn ontstaan.",
         "Als je van een gratis proefperiode overstapt naar een betaald abonnement, wordt het bedrag " +
           "onmiddellijk in rekening gebracht en begint je factureringscyclus op de dag van de upgrade.",
-        "Betalende klanten worden automatisch per maand gefactureerd. Abonnementen worden aan het einde " +
+        "Betalende klanten worden automatisch per maand of per jaar gefactureerd, afhankelijk van het " +
+          "gekozen abonnement. Abonnementen worden aan het einde " +
           "van elke factureringsperiode (maandelijks of jaarlijks) automatisch verlengd totdat ze worden " +
           "geannuleerd. Je kunt je abonnement op elk moment annuleren via je accountinstellingen. De " +
           "annulering wordt van kracht aan het einde van de lopende factureringsperiode.",

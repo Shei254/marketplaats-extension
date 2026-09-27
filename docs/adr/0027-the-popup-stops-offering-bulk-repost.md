@@ -1,6 +1,7 @@
 # ADR-0027: The popup stops offering bulk repost, and the mechanism stays
 
-**Status:** Accepted (2026-09-07)
+**Status:** Superseded by [ADR-0038](0038-bulk-repost-leaves-the-extension.md) (2026-09-27) — its own
+"ships to anybody before T70" trigger fired with the Web Store submission. Accepted 2026-09-07.
 **Scope:** `apps/extension`'s popup, and nothing else. **Refines
 [ADR-0025](0025-bulk-repost-is-entitled-queued-and-paced-wider.md)**, which built the feature, and leaves
 [ADR-0026](0026-a-feature-flag-is-a-field-spelled-once.md)'s operator field standing. No API, no schema, no

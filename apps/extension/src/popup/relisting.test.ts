@@ -48,8 +48,7 @@ describe("what an outcome does to the row", () => {
     // their ad has already been deleted. ADR-0029's split applies to the Dutch
     // copy the same way: one word for the thing users press.
     //
-    // Asserted here and nowhere else, because this module now owns both sentences
-    // and the batch's suite asserts only that it is saying the same ones.
+    // Asserted here and nowhere else, because this module owns both sentences.
     expect(AD_IS_DOWN).toContain("herplaatsen is mislukt");
     expect(AD_IS_DOWN).not.toContain("opnieuw plaatsen");
     expect(AD_UNCHANGED).toContain("Er is niets herplaatst");

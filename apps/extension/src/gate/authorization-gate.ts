@@ -116,9 +116,9 @@ function lockedBy(body: unknown): LockedState {
     case "SUBSCRIPTION_INACTIVE":
       return { state: "update-card" };
     case "BULK_NOT_ENTITLED":
-      // Reachable only on the batch path: a single relist never asks for `batch`,
-      // and this code is the answer to having asked. If it arrives on a per-row
-      // authorize, the client and the backend disagree about what was sent — and
+      // The answer to asking with `batch`, which no build sends since bulk repost
+      // left the extension (ADR-0038). Kept because the contract still has it: if
+      // it arrives, the client and the backend disagree about what was sent — and
       // refusing is still the fail-closed reading of a denial.
       return { state: "not-in-plan" };
     case "QUOTA_EXCEEDED":

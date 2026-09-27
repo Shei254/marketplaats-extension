@@ -22,23 +22,20 @@ export type RowState =
 export const IDLE: RowState = { kind: "idle" };
 
 /**
- * The two sentences a failed repost says, held here because **a batch says them
- * too** and they are the same event said twice, not two events (T74, #161).
+ * The two sentences a failed repost says (T74, #161).
  *
- * They were duplicated by hand in `batching.ts` and agreed only by somebody
- * remembering to keep them agreeing — which they stopped doing: one copy drifted
- * to *"opnieuw plaatsen"* while the other said *"herplaatsen"*, so the popup gave
- * the act two names depending on whether the ad had been ticked. One word for the
- * thing users press is the whole of this ticket, and a word can only be one if
- * the sentence carrying it is.
+ * They were once duplicated by hand for bulk repost, and the copies drifted: one
+ * said *"opnieuw plaatsen"* while the other said *"herplaatsen"*, so the popup gave
+ * the act two names. One word for the thing users press is the whole of that
+ * ticket, and a word can only be one if the sentence carrying it is.
  *
  * **`AD_IS_DOWN` is the most important string in this product.** An ad that
  * vanished from Marktplaats with no explanation is the worst thing we can do to
  * somebody, and "De advertentie is opgeslagen in de extensie" is the only place
  * the user is told the snapshot (ADR-0003) is why it has not.
  *
- * Both are the prefix rather than the whole message: a single repost appends what
- * actually failed, and a batch has no such detail to append.
+ * Both are the prefix rather than the whole message: the row appends what
+ * actually failed.
  */
 export const AD_UNCHANGED = "Er is niets herplaatst — je advertentie is ongewijzigd.";
 

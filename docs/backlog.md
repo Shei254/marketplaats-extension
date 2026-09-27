@@ -788,7 +788,6 @@ is the one that gets a vague sentence and a rejection.
 | `storage` | Four things, all local to the user's browser: the sign-in session, the snapshot that makes an interrupted repost recoverable, the timestamp that paces consecutive reposts, and the served configuration document. |
 | `unlimitedStorage` | A snapshot carries the ad's photos, because a repost deletes the original and re-uploads its content — so the photos are the only way to put an interrupted one back. A listing can exceed the default 10 MB quota, and exceeding it would mean an ad deleted from Marktplaats that this extension can no longer restore. |
 | `identity` | Sign-in is Authorization Code + PKCE against our own identity provider, opened by `launchWebAuthFlow`. `getRedirectURL` is the only other call; **`getProfileUserInfo` is never called**, so the permission reads no Chrome or Google profile — worth saying on the form, because the permission's name suggests otherwise. |
-| `alarms` | `service-worker.ts` registers `chrome.alarms.onAlarm` at the top level, so the permission is required for the worker to start at all. An alarm is what lets a paced sequence of reposts resume across the worker's suspension: the gaps are drawn wider than the ~30s a suspended MV3 worker survives, so no timer inside the worker can outlive one. |
 | Remote code | **None.** The answer on the form is *"No, I am not using remote code"*: no `eval`, no `new Function`, no dynamic `import()`, no remotely-hosted script, no `chrome.scripting` and no `userScripts`. The served document (#36) is JSON — endpoint paths and timing numbers that shipped code reads — so no code crosses the wire, and saying that unprompted is cheaper than being asked. |
 | Single purpose | Reposting the signed-in user's own Marktplaats advertisements so a listing that has sunk in the results is at the top again. Every capability above serves that one act. |
 
@@ -809,15 +808,11 @@ covered, and it works because that CDN answers `Access-Control-Allow-Origin: *`.
 reach nor what the user is asked to grant — it would only cost `chrome.tabs.query` the ability to find a tab
 the user already has open, after a service-worker restart, with no way to re-discover one.
 
-**The `alarms` decision, filed 2026-09-23.** It was the one justification this table said needed deciding:
-`alarms` is the batch runner's only user, the batch is withdrawn from the popup
-([ADR-0027](adr/0027-the-popup-stops-offering-bulk-repost.md), T70), and so this listing asks for a
-permission no user of *this* build can reach. It cannot be dropped instead — the top-level listener throws
-without it. **Filed describing the mechanism rather than the feature**, which is the option this entry
-already named and is true of the shipped build sentence by sentence: the listener is registered at load, the
-permission is what lets the worker start, and an alarm is what carries a paced sequence across a suspension.
-What it deliberately does not claim is a bulk repost a user can press. If a reviewer asks to be shown one,
-the answer is T70 — not a rewrite of this sentence, which would then be describing something absent.
+**The `alarms` permission was dropped on 2026-09-27**, with the rest of bulk repost's client half
+([ADR-0038](adr/0038-bulk-repost-leaves-the-extension.md)). It had been filed on 2026-09-23 describing the
+mechanism rather than the feature, because the batch runner's top-level listener made it impossible to
+drop while the runner was wired. Removing the runner removed that constraint, and a permission justified by
+a feature no user of this build can reach is not one to put in front of a first review.
 
 **The rest of the form, decided 2026-09-24**, before the first submission. The field-by-field text to paste is
 [`store/listing.md`](../store/listing.md); what follows is why it says what it says.
@@ -1032,37 +1027,25 @@ number, unexpressible content opens expanded, collapse is refused with its reaso
 "yes"}`, which both the popup and the API read as *granted, uncapped*. That is deliberate on both sides and
 `bulkIn` preserves it; nothing here closes it, and it is written down so it is not later read as an oversight.
 
-#### [T70](https://github.com/Shei254/marketplaats-extension/issues/155) · Bulk repost comes back to the popup, walked against real ads · **S** · T68, T69, **T58 live and steady**
-Bulk is built, tested and unreachable: [ADR-0027](adr/0027-the-popup-stops-offering-bulk-repost.md) took the
-selection off the popup for go-live scope and left the queue, the alarm, the entitlement, the API refusal and
-`/admin`'s cap exactly where T68 and T69 put them. **The trigger is go-live being stable** — T58 listed, real
-users through the single-repost path without incident — and not a date.
+#### [T70](https://github.com/Shei254/marketplaats-extension/issues/155) · Bulk repost comes back to the popup, walked against real ads · **L** · T68, T69, **T58 live and steady**
+**Superseded in shape by [ADR-0038](adr/0038-bulk-repost-leaves-the-extension.md) (2026-09-27).** This was a
+one-word flip while ADR-0027 kept the client in the tree; ADR-0038 removed it before the first store
+submission, so bringing bulk back is now a rebuild. The API half — `features.bulk`, `batch` on
+`authorize`, `BULK_NOT_ENTITLED`, the served `bulkPacing` and `rails`, and `/admin`'s cap — is untouched.
+**The trigger is unchanged**: go-live stable, T58 listed, real users through the single-repost path without
+incident.
 
-**The flip is one word.** `BULK_OFFERED` in `apps/extension/src/popup/batching.ts` becomes `true` and
-`Popup`'s `offerBulk` parameter goes with it: it exists so the suite can turn on a screen the product does
-not draw, and there is nothing to turn on once it does. The forty tests in `Popup.test.tsx`'s
-`describe("reposting several at once")` lose their `beforeEach`, and the two that assert the withdrawal go.
-No component is edited, because none was.
+**The work.** Restore the client from the tree before ADR-0038's commit against a popup and worker that
+will have moved on; re-add `alarms` to the manifest and a justification to `store/listing.md`; lift
+`scripts/build.test.ts`'s assertion that no bundle mentions `chrome.alarms` or `storage.session`; and
+update the storage sentence for `batchRun` and `batchWoken`. **Then the walk**:
+[`click-through.md`](click-through.md) slice E, steps 1–12, against a real account with enough real ads that
+a selection is a selection — T68's outstanding walk, which nothing else in this repo can stand in for.
 
-**The walk is the work.** [`click-through.md`](click-through.md) slice E, steps 1–12, against a real account
-with enough real ads that a selection is a selection. It is T68's outstanding walk, parked here rather than
-performed against a feature no user could see, and nothing else in this repo can prove delete-first over a
-queue — every suite that covers bulk stubs Marktplaats.
-
-**And the two things left standing.** The `alarms` justification in T58's table, which has been describing a
-feature nobody could reach; and `/admin`'s `Bulk repost [ N ] at a time`, which has been setting a cap with
-no visible effect — worth one look at the seeded values before the boxes are back.
-
-**And one shape to reconsider while the file is open.** `BulkSelection.cap` is `Infinity` where nothing caps
-a selection — an unlimited tier whose flag sells no number (T73, [ADR-0029](adr/0029-unlimited-is-null-and-zero-still-grants-nothing.md)).
-It is arithmetically correct at all ten comparison sites, and it printed "5 of Infinity selected" from the
-one of three template strings that had no guard, because a docstring claimed there were two. The fix was a
-guard; the shape is the question. **A nullable `cap` is not the answer** — `${bulk.cap}` compiles just as
-happily and prints "5 of null", so the compiler catches neither — and the only design that makes a leak a
-type error is a discriminated union on whether the selection is capped at all. That is ~10 narrowing sites
-across `batching.ts`, `SelectionHeader`, `Popup`, `BatchBar` and `AdList`, which is not work to do to a
-screen no user can open. Do it here, where the code is being touched and walked anyway, or decide the guards
-are enough.
+**One shape to reconsider while rebuilding.** `BulkSelection.cap` was `Infinity` where nothing caps a
+selection (T73, [ADR-0029](adr/0029-unlimited-is-null-and-zero-still-grants-nothing.md)), which once printed
+"5 of Infinity selected". A nullable `cap` catches nothing either (`${bulk.cap}` prints "5 of null"); the
+design that makes a leak a type error is a discriminated union on whether the selection is capped at all.
 
 #### [T71](https://github.com/Shei254/marketplaats-extension/issues/157) · A repost puts back the Gereserveerd flag · **M** · T26, T30b, T45
 A repost is delete-and-recreate (ADR-0002), and the new ad is not identical: the `Gereserveerd` flag is gone,
@@ -1950,4 +1933,4 @@ T21).
 | Relist history / outcome analytics screens | Not in iteration 1 |
 | The login screens' Dutch | [ADR-0035](adr/0035-the-mail-is-ours-and-so-are-the-words.md) — the mail T82 writes says *je* and the login page still runs on Keycloak's formal *u*. Closing the seam means owning the login theme's message bundle for the sign-in, registration and reset screens, which is a different size of decision from six keys |
 | The mark in the mail | [ADR-0035](adr/0035-the-mail-is-ours-and-so-are-the-words.md) — **unblocked on 2026-09-23**, when T56 made `brand.domain` a domain we own rather than a hostname derived from a VPS IP. The condition the deferral named is met; what is left is the work it named — one entry in `SITE_ICONS` and one `<img>` in the shell — and it is deferred now by nothing but scope |
-| Bulk repost in the popup | [ADR-0027](adr/0027-the-popup-stops-offering-bulk-repost.md) — built (T68, T69) and withdrawn from the screen for go-live scope; the mechanism, the entitlement and the API refusal all stand. Back with T70, once go-live is stable |
+| Bulk repost in the popup | [ADR-0038](adr/0038-bulk-repost-leaves-the-extension.md) — built (T68, T69), withdrawn from the screen (ADR-0027), then removed from the extension before the first store submission. The entitlement and the API refusal stand. Back with T70 as a rebuild, once go-live is stable |

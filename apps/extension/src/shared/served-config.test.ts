@@ -44,8 +44,6 @@ const EMPTY: ServedConfig = {
   endpoints: {},
   csrf: null,
   pacing: null,
-  bulkPacing: null,
-  rails: null,
 };
 
 let chromeStub: ChromeStub;
@@ -65,8 +63,6 @@ describe("reading a served document", () => {
       endpoints: { deleteAd: "/seller/api/delete-ad-v2" },
       csrf: { mode: "meta", header: "x-mp-xsrf", name: "csrf-token" },
       pacing: { minMs: 60_000, maxMs: 120_000 },
-      bulkPacing: { minMs: 45_000, maxMs: 90_000 },
-      rails: { burstLimit: 10, burstWindowMs: 3_600_000 },
     });
   });
 
@@ -206,62 +202,24 @@ describe("the pacing window", () => {
   });
 });
 
-describe("the batch window", () => {
-  // The one check here that is a property of the mechanism rather than a taste.
-  // `chrome.alarms` advances a run and MV3 clamps it at about 30 seconds, so a
-  // window under it is not a jittered gap — it is a 30-second metronome, which is
-  // the rhythm this whole file exists to avoid. And an unpacked build is *not*
-  // clamped, so nothing local would ever show it.
-  it("refuses a gap under the alarm clamp that advances it", () => {
-    expect(asServedConfig({ ...EVERYTHING, bulkPacing: { minMs: 30_000, maxMs: 60_000 } })).not.toBeNull();
-    expect(asServedConfig({ ...EVERYTHING, bulkPacing: { minMs: 29_999, maxMs: 60_000 } })).toBeNull();
-  });
+describe("the blocks this build no longer reads", () => {
+  // The API still serves `bulkPacing` and `rails`, for the bulk repost this build
+  // does not ship (ADR-0038). What it serves there is none of this build's
+  // business, so a value that would once have been refused must not cost the
+  // document the fields that are still read.
+  it("reads the document whatever they say", () => {
+    const read = asServedConfig({
+      ...EVERYTHING,
+      bulkPacing: { minMs: 1, maxMs: 0 },
+      rails: { burstLimit: 0, burstWindowMs: -1 },
+    });
 
-  // Which is a floor the watched window deliberately does not have: 10s–30s is
-  // what a single repost ships with, and nothing waits on an alarm for it.
-  it("leaves the watched window free to be shorter than that", () => {
-    expect(asServedConfig({ ...EVERYTHING, pacing: { minMs: 10_000, maxMs: 30_000 } })).not.toBeNull();
-  });
-
-  it("refuses one that does not run forwards, or is not a pair of numbers", () => {
-    expect(asServedConfig({ ...EVERYTHING, bulkPacing: { minMs: 90_000, maxMs: 45_000 } })).toBeNull();
-    expect(asServedConfig({ ...EVERYTHING, bulkPacing: { minMs: "45000", maxMs: 90_000 } })).toBeNull();
-  });
-
-  // The ceiling is the same five minutes as the window above and the reason is a
-  // different one: an alarm does this waiting rather than the worker, so what
-  // bounds it is ADR-0025's two-hour run rather than Chrome's patience.
-  it("refuses one that would turn a batch into a day's work", () => {
-    expect(asServedConfig({ ...EVERYTHING, bulkPacing: { minMs: 30_000, maxMs: 5 * 60_000 } })).not.toBeNull();
-    expect(asServedConfig({ ...EVERYTHING, bulkPacing: { minMs: 30_000, maxMs: 5 * 60_000 + 1 } })).toBeNull();
-  });
-
-  // An older API sends neither block. It is not an error and not a reason to drop
-  // the document — this build has its own window and its own copy of the rails,
-  // and the served ones are an improvement on them rather than a prerequisite.
-  it("reads a document from an API that serves neither block", () => {
-    const older = asServedConfig({ ...EVERYTHING, bulkPacing: undefined, rails: undefined });
-
-    expect(older?.bulkPacing).toBeNull();
-    expect(older?.rails).toBeNull();
-    expect(older?.pacing).toEqual({ minMs: 60_000, maxMs: 120_000 });
-  });
-});
-
-describe("the rails the API refuses on", () => {
-  it("keeps a cap and the window it counts in", () => {
-    expect(asServedConfig(EVERYTHING)?.rails).toEqual({ burstLimit: 10, burstWindowMs: 3_600_000 });
-  });
-
-  // A cap of none is not a rail anybody set — it would say the API authorizes
-  // nothing ever, and the estimate would turn it into a run with no end. Refused
-  // as a document rather than ignored as a field, like everything else here: a
-  // config that is partly applied is the state nobody can reason about.
-  it("refuses a cap of none, a fractional one, or a window that runs backwards", () => {
-    expect(asServedConfig({ ...EVERYTHING, rails: { burstLimit: 0, burstWindowMs: 3_600_000 } })).toBeNull();
-    expect(asServedConfig({ ...EVERYTHING, rails: { burstLimit: 1.5, burstWindowMs: 3_600_000 } })).toBeNull();
-    expect(asServedConfig({ ...EVERYTHING, rails: { burstLimit: 10, burstWindowMs: -1 } })).toBeNull();
-    expect(asServedConfig({ ...EVERYTHING, rails: { burstLimit: "10", burstWindowMs: 3_600_000 } })).toBeNull();
+    expect(read).toEqual({
+      schemaVersion: SUPPORTED_SCHEMA_VERSION,
+      endpoints: EVERYTHING.endpoints,
+      csrf: EVERYTHING.csrf,
+      pacing: EVERYTHING.pacing,
+    });
   });
 });
 

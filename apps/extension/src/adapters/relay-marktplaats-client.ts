@@ -17,16 +17,22 @@ export class NoMarktplaatsTabError extends Error {
   }
 }
 
-export class ApiRequestError extends Error {
-  constructor(
-      public endpoint: string,
-      public status: number,
-      public body: string
-  ) {
-    super(`API Error [${endpoint}]: HTTP ${status} - ${body.substring(0, 200)}...`);
-    this.name = "ApiRequestError";
+/**
+ * Every open marktplaats.nl tab is a **Stale tab**: open since before the
+ * extension was installed, updated or re-enabled, so no content script runs in
+ * it until it is reloaded (ADR-0039). `tabId` is the one the popup offers to
+ * reload.
+ */
+export class StaleMarktplaatsTabError extends Error {
+  constructor(public readonly tabId: number) {
+    super("The marktplaats.nl tab has to be reloaded");
+    this.name = "StaleMarktplaatsTabError";
   }
 }
+
+// In the domain since ADR-0039, which reads its status; re-exported so the
+// relay's callers keep one import for the errors it raises.
+export { ApiRequestError } from "../domain/marktplaats-client";
 
 /**
  * MarktplaatsClient used by the popup/background. It doesn't call Marktplaats
@@ -67,18 +73,38 @@ export class RelayMarktplaatsClient implements MarktplaatsClient {
     });
   }
 
+  /**
+   * Through the first marktplaats.nl tab whose content script answers. Only
+   * Chrome's "no receiver" moves on to the next tab: a request that reached a
+   * content script has been acted on, and a failed delete or create sent again
+   * from a second tab may run twice.
+   */
   private async send<T>(request: RelayRequest): Promise<T> {
-    const tabId = await findMarktplaatsTab();
-    const response = (await chrome.tabs.sendMessage(tabId, request)) as RelayResponse;
-    if (!response.ok) throw fromWireError(response.error);
-    return response.value as T;
+    const tabIds = await marktplaatsTabs();
+    if (tabIds.length === 0) throw new NoMarktplaatsTabError();
+
+    for (const tabId of tabIds) {
+      let response: RelayResponse;
+      try {
+        response = (await chrome.tabs.sendMessage(tabId, request)) as RelayResponse;
+      } catch (error) {
+        if (isNoReceiver(error)) continue;
+        throw error;
+      }
+      if (!response.ok) throw fromWireError(response.error);
+      return response.value as T;
+    }
+    throw new StaleMarktplaatsTabError(tabIds[0]!);
   }
 
 }
 
-async function findMarktplaatsTab(): Promise<number> {
+async function marktplaatsTabs(): Promise<number[]> {
   const tabs = await chrome.tabs.query({ url: "https://www.marktplaats.nl/*" });
-  const tabId = tabs.find((tab) => tab.id !== undefined)?.id;
-  if (tabId === undefined) throw new NoMarktplaatsTabError();
-  return tabId;
+  return tabs.flatMap((tab) => (tab.id === undefined ? [] : [tab.id]));
+}
+
+/** Chrome's words for a tab with no content script to answer — it has no error codes. */
+function isNoReceiver(error: unknown): boolean {
+  return error instanceof Error && error.message.includes("Receiving end does not exist");
 }

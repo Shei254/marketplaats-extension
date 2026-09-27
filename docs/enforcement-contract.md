@@ -896,6 +896,12 @@ other half would leave somebody's listing deleted because their quota ran out mi
 ADR-0003 keeps a snapshot to prevent, and a fabricated `deleted` snapshot buys nothing anyway, since posting
 an ad is something anyone may do on Marktplaats for free.
 
+**Amended 2026-09-27 ([ADR-0039](adr/0039-a-pending-repost-is-finished-never-re-authorized.md), T88) — a resume
+never asks the gate.** The `captured` row above is replaced by asking Marktplaats whether the delete ran: an
+ad it still serves is **cancelled** and its unit refunded (`FAILED_BEFORE_DELETE` on the original grant), and
+one answering `410 Gone` is a `deleted` snapshot, put back ungated. So a resume deletes nothing, and a
+fabricated snapshot buys at most a free create — the objection the table answered no longer arises.
+
 **The reservation rides in the snapshot**, so whichever grant paid for the attempt is the one its outcome is
 reported against — however long later, and whether or not reconciliation has already refunded it (a late
 report still wins, above).

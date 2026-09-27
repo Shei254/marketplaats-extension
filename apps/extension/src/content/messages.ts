@@ -5,7 +5,7 @@ import {
 } from "../domain/marktplaats-client";
 import type { CapturedAd, ListingSummary, Photo } from "../domain/types";
 import { base64ToBytes, bytesToBase64 } from "../shared/base64";
-import {ApiRequestError, NoMarktplaatsTabError} from "../adapters/relay-marktplaats-client";
+import { ApiRequestError, NoMarktplaatsTabError, StaleMarktplaatsTabError } from "../adapters/relay-marktplaats-client";
 import { SignInCancelledError, SignInFailedError } from "../auth/errors";
 
 /**
@@ -50,6 +50,7 @@ export type WireErrorCode =
   | "SIGN_IN_FAILED"
   | "NOT_AUTHENTICATED"
   | "NO_MARKTPLAATS_TAB"
+  | "STALE_MARKTPLAATS_TAB"
   | "SPIKE_PENDING"
   | "API_ERROR"
   | "UNKNOWN";
@@ -60,6 +61,8 @@ export interface WireError {
   listingId?: string;
   status?: number; // Add these fields
   body?: string;
+  /** The tab to reload, on `STALE_MARKTPLAATS_TAB`. */
+  tabId?: number;
 }
 
 export type RelayResponse =
@@ -85,6 +88,10 @@ export function toWireError(error: unknown): WireError {
 
   if (error instanceof NoMarktplaatsTabError) {
     return { code: "NO_MARKTPLAATS_TAB", message: error.message };
+  }
+
+  if (error instanceof StaleMarktplaatsTabError) {
+    return { code: "STALE_MARKTPLAATS_TAB", message: error.message, tabId: error.tabId };
   }
 
   if (error instanceof ApiRequestError) {
@@ -129,6 +136,8 @@ export function fromWireError(error: WireError): Error {
       return new NotAuthenticatedError();
     case "NO_MARKTPLAATS_TAB":
       return new NoMarktplaatsTabError();
+    case "STALE_MARKTPLAATS_TAB":
+      return new StaleMarktplaatsTabError(error.tabId ?? -1);
     case "SPIKE_PENDING":
       return new SpikePendingError(error.message);
     case "SIGN_IN_CANCELLED":

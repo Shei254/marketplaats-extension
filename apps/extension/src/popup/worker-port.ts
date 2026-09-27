@@ -1,6 +1,6 @@
 import type { DisplayStateAnswer } from "../api/display-state";
 import type { HandoffAnswer, PlansAnswer } from "../api/subscribing";
-import type { ListingSummary } from "../domain/types";
+import type { ListingSummary, PendingRepost } from "../domain/types";
 import type { BackgroundRequest, BackgroundResponse, WireRelistOutcome } from "../background/messages";
 import { fromWireError } from "../content/messages";
 import type { WorkerPort } from "./screen";
@@ -42,6 +42,20 @@ export function workerPort(): WorkerPort {
     },
     async retry(listingId: string): Promise<WireRelistOutcome> {
       return ask({ kind: "retry", listingId });
+    },
+    /** Flattened to none: see the port. */
+    async pendingReposts(): Promise<PendingRepost[]> {
+      try {
+        return await ask({ kind: "pending-reposts" });
+      } catch {
+        return [];
+      }
+    },
+    async letGo(listingId: string): Promise<boolean> {
+      return ask({ kind: "let-go", listingId });
+    },
+    async reloadMarktplaats(tabId: number): Promise<void> {
+      await ask({ kind: "reload-marktplaats", tabId });
     },
     /**
      * Flattened to "no wait" when the worker cannot say, like the display state

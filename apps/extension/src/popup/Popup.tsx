@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 
 import type { WireRelistOutcome } from "../background/messages";
 import type { HandoffAnswer } from "../api/subscribing";
+import { NoMarktplaatsTabError, StaleMarktplaatsTabError } from "../adapters/relay-marktplaats-client";
+import type { PendingRepost } from "../domain/types";
 import { ADS_LOADING, describeAdsFailure, type AdsView } from "./ads";
 import { adListCss, planCardCss, popupCss } from "./popup-styles";
 import { AdList } from "./AdList";
@@ -47,6 +49,8 @@ import {
 export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
   const [screen, setScreen] = useState<Screen>(LOADING);
   const [ads, setAds] = useState<AdsView>(ADS_LOADING);
+  /** Reposts that did not finish, which the ad list draws above the ads (ADR-0039). */
+  const [pending, setPending] = useState<PendingRepost[]>([]);
   const [busy, setBusy] = useState(false);
   const [plans, setPlans] = useState<PlansView>(PLANS_LOADING);
   const [handoff, setHandoff] = useState<Handoff>(NOT_OPENING);
@@ -75,6 +79,9 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
       displayed.current = want;
       const mine = ++latest.current;
       setAds(ADS_LOADING);
+      // Beside the list rather than after it: these come from the worker's own
+      // storage, and are shown even when the list cannot be had at all.
+      const holding = worker.pendingReposts();
       try {
         const found = want.kind === "all" ? await worker.ads() : await worker.searchAds(want.query);
         if (mine === latest.current) setAds({ status: "ready", ads: found });
@@ -82,8 +89,10 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
         // The list failing does not take the plan down with it: the two come from
         // different places — ours and Marktplaats's — and a user whose quota is
         // fine should be told that, beside the reason their ads are missing.
-        if (mine === latest.current) setAds({ status: "failed", message: describeAdsFailure(error) });
+        if (mine === latest.current) setAds(failedAds(error));
       }
+      const held = await holding;
+      if (mine === latest.current) setPending(held);
     },
     [worker],
   );
@@ -162,6 +171,25 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
   /** The ads alone — what a finished relist invalidates, since the ad has a new id. */
   const reloadAds = useCallback(() => showAds(displayed.current), [showAds]);
 
+  /** Drop a pending repost at the user's word, and draw what is left. */
+  const letGo = useCallback(
+    async (listingId: string) => {
+      await worker.letGo(listingId);
+      setPending(await worker.pendingReposts());
+    },
+    [worker],
+  );
+
+  /** Reload a **Stale tab** and ask for the list again once it has a content script. */
+  const reloadMarktplaats = useCallback(
+    async (tabId: number) => {
+      setAds(ADS_LOADING);
+      await worker.reloadMarktplaats(tabId);
+      await reloadAds();
+    },
+    [worker, reloadAds],
+  );
+
   /**
    * What a finished attempt does to the screen.
    *
@@ -182,8 +210,10 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
         );
       }
       if (outcome.status === "relisted") void reloadAds();
+      // Any attempt can start, finish or change a pending repost.
+      else void worker.pendingReposts().then(setPending);
     },
-    [reloadAds],
+    [reloadAds, worker],
   );
 
   /**
@@ -298,6 +328,9 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
           signOut,
           busy,
           ads,
+          pending,
+          letGo,
+          reloadMarktplaats,
           worker,
           onOutcome,
           plans,
@@ -323,6 +356,9 @@ interface Handlers {
   signOut: () => void;
   busy: boolean;
   ads: AdsView;
+  pending: PendingRepost[];
+  letGo: (listingId: string) => void;
+  reloadMarktplaats: (tabId: number) => void;
   worker: WorkerPort;
   onOutcome: (outcome: WireRelistOutcome) => void;
   plans: PlansView;
@@ -341,7 +377,7 @@ interface Handlers {
 }
 
 function body(screen: Screen, handlers: Handlers): JSX.Element {
-  const { load, signIn, signOut, busy, ads, worker, onOutcome } = handlers;
+  const { load, signIn, signOut, busy, ads, pending, letGo, reloadMarktplaats, worker, onOutcome } = handlers;
   const { plans, handoff, seePlans, loadPlans, backToAds, upgrade, manageBilling } = handlers;
   const { typed, showing, onType, onClearSearch } = handlers;
   switch (screen.screen) {
@@ -389,6 +425,9 @@ function body(screen: Screen, handlers: Handlers): JSX.Element {
             view={ads}
             worker={worker}
             onOutcome={onOutcome}
+            pending={pending}
+            onLetGo={letGo}
+            onReloadMarktplaats={reloadMarktplaats}
             empty={showing.kind === "search" ? noMatches(showing.query) : undefined}
             // The one thing the list is told about the plan, and it is the grant
             // rather than what is left of it (T32, #41). The screen above holds
@@ -438,4 +477,14 @@ function body(screen: Screen, handlers: Handlers): JSX.Element {
 function reportable(error: unknown): string | undefined {
   if (error instanceof Error && error.name === "SignInCancelledError") return undefined;
   return error instanceof Error ? error.message : "Inloggen is niet gelukt. Probeer het opnieuw.";
+}
+
+/**
+ * The list could not be had. A **Stale tab** is not a failure but a step the
+ * popup can take (ADR-0039); no tab at all is remembered, because pending rows
+ * say it too.
+ */
+function failedAds(error: unknown): AdsView {
+  if (error instanceof StaleMarktplaatsTabError) return { status: "stale", tabId: error.tabId };
+  return { status: "failed", message: describeAdsFailure(error), noTab: error instanceof NoMarktplaatsTabError };
 }

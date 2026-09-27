@@ -3,8 +3,8 @@ import { useCallback, useEffect, useState, type JSX } from "react";
 
 import type { WireRelistOutcome } from "../background/messages";
 
-import type { ListingSummary } from "../domain/types";
-import { describePrice, type AdsView, type PriceLine } from "./ads";
+import type { ListingSummary, PendingRepost } from "../domain/types";
+import { STALE_TAB, describePrice, type AdsView, type PriceLine } from "./ads";
 import { IDLE, PACING_NOTE, refusalNote, refusedTone, rowStateFor, type RowState } from "./relisting";
 import type { WorkerPort } from "./screen";
 
@@ -36,6 +36,9 @@ export function AdList({
   onOutcome,
   grantsNothing,
   empty = "Je hebt geen actieve advertenties.",
+  pending = [],
+  onLetGo = () => {},
+  onReloadMarktplaats = () => {},
 }: {
   view: AdsView;
   worker: WorkerPort;
@@ -82,6 +85,15 @@ export function AdList({
    * without a query is what this was before there was a box.
    */
   empty?: string;
+  /**
+   * Reposts that did not finish (ADR-0039), drawn above the ads whatever state
+   * the list is in — a `deleted` ad is not in the list, and these rows are the
+   * only place the user sees it.
+   */
+  pending?: PendingRepost[];
+  onLetGo?: (listingId: string) => void;
+  /** Reload a **Stale tab**; the list is asked for again once it has. */
+  onReloadMarktplaats?: (tabId: number) => void;
 }): JSX.Element {
   const [running, setRunning] = useState<string | null>(null);
   const [states, setStates] = useState<Record<string, RowState>>({});
@@ -156,38 +168,160 @@ export function AdList({
     [worker, onOutcome],
   );
 
-  if (view.status === "loading") return <LoadingRows />;
-  if (view.status === "failed") {
-    return (
-      <div className="popup-ads-failed">
-        <Note tone="error">Je advertenties konden niet worden geladen. {view.message}</Note>
-      </div>
-    );
-  }
-  if (view.ads.length === 0) {
-    // An account with no ads is an answer, not a failure — and a spinner left
-    // turning over one is the version of this screen that looks broken.
-    return <p className="popup-ads-empty">{empty}</p>;
-  }
-
+  const noTab = view.status === "failed" && view.noTab === true;
   return (
-    <ul className="popup-ads">
-      {view.ads.map((ad) => (
-        <AdRow
-          ad={ad}
-          key={ad.id}
-          state={states[ad.id] ?? IDLE}
-          // The plan's lock is last and is the only one of the three that is not
-          // about timing: the other two end on their own, and this one ends when
-          // somebody buys something.
-          locked={(running !== null && running !== ad.id) || secondsLeft !== null || grantsNothing}
-          secondsLeft={secondsLeft}
-          pacingSeconds={running === ad.id ? pacingSeconds : null}
-          onStart={start}
-          grantsNothing={grantsNothing}
-        />
-      ))}
-    </ul>
+    <>
+      {pending.length > 0 && (
+        <ul className="popup-ads popup-pending">
+          {pending.map((repost) => (
+            <PendingRow
+              key={repost.listingId}
+              repost={repost}
+              busy={repost.running || states[repost.listingId]?.kind === "busy"}
+              noTab={noTab}
+              onRetry={() => void start(repost.listingId, "retry")}
+              onLetGo={() => onLetGo(repost.listingId)}
+            />
+          ))}
+        </ul>
+      )}
+      <Ads
+        view={view}
+        empty={empty}
+        onReloadMarktplaats={onReloadMarktplaats}
+        rows={(ads) => (
+          <ul className="popup-ads">
+            {ads.map((ad) => (
+              <AdRow
+                ad={ad}
+                key={ad.id}
+                state={states[ad.id] ?? IDLE}
+                // The plan's lock is last and is the only one of the three that is not
+                // about timing: the other two end on their own, and this one ends when
+                // somebody buys something.
+                locked={(running !== null && running !== ad.id) || secondsLeft !== null || grantsNothing}
+                secondsLeft={secondsLeft}
+                pacingSeconds={running === ad.id ? pacingSeconds : null}
+                onStart={start}
+                grantsNothing={grantsNothing}
+              />
+            ))}
+          </ul>
+        )}
+      />
+    </>
+  );
+}
+
+/** The ads themselves, in whichever of their states the list is in. */
+function Ads({
+  view,
+  empty,
+  onReloadMarktplaats,
+  rows,
+}: {
+  view: AdsView;
+  empty: string;
+  onReloadMarktplaats: (tabId: number) => void;
+  rows: (ads: ListingSummary[]) => JSX.Element;
+}): JSX.Element {
+  switch (view.status) {
+    case "loading":
+      return <LoadingRows />;
+    case "stale":
+      return (
+        <div className="popup-ads-failed">
+          <Note tone="warn">{STALE_TAB}</Note>
+          <Button shape="rect" tone="primary" onClick={() => onReloadMarktplaats(view.tabId)}>
+            Pagina vernieuwen
+          </Button>
+        </div>
+      );
+    case "failed":
+      return (
+        <div className="popup-ads-failed">
+          <Note tone="error">Je advertenties konden niet worden geladen. {view.message}</Note>
+        </div>
+      );
+    case "ready":
+      // An account with no ads is an answer, not a failure — and a spinner left
+      // turning over one is the version of this screen that looks broken.
+      return view.ads.length === 0 ? <p className="popup-ads-empty">{empty}</p> : rows(view.ads);
+  }
+}
+
+/**
+ * A **Pending repost** (ADR-0039): an ad the extension is holding because a
+ * repost did not finish. It says whether it is being put back, waits for the
+ * user, or waits for a marktplaats.nl tab — and it can be let go, after asking,
+ * except while it is being put back.
+ */
+function PendingRow({
+  repost,
+  busy,
+  noTab,
+  onRetry,
+  onLetGo,
+}: {
+  repost: PendingRepost;
+  busy: boolean;
+  noTab: boolean;
+  onRetry: () => void;
+  onLetGo: () => void;
+}): JSX.Element {
+  const [asking, setAsking] = useState(false);
+  const note = busy
+    ? "Wordt teruggezet…"
+    : repost.needsUser
+      ? "Terugzetten lukt niet vanzelf — klik op Opnieuw."
+      : noTab
+        ? "Onderbroken: open Marktplaats om af te ronden"
+        : "Wordt teruggezet…";
+  return (
+    <li className="popup-ad" data-state="pending">
+      <div className="popup-ad-row">
+        <div className="popup-ad-info">
+          <span className="popup-ad-title" title={repost.title}>
+            {repost.title}
+          </span>
+        </div>
+        {busy ? (
+          <Button shape="rect" tone="busy">
+            Bezig…
+          </Button>
+        ) : (
+          !noTab && (
+            <Button shape="rect" tone="retry" onClick={onRetry}>
+              Opnieuw
+            </Button>
+          )
+        )}
+      </div>
+      {asking ? (
+        <>
+          <Note tone="warn">
+            Deze advertentie staat niet meer op Marktplaats. Weet je zeker dat je hem niet wilt terugzetten?
+          </Note>
+          <div className="popup-ad-row">
+            <Button shape="rect" tone="secondary" onClick={onLetGo}>
+              Ja, niet terugzetten
+            </Button>
+            <Button shape="rect" tone="ghost" onClick={() => setAsking(false)}>
+              Annuleren
+            </Button>
+          </div>
+        </>
+      ) : (
+        <>
+          <Note tone={repost.needsUser ? "error" : "warn"}>{note}</Note>
+          {!busy && (
+            <Button shape="rect" tone="ghost" onClick={() => setAsking(true)}>
+              Niet terugzetten
+            </Button>
+          )}
+        </>
+      )}
+    </li>
   );
 }
 

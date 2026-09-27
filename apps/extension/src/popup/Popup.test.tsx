@@ -7,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DisplayStateAnswer } from "../api/display-state";
 import type { HandoffAnswer, PlansAnswer } from "../api/subscribing";
 import type { WireRelistOutcome } from "../background/messages";
-import type { ListingSummary } from "../domain/types";
-import { NoMarktplaatsTabError } from "../adapters/relay-marktplaats-client";
+import type { ListingSummary, PendingRepost } from "../domain/types";
+import { NoMarktplaatsTabError, StaleMarktplaatsTabError } from "../adapters/relay-marktplaats-client";
 import { SignInCancelledError, SignInFailedError } from "../auth/errors";
 import { Popup } from "./Popup";
 import type { WorkerPort } from "./screen";
@@ -70,7 +70,14 @@ function fakeWorker(
   ads: ListingSummary[] = ADS,
   /** What the three subscribing calls answer, when a test is about one of them. */
   subscribing: { plans?: PlansAnswer; checkout?: HandoffAnswer; portal?: HandoffAnswer } = {},
+  /**
+   * The reposts the worker is holding (ADR-0039), and what the ad list throws
+   * before it answers — one error per call, in order.
+   */
+  holding: { pending?: PendingRepost[]; adsErrors?: Error[] } = {},
 ) {
+  let pendingNow = [...(holding.pending ?? [])];
+  const adsErrors = [...(holding.adsErrors ?? [])];
   const asked: string[] = [];
   const queue = [...answers];
   /** Queries whose answer the test is holding: query → the resolve that frees it. */
@@ -84,8 +91,16 @@ function fakeWorker(
     }),
     ads: vi.fn(async () => {
       asked.push("list-ads");
+      const error = adsErrors.shift();
+      if (error) throw error;
       return ads;
     }),
+    pendingReposts: vi.fn(async () => pendingNow),
+    letGo: vi.fn(async (listingId: string) => {
+      pendingNow = pendingNow.filter((repost) => repost.listingId !== listingId);
+      return true;
+    }),
+    reloadMarktplaats: vi.fn(async () => {}),
     /**
      * Marktplaats's own filtering, stood in for by a substring match on the title
      * — the same rows, which is what the relay now answers with (T31, #40).
@@ -1047,5 +1062,78 @@ describe("handing off to Stripe", () => {
     expect(text()).toContain("betaalpagina kon niet worden geopend");
     // And the plan is still theirs: a failed hand-off changes nothing about it.
     expect(text()).toContain("Pro");
+  });
+});
+
+/**
+ * **A stale tab and a repost that did not finish** (ADR-0039) — the two things a
+ * user meets right after installing, or after something went wrong mid-repost,
+ * and which used to read as an English error and as nothing at all.
+ */
+describe("a marktplaats.nl tab opened before the extension", () => {
+  it("is one more step, and the button reloads it and lists the ads", async () => {
+    const { worker } = fakeWorker(undefined, ADS, {}, { adsErrors: [new StaleMarktplaatsTabError(7)] });
+
+    await show(worker);
+    expect(text()).toContain("Nog één stap: vernieuw je Marktplaats-pagina, dan kan AdBump aan de slag.");
+
+    await click("Pagina vernieuwen");
+
+    expect(worker.reloadMarktplaats).toHaveBeenCalledWith(7);
+    expect(text()).toContain("Vintage Eames lounge chair");
+  });
+});
+
+describe("reposts that did not finish", () => {
+  const PENDING: PendingRepost = { listingId: "m9", title: "Gazelle damesfiets", needsUser: false, running: false };
+
+  it("are shown above the ads while they are put back", async () => {
+    const { worker } = fakeWorker(undefined, ADS, {}, { pending: [PENDING] });
+
+    await show(worker);
+
+    expect(text()).toContain("Gazelle damesfiets");
+    expect(text()).toContain("Wordt teruggezet…");
+    expect(text().indexOf("Gazelle damesfiets")).toBeLessThan(text().indexOf("Vintage Eames lounge chair"));
+  });
+
+  it("say what to do when no marktplaats.nl tab is open", async () => {
+    const { worker } = fakeWorker(undefined, ADS, {}, { pending: [PENDING], adsErrors: [new NoMarktplaatsTabError()] });
+
+    await show(worker);
+
+    expect(text()).toContain("Onderbroken: open Marktplaats om af te ronden");
+  });
+
+  it("wait for Opnieuw when trying again by themselves cannot work", async () => {
+    const { worker } = fakeWorker(undefined, ADS, {}, { pending: [{ ...PENDING, needsUser: true }] });
+
+    await show(worker);
+    await click("Opnieuw");
+
+    expect(worker.retry).toHaveBeenCalledWith("m9");
+  });
+
+  it("can be let go, after being asked", async () => {
+    const { worker } = fakeWorker(undefined, ADS, {}, { pending: [PENDING] });
+
+    await show(worker);
+    await click("Niet terugzetten");
+    expect(worker.letGo).not.toHaveBeenCalled();
+    expect(text()).toContain("Deze advertentie staat niet meer op Marktplaats. Weet je zeker dat je hem niet wilt terugzetten?");
+
+    await click("Ja, niet terugzetten");
+
+    expect(worker.letGo).toHaveBeenCalledWith("m9");
+    expect(text()).not.toContain("Gazelle damesfiets");
+  });
+
+  it("cannot be let go while being put back", async () => {
+    const { worker } = fakeWorker(undefined, ADS, {}, { pending: [{ ...PENDING, running: true }] });
+
+    await show(worker);
+
+    expect(text()).toContain("Wordt teruggezet…");
+    expect(() => click("Niet terugzetten")).toThrow();
   });
 });

@@ -257,6 +257,32 @@ export interface AdSnapshot {
    * that needs no fresh grant may have nothing to report against.
    */
   grantJti?: string | null;
+  /**
+   * The ids of the user's ads just before the last create was sent (ADR-0039).
+   * Absent until a create has been tried; `null` when the list could not be
+   * fetched. A retry diffs against it to find a create that landed and only lost
+   * its reply, so the ad is not posted twice.
+   */
+  idsBeforeCreate?: string[] | null;
+  /**
+   * The last create failed in a way that sending it again cannot fix — a `4xx`
+   * from Marktplaats, or an endpoint that is not configured (ADR-0039). Only the
+   * user's Opnieuw retries it; the automatic resume leaves it alone.
+   */
+  needsUser?: boolean;
+}
+
+/**
+ * A **Pending repost** as the popup draws it: an ad the extension is holding a
+ * snapshot of because a repost did not finish (ADR-0039).
+ */
+export interface PendingRepost {
+  listingId: string;
+  title: string;
+  /** Only Opnieuw retries it (see `AdSnapshot.needsUser`). */
+  needsUser: boolean;
+  /** Being put back right now, so it cannot be let go. */
+  running: boolean;
 }
 
 export interface UploadPhoto {

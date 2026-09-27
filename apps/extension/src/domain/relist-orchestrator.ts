@@ -2,10 +2,10 @@ import type { RelistOutcomeCode, RemainingQuota } from "@mprelist/contracts";
 
 import type { LockedState } from "../gate/authorization-gate";
 import type { RelistPermission } from "../gate/relist-permission";
-import { AdNotFoundError, type MarktplaatsClient } from "./marktplaats-client";
+import { AdNotFoundError, ApiRequestError, SpikePendingError, type MarktplaatsClient } from "./marktplaats-client";
 import type { RelistPacing } from "./relist-pace";
 import type { SnapshotStore } from "./snapshot-store";
-import type { AdSnapshot, ListingSummary } from "./types";
+import type { AdSnapshot, ListingSummary, PendingRepost } from "./types";
 
 /**
  * Outcome of a relist attempt.
@@ -30,6 +30,17 @@ export type RelistOutcome =
   | { status: "refused"; locked: LockedState };
 
 /**
+ * An interrupted repost whose ad Marktplaats still has: nothing was deleted, so
+ * it is cancelled rather than finished, and its unit handed back (ADR-0039).
+ */
+export class RepostCancelledError extends Error {
+  constructor() {
+    super("De herplaatsing werd onderbroken voordat er iets verwijderd was.");
+    this.name = "RepostCancelledError";
+  }
+}
+
+/**
  * The delete-first state machine (ADR-0003), now behind the gate (T26, #35).
  *
  * **The engine runs only on `proceed`.** The authorization is the first thing this
@@ -50,6 +61,16 @@ export type RelistOutcome =
  * caller is a rule the second caller does not have.
  */
 export class RelistOrchestrator {
+  /**
+   * Reposts running now, by listing id. A resume skips them and a second click
+   * joins them: their snapshot looks exactly like an interrupted one, and
+   * finishing it twice is the ad posted twice (ADR-0039).
+   */
+  private readonly running = new Map<string, Promise<RelistOutcome>>();
+
+  /** The resume in progress, which a second caller joins rather than repeats. */
+  private resuming: Promise<RelistOutcome[]> | null = null;
+
   constructor(
     private readonly client: MarktplaatsClient,
     private readonly store: SnapshotStore,
@@ -91,7 +112,11 @@ export class RelistOrchestrator {
     return this.client.searchAd(query);
   }
 
-  async relist(listingId: string): Promise<RelistOutcome> {
+  relist(listingId: string): Promise<RelistOutcome> {
+    return this.once(listingId, () => this.relistNow(listingId));
+  }
+
+  private async relistNow(listingId: string): Promise<RelistOutcome> {
     // 0. Wait for the gap, before the authorization rather than after it (T46,
     //    #54). The backend's rails count from the reservation `authorize` takes,
     //    so a gap that ran after it would be measured against a clock that had
@@ -178,10 +203,43 @@ export class RelistOrchestrator {
   }
 
   /** Retry a relist that was left recoverable, from its persisted snapshot. */
-  async retry(listingId: string): Promise<RelistOutcome> {
-    const snapshot = await this.store.get(listingId);
-    if (!snapshot) throw new Error(`No snapshot to retry for listing ${listingId}`);
-    return this.resumeSnapshot(snapshot);
+  retry(listingId: string): Promise<RelistOutcome> {
+    return this.once(listingId, async () => {
+      const snapshot = await this.store.get(listingId);
+      if (!snapshot) throw new Error(`No snapshot to retry for listing ${listingId}`);
+      return this.resumeSnapshot(snapshot);
+    });
+  }
+
+  /** Every repost the extension is holding a snapshot of, as the popup lists them. */
+  async pendingReposts(): Promise<PendingRepost[]> {
+    return (await this.store.list()).map((snapshot) => ({
+      listingId: snapshot.listingId,
+      title: snapshot.draft.title,
+      needsUser: snapshot.needsUser ?? false,
+      running: this.running.has(snapshot.listingId),
+    }));
+  }
+
+  /**
+   * Drop a pending repost at the user's word: the snapshot goes, and with it the
+   * only copy of an ad that may no longer be on Marktplaats. Nothing is reported
+   * — the unit was settled when the delete happened. Refused (`false`) while it
+   * is being put back, since that attempt may be creating the ad this second.
+   */
+  async letGo(listingId: string): Promise<boolean> {
+    if (this.running.has(listingId)) return false;
+    await this.store.clear(listingId);
+    return true;
+  }
+
+  /** Run `work` for a listing unless it is already running, in which case join it. */
+  private once(listingId: string, work: () => Promise<RelistOutcome>): Promise<RelistOutcome> {
+    const running = this.running.get(listingId);
+    if (running) return running;
+    const started = work().finally(() => this.running.delete(listingId));
+    this.running.set(listingId, started);
+    return started;
   }
 
   /**
@@ -206,83 +264,99 @@ export class RelistOrchestrator {
     }
   }
 
-  /** Resume every interrupted relist (e.g. on extension startup after a crash). */
-  async resumeAll(): Promise<RelistOutcome[]> {
-    const snapshots = await this.store.list();
+  /**
+   * Finish every pending repost that is not waiting for the user or already
+   * running (ADR-0039). Run on every marktplaats.nl page load and by the retry
+   * schedule, so it is cheap when there is nothing to do: one storage read.
+   */
+  resumeAll(): Promise<RelistOutcome[]> {
+    this.resuming ??= this.resumeEach().finally(() => (this.resuming = null));
+    return this.resuming;
+  }
+
+  private async resumeEach(): Promise<RelistOutcome[]> {
+    const snapshots = (await this.store.list()).filter(
+      (snapshot) => !snapshot.needsUser && !this.running.has(snapshot.listingId),
+    );
     const outcomes: RelistOutcome[] = [];
     for (const snapshot of snapshots) {
-      outcomes.push(await this.resumeSnapshot(snapshot));
+      outcomes.push(await this.once(snapshot.listingId, () => this.resumeSnapshot(snapshot)));
     }
     return outcomes;
   }
 
+
   /**
-   * Finish an interrupted relist — and **re-authorize it if finishing it could
-   * delete something.**
+   * Finish an interrupted relist — **by putting the ad back, and never by asking
+   * the gate again** (ADR-0039).
    *
-   * That is the whole rule, and it is narrower than "resume re-authorizes"
-   * because the two phases are not the same situation:
+   * - `deleted`: the ad is gone; recreate it. Refusing here would leave somebody's
+   *   listing deleted because their quota ran out mid-relist, which is the exact
+   *   outcome ADR-0003 keeps a snapshot to prevent.
+   * - `captured`: the delete may or may not have run, and Marktplaats is asked
+   *   which. An ad it still serves is **cancelled** — nothing was deleted, so its
+   *   unit is refunded now and the user reposts again if they still want to. One
+   *   that answers `410 Gone` is a `deleted` snapshot that did not get to say so.
+   *   Anything else is not known, and the snapshot waits for the next attempt.
    *
-   * - `captured`: the delete may not have run. Resuming may destroy a listing, so
-   *   it needs a fresh grant like any other relist would — and the snapshot store
-   *   is `chrome.storage.local`, which under ADR-0007 the *user* can write, so a
-   *   fabricated snapshot must not be a way to delete-and-recreate for free.
-   * - `deleted`: the ad is already gone and all that is left is putting it back.
-   *   Refusing here would leave somebody's listing deleted because their quota ran
-   *   out mid-relist, which is the exact outcome ADR-0003 keeps a snapshot to
-   *   prevent — and a fabricated snapshot buys nothing, since creating an ad is
-   *   something anyone may do on Marktplaats for nothing.
+   * So a resume deletes nothing, and ADR-0007's reason to gate it — the store is
+   * the user's to write — has nothing left to protect: a fabricated snapshot of a
+   * live ad is dropped, and one of an absent ad buys a create, which anyone may
+   * do on Marktplaats for nothing.
    *
-   * Either way the outcome is reported against the reservation in the snapshot,
-   * so a relist that outlived its worker still settles the unit it spent.
+   * The outcome is reported against the reservation in the snapshot, so a relist
+   * that outlived its worker still settles the unit it spent.
    */
   private async resumeSnapshot(snapshot: AdSnapshot): Promise<RelistOutcome> {
-    let resuming = snapshot;
+    if (snapshot.phase === "deleted") return this.createFromSnapshot(snapshot);
 
-    if (resuming.phase === "captured") {
-      // Paced like any other attempt, and for the same reason: this one may still
-      // delete a listing, so it is an action against Marktplaats rather than the
-      // tail of one. The `deleted` phase below is not paced — putting somebody's
-      // ad back is recovery, and making them wait for it is making the ADR-0003
-      // snapshot slower to redeem than the failure it exists for.
-      await this.pace.pause();
-      const decision = await this.permission.authorize(resuming.listingId);
-      if (decision.decision === "refuse") {
-        // Nothing is touched and the snapshot stays: the ad is still there, and
-        // the user can try again when whatever refused them has passed.
-        return { status: "refused", locked: decision.locked };
+    try {
+      await this.client.captureAd(snapshot.listingId);
+    } catch (error) {
+      if (!isGone(error)) {
+        return { status: "failed-recoverable", listingId: snapshot.listingId, error, quota: null };
       }
-
-      await this.pace.startedRelisting();
-
-      // The new grant is the one this attempt owes an answer to. The old
-      // reservation, if there was one, is the backend's to reconcile (#24).
-      resuming = { ...resuming, grantJti: decision.grant.jti };
-      await this.store.save(resuming);
-
-      // The delete may or may not have run before interruption; ensure it is gone.
-      // Here the snapshot is kept (recoverable) rather than cleared: the ad is
-      // already at risk, so we never drop the only copy.
-      const deletion = await this.ensureDeleted(resuming);
-      if (!deletion.ok) {
-        // Nothing of ours removed it, so the unit goes back — the ad the user
-        // still has is the reason this is not a spent relist.
-        return {
-          status: "failed-recoverable",
-          listingId: resuming.listingId,
-          error: deletion.error,
-          quota: await this.report(resuming.grantJti, "FAILED_BEFORE_DELETE"),
-        };
-      }
+      const deleted: AdSnapshot = { ...snapshot, phase: "deleted" };
+      await this.store.save(deleted);
+      return this.createFromSnapshot(deleted);
     }
 
-    return this.createFromSnapshot(resuming);
+    await this.store.clear(snapshot.listingId);
+    return {
+      status: "failed-before-delete",
+      error: new RepostCancelledError(),
+      quota: await this.report(snapshot.grantJti, "FAILED_BEFORE_DELETE"),
+    };
   }
 
   private async createFromSnapshot(snapshot: AdSnapshot): Promise<RelistOutcome> {
-    // Taken before the create and only for an ad that was reserved, so an
-    // ordinary repost costs no extra request at all (T71, #157).
-    const before = snapshot.draft.reserved ? await this.adIdsNow() : null;
+    // A create tried before may have landed and lost its reply: look for the ad
+    // it made before making another (ADR-0039).
+    if (snapshot.idsBeforeCreate) {
+      let landed: string | null;
+      try {
+        landed = await this.adTheLastCreateMade(snapshot, snapshot.idsBeforeCreate);
+      } catch (error) {
+        // Not knowing is not permission to create again: this attempt waits.
+        return { status: "failed-recoverable", listingId: snapshot.listingId, error, quota: null };
+      }
+      if (landed) {
+        await this.store.clear(snapshot.listingId);
+        if (snapshot.draft.reserved) await this.reserve(snapshot.listingId, landed);
+        return { status: "relisted", quota: await this.report(snapshot.grantJti, "SUCCESS") };
+      }
+    }
+
+    // Recorded before the create, for the check above and for the reserve diff
+    // below (T71, #157).
+    const ids = await this.adIdsNow();
+    const attempt: AdSnapshot = {
+      ...snapshot,
+      phase: "deleted",
+      idsBeforeCreate: ids ? [...ids] : null,
+      needsUser: false,
+    };
+    await this.store.save(attempt);
 
     try {
       await this.client.createAd(snapshot.draft, snapshot.photos);
@@ -291,11 +365,12 @@ export class RelistOrchestrator {
       // relist finished, and a worker torn down between the create and the clear
       // is resumed into a *second* create of the same ad — so nothing that can
       // block goes in that gap for the sake of a flag.
-      if (snapshot.draft.reserved) await this.keepReserved(snapshot.listingId, before);
+      if (snapshot.draft.reserved) await this.keepReserved(snapshot.listingId, ids);
       return { status: "relisted", quota: await this.report(snapshot.grantJti, "SUCCESS") };
     } catch (error) {
       // The original is already gone; keep the snapshot so the user can retry/restore.
       // The unit stands: the destructive half happened, whatever came after it.
+      if (sendingAgainCannotFix(error)) await this.store.save({ ...attempt, needsUser: true });
       return {
         status: "failed-recoverable",
         listingId: snapshot.listingId,
@@ -360,12 +435,34 @@ export class RelistOrchestrator {
       return;
     }
 
-    const newListingId = added[0]!;
+    await this.reserve(listingId, added[0]!);
+  }
+
+  private async reserve(listingId: string, newListingId: string): Promise<void> {
     try {
       await this.client.reserveAd(newListingId);
     } catch (error) {
       console.warn(`[relist] ${listingId} was reserved; ${newListingId} could not be`, error);
     }
+  }
+
+  /**
+   * The id of the ad an earlier create made, if exactly one ad has appeared
+   * since it was sent and carries the snapshot's title and price; otherwise
+   * `null` (ADR-0039).
+   *
+   * One is the only answer trusted. None means the create did not land, and two
+   * means something else was posted in the window and there is nothing to tell
+   * ours by — both mean "create", which is what happened before this existed.
+   */
+  private async adTheLastCreateMade(snapshot: AdSnapshot, before: readonly string[]): Promise<string | null> {
+    const earlier = new Set(before);
+    const priceCents = Number(snapshot.draft.price.priceCent);
+    const ads = await this.client.listMyAds();
+    const matches = ads.filter(
+      (ad) => !earlier.has(ad.id) && ad.title === snapshot.draft.title && ad.priceCents === priceCents,
+    );
+    return matches.length === 1 ? matches[0]!.id : null;
   }
 
   /**
@@ -382,4 +479,27 @@ export class RelistOrchestrator {
       return null;
     }
   }
+}
+
+/**
+ * Marktplaats saying an ad no longer exists: `410 Gone` is what a deleted ad
+ * answers a capture with (observed 2026-09-27), and `404` is kept beside it as
+ * the other honest way to say so. Nothing else is read as gone — a `200` whose
+ * page carried no ad is a layout change, not a deletion.
+ */
+function isGone(error: unknown): boolean {
+  return error instanceof ApiRequestError && (error.status === 404 || error.status === 410);
+}
+
+/**
+ * A create failure that the same request will meet again: Marktplaats refusing
+ * the body itself (a `4xx` that is not about the session or the rate), or an
+ * endpoint nobody has configured. Everything else — the network, a `5xx`, a
+ * `429` — may pass, and is retried (ADR-0039).
+ */
+function sendingAgainCannotFix(error: unknown): boolean {
+  if (error instanceof SpikePendingError) return true;
+  if (!(error instanceof ApiRequestError)) return false;
+  const passing = [401, 403, 408, 429];
+  return error.status >= 400 && error.status < 500 && !passing.includes(error.status);
 }

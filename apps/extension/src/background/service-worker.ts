@@ -9,7 +9,9 @@ import { RelistAuthorizations } from "../api/relist-authorizations";
 import { Subscribing } from "../api/subscribing";
 import { Authenticator } from "../auth/authenticator";
 import { toWireError } from "../content/messages";
-import { RelistOrchestrator } from "../domain/relist-orchestrator";
+import { ChromeRetryAlarm, retryStage } from "../adapters/chrome-retry-alarm";
+import { PendingRetries } from "../domain/pending-retries";
+import { RelistOrchestrator, type RelistOutcome } from "../domain/relist-orchestrator";
 import { HUMAN_PACE, RelistPacer, type PacingWindow } from "../domain/relist-pace";
 import type { DevHook, DevHookName } from "./dev-hooks";
 import { openStripePage } from "./stripe-tab";
@@ -24,10 +26,10 @@ import {
 
 /**
  * MV3 background service worker. Owns the orchestrator wired to the real relay
- * client + chrome.storage snapshot store. On startup it resumes any relist
- * interrupted mid-flight so a listing is never left missing (ADR-0003); resume
- * is a no-op (swallowed) when no marktplaats.nl tab is open or endpoints are
- * still pending the spike.
+ * client + chrome.storage snapshot store. Whenever a marktplaats.nl page loads it
+ * resumes any relist interrupted mid-flight so a listing is never left missing
+ * (ADR-0003, ADR-0039), and retries one that failed on a schedule; a resume with
+ * nothing to do is one storage read.
  *
  * Everything here is constructed at module scope and in dependency order, which
  * `const` makes load-bearing rather than tidy: a worker that built the
@@ -106,8 +108,25 @@ const orchestrator = new RelistOrchestrator(
   pace,
 );
 
-chrome.runtime.onStartup.addListener(() => void resumeInterruptedRelists());
-chrome.runtime.onInstalled.addListener(() => void resumeInterruptedRelists());
+/**
+ * When a pending repost is tried again (ADR-0039): quick retries after a failure,
+ * then an alarm while a marktplaats.nl tab is open, then the next page load.
+ * **Not `onStartup` or `onInstalled`** — at both of those every marktplaats.nl
+ * tab is still restoring or is a **Stale tab**, and the resume could reach none.
+ */
+const MARKTPLAATS_TABS = "https://www.marktplaats.nl/*";
+
+const retries = new PendingRetries({
+  resume: resumeInterruptedRelists,
+  pending: () => orchestrator.pendingReposts(),
+  alarm: new ChromeRetryAlarm(),
+  marktplaatsOpen: async () => (await chrome.tabs.query({ url: MARKTPLAATS_TABS })).length > 0,
+});
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  const stage = retryStage(alarm.name);
+  if (stage !== null) void retries.onAlarm(stage);
+});
 
 async function resumeInterruptedRelists(): Promise<void> {
   try {
@@ -120,6 +139,37 @@ async function resumeInterruptedRelists(): Promise<void> {
   }
 }
 
+/** A relist the popup started that left an ad pending gets the quick retries. */
+function retryIfPending(outcome: RelistOutcome): RelistOutcome {
+  if (outcome.status === "failed-recoverable") void retries.afterFailure();
+  return outcome;
+}
+
+/**
+ * Tabs a `Pagina vernieuwen` is waiting on, by tab id: each is answered by that
+ * tab's `marktplaats-ready`, or gives up after `RELOAD_WAIT_MS` so the popup asks
+ * for the list either way and shows whatever is true then.
+ */
+const reloading = new Map<number, () => void>();
+const RELOAD_WAIT_MS = 15_000;
+
+async function reloadAndWait(tabId: number): Promise<null> {
+  const loaded = new Promise<void>((resolve) => {
+    reloading.set(tabId, resolve);
+    setTimeout(resolve, RELOAD_WAIT_MS);
+  });
+  await chrome.tabs.reload(tabId);
+  await loaded;
+  reloading.delete(tabId);
+  return null;
+}
+
+function marktplaatsReady(tabId: number | undefined): Promise<null> {
+  if (tabId !== undefined) reloading.get(tabId)?.();
+  void retries.onReady();
+  return Promise.resolve(null);
+}
+
 /**
  * Requests from the popup (and, later, the injected page icons). Run here rather
  * than in the caller so closing the popup mid-relist cannot strand an ad between
@@ -129,10 +179,10 @@ async function resumeInterruptedRelists(): Promise<void> {
 chrome.runtime.onMessage.addListener(
   (
     request: BackgroundRequest,
-    _sender,
+    sender,
     sendResponse: (response: BackgroundResponse) => void,
   ) => {
-    answer(request)
+    answer(request, sender)
       .then((value) => sendResponse({ ok: true, answer: value }))
       .catch((error) => {
         // The message, not the error: a sign-in failure's cause can carry a URL
@@ -147,12 +197,21 @@ chrome.runtime.onMessage.addListener(
 
 function answer(
   request: BackgroundRequest,
+  sender: chrome.runtime.MessageSender,
 ): Promise<BackgroundAnswers[BackgroundRequest["kind"]]> {
   switch (request.kind) {
     case "relist":
-      return orchestrator.relist(request.listingId).then(toWireOutcome);
+      return orchestrator.relist(request.listingId).then(retryIfPending).then(toWireOutcome);
     case "retry":
-      return orchestrator.retry(request.listingId).then(toWireOutcome);
+      return orchestrator.retry(request.listingId).then(retryIfPending).then(toWireOutcome);
+    case "pending-reposts":
+      return orchestrator.pendingReposts();
+    case "let-go":
+      return orchestrator.letGo(request.listingId);
+    case "reload-marktplaats":
+      return reloadAndWait(request.tabId);
+    case "marktplaats-ready":
+      return marktplaatsReady(sender.tab?.id);
     case "pace":
       return pace.msBeforeNextRelist();
     case "sign-in":

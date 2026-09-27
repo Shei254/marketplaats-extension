@@ -4,6 +4,7 @@ import type { GateDecision, LockedState } from "../../gate/authorization-gate";
 import type { RelistPermission } from "../../gate/relist-permission";
 import {
   AdNotFoundError,
+  ApiRequestError,
   type MarktplaatsClient,
 } from "../marktplaats-client";
 import type { RelistPacing } from "../relist-pace";
@@ -141,6 +142,8 @@ export interface FakeClientOptions {
   deleteError?: Error;
   /** Number of times createAd throws before it succeeds. */
   createFailures?: number;
+  /** What those failed creates throw; a network-shaped error if unset. */
+  createError?: Error;
   /** If set, reserveAd throws this instead of flagging the ad. */
   reserveError?: Error;
   /**
@@ -151,11 +154,21 @@ export interface FakeClientOptions {
   strayAdsOnCreate?: number;
   /** If set, listMyAds throws this. Drives the "the diff could not be taken" path. */
   listError?: Error;
+  /** If set, captureAd throws this — a capture that says nothing about the ad. */
+  captureError?: Error;
+  /**
+   * Number of creates that land on Marktplaats and then throw anyway — the reply
+   * lost on the way back, which is what the duplicate check exists for.
+   */
+  lostReplies?: number;
 }
 
 export class FakeMarktplaatsClient implements MarktplaatsClient {
   private readonly ads: Map<string, CapturedListing>;
   private createFailuresLeft: number;
+  private lostRepliesLeft: number;
+  private held: Promise<void> | null = null;
+  private creating: Array<() => void> = [];
   private nextId = 1;
 
   constructor(
@@ -164,6 +177,7 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
   ) {
     this.ads = new Map(Object.entries(opts.ads ?? {}));
     this.createFailuresLeft = opts.createFailures ?? 0;
+    this.lostRepliesLeft = opts.lostReplies ?? 0;
   }
 
   async listMyAds(): Promise<ListingSummary[]> {
@@ -200,8 +214,12 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
   }
 
   async captureAd(listingId: string): Promise<CapturedListing> {
+    if (this.opts.captureError) throw this.opts.captureError;
     const ad = this.ads.get(listingId);
-    if (!ad) throw new AdNotFoundError(listingId);
+    // What the live site answers for a deleted ad (observed 2026-09-27): `410
+    // Gone`, which the real client raises as an `ApiRequestError` rather than an
+    // `AdNotFoundError` — that one is a 200 whose page carried no ad.
+    if (!ad) throw new ApiRequestError("captureAd", 410, "");
     return structuredClone(ad);
   }
 
@@ -213,9 +231,11 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
   }
 
   async createAd(draft: CapturedAd, photos: Photo[]): Promise<void> {
+    this.creating.splice(0).forEach((resolve) => resolve());
+    if (this.held) await this.held;
     if (this.createFailuresLeft > 0) {
       this.createFailuresLeft -= 1;
-      throw new Error("create failed");
+      throw this.opts.createError ?? new Error("create failed");
     }
     // The real client gets no id back from Marktplaats; the fake still needs one
     // internally to keep holding the ad, but never hands it to the caller.
@@ -231,6 +251,10 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
     // the reserve diff exists to refuse: another tab, or a second repost.
     for (let n = 0; n < (this.opts.strayAdsOnCreate ?? 0); n++) {
       this.ads.set(`stray-${this.nextId++}`, sampleAd("Somebody else's ad"));
+    }
+    if (this.lostRepliesLeft > 0) {
+      this.lostRepliesLeft -= 1;
+      throw new Error("the reply was lost");
     }
   }
 
@@ -257,6 +281,34 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
   /** Test helper: does an ad with this id currently exist? */
   has(listingId: string): boolean {
     return this.ads.has(listingId);
+  }
+
+  /**
+   * Test helper: creates wait until the returned function is called, so a test
+   * can act while a repost is between its delete and its create.
+   */
+  holdCreates(): () => void {
+    let release!: () => void;
+    this.held = new Promise((resolve) => (release = resolve));
+    return () => {
+      this.held = null;
+      release();
+    };
+  }
+
+  /** Test helper: resolves when the next create begins. */
+  whenCreating(): Promise<void> {
+    return new Promise((resolve) => this.creating.push(resolve));
+  }
+
+  /** Test helper: from now on, listMyAds throws this. */
+  breakListing(error: Error): void {
+    this.opts.listError = error;
+  }
+
+  /** Test helper: how many creates reached Marktplaats. */
+  creates(): number {
+    return this.events.filter((e) => e.type === "create").length;
   }
 
   /** Test helper: the most recently created ad, or null if none was created. */

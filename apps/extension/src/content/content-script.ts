@@ -8,6 +8,7 @@ import {
     type RelayResult,
 } from "./messages";
 import type { ListingDraft, ListingSummary } from "../domain/types";
+import type { ReadyRequest } from "../background/messages";
 
 chrome.runtime.onMessage.addListener(
     (request: RelayRequest, _sender, sendResponse: (response: RelayResponse) => void) => {
@@ -83,3 +84,9 @@ function toListingSummary(ad: ListingDraft): ListingSummary {
         reserved: ad.reserved ?? false,
     };
 }
+
+// This page can now be relayed through, so it is the moment a pending repost can
+// be finished (ADR-0039) — and the answer a `Pagina vernieuwen` reload waits for.
+// Nobody listening (the worker mid-update) is nothing to report.
+const ready: ReadyRequest = { kind: "marktplaats-ready" };
+chrome.runtime.sendMessage(ready).catch(() => {});

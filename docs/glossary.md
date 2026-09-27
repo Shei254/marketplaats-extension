@@ -22,6 +22,8 @@ Domain terms for the Marktplaats relisting extension. Kept current as the design
 | **Internal-API replay** | The extension calling Marktplaats's own private endpoints (list my ads, delete ad, create ad) in the background using the user's logged-in session cookies — the engine behind both relist surfaces (ADR-0004). |
 | **Popup panel** | The extension's toolbar-triggered UI listing all of the user's ads with a per-ad relist action; no page navigation. |
 | **Durable snapshot** | The full pre-delete capture of an ad (all fields + photo blobs) stored in `chrome.storage.local`, enabling retry/restore in the delete-first flow (ADR-0003). |
+| **Pending repost** | A **Repost** that did not finish and whose **Durable snapshot** is still held — the extension's own failure, never a refusal. It is finished only by putting the ad back, never by asking the gate again: an ad Marktplaats still serves is left alone and its unit refunded, and one that answers `410 Gone` is recreated. Shown in the **Popup panel** until it is put back or the user lets it go. _Avoid_: failed repost (a refusal is not one), interrupted relist, retry queue. |
+| **Stale tab** | A marktplaats.nl tab that was open before the extension was installed, updated or re-enabled, so no **Content script** runs in it until it is reloaded. _Avoid_: dead tab, unreachable tab. |
 | **CSRF/session token** | A token Marktplaats may require on internal write calls; replaying it correctly is an open POC spike. |
 
 | **User (App account)** | An identity in our product, issued by Keycloak. One human = one User. Separate from any Marktplaats account. |

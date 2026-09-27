@@ -128,9 +128,14 @@ Then `windowConfig.listing ?? windowConfig` — so the payload may either wrap t
 the ad. Both shapes are **frozen** in the fixtures; which one the live site emits today is unknown, and the
 three-way parser is itself the record that the spikes met more than one.
 
-**A 200 with no recognisable payload is `AdNotFoundError`.** A 404 is not: it falls through to the generic
+**A 200 with no recognisable payload is `AdNotFoundError`.** A deleted ad is not: it falls through to the generic
 `ApiRequestError`, because `captureAd` does not pass `notFoundIsMissing`. Only `deleteAd` does. So "the ad is
 gone" reads as two different errors depending on how it is gone — worth knowing when reading a bug report.
+
+**A deleted ad answers `410 Gone`, at once and for good** (**observed**, 2026-09-27). A throwaway ad was
+captured (`200`), deleted through `deleteAd`, and captured once a second for 60 s: every one of the 57 polls,
+from the first at 1.3 s, was `ApiRequestError(captureAd, 410)`. No `200` lingered after the delete, and no
+`404` was seen. The first 1.3 s went unmeasured, which is nothing that reads it minutes later needs.
 
 After the parse, one capture makes **`1 + P + 1 + B` requests**: the page, one per gallery photo, one
 `getBuckets`, and one `getBucketCategories` per bucket returned.
@@ -334,7 +339,7 @@ The symptom is almost never at the site of the cause. This table is the point of
 | `SpikePendingError: CSRF token extraction failed` | the source page no longer carries the token in a script, or its shape stopped matching the regex chain | fetch `/plaats/1/2` in DevTools and search the HTML for `xsrfToken` |
 | `NotAuthenticatedError` | signed out of Marktplaats — **or** a CSRF refresh that did not help, since a second 403 lands here | check you are logged in on marktplaats.nl first |
 | `AdNotFoundError` from a capture | the seller-view page answered 200 and carried **no recognisable hydration payload** — a rename of `__NEXT_DATA__`, or a move to streamed/RSC rendering | open `/seller/view/<id>` and look for the three script shapes |
-| `ApiRequestError(captureAd, 404)` | the ad really is gone. Not `AdNotFoundError`, because only `deleteAd` maps 404 that way | — |
+| `ApiRequestError(captureAd, 410)` | the ad really is gone — the status a deleted ad answers with (observed 2026-09-27). Not `AdNotFoundError`, because only `deleteAd` maps a missing ad that way | — |
 | `SpikePendingError: Could not resolve a mapped bucket` | the category-aggregate endpoints moved or changed shape, or the ad's category genuinely has no bucket | call `getBuckets` for the parent id by hand |
 | `createAd` 4xx after a clean capture and delete | **the field order or a scraped attribute** — the likeliest breakage in the whole layer, and the one that costs a listing | compare the emitted body against `FULL_PAIRS`; then re-record from a real create in DevTools |
 | a relisted ad in the wrong category | the bucket fell back to `9`, or the fan-out matched the wrong bucket | the capture logs the resolved bucket |

@@ -5,7 +5,7 @@ import type { RemainingQuota } from "@mprelist/contracts";
 
 import type { LockedState } from "../gate/authorization-gate";
 import type { RelistOutcome } from "../domain/relist-orchestrator";
-import type { ListingSummary } from "../domain/types";
+import type { ListingSummary, PendingRepost } from "../domain/types";
 import { toWireError, type WireError } from "../content/messages";
 
 /**
@@ -29,6 +29,21 @@ export type RelistRequest =
    * one being waited out rather than a second draw.
    */
   | { kind: "pace" };
+
+/**
+ * Pending reposts (ADR-0039): what the worker is holding, letting one go, and
+ * reloading a **Stale tab** so the list can be asked for again.
+ */
+export type PendingRequest =
+  | { kind: "pending-reposts" }
+  | { kind: "let-go"; listingId: string }
+  | { kind: "reload-marktplaats"; tabId: number };
+
+/**
+ * From a content script, not the popup: a marktplaats.nl page has loaded, which
+ * is when a pending repost is resumed (ADR-0039).
+ */
+export type ReadyRequest = { kind: "marktplaats-ready" };
 
 export type AuthRequest = { kind: "sign-in" } | { kind: "sign-out" } | { kind: "auth-state" };
 
@@ -71,6 +86,8 @@ export type SubscribingRequest =
 
 export type BackgroundRequest =
   | RelistRequest
+  | PendingRequest
+  | ReadyRequest
   | AuthRequest
   | DisplayStateRequest
   | AdsRequest
@@ -101,6 +118,14 @@ export type WireRelistOutcome =
 export interface BackgroundAnswers {
   relist: WireRelistOutcome;
   retry: WireRelistOutcome;
+  /**
+   * Photos stay behind: a snapshot's photo is full size, and this is asked on
+   * every popup open.
+   */
+  "pending-reposts": PendingRepost[];
+  "let-go": boolean;
+  "reload-marktplaats": null;
+  "marktplaats-ready": null;
   /** Milliseconds, and 0 when a relist may start now. */
   pace: number;
   "sign-in": AuthState;

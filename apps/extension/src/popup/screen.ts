@@ -3,7 +3,7 @@ import type { DisplayState } from "@mprelist/contracts";
 import type { DisplayStateAnswer } from "../api/display-state";
 import type { HandoffAnswer, PlansAnswer } from "../api/subscribing";
 import type { WireRelistOutcome } from "../background/messages";
-import type { ListingSummary } from "../domain/types";
+import type { ListingSummary, PendingRepost } from "../domain/types";
 
 /**
  * What the popup is showing, and the whole of it (T29, #38).
@@ -110,6 +110,19 @@ export interface WorkerPort {
    */
   relist(listingId: string): Promise<WireRelistOutcome>;
   retry(listingId: string): Promise<WireRelistOutcome>;
+  /**
+   * The reposts the worker is holding a snapshot of (ADR-0039). `[]` when the
+   * worker cannot say: these rows are extra information above the list, and a
+   * popup that failed over them would hide the ads that did load.
+   */
+  pendingReposts(): Promise<PendingRepost[]>;
+  /** Drop one at the user's word; `false` while it is being put back. */
+  letGo(listingId: string): Promise<boolean>;
+  /**
+   * Reload a **Stale tab**, answering once its content script is running — so
+   * the list can be asked for again straight after.
+   */
+  reloadMarktplaats(tabId: number): Promise<void>;
   /**
    * How long the worker will pace before the relist it is about to be asked for
    * actually starts, in milliseconds (T46, #54).

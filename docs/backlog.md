@@ -168,7 +168,8 @@ quickly and watch the cooldown. → [script](click-through.md#slice-b--the-gate-
 `authorize` → existing delete-first flow **unchanged** → `complete` with the mapped outcome.
 - `failed-before-delete` → `FAILED_BEFORE_DELETE`; `failed-recoverable` → `FAILED_AFTER_DELETE`.
 - The engine runs **only** on `Proceed`.
-- `resumeAll()` on startup re-authorizes rather than assuming a prior grant.
+- `resumeAll()` on startup re-authorizes rather than assuming a prior grant. *(Superseded by T88: a resume
+  never asks the gate — ADR-0039.)*
 
 #### [T30b](https://github.com/Shei254/marketplaats-extension/issues/79) · Per-row relist state machine · **M** · T26, T30a
 The idle/busy/done/failed behaviour the POC popup has, including the one-relist-at-a-time lock that stops a
@@ -1902,6 +1903,25 @@ a **Rhythm** changes the price and never the grant.
 - **Then the words.** `grantOf` drops its Rhythm and says *per maand*, so both the landing page and the popup's
   cards stop following the switcher.
 - **Accepted:** a Rhythm switch restarts Stripe's period and with it the grant.
+
+#### T88 · A pending repost is finished, and a stale tab is one click · **M** · T26, T30b
+*2026-09-27.* Two things a user meets right after installing, or after a repost went wrong, read badly: a
+marktplaats.nl tab open since before the install answered with Chrome's English *"Receiving end does not
+exist"*, and a repost that died after its delete vanished with the popup that started it. Decided in
+[ADR-0039](adr/0039-a-pending-repost-is-finished-never-re-authorized.md); the spike it rests on — a deleted ad
+answers `410 Gone` at once — is in `internal-api-findings.md`.
+
+- **A resume never asks the gate.** A `captured` snapshot whose ad is still there is cancelled and its unit
+  refunded; one answering `410` is recreated; anything else waits.
+- **The resume runs on every marktplaats.nl page load**, not `onStartup`/`onInstalled`, and retries in layers:
+  2/5/10 s in the worker, then `alarms` (back in the manifest) at 30 s, 2 min, every 5 min while a tab is open.
+- **No duplicate on a lost reply**: the ids before each create ride in the snapshot, and a retry that finds
+  exactly one new ad with the snapshot's title and price stops there.
+- **A create `4xx` waits for the user** (`needsUser`); everything else retries without a cap.
+- **The popup** tries every marktplaats.nl tab, offers *Pagina vernieuwen* when all are stale, and lists every
+  pending repost above the ads with *Opnieuw* and *Niet terugzetten*.
+- **Not in it:** photos on the pending rows (a snapshot's photo is full size, and the list is asked for on
+  every popup open); `chrome.scripting` (ADR-0039 says why).
 ---
 
 ## Deferred

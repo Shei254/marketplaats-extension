@@ -1,6 +1,7 @@
 import {
   ApiRequestError,
   NoMarktplaatsTabError,
+  StaleMarktplaatsTabError,
 } from "../adapters/relay-marktplaats-client";
 import {
   AdNotFoundError,
@@ -25,9 +26,22 @@ import type { ListingSummary } from "../domain/types";
 export type AdsView =
   | { status: "loading" }
   | { status: "ready"; ads: ListingSummary[] }
-  | { status: "failed"; message: string };
+  /** `noTab` when it failed for want of a marktplaats.nl tab, which pending rows say too. */
+  | { status: "failed"; message: string; noTab?: boolean }
+  /**
+   * Every marktplaats.nl tab is a **Stale tab** (ADR-0039): not a failure but a
+   * step, and one the popup can take for the user — reloading `tabId`.
+   */
+  | { status: "stale"; tabId: number };
 
 export const ADS_LOADING: AdsView = { status: "loading" };
+
+/**
+ * What a **Stale tab** says (ADR-0039). A step rather than an error: right after
+ * installing, every marktplaats.nl tab already open is one, and this is the
+ * first thing a new user reads.
+ */
+export const STALE_TAB = "Nog één stap: vernieuw je Marktplaats-pagina, dan kan AdBump aan de slag.";
 
 /**
  * What to tell the user about a failure, in words about *their* situation rather
@@ -42,6 +56,9 @@ export const ADS_LOADING: AdsView = { status: "loading" };
 export function describeAdsFailure(error: unknown): string {
   if (error instanceof NoMarktplaatsTabError) {
     return "Open marktplaats.nl in een tabblad en probeer het opnieuw.";
+  }
+  if (error instanceof StaleMarktplaatsTabError) {
+    return STALE_TAB;
   }
   if (error instanceof NotAuthenticatedError) {
     return "Log eerst in op Marktplaats en probeer het opnieuw.";

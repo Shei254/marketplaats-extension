@@ -318,14 +318,21 @@ describe("extension build", () => {
     expect(built.permissions).toContain("identity");
   });
 
-  it("reaches for nothing the manifest no longer grants", async () => {
-    // `alarms` left with bulk repost (ADR-0038). A worker that registers an alarm
-    // listener without the permission throws at module scope and takes the whole
-    // extension down, so this is the check that would catch one coming back. And
-    // `storage.session` is named here because the Web Store listing says what is
-    // stored, and that area is no longer part of the sentence.
+  it("reaches for nothing the manifest does not grant", async () => {
+    // A worker that registers an alarm listener without the permission throws at
+    // module scope and takes the whole extension down. `alarms` left with bulk
+    // repost (ADR-0038) and came back to retry pending reposts (ADR-0039), so the
+    // check is now the pairing rather than the absence. And `storage.session` is
+    // named here because the Web Store listing says what is stored, and that
+    // area is not part of the sentence.
+    const built = JSON.parse(await readFile(join(production.dir, "manifest.json"), "utf8")) as {
+      permissions: string[];
+    };
+    const usesAlarms = Object.values(production.bundles).some((source) => source.includes("chrome.alarms"));
+
+    expect(usesAlarms).toBe(true);
+    expect(built.permissions).toContain("alarms");
     for (const [name, source] of Object.entries(production.bundles)) {
-      expect(source, `${name} uses chrome.alarms`).not.toContain("chrome.alarms");
       expect(source, `${name} uses chrome.storage.session`).not.toContain("storage.session");
     }
   });

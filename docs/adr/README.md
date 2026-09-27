@@ -49,6 +49,7 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0036](0036-the-site-sells-and-a-subscriber-switches-in-place.md) | The site sells, and a subscriber switches plan in place rather than buying a second one | Accepted, supersedes part of 0017, refines 0019 and 0031 |
 | [0037](0037-an-annual-price-buys-a-monthly-grant.md) | An annual price buys a monthly grant | Accepted, refines 0014 and 0019 |
 | [0038](0038-bulk-repost-leaves-the-extension.md) | Bulk repost leaves the extension, and the API keeps its half | Accepted, supersedes 0027 |
+| [0039](0039-a-pending-repost-is-finished-never-re-authorized.md) | A pending repost is finished, never re-authorized | Accepted, refines 0003 and 0007; re-admits `alarms` |
 
 **Amended by the 2026-08-13 session:** 0006 (Stripe narrowed to money + lifecycle), 0007 (gating depth,
 `/api/me` display state, `marktplaatsAccountId` dropped), 0009 (monorepo, React popup, Options page removed).
@@ -202,3 +203,9 @@ See also [../domain-model.md](../domain-model.md), [../glossary.md](../glossary.
 [../enforcement-contract.md](../enforcement-contract.md).
 
 <!-- Add a row per ADR as decisions are confirmed. -->
+
+**Amended again by the 2026-09-27 session:** [0039](0039-a-pending-repost-is-finished-never-re-authorized.md)
+takes the gate off the resume — a pending repost whose ad still exists is cancelled and refunded, and one
+whose ad answers `410 Gone` is recreated — so quota can never block putting an ad back. The resume moves from
+`onStartup`/`onInstalled` to the content script's `ready`, retries come back under `alarms`, and stale tabs
+are reloaded by the user rather than injected into. T88.

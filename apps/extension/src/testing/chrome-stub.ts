@@ -10,8 +10,8 @@
  *
  * `storage.onChanged` matters at *import* time: `marktplaats-api.ts` registers a
  * listener at module scope, so this has to be installed before it is imported.
- * `runtime`'s three events are what the background worker registers on startup —
- * nothing here is ever fired, so no relist can run.
+ * `runtime`'s events and `alarms.onAlarm` are what the background worker registers
+ * on startup — nothing here is ever fired, so no relist can run.
  */
 
 export interface ChromeStub {
@@ -37,6 +37,8 @@ export function installChromeStub(stored?: Record<string, unknown>): ChromeStub 
 
   global.chrome = {
     runtime: { onStartup: event, onInstalled: event, onMessage: event },
+    // The worker registers its retry alarm listener at module scope (ADR-0039).
+    alarms: { onAlarm: event },
     storage: {
       local: {
         get: async (key: string) => (key in area ? { [key]: area[key] } : {}),

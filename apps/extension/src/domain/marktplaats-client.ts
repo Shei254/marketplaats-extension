@@ -29,6 +29,22 @@ export class SpikePendingError extends Error {
 }
 
 /**
+ * Marktplaats answered a request with a status we do not map to anything else.
+ * The status is kept because the resume reads it: a capture answering `410` is
+ * an ad that has been deleted (ADR-0039, observed 2026-09-27).
+ */
+export class ApiRequestError extends Error {
+  constructor(
+      public endpoint: string,
+      public status: number,
+      public body: string
+  ) {
+    super(`API Error [${endpoint}]: HTTP ${status} - ${body.substring(0, 200)}...`);
+    this.name = "ApiRequestError";
+  }
+}
+
+/**
  * System boundary (ADR-0004): the extension's access to Marktplaats via its own
  * internal API, riding the user's session. The real implementation is a spike gate
  * (issue #3); the orchestrator is tested against a fake of this interface.

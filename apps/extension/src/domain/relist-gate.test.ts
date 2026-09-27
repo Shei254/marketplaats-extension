@@ -127,40 +127,60 @@ describe("what the backend is told", () => {
 });
 
 describe("finishing what a crash interrupted", () => {
-  it("re-authorizes when finishing it could still delete something", async () => {
-    // A `captured` snapshot may not have got as far as the delete, and the store
-    // it came from is one the user can write (ADR-0007). So it is a relist like
-    // any other and needs a grant of its own.
-    const { orchestrator, store, gate } = relisting({ createFailures: 1 });
-    await orchestrator.relist("ad-1");
-    await store.save({ ...(await store.get("ad-1"))!, phase: "captured" });
+  it("cancels one whose ad is still there, and hands its unit back without asking the gate", async () => {
+    // A `captured` snapshot whose ad Marktplaats still serves: the delete never
+    // ran. Finishing it would be a repost nobody is paying for twice — so it is
+    // cancelled and its own unit refunded, and the gate is not asked (ADR-0039).
+    const { orchestrator, store, client, gate } = relisting();
+    const ad = sampleAd();
+    store.seed({ listingId: "ad-1", draft: ad.draft, photos: ad.photos, phase: "captured", createdAt: 1, grantJti: "grant-0" });
 
-    await orchestrator.retry("ad-1");
+    await orchestrator.resumeAll();
 
-    expect(gate.authorized).toEqual(["ad-1", "ad-1"]);
-    expect(gate.reports.at(-1)).toEqual({ jti: "grant-2", outcome: "SUCCESS" });
+    expect(gate.authorized).toEqual([]);
+    expect(gate.reports).toEqual([{ jti: "grant-0", outcome: "FAILED_BEFORE_DELETE" }]);
+    expect(await store.get("ad-1")).toBeNull();
+    expect(client.has("ad-1")).toBe(true);
+    expect(client.lastCreated()).toBeNull();
   });
 
-  it("and refuses to touch anything when that authorization is denied", async () => {
-    const gate = new FakeRelistPermission((_adId, nth) =>
-      nth === 1
-        ? {
-            decision: "proceed",
-            grant: { authToken: "t", expiresAt: "2026-08-20T10:00:45.000Z", jti: "grant-1" },
-          }
-        : { decision: "refuse", locked: { state: "upgrade", resetAt: null } },
-    );
-    const { orchestrator, store, client } = relisting({ gate, createFailures: 1 });
-    await orchestrator.relist("ad-1");
-    await store.save({ ...(await store.get("ad-1"))!, phase: "captured" });
+  it("puts one back whose ad is gone, without asking the gate", async () => {
+    // A `captured` snapshot whose ad answers `410 Gone`: the delete did run
+    // before the interruption, so this is a `deleted` one that did not get to
+    // say so — and putting an ad back is never gated (ADR-0039).
+    const { orchestrator, store, client, gate } = relisting();
+    await client.deleteAd("ad-1");
+    const ad = sampleAd();
+    store.seed({ listingId: "ad-1", draft: ad.draft, photos: ad.photos, phase: "captured", createdAt: 1, grantJti: "grant-0" });
 
-    const outcome = await orchestrator.retry("ad-1");
+    const [outcome] = await orchestrator.resumeAll();
 
-    expect(outcome.status).toBe("refused");
-    // The snapshot is kept: the user can try again when whatever refused them has
-    // passed, and it is still the only copy of their ad.
-    expect(await store.get("ad-1")).not.toBeNull();
-    expect(client.lastCreated()).toBeNull();
+    expect(outcome).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
+    expect(gate.authorized).toEqual([]);
+    expect(gate.reports).toEqual([{ jti: "grant-0", outcome: "SUCCESS" }]);
+    expect(client.lastCreated()).toEqual(sampleAd());
+    expect(await store.get("ad-1")).toBeNull();
+  });
+
+  it("keeps one it cannot tell about, and deletes nothing", async () => {
+    // Neither the ad nor a `410`: a network error, or a page with no ad in it.
+    // Dropping the snapshot could lose the only copy, and deleting could delete
+    // an ad the user still has — so it waits for the next attempt (ADR-0039).
+    const events: FakeEvent[] = [];
+    const client = new FakeMarktplaatsClient(events, { ads: { "ad-1": sampleAd() }, captureError: new Error("offline") });
+    const store = new InMemorySnapshotStore(events);
+    const gate = new FakeRelistPermission();
+    const orchestrator = new RelistOrchestrator(client, store, gate, new FakePace());
+    const ad = sampleAd();
+    store.seed({ listingId: "ad-1", draft: ad.draft, photos: ad.photos, phase: "captured", createdAt: 1, grantJti: "grant-0" });
+
+    const [outcome] = await orchestrator.resumeAll();
+
+    expect(outcome?.status).toBe("failed-recoverable");
+    expect(gate.authorized).toEqual([]);
+    expect(gate.reports).toEqual([]);
+    expect(client.has("ad-1")).toBe(true);
+    expect((await store.get("ad-1"))?.phase).toBe("captured");
   });
 
   it("puts a deleted ad back without asking again", async () => {

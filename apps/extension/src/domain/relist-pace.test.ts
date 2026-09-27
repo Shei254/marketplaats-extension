@@ -313,10 +313,9 @@ describe("where the orchestrator waits", () => {
     expect(kinds(events)).toContain("create");
   });
 
-  it("but does wait to resume one that may still delete something", async () => {
-    // A `captured` snapshot may not have got as far as the delete, so finishing it
-    // is a relist like any other — it re-authorizes, and what re-authorizes is
-    // paced.
+  it("nor to resume one whose delete may not have run, since a resume deletes nothing", async () => {
+    // A `captured` resume is finished or cancelled, never re-authorized
+    // (ADR-0039), so there is no attempt against Marktplaats here to pace.
     const { orchestrator, store, events } = relisting();
     await store.save({
       listingId: "ad-1",
@@ -330,6 +329,7 @@ describe("where the orchestrator waits", () => {
 
     await orchestrator.resumeAll();
 
-    expect(kinds(events).slice(0, 3)).toEqual(["pace", "authorize", "paced"]);
+    expect(kinds(events)).not.toContain("pace");
+    expect(kinds(events)).not.toContain("authorize");
   });
 });

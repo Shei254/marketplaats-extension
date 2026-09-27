@@ -3,8 +3,6 @@ import type { HandoffAnswer, PlansAnswer } from "../api/subscribing";
 import type { AuthState } from "../auth/session";
 import type { RemainingQuota } from "@mprelist/contracts";
 
-import type { BatchRun } from "../domain/batch-run";
-import type { BatchShape } from "../domain/batch-estimate";
 import type { LockedState } from "../gate/authorization-gate";
 import type { RelistOutcome } from "../domain/relist-orchestrator";
 import type { ListingSummary } from "../domain/types";
@@ -31,41 +29,6 @@ export type RelistRequest =
    * one being waited out rather than a second draw.
    */
   | { kind: "pace" };
-
-/**
- * Reposting several ads as one act (T68, #147; ADR-0025).
- *
- * **Four asks and no answer that streams**, which is the shape the queue's owner
- * forces. The run belongs to the worker and is advanced by an alarm, so the popup
- * cannot be told about each ad as it happens — it is closed for most of a run, and
- * a message to a page that no longer exists goes nowhere. What it does instead is
- * ask for the run whenever it is open, which is also exactly what it has to do
- * when it opens onto a run that started before it.
- *
- * `start-batch` names the ads **in the order they will be attempted**, already
- * capped at `min(quotaRemaining, upTo)` by the surface that has both numbers. The
- * worker does not re-derive that cap and could not: `upTo` is on the plan the
- * popup rendered, and the API enforces *whether* rather than *how many*.
- */
-export type BatchRequest =
-  | { kind: "start-batch"; listingIds: string[] }
-  | { kind: "batch-state" }
-  | { kind: "stop-batch" }
-  /** Forget a finished or stopped run, which is what clears the toolbar badge. */
-  | { kind: "dismiss-batch" }
-  /**
-   * The two numbers a duration estimate is made of — the gap inside a run, and
-   * the rails the API refuses on — after whatever the served config had to say
-   * about them (ADR-0025).
-   *
-   * **Asked of the worker because the served document lives in
-   * `chrome.storage.local`**, which the popup does not touch: nothing in this
-   * surface talks to Chrome, and the one thing that does is the port. Without it
-   * the estimate would quote the numbers this build shipped with, and an operator
-   * who dropped the burst limit at 3am would have no way to stop it — which is
-   * the whole reason the API serves them.
-   */
-  | { kind: "batch-shape" };
 
 export type AuthRequest = { kind: "sign-in" } | { kind: "sign-out" } | { kind: "auth-state" };
 
@@ -108,7 +71,6 @@ export type SubscribingRequest =
 
 export type BackgroundRequest =
   | RelistRequest
-  | BatchRequest
   | AuthRequest
   | DisplayStateRequest
   | AdsRequest
@@ -141,19 +103,6 @@ export interface BackgroundAnswers {
   retry: WireRelistOutcome;
   /** Milliseconds, and 0 when a relist may start now. */
   pace: number;
-  /**
-   * The run as the worker holds it, or `null` for an account that has none.
-   *
-   * It crosses whole rather than as a summary, and every field of it is already
-   * serialisable — the popup renders progress, the ads that did not run, the
-   * reason it stopped and the quota the last `/complete` answered with, and a
-   * summary shaped for today's screen is what the next one has to widen.
-   */
-  "start-batch": BatchRun | null;
-  "batch-state": BatchRun | null;
-  "stop-batch": BatchRun | null;
-  "dismiss-batch": null;
-  "batch-shape": BatchShape;
   "sign-in": AuthState;
   "sign-out": AuthState;
   "auth-state": AuthState;

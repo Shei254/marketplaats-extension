@@ -72,10 +72,9 @@ account*, *geen risico*.
 
 | Permission | Justification |
 |---|---|
-| `storage` | `Stores four things, all locally in the user's browser: the sign-in session, a snapshot of the ad being reposted (so an interrupted repost can be restored), the time of the last repost (to pace consecutive reposts), and a configuration document served by our own API (JSON data only, no code).` |
+| `storage` | `Stores four things, all locally in the user's browser: the sign-in session, a snapshot of the ad being reposted (so an interrupted repost can be restored), the time the next repost may start (to pace consecutive reposts), and a configuration document served by our own API (JSON data only, no code).` |
 | `unlimitedStorage` | `A repost deletes the original ad and re-creates it, so before deleting, the extension saves a snapshot of the ad including its photos. Photos of a single listing can exceed the default 10 MB quota, and running out of space would leave an ad deleted from Marktplaats that the extension can no longer restore.` |
 | `identity` | `Sign-in to our own service uses OAuth 2.0 Authorization Code with PKCE through chrome.identity.launchWebAuthFlow; getRedirectURL is the only other call. getProfileUserInfo is never called, so no Chrome or Google profile information is read.` |
-| `alarms` | `The service worker registers a chrome.alarms listener at startup. An alarm is what lets a paced sequence of reposts continue after the MV3 service worker is suspended, because the pause between reposts is longer than a suspended worker's timers survive.` |
 | Host permission `https://www.marktplaats.nl/*` | `The extension reposts the user's own ads in their own, already signed-in Marktplaats session: it reads their active listings and submits the replacement, from a content script that runs on www.marktplaats.nl only. The host permission lets the service worker find that tab with chrome.tabs.query. The "tabs" permission is deliberately not requested, so no other site or tab is visible to the extension.` |
 | Remote code | **No, I am not using remote code.** `No eval, new Function, dynamic import, remotely hosted script, chrome.scripting or userScripts. The only document fetched from our API is JSON (endpoint paths and timing values) that the packaged code reads as data.` |
 

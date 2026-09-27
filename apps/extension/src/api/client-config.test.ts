@@ -39,8 +39,6 @@ const CHECKED: ServedConfig = {
   endpoints: { deleteAd: "/seller/api/delete-ad-v2" },
   csrf: null,
   pacing: null,
-  bulkPacing: null,
-  rails: null,
 };
 
 interface Call {
@@ -113,8 +111,6 @@ describe("asking for the document", () => {
         endpoints: {},
         csrf: null,
         pacing: null,
-        bulkPacing: null,
-        rails: null,
       },
     });
   });

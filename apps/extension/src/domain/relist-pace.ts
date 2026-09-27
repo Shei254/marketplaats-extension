@@ -62,30 +62,6 @@ export interface PacingWindow {
 export const HUMAN_PACE: PacingWindow = { minMs: 10_000, maxMs: 30_000 };
 
 /**
- * The window a **batch** is paced from (T68, #147; ADR-0025), and a second window
- * rather than a replacement for the one above.
- *
- * **30 to 60 seconds**, and the floor is not a preference. A batch is advanced by
- * `chrome.alarms`, which MV3 clamps at about thirty seconds — so
- * {@link HUMAN_PACE}'s entire window sits at or below the clamp, and an
- * alarm-driven run on it would not produce a jittered gap at all. It would
- * produce a **thirty-second metronome**, which is the one thing this file is
- * written to prevent: a fixed gap is as machine-shaped as no gap at all, only
- * slower. Doubling the floor to reach the ceiling leaves the randomisation real.
- *
- * **The two windows differ because the two waits are watched differently.**
- * Somebody sits and watches the gap between two reposts they pressed, so that one
- * stays short enough to be tolerable; a run is something they walk away from, so
- * its gaps are drawn wide and nobody is looking at a countdown. Single reposts
- * keep 10–30s and their fast feel for exactly that reason.
- *
- * Served as `bulkPacing` and changed without a store release, like the window
- * above — and the API refuses a served floor under the clamp, because the clamp
- * is invisible in an unpacked build and would only ever bite users.
- */
-export const BULK_PACE: PacingWindow = { minMs: 30_000, maxMs: 60_000 };
-
-/**
  * Where the window comes from **at the moment it is needed**, which since T27
  * (#36) is not the moment the pacer was built.
  *

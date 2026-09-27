@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WireRelistOutcome } from "../background/messages";
 import type { ListingSummary } from "../domain/types";
 import { AdList } from "./AdList";
-import type { RowState } from "./relisting";
 import type { WorkerPort } from "./screen";
 
 /**
@@ -76,10 +75,10 @@ async function show(
   onOutcome: (outcome: WireRelistOutcome) => void = () => {},
   /**
    * The plan the list is drawn under, as the one fact it is given about it: the
-   * grant, and whether a run has already put something on a row. The default is
-   * a plan that grants something, which is every test written before T32 (#41).
+   * grant. The default is a plan that grants something, which is every test
+   * written before T32 (#41).
    */
-  plan: { grantsNothing?: boolean; runStates?: Record<string, RowState> } = {},
+  plan: { grantsNothing?: boolean } = {},
 ): Promise<void> {
   await act(async () => {
     root.render(
@@ -88,7 +87,6 @@ async function show(
         worker={worker}
         onOutcome={onOutcome}
         grantsNothing={plan.grantsNothing ?? false}
-        runStates={plan.runStates}
       />,
     );
   });
@@ -480,29 +478,27 @@ describe("a plan that grants no reposts at all", () => {
     // the ad is already gone and finishing the relist only puts it back. A lock
     // that took Opnieuw with it would leave the listing inside the extension until
     // somebody bought a plan.
-    const { worker } = fakeWorker();
+    const { worker } = fakeWorker({ status: "failed-recoverable", listingId: "m1", error: WIRE_ERROR, quota: QUOTA });
 
-    await show(worker, () => {}, {
-      grantsNothing: true,
-      runStates: {
-        m1: { kind: "failed", tone: "warn", action: "retry", message: "Je advertentie is verwijderd" },
-      },
-    });
+    await show(worker);
+    await press(0);
+    // An operator zeroes the tier while the ad is held, and the popup is refreshed
+    // over the row that is holding it.
+    await show(worker, () => {}, { grantsNothing: true });
     await press(0);
 
     expect(worker.retry).toHaveBeenCalledWith("m1");
-    expect(worker.relist).not.toHaveBeenCalled();
+    expect(worker.relist).toHaveBeenCalledTimes(1);
   });
 
   it("names the plan rather than a limit when a refusal does land on a row", async () => {
-    // Reachable with the buttons locked: a batch run reports per row (T68, #147),
-    // and a stale popup can hold a refusal recorded before the tier was zeroed.
-    const { worker } = fakeWorker();
+    // Reachable with the buttons locked: a stale popup can hold a refusal recorded
+    // before the tier was zeroed.
+    const { worker } = fakeWorker({ status: "refused", locked: { state: "upgrade", resetAt: null } });
 
-    await show(worker, () => {}, {
-      grantsNothing: true,
-      runStates: { m1: { kind: "refused", locked: { state: "upgrade", resetAt: null } } },
-    });
+    await show(worker);
+    await press(0);
+    await show(worker, () => {}, { grantsNothing: true });
 
     expect(text()).toContain("Dit abonnement bevat geen herplaatsingen");
     expect(text()).not.toContain("je limiet voor herplaatsingen");

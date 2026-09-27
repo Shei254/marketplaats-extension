@@ -318,6 +318,18 @@ describe("extension build", () => {
     expect(built.permissions).toContain("identity");
   });
 
+  it("reaches for nothing the manifest no longer grants", async () => {
+    // `alarms` left with bulk repost (ADR-0038). A worker that registers an alarm
+    // listener without the permission throws at module scope and takes the whole
+    // extension down, so this is the check that would catch one coming back. And
+    // `storage.session` is named here because the Web Store listing says what is
+    // stored, and that area is no longer part of the sentence.
+    for (const [name, source] of Object.entries(production.bundles)) {
+      expect(source, `${name} uses chrome.alarms`).not.toContain("chrome.alarms");
+      expect(source, `${name} uses chrome.storage.session`).not.toContain("storage.session");
+    }
+  });
+
   it("leaves no `process.env` in anything it emits", async () => {
     // React reads `process.env.NODE_ENV` to choose between its two
     // implementations, and `process` does not exist in a page or a service

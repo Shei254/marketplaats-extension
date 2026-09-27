@@ -35,9 +35,9 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0022](0022-the-plan-screen-names-the-payment-methods.md) | The plan screen names the payment methods, read from Stripe | Accepted, refines 0006 |
 | [0023](0023-ci-builds-the-images-and-the-host-pulls.md) | CI builds the images, a registry holds them, the host pulls; TLS in a fifth container | Accepted, amends 0020, amended by 0034 |
 | [0024](0024-the-extension-addresses-are-built-in.md) | The extension's own addresses are built in, never served | Accepted, refines 0013 |
-| [0025](0025-bulk-repost-is-entitled-queued-and-paced-wider.md) | Bulk repost is a paid entitlement, run by the worker, paced wider | Accepted, realises 0007/0014's `bulk` flag, refined by 0027 |
+| [0025](0025-bulk-repost-is-entitled-queued-and-paced-wider.md) | Bulk repost is a paid entitlement, run by the worker, paced wider | Accepted, realises 0007/0014's `bulk` flag, refined by 0027; client half removed by 0038 |
 | [0026](0026-a-feature-flag-is-a-field-spelled-once.md) | A feature flag is a field an operator types, and the flag is spelled once | Accepted, refines 0014 |
-| [0027](0027-the-popup-stops-offering-bulk-repost.md) | The popup stops offering bulk repost, and the mechanism stays | Accepted, refines 0025 |
+| [0027](0027-the-popup-stops-offering-bulk-repost.md) | The popup stops offering bulk repost, and the mechanism stays | Superseded by 0038 |
 | [0028](0028-a-repost-puts-back-what-it-can.md) | A repost puts back what it can, and says what it cannot | Accepted, refines 0002 |
 | [0029](0029-unlimited-is-null-and-zero-still-grants-nothing.md) | Unlimited is `null`, and zero still grants nothing | Accepted, refines 0014 and 0019 |
 | [0030](0030-the-catalog-order-is-the-operators.md) | The catalog order is the operator's, and it is one sequence | Accepted, refines 0014 |
@@ -48,6 +48,7 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0035](0035-the-mail-is-ours-and-so-are-the-words.md) | The mail that page sends is ours too, and owning it means owning the words | Accepted, refines 0021 and 0033 |
 | [0036](0036-the-site-sells-and-a-subscriber-switches-in-place.md) | The site sells, and a subscriber switches plan in place rather than buying a second one | Accepted, supersedes part of 0017, refines 0019 and 0031 |
 | [0037](0037-an-annual-price-buys-a-monthly-grant.md) | An annual price buys a monthly grant | Accepted, refines 0014 and 0019 |
+| [0038](0038-bulk-repost-leaves-the-extension.md) | Bulk repost leaves the extension, and the API keeps its half | Accepted, supersedes 0027 |
 
 **Amended by the 2026-08-13 session:** 0006 (Stripe narrowed to money + lifecycle), 0007 (gating depth,
 `/api/me` display state, `marktplaatsAccountId` dropped), 0009 (monorepo, React popup, Options page removed).
@@ -190,6 +191,12 @@ session also reversed a direction `ProductionRealmTest` had argued: the brand go
 file, as `smtpServer.fromDisplayName`, because no theme can reach the inbox row — and the reversal is safe for
 the reason the original drift was not, which is that this copy has a live test holding it to `brand.json`
 rather than a commented-out one. T82 is the ticket, and there is no GitHub issue, as with T76–T81.
+
+**Amended by the 2026-09-27 session:** [0038](0038-bulk-repost-leaves-the-extension.md) supersedes
+[0027](0027-the-popup-stops-offering-bulk-repost.md) on the trigger 0027 named itself — the extension
+shipping before T70. Bulk repost's client half goes, and the `alarms` permission with it, so the first
+store submission asks only for what a user can reach. The API half (`features.bulk`, `batch`,
+`BULK_NOT_ENTITLED`, the served blocks, the admin cap) stays; T70 becomes a rebuild.
 
 See also [../domain-model.md](../domain-model.md), [../glossary.md](../glossary.md) and
 [../enforcement-contract.md](../enforcement-contract.md).

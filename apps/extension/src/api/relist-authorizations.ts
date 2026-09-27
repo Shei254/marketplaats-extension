@@ -32,7 +32,7 @@ export class RelistAuthorizations implements RelistPermission {
     this.http = deps.http ?? ((url, init) => fetch(url, init));
   }
 
-  async authorize(adId: string, batch = false): Promise<GateDecision> {
+  async authorize(adId: string): Promise<GateDecision> {
     const token = await this.deps.tokens.accessToken();
     if (token.status !== "ready") {
       // No token is not a denial with a reason code, so it is not something the
@@ -43,12 +43,7 @@ export class RelistAuthorizations implements RelistPermission {
       return decide({ kind: "unreachable" });
     }
 
-    // `batch` is sent only when it is true. A body carrying `"batch": false` and
-    // one carrying nothing are the same request to the API, and the shorter one is
-    // also what every build before T68 sent — so a single repost goes on making
-    // exactly the call it always made.
-    const body = batch ? { adId, batch: true } : { adId };
-    return decide(await this.post("/api/relist/authorize", token.token, body));
+    return decide(await this.post("/api/relist/authorize", token.token, { adId }));
   }
 
   /**

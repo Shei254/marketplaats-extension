@@ -1,6 +1,6 @@
 import type { DisplayStateAnswer } from "../api/display-state";
 import type { HandoffAnswer, PlansAnswer } from "../api/subscribing";
-import type { ListingSummary, PendingRepost } from "../domain/types";
+import type {AdsPage, ListingSummary, PendingRepost} from "../domain/types";
 import type { BackgroundRequest, BackgroundResponse, WireRelistOutcome } from "../background/messages";
 import { fromWireError } from "../content/messages";
 import type { WorkerPort } from "./screen";
@@ -30,8 +30,8 @@ export function workerPort(): WorkerPort {
      * Marktplaats that refused the request, and both are things the user can act
      * on. The typed error survives the boundary through `fromWireError`.
      */
-    async ads(): Promise<ListingSummary[]> {
-      return ask({ kind: "list-ads" });
+    async ads(batchNumber?: number, batchSize?: number): Promise<AdsPage> {
+      return ask({ kind: "list-ads", batchNumber, batchSize });
     },
     /** Raised, not flattened, for the reason above: it fails the same ways. */
     async searchAds(query: string): Promise<ListingSummary[]> {

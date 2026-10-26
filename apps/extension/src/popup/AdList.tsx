@@ -1,10 +1,10 @@
 import { Badge, Button, Note, Skeleton } from "@mprelist/ui";
-import { useCallback, useEffect, useState, type JSX } from "react";
+import {useCallback, useEffect, useState, type JSX, useRef} from "react";
 
 import type { WireRelistOutcome } from "../background/messages";
 
 import type { ListingSummary, PendingRepost } from "../domain/types";
-import { STALE_TAB, describePrice, type AdsView, type PriceLine } from "./ads";
+import {STALE_TAB, describePrice, type AdsView, type PriceLine, INITIAL_MORE} from "./ads";
 import { IDLE, PACING_NOTE, refusalNote, refusedTone, rowStateFor, type RowState } from "./relisting";
 import type { WorkerPort } from "./screen";
 
@@ -114,6 +114,54 @@ export function AdList({
   const [pacingUntil, setPacingUntil] = useState<number | null>(null);
   const pacingSeconds = useCountdown(pacingUntil, () => setPacingUntil(null));
 
+  const firstPage = view.status === "ready" ? view.ads : null;
+  const [more, setMore] = useState(INITIAL_MORE);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState<string | null>(null);
+  const generation = useRef(0);
+
+// A repost moves the ad to the top, so every later page has shifted. The screen
+// reloads page 1 after each outcome; drop the extra pages with it and let any
+// request still in flight discover it is stale.
+  useEffect(() => {
+    generation.current += 1;
+    setMore(INITIAL_MORE);
+    setLoadingMore(false);
+    setMoreError(null);
+  }, [firstPage]);
+
+  const batchSize = firstPage?.length ?? 0; // the first response defines the batch size
+  const total = more.total ?? (view.status === "ready" ? view.total : 0);
+  const hasMore =
+      firstPage !== null && !more.exhausted && more.nextBatch <= pageCount(total, batchSize);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || firstPage === null) return;
+    const gen = generation.current;
+    setLoadingMore(true);
+    setMoreError(null);
+    try {
+      const page = await worker.ads(more.nextBatch, firstPage.length);
+      if (gen !== generation.current) return;
+      setMore((current) => {
+        const seen = new Set([...firstPage, ...current.ads].map((ad) => ad.id));
+        return {
+          ads: [...current.ads, ...page.ads.filter((ad) => !seen.has(ad.id))],
+          nextBatch: current.nextBatch + 1,
+          total: page.totalNumberOfResults,
+          exhausted: page.ads.length === 0,
+        };
+      });
+    } catch (error) {
+      if (gen !== generation.current) return;
+      setMoreError(
+          `Meer advertenties konden niet worden geladen. ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      if (gen === generation.current) setLoadingMore(false);
+    }
+  }, [worker, loadingMore, firstPage, more.nextBatch]);
+
   const start = useCallback(
     async (listingId: string, action: "relist" | "retry") => {
       setRunning(listingId);
@@ -190,23 +238,28 @@ export function AdList({
         empty={empty}
         onReloadMarktplaats={onReloadMarktplaats}
         rows={(ads) => (
-          <ul className="popup-ads">
-            {ads.map((ad) => (
-              <AdRow
-                ad={ad}
-                key={ad.id}
-                state={states[ad.id] ?? IDLE}
-                // The plan's lock is last and is the only one of the three that is not
-                // about timing: the other two end on their own, and this one ends when
-                // somebody buys something.
-                locked={(running !== null && running !== ad.id) || secondsLeft !== null || grantsNothing}
-                secondsLeft={secondsLeft}
-                pacingSeconds={running === ad.id ? pacingSeconds : null}
-                onStart={start}
-                grantsNothing={grantsNothing}
-              />
-            ))}
-          </ul>
+            <ul className="popup-ads">
+              {[...ads, ...more.ads].map((ad) => (
+                  <AdRow
+                      ad={ad}
+                      key={ad.id}
+                      state={states[ad.id] ?? IDLE}
+                      locked={(running !== null && running !== ad.id) || secondsLeft !== null || grantsNothing}
+                      secondsLeft={secondsLeft}
+                      pacingSeconds={running === ad.id ? pacingSeconds : null}
+                      onStart={start}
+                      grantsNothing={grantsNothing}
+                  />
+              ))}
+              {hasMore && (
+                  <li className="popup-ads-more">
+                    {moreError && <Note tone="error">{moreError}</Note>}
+                    <Button shape="rect" tone={loadingMore ? "busy" : "secondary"} onClick={() => void loadMore()}>
+                      {loadingMore ? "Laden…" : `Meer laden · ${ads.length + more.ads.length} van ${total}`}
+                    </Button>
+                  </li>
+              )}
+            </ul>
         )}
       />
     </>
@@ -558,4 +611,8 @@ function LoadingRows(): JSX.Element {
       ))}
     </ul>
   );
+}
+
+export function pageCount(total: number, batchSize: number): number {
+  return batchSize > 0 ? Math.ceil(total / batchSize) : 1;
 }

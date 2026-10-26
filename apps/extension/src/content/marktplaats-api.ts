@@ -1,22 +1,29 @@
-import { AdNotFoundError, NotAuthenticatedError, SpikePendingError } from "../domain/marktplaats-client";
+import {
+  AdNotFoundError,
+  DraftUnusableError,
+  NotAuthenticatedError,
+  SpikePendingError
+} from "../domain/marktplaats-client";
 import type {
+  AdPresence,
   Bucket,
   CapturedAd,
   Category,
-  CreateAdPageOptions,
+  CreateAdPageOptions, CreateFormAttributes, DraftPage,
   ListingDraft,
   Photo,
   RequestOptions,
   UploadPhoto
 } from "../domain/types";
 import { extractCsrfToken } from "./csrf";
-import { ApiRequestError } from "../adapters/relay-marktplaats-client";
+import { ApiRequestError } from "../domain/marktplaats-client";
 import {
   isEndpointConfigChange,
   loadEndpointConfig,
   type EndpointConfig,
   type EndpointName,
 } from "../shared/endpoint-config";
+import {buildCreateForm} from "./utils";
 
 // ============================================================================
 // Configuration
@@ -156,10 +163,23 @@ async function request(
 // ============================================================================
 // Business Logic Functions
 // ============================================================================
-
-export async function listMyAds(): Promise<ListingDraft[]> {
+export async function listMyAdsPage(batchNumber?: number, batchSize?: number): Promise<DraftPage> {
   const cfg = await config();
-  const res = await request(cfg, "listMyAds");
+  // Page 1 is the request with no parameters; they appear only from page 2.
+  const queryParams =
+      batchNumber !== undefined && batchSize !== undefined ? { batchNumber, batchSize } : undefined;
+  const res = await request(cfg, "listMyAds", { queryParams });
+  const data = await res.json();
+  const ads: ListingDraft[] = data.ads ?? [];
+  // A payload without a total means no further pages, not a TypeError.
+  return { ads, totalNumberOfResults: data.totalNumberOfResults ?? ads.length };
+}
+
+
+export async function listMyAds(batchNumber?: number, batchSize?: number): Promise<ListingDraft[]> {
+  const cfg = await config();
+  const queryParams = batchNumber && batchSize ? { batchNumber, batchSize } : undefined
+  const res = await request(cfg, "listMyAds", { queryParams });
   const data = await res.json();
   return data.ads ?? [];
 }
@@ -187,7 +207,6 @@ export async function captureAd(listingId: string): Promise<{ draft: CapturedAd;
   if (!mappedBucket) throw new SpikePendingError("Could not resolve a mapped bucket");
 
   draft.bucketId = mappedBucket.id;
-  console.log("mappedBucket", mappedBucket);
 
   return { draft, photos };
 }
@@ -324,190 +343,41 @@ export async function getBuckets(categoryId: number): Promise<Bucket[]> {
   return res.json();
 }
 
+function buildForm(
+    draft: CapturedAd,
+    uploadedMedia: UploadPhoto[],
+    csrfToken: string,
+    formAttributes: CreateFormAttributes,
+): URLSearchParams {
+  try {
+    return buildCreateForm(draft, uploadedMedia, csrfToken, formAttributes);
+  } catch (error) {
+    console.error("[createAd] draft could not be turned into a form", error);
+    throw new DraftUnusableError(error instanceof Error ? error.message : String(error));
+  }
+}
+
 export async function createAd(draft: CapturedAd, photos: Photo[]): Promise<void> {
   const cfg = await config();
 
+  // Dry run first. The form is a pure function of the draft, so a draft that
+  // cannot produce one is found out here, before a single photo is uploaded.
+  buildForm(draft, [], "", { tmsid: "", timestamp: 0, signature: "" });
+
   const uploadedMedia: UploadPhoto[] = await Promise.all(
-      photos.map((photo) => uploadPhoto(cfg, photo))
+      photos.map((photo) => uploadPhoto(cfg, photo)),
   );
-
-  // CRITICAL FIX: Use URLSearchParams for application/x-www-form-urlencoded
-  const form = new URLSearchParams();
-
-  uploadedMedia.forEach((media) => {
-    form.append("images.ids", media.id);
-    form.append("images.urls", media.imageUrl);
-  });
-
-  if (uploadedMedia.length) {
-    form.append("images.ids", "");
-  }
-
-  form.append("title_nl-NL", draft.title || "");
-  form.append("description_nl-NL", draft.description || "");
-
-  // MOVED: Placed up here to match the working payload order
-  form.append("url", "");
-  form.append("url-input", "");
-
-  draft.attributes.forEach(attr => {
-    if (attr.attributeType == "SINGLE_SELECT") {
-      form.append(`singleSelectAttribute[${attr.key}]`, attr.value);
-    } else if (attr.attributeType == "MULTI_SELECT") {
-      attr.values.forEach(val => {
-        form.append(`multiSelectAttribute[${attr.key}]`, val.value);
-      })
-    } else if (attr.attributeType == "NUMERIC") {
-      form.append(`numericAttribute[${attr.key}]`, attr.value)
-    } else if (attr.attributeType == "TEXT") {
-      form.append(`textAttribute[${attr.key}]`, attr.value)
-
-    }
-  })
-
-  if (draft.deliveryMethod) form.append("deliveryMethod", draft.deliveryMethod);
-
-  if (draft.isBuyerProtectionActiveOnListing) {
-    form.append("buyerProtectionAllowed", "on");
-  }
-
-  const shippingInformation = draft.shippingInformation.selectedShippingOptions;
-
-  // `?.length`, not truthiness: an ad with no carrier selected arrives as an
-  // empty array as readily as a missing field, and `[]` is truthy — which sent
-  // an empty `shippingDetails.price` and made the drop-off fallback below
-  // unreachable for the exact case it exists for.
-  let minWeight = -1
-  let maxWeight = -1
-  if (shippingInformation?.length) {
-    const uniqueShippingInfo = [...new Map(shippingInformation.map(info => [info.carrierId, info])).values()]
-    uniqueShippingInfo.forEach(info => {
-      form.append("shippingMethod", info.carrierId.toLowerCase());
-    })
-
-    let minPrice = shippingInformation[0]?.cost || 0
-    const len = shippingInformation.length
-
-    for (let i = 1; i < len; i++) {
-        if (Number(shippingInformation[i]?.cost || 0)  < Number(minPrice)) {
-          minPrice = shippingInformation[i]?.cost || 0
-        }
-    }
-
-    minWeight = shippingInformation?.[0]?.weightInfo.min as number
-    maxWeight = shippingInformation?.[0]?.weightInfo.max as number
-    form.append("shippingDetails.price", String(minPrice));
-    form.append("shippingDetails.provider", "other");
-  } else {
-    draft.shippingInformation.augmentedLabels.forEach(label => {
-      if (label.carrierId == null) {
-        form.append("shippingMethod", "diy");
-        form.append("othersPrice", label.labels?.[0]?.price || "")
-      }
-    })
-  }
-
-  if (maxWeight != -1) {
-    if (maxWeight == 2_000) form.append("packageSize", "XS");
-    else if (maxWeight == 3_000) form.append("packageSize", "S");
-    else if (maxWeight == 10_000) form.append("packageSize", "M");
-    else if (maxWeight == 23_000) form.append("packageSize", "L");
-  } else {
-    form.append("packageSize", "M");
-  }
-
-  const dropOffCode = draft.contactInformation?.postcode;
-  if (dropOffCode) {
-    form.append("dropOffLocationCode", dropOffCode);
-  }
-
-  if (draft.price) {
-    const priceType = draft.price.priceType;
-
-    // One `Dropdown-prijstype`, and for a minimum-bid ad it is FIXED: the
-    // dropdown carries the form's own mode while `price.typeValue` keeps naming
-    // the price type. It used to be appended twice, MIN_BID then FIXED.
-    form.append("Dropdown-prijstype", priceType === "MIN_BID" ? "FIXED" : priceType);
-    form.append("price.typeValue", priceType);
-
-    if (priceType != "FREE" && priceType != "SEE_DESCRIPTION") {
-      // `Number(…) > 0` and not truthiness: the capture carries its cents as a
-      // **string**, and `"0"` is truthy. Guarding on the raw value sent
-      // `price.minimumBidPrice=0,00` for every ad without a floor — a floor the
-      // seller never set, posted onto the ad we are re-creating for them.
-      if (Number(draft.price.minimumBidPriceCent) > 0) {
-        form.append(
-            "price.minimumBidPrice",
-            (Number(draft.price.minimumBidPriceCent) / 100).toLocaleString("nl-NL", {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            }
-        ))
-      }
-      if (draft.price.priceCent) {
-        form.append("price.value", String(Number(draft.price.priceCent) / 100));
-      }
-    }
-
-    form.append("previousPriceType", "");
-
-    // Always sent, both ways round: the form carries the switch's state rather
-    // than its presence, which is what the live payload does.
-    if (draft.price.biddingEnabled) {
-      form.append("price.biddingEnabled", "on");
-    } else {
-      form.append("price.biddingEnabled", "off");
-    }
-  }
-
-  form.append("contactInformation.sellerName", draft.contactInformation.name || "");
-  // The switch is sent both ways round, like the bidding one above: the live form
-  // carries its state rather than its presence. The number only rides along with a
-  // `true`, and only when the capture actually has one — a switch turned on over an
-  // empty field is a payload the site refuses, so a capture with no number on file
-  // posts the ad without the up-call rather than not at all.
-  if (draft.phoneUpcallAllowed && draft.contactInformation.phone) {
-    form.append("contactInformation.phoneNumberSwitch", "true");
-    form.append("contactInformation.phoneNumber", draft.contactInformation.phone);
-  } else {
-    form.append("contactInformation.phoneNumberSwitch", "false");
-  }
-  form.append("syi-address-radio-home", "syi-address-nl");
-  form.append("address-index-filter", "syi-address-nl");
-  form.append("contactInformation.postCode", draft.contactInformation.postcode || "");
-  form.append("bundle-selection", "FREE");
-  form.append("selectedBundle", "FREE");
-
   const csrfToken = await ensureCsrfToken(cfg);
-  if (csrfToken) form.append("xsrf.token", csrfToken);
-
-  if (draft.categoryInformation) {
-    form.append("l1", String(draft.categoryInformation.parentCategoryId));
-    // MOVED: Bucket must be grouped with the category IDs
-    form.append("bucket", String(draft.bucketId || 9));
-    form.append("l2", String(draft.categoryInformation.categoryId));
-    form.append("l2CategoryFullName", draft.categoryInformation.categoryName || "");
-  }
-
   const formAttributes = await getCreateFormAttributes(cfg);
 
-  // Reordered to strictly match the working payload's exact sequence
-  form.append("tmsid", formAttributes.tmsid);
-  form.append("timestamp", String(formAttributes.timestamp));
-  form.append("signature", formAttributes.signature);
+  const form = buildForm(draft, uploadedMedia, csrfToken, formAttributes);
 
   // request() throws on any non-ok status, so reaching here means the ad was
   // created — Marktplaats answers with 200/201/a redirect and no JSON to read.
-  await request(cfg, "createAd", {
-    init: {
-      method: "POST",
-      body: form
-    },
-  });
+  await request(cfg, "createAd", { init: { method: "POST", body: form } });
 
   console.log("Ad Created Successfully");
 }
-
 // FIX: Returned a single UploadPhoto instead of an array.
 async function uploadPhoto(cfg: EndpointConfig, photo: Photo): Promise<UploadPhoto> {
   const buffer = new ArrayBuffer(photo.data.byteLength);
@@ -522,6 +392,28 @@ async function uploadPhoto(cfg: EndpointConfig, photo: Photo): Promise<UploadPho
   });
   return res.json();
 }
+
+export async function probeAd (listingId: string): Promise<AdPresence> {
+  try {
+    const cfg = await config();
+    const url = pathOf(cfg, "captureAd", { id: listingId });
+    const res = await fetch(url, { credentials: "include" });
+
+    if (res.status === 404 || res.status === 410) return "gone";
+    if (!res.ok) return "unknown"
+
+    const html = await res.text()
+    const state = (await captureAdViaJson(html)) ?? (await captureAdViaWindowConfig(html));
+    const ad = state?.listing ?? state;
+    // Same field captureAd depends on. A 200 page without it is a layout change or
+    // a "no longer available" page, never proof that the ad is alive.
+    return ad?.categoryInformation ? "exists" : "unknown";
+  } catch (e) {
+    console.error("[probeAd] probing ad failed", e);
+    return "unknown"
+  }
+}
+
 
 // ============================================================================
 // Hydration Parsing Helpers
@@ -576,10 +468,7 @@ export async function getCreateFormAttributes (cfg: EndpointConfig): Promise<{
   const res = await request(cfg, "createAdPage");
   const html = await res.text();
 
-  console.log("html text response", html);
-
   const windowConfig = (await captureAdViaJson(html)) ?? (await captureAdViaWindowConfig(html)) ;
-  console.log("createAdFormAttributes", windowConfig);
   return {
     signature: windowConfig.reactData.form.signature,
     timestamp: windowConfig.reactData.form.timestamp,

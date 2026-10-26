@@ -10,6 +10,14 @@ import {
 } from "../domain/marktplaats-client";
 import type { ListingSummary } from "../domain/types";
 
+export const INITIAL_MORE = {
+  ads: [] as ListingSummary[],
+  nextBatch: 2,
+  total: null as number | null,
+  exhausted: false,
+};
+
+
 /**
  * The ad list, as the popup holds it (T30a, #39).
  *
@@ -25,8 +33,8 @@ import type { ListingSummary } from "../domain/types";
  */
 export type AdsView =
   | { status: "loading" }
-  | { status: "ready"; ads: ListingSummary[] }
-  /** `noTab` when it failed for want of a marktplaats.nl tab, which pending rows say too. */
+  | { status: "ready"; ads: ListingSummary[]; total: number }
+    /** `noTab` when it failed for want of a marktplaats.nl tab, which pending rows say too. */
   | { status: "failed"; message: string; noTab?: boolean }
   /**
    * Every marktplaats.nl tab is a **Stale tab** (ADR-0039): not a failure but a
@@ -148,7 +156,7 @@ export function describePrice(ad: ListingSummary): PriceLine {
       // established. There is no number here we can stand behind, so the row says
       // the one thing that is true. See `docs/internal-api-findings.md`
       // § `listMyAds`.
-      return { label: "Bieden", amount: null, bidding: false };
+      return ad.priceCents ? { label: "", amount: formatEuro(ad.priceCents), bidding: false } : { label: "Bieden", amount: null, bidding: false };
     case "FREE":
       return { label: "Gratis", amount: null, bidding: ad.biddingEnabled };
     case "SEE_DESCRIPTION":

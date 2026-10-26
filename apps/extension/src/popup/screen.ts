@@ -3,7 +3,7 @@ import type { DisplayState } from "@mprelist/contracts";
 import type { DisplayStateAnswer } from "../api/display-state";
 import type { HandoffAnswer, PlansAnswer } from "../api/subscribing";
 import type { WireRelistOutcome } from "../background/messages";
-import type { ListingSummary, PendingRepost } from "../domain/types";
+import type {AdsPage, ListingSummary, PendingRepost} from "../domain/types";
 
 /**
  * What the popup is showing, and the whole of it (T29, #38).
@@ -89,7 +89,7 @@ export interface WorkerPort {
    * The user's own ads. Throws the typed error the relay raised — which one it is
    * decides what the screen says, and only the popup knows how to say it.
    */
-  ads(): Promise<ListingSummary[]>;
+  ads(batchNumber?: number, batchSize?: number): Promise<AdsPage>;
   /**
    * The same ads, filtered by Marktplaats rather than in this window (T31, #40).
    *

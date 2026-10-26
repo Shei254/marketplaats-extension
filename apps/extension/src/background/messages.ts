@@ -5,7 +5,7 @@ import type { RemainingQuota } from "@mprelist/contracts";
 
 import type { LockedState } from "../gate/authorization-gate";
 import type { RelistOutcome } from "../domain/relist-orchestrator";
-import type { ListingSummary, PendingRepost } from "../domain/types";
+import type {AdsPage, ListingSummary, PendingRepost} from "../domain/types";
 import { toWireError, type WireError } from "../content/messages";
 
 /**
@@ -65,7 +65,7 @@ export type DisplayStateRequest = { kind: "display-state" };
  * and a caller that must not be trusted to leave the field off is a caller that
  * can search for the empty string.
  */
-export type AdsRequest = { kind: "list-ads" } | { kind: "search-ads"; query: string };
+export type AdsRequest = { kind: "list-ads"; batchNumber?: number; batchSize?: number } | { kind: "search-ads"; query: string };
 
 /**
  * Subscribing, all three of it (T52, #83): what is on sale, buying one of them,
@@ -138,7 +138,7 @@ export interface BackgroundAnswers {
    * "Marktplaats heeft het verzoek geweigerd" and say something different about
    * each. The codes stay English; only what the popup renders from them is Dutch.
    */
-  "list-ads": ListingSummary[];
+  "list-ads": AdsPage;
   /** The matches, in the same shape, so one row component renders both. */
   "search-ads": ListingSummary[];
   /** What can be bought — never the free tier and never a draft (ADR-0019). */

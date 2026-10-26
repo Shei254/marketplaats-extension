@@ -24,6 +24,13 @@ chrome.runtime.onMessage.addListener(
 
 async function handle(request: RelayRequest): Promise<RelayResult> {
     switch (request.kind) {
+        case "listMyAdsPage": {
+            const page = await api.listMyAdsPage(request.batchNumber, request.batchSize);
+            return {
+                ads: page.ads.map(toListingSummary),
+                totalNumberOfResults: page.totalNumberOfResults,
+            };
+        }
         case "listMyAds":
             return (await api.listMyAds()).map(toListingSummary);
         case "searchAd":

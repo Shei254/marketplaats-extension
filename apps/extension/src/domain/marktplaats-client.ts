@@ -1,4 +1,18 @@
-import type { CapturedAd, CapturedListing, ListingSummary, Photo } from "./types";
+import type {AdPresence, AdsPage, CapturedAd, CapturedListing, ListingSummary, Photo} from "./types";
+
+/**
+ * The captured ad cannot be turned into a create form at all: a field the form
+ * needs is missing or malformed. Sending the same draft again meets the same
+ * hole, so the orchestrator treats this as "waits for the user" and does not
+ * retry it on a schedule. `reason` is for the console; the popup says a fixed
+ * sentence instead.
+ */
+export class DraftUnusableError extends Error {
+  constructor(public readonly reason: string) {
+    super(`Draft cannot be turned into a create form: ${reason}`);
+    this.name = "DraftUnusableError";
+  }
+}
 
 /** Raised when Marktplaats is not logged in — the popup shows a "log in first" state. */
 export class NotAuthenticatedError extends Error {
@@ -51,7 +65,11 @@ export class ApiRequestError extends Error {
  */
 export interface MarktplaatsClient {
   /** The user's own ads. Throws NotAuthenticatedError if not logged in. */
-  listMyAds(): Promise<ListingSummary[]>;
+  listMyAds(batchNumber?: number, batchSize?: number): Promise<ListingSummary[]>;
+
+  listMyAdsPage(batchNumber?: number, batchSize?: number): Promise<AdsPage>;
+
+  probeAd (listingId: string): Promise<AdPresence>
   /**
    * The user's own ads matching a query, filtered by Marktplaats and not here.
    *

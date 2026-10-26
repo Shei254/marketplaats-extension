@@ -31,6 +31,7 @@ import {
   SignedOutScreen,
   UnavailableScreen,
 } from "./screens";
+import {PendingNotice} from "./PendingNotice";
 
 /**
  * The popup, which asks the worker one question and renders the answer.
@@ -83,12 +84,17 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
       // storage, and are shown even when the list cannot be had at all.
       const holding = worker.pendingReposts();
       try {
-        const found = want.kind === "all" ? await worker.ads() : await worker.searchAds(want.query);
-        if (mine === latest.current) setAds({ status: "ready", ads: found });
+        if (want.kind === "all") {
+          const page = await worker.ads();
+          if (mine === latest.current) {
+            setAds({ status: "ready", ads: page.ads, total: page.totalNumberOfResults });
+          }
+        } else {
+          // Search isn't paged: total equals what arrived, so `AdList` never shows the button.
+          const found = await worker.searchAds(want.query);
+          if (mine === latest.current) setAds({ status: "ready", ads: found, total: found.length });
+        }
       } catch (error) {
-        // The list failing does not take the plan down with it: the two come from
-        // different places — ours and Marktplaats's — and a user whose quota is
-        // fine should be told that, beside the reason their ads are missing.
         if (mine === latest.current) setAds(failedAds(error));
       }
       const held = await holding;
@@ -214,6 +220,18 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
       else void worker.pendingReposts().then(setPending);
     },
     [reloadAds, worker],
+  );
+
+
+  const retryPending = useCallback(
+      async (listingId: string) => {
+        try {
+          onOutcome(await worker.retry(listingId));
+        } catch {
+          setPending(await worker.pendingReposts());   // the notice stays; nothing is lost
+        }
+      },
+      [worker, onOutcome],
   );
 
   /**
@@ -420,6 +438,7 @@ function body(screen: Screen, handlers: Handlers): JSX.Element {
           handoff={handoff}
           busy={busy}
         >
+          <PendingNotice pending={pending} onRetry={retryPending} />
           <SearchBox value={typed} onType={onType} onClear={onClearSearch} />
           <AdList
             view={ads}

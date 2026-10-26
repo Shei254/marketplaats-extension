@@ -105,6 +105,7 @@ export class Subscribing {
     // Read separately, and that separation is the point (T65, #137): the cards are
     // refused whole if one field is wrong, and the ways to pay cannot take them with
     // them. A malformed `paymentMethods` costs the sentence under the title.
+    console.log("Payment methods", asPaymentMethods(body));
     return plans ? { status: "ready", plans, paymentMethods: asPaymentMethods(body) } : UNAVAILABLE;
   }
 

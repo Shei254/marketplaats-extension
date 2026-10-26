@@ -557,7 +557,7 @@ export function PlansScreen({
         <h1 className="popup-plans-lede">Kies een abonnement</h1>
         <p className="popup-plans-lede">
           Het afrekenen wordt geopend in een nieuw tabblad. Kom daarna hier terug.
-          {payWith ? <span className="popup-plans-ways"> {payWith}</span> : null}
+          {payWith ? <>{payWith}</> : null}
         </p>
         {children}
         {handoff.kind === "failed" ? <Note tone="error">{handoff.message}</Note> : null}

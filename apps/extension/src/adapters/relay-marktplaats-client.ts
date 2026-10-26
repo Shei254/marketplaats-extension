@@ -1,5 +1,5 @@
 import type { MarktplaatsClient } from "../domain/marktplaats-client";
-import type { CapturedAd, CapturedListing, ListingSummary, Photo } from "../domain/types";
+import type {AdPresence, AdsPage, CapturedAd, CapturedListing, ListingSummary, Photo} from "../domain/types";
 import {
   fromWireError,
   fromWirePhoto,
@@ -45,6 +45,12 @@ export class RelayMarktplaatsClient implements MarktplaatsClient {
     return this.send<ListingSummary[]>({kind: "listMyAds"});
   }
 
+  async listMyAdsPage(batchNumber?: number, batchSize?: number): Promise<AdsPage> {
+    // `undefined` fields are dropped by the JSON message boundary, so page 1
+    // (no arguments) reaches the API with no query string at all.
+    return this.send<AdsPage>({ kind: "listMyAdsPage", batchNumber, batchSize });
+  }
+
   async captureAd(listingId: string): Promise<CapturedListing> {
     const wire = await this.send<WireCapturedAd>({kind: "captureAd", listingId});
     return {draft: wire.draft, photos: wire.photos.map(fromWirePhoto)};
@@ -73,6 +79,10 @@ export class RelayMarktplaatsClient implements MarktplaatsClient {
     });
   }
 
+  probeAd(listingId: string): Promise<AdPresence> {
+    return this.send({ kind: "probeAd", listingId })
+  }
+
   /**
    * Through the first marktplaats.nl tab whose content script answers. Only
    * Chrome's "no receiver" moves on to the next tab: a request that reached a
@@ -96,7 +106,6 @@ export class RelayMarktplaatsClient implements MarktplaatsClient {
     }
     throw new StaleMarktplaatsTabError(tabIds[0]!);
   }
-
 }
 
 async function marktplaatsTabs(): Promise<number[]> {

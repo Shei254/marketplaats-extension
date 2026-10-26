@@ -202,6 +202,11 @@ export const adListCss = `
 /* The search box over the list (T31, #40). It sits in the list's own sheet
    because it is the list's control and shares its gutter — and its bottom line is
    the one the first row would have drawn, so the two never double up. */
+.popup-ads-more {
+  display: grid;
+  gap: var(--mp-space-xs);
+  padding: var(--mp-space-sm) var(--mp-space-md);
+}
 .popup-search {
   display: flex;
   align-items: center;
@@ -212,7 +217,17 @@ export const adListCss = `
 .popup-search .mp-input { padding: 6px 10px; font: var(--mp-text-secondary) var(--mp-font-family); }
 .popup-search-clear { flex: none; }
 
-.popup-ads { list-style: none; margin: 0; padding: 0; max-height: 420px; overflow-y: auto; }
+.popup-ads { 
+    --popup-chrome: 196px;
+    list-style: none; 
+    margin: 0; 
+    padding: 0; 
+    max-height: calc(600px - var(--popup-chrome)); 
+    overflow-y: auto; 
+ }
+ .popup-ads.popup-pending {
+    max-height: 140px;
+  }
 .popup-ad {
   padding: var(--mp-space-sm) var(--mp-space-md);
   border-bottom: 1px solid var(--mp-line);

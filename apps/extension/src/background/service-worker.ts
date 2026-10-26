@@ -195,6 +195,12 @@ chrome.runtime.onMessage.addListener(
   },
 );
 
+export async function syncBadge(orchestrator: RelistOrchestrator): Promise<void> {
+  const waiting = (await orchestrator.pendingReposts()).filter((p) => !p.running).length;
+  await chrome.action.setBadgeText({ text: waiting ? "!" : "" });
+  if (waiting) await chrome.action.setBadgeBackgroundColor({ color: "#d93025" });
+}
+
 function answer(
   request: BackgroundRequest,
   sender: chrome.runtime.MessageSender,
@@ -208,6 +214,7 @@ function answer(
       return orchestrator.pendingReposts();
     case "let-go":
       return orchestrator.letGo(request.listingId);
+
     case "reload-marktplaats":
       return reloadAndWait(request.tabId);
     case "marktplaats-ready":
@@ -223,7 +230,7 @@ function answer(
     case "display-state":
       return api.displayState();
     case "list-ads":
-      return orchestrator.listAds();
+      return orchestrator.listAdsPage(request.batchNumber, request.batchSize);
     case "search-ads":
       return orchestrator.searchAds(request.query);
     case "plans":

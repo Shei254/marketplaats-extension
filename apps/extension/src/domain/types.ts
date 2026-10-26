@@ -2,6 +2,11 @@
  * Core domain types for relisting (see docs/glossary.md, docs/domain-model.md).
  * The POC has no server-side domain; these describe the client-side relist only.
  */
+import type {FailureKind} from "./failure";
+
+export type Landed =
+    | { state: "landed"; id: string } | { state: "none" }
+    | { state: "unknown" } | { state: "ambiguous" };
 
 /**
  * A row shown in the popup's "my ads" list.
@@ -30,11 +35,27 @@ export interface ListingSummary {
   reserved: boolean;
 }
 
+export type AdPresence = "exists" | "gone" | "unknown"
+
+/** One page of the user's own ads, as the popup receives it. */
+export interface AdsPage {
+  ads: ListingSummary[];
+  /** Everything Marktplaats holds for the user, not just this page. */
+  totalNumberOfResults: number;
+}
+
 /** A single photo, captured so it can be re-uploaded onto the new ad. */
 export interface Photo {
   filename: string;
   mimeType: string;
   data: Uint8Array;
+}
+
+export type CreateFormAttributes = { signature: string; timestamp: number; tmsid: string };
+
+export interface DraftPage {
+  ads: ListingDraft[];
+  totalNumberOfResults: number;
 }
 
 /** Everything needed to re-create an identical ad. */
@@ -270,6 +291,13 @@ export interface AdSnapshot {
    * user's Opnieuw retries it; the automatic resume leaves it alone.
    */
   needsUser?: boolean;
+  failure?: FailureKind
+  deleteSentAt?: number;
+  createSentAt?: number;
+  nextCheckAt?: number;
+  checks?: number;
+  attempts?: number;
+  totalBefore?: number;
 }
 
 /**
@@ -283,6 +311,8 @@ export interface PendingRepost {
   needsUser: boolean;
   /** Being put back right now, so it cannot be let go. */
   running: boolean;
+  deleted: boolean;
+  failure?: FailureKind
 }
 
 export interface UploadPhoto {

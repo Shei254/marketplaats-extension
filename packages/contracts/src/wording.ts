@@ -129,9 +129,22 @@ function every(interval: string): string {
 const WAYS_TO_PAY: ReadonlyArray<readonly [token: string, name: string]> = [
   ["ideal", "iDEAL"],
   ["paypal", "PayPal"],
-  ["card", "creditcard"],
+  ["card", "credit card"],
   ["bancontact", "Bancontact"],
   ["sepa_debit", "SEPA-incasso"],
+  ["amazon_pay", "Amazon Pay"],
+  ["apple_pay", "Apple Pay"],
+  ["blik", "BLIK"],
+  ["eps", "eps"],
+  ["kakao_pay", "Kakao Pay"],
+  ["klarna", "Klarna"],
+  ["link", "Link"],
+  ["mb_way", "MB WAY"],
+  ["naver_pay", "Naver Pay"],
+  ["payco", "PAYCO"],
+  ["pix", "Pix"],
+  ["samsung_pay", "Samsung Pay"],
+  ["satispay", "Satispay"],
 ];
 
 /**

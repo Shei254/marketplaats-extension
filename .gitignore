@@ -33,3 +33,4 @@ apps/extension/keys/
 # The Web Store listing's screenshots, promo tile and reviewer video (T58). They show a real Marktplaats
 # account, so they stay on the machine that made them; store/listing.md is the committed half.
 /store/media/
+*.patch

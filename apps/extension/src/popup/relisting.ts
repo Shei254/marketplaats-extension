@@ -17,7 +17,9 @@ export type RowState =
   | { kind: "done" }
   /** `action` is what the button retries with: a fresh relist, or a resume from the snapshot. */
   | { kind: "failed"; message: string; tone: "error" | "warn"; action: "relist" | "retry" }
-  | { kind: "refused"; locked: LockedState };
+  | { kind: "refused"; locked: LockedState }
+  | {kind: "parked"; message: string}
+  | {kind: "waiting"; message: string}
 
 export const IDLE: RowState = { kind: "idle" };
 
@@ -38,7 +40,8 @@ export const IDLE: RowState = { kind: "idle" };
  * actually failed.
  */
 export const AD_UNCHANGED = "Er is niets herplaatst — je advertentie is ongewijzigd.";
-
+export const UNCONFIRMED =  "Nog niet zeker of dit gelukt is. De extensie controleert het op de achtergrond en probeert het opnieuw.";
+export const BUSY = "Er loopt al een herplaatsing. Wacht tot die klaar is.";
 export const AD_IS_DOWN =
   "Je advertentie is verwijderd, maar herplaatsen is mislukt. " +
   "De advertentie is opgeslagen in de extensie — klik op Opnieuw.";
@@ -73,6 +76,16 @@ export function rowStateFor(outcome: WireRelistOutcome): RowState {
         action: "retry",
         message: `${AD_IS_DOWN} ${describeAdsFailure(fromWireError(outcome.error))}`,
       };
+    case "unconfirmed":
+      return {
+        kind: "parked",
+        message: UNCONFIRMED
+      }
+    case "busy":
+      return {
+        kind: "waiting",
+        message: BUSY
+      }
   }
 }
 

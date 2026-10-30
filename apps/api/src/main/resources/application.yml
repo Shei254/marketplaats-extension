@@ -256,7 +256,7 @@ mprelist:
     # tier's entire month in under two, at a rhythm no human has. Ten in an hour is a seller working through
     # a batch of their own ads and then stopping, which is the shape being imitated. A free user never
     # reaches it — three relists is their month — so this rail is the paying tiers'.
-    burst-limit: 10
+    burst-limit: ${MPRELIST_BURST_LIMIT:0}
     # The span that cap counts in, sliding rather than aligned to a clock: a window that reset on the hour
     # would let twice the cap through across the boundary.
     #

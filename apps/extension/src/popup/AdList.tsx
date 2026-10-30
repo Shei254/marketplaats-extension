@@ -39,6 +39,7 @@ export function AdList({
   pending = [],
   onLetGo = () => {},
   onReloadMarktplaats = () => {},
+  onSettled = () => {}
 }: {
   view: AdsView;
   worker: WorkerPort;
@@ -94,8 +95,44 @@ export function AdList({
   onLetGo?: (listingId: string) => void;
   /** Reload a **Stale tab**; the list is asked for again once it has. */
   onReloadMarktplaats?: (tabId: number) => void;
+  onSettled?: () => void
 }): JSX.Element {
   const [running, setRunning] = useState<string | null>(null);
+  /**
+   +   * The listing the **worker** says it is reposting, which is not always the one
+   +   * `running` knows about: closing the popup mid-repost does not stop the repost,
+   +   * and the reopened popup starts with `running === null` and every button live.
+   +   * The worker refuses a second one either way; this is so the buttons say so
+   +   * before the click rather than after.
+   +   */
+  const [remote, setRemote] = useState<string | null>(null);
+  const remoteRef = useRef<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const check = async () => {
+    let active: string | null = null;
+    try {
+      active = await worker.relistStatus();
+    } catch {
+      active = null;
+    }
+    if (!alive) return;
+
+    const was = remoteRef.current;
+    remoteRef.current = active;
+    setRemote(active);
+    if (was !== null && active === null) onSettled();
+      // Poll only while somebody holds the slot: an idle popup asks once, on open.
+      if (active !== null) timer = setTimeout(() => void check(), 2_000);
+    };
+    void check();
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+    };
+    }, [worker, onSettled]);
+
   const [states, setStates] = useState<Record<string, RowState>>({});
   /**
    * When the account's cooldown ends, if one is running. **The whole list is
@@ -244,7 +281,12 @@ export function AdList({
                       ad={ad}
                       key={ad.id}
                       state={states[ad.id] ?? IDLE}
-                      locked={(running !== null && running !== ad.id) || secondsLeft !== null || grantsNothing}
+                      locked={
+                        (running !== null && running !== ad.id) ||
+                        remote !== null ||
+                        secondsLeft !== null ||
+                        grantsNothing
+                      }
                       secondsLeft={secondsLeft}
                       pacingSeconds={running === ad.id ? pacingSeconds : null}
                       onStart={start}
@@ -538,6 +580,9 @@ function RowNote({
       return <Note tone={state.tone}>{state.message}</Note>;
     case "refused":
       return <Note tone="warn">{refusalNote(state.locked, grantsNothing)}</Note>;
+    case "parked":
+    case "waiting":
+      return <Note tone="warn">{state.message}</Note>;
     default:
       return null;
   }
@@ -548,7 +593,7 @@ function RowNote({
  * every inert one is disabled by the component rather than by this caller —
  * which is what stops a locked row being clickable at all.
  */
-function toneFor(state: RowState, locked: boolean): "primary" | "busy" | "done" | "retry" | "locked" | "cooldown" {
+function toneFor(state: RowState, locked: boolean): "primary" | "busy" | "done" | "retry" | "locked" | "cooldown"  {
   switch (state.kind) {
     case "busy":
       return "busy";
@@ -559,7 +604,10 @@ function toneFor(state: RowState, locked: boolean): "primary" | "busy" | "done" 
     case "refused":
       return refusedTone(state.locked);
     case "idle":
+    case "waiting":
       return locked ? "locked" : "primary";
+    case "parked":
+      return "locked"
   }
 }
 
@@ -574,6 +622,8 @@ function labelFor(state: RowState): string {
       // is what puts it back. "Opnieuw proberen" starts over on an ad that is
       // still there.
       return state.action === "retry" ? "Opnieuw" : "Opnieuw proberen";
+    case "parked":
+      return "Wordt gecontroleerd…";
     default:
       return "Herplaats";
   }

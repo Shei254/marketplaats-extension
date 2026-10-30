@@ -697,9 +697,14 @@ class RelistAuthorizationTest {
 
 		authorize(user, "ad-1");
 
-		OffsetDateTime rolled = this.rows.windowOf(user).start();
-		assertThat(signedUpOnAThirtyFirst.plusMonths(ChronoUnit.MONTHS.between(signedUpOnAThirtyFirst, rolled)))
-				.isEqualTo(rolled);
+		OffsetDateTime rolled = this.rows.windowOf(user).start().withOffsetSameInstant(ZoneOffset.UTC);
+		// Counted on the calendar rather than with ChronoUnit.MONTHS.between, which disagrees with plusMonths
+		// at the clamp (see QuotaPeriod.wholeMonthsBetween): from 31 January a roll onto 30 September is
+		// plusMonths(32), and between() answers 31 for it, so this failed on every run whose window
+		// started on a clamped day, i.e. in whichever months have fewer than 31 days.
+		long calendarMonths = (rolled.getYear() - signedUpOnAThirtyFirst.getYear()) * 12L
+				+ (rolled.getMonthValue() - signedUpOnAThirtyFirst.getMonthValue());
+		assertThat(signedUpOnAThirtyFirst.plusMonths(calendarMonths)).isEqualTo(rolled);
 	}
 
 	/**

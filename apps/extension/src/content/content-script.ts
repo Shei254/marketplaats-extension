@@ -59,6 +59,8 @@ async function handle(request: RelayRequest): Promise<RelayResult> {
             // threw. Its one caller (T71, #157) swallows either way.
             await api.reserveAd(request.listingId);
             return null;
+        case "probeAd":
+            return api.probeAd(request.listingId);
         default:
             // Exhaustiveness: adding a RelayRequest kind without handling it here
             // becomes a compile error rather than a silent undefined at runtime.

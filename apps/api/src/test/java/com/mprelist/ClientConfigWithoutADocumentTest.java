@@ -87,7 +87,8 @@ class ClientConfigWithoutADocumentTest {
 		JsonNode rails = Json.of(get()).get("rails");
 
 		assertThat(rails).isNotNull();
-		assertThat(rails.get("burstLimit").asInt()).isPositive();
+		// Zero is the shipped value since the burst cap was switched off; it is still stamped, never absent.
+		assertThat(rails.get("burstLimit").asInt()).isNotNegative();
 		assertThat(rails.get("burstWindowMs").asLong()).isPositive();
 	}
 

@@ -7,6 +7,7 @@ import type { LockedState } from "../gate/authorization-gate";
 import type { RelistOutcome } from "../domain/relist-orchestrator";
 import type {AdsPage, ListingSummary, PendingRepost} from "../domain/types";
 import { toWireError, type WireError } from "../content/messages";
+import type {FailureKind} from "../domain/failure";
 
 /**
  * Wire protocol for popup → background service worker.
@@ -28,7 +29,8 @@ export type RelistRequest =
    * stuck. Both read the same stored deadline, so the number on the screen is the
    * one being waited out rather than a second draw.
    */
-  | { kind: "pace" };
+  | { kind: "pace" }
+  | { kind: "relist-status" };
 
 /**
  * Pending reposts (ADR-0039): what the worker is holding, letting one go, and
@@ -106,7 +108,9 @@ export type WireRelistOutcome =
    * (T30b, #79) reads the same value the gate produced rather than a second
    * spelling of it.
    */
-  | { status: "refused"; locked: LockedState };
+  | { status: "refused"; locked: LockedState }
+  | { status: "unconfirmed"; listingId: string; reason: FailureKind }
+  | { status: "busy"; listingId: string; reason: "running" | "pending" };
 
 /**
  * What each question is answered with — one table rather than a response union
@@ -141,6 +145,7 @@ export interface BackgroundAnswers {
   "list-ads": AdsPage;
   /** The matches, in the same shape, so one row component renders both. */
   "search-ads": ListingSummary[];
+  "relist-status": string | null
   /** What can be bought — never the free tier and never a draft (ADR-0019). */
   plans: PlansAnswer;
   /**
@@ -158,6 +163,15 @@ export type BackgroundResponse<K extends BackgroundRequest["kind"] = BackgroundR
   | { ok: false; error: WireError };
 
 export function toWireOutcome(outcome: RelistOutcome): WireRelistOutcome {
-  if (outcome.status === "relisted" || outcome.status === "refused") return outcome;
-  return { ...outcome, error: toWireError(outcome.error) };
+  switch (outcome.status) {
+      case "relisted":
+      case "refused":
+      case "unconfirmed":
+      case "busy":
+      // No `error` to flatten. (`unconfirmed` used to fall through to the line
+      // below and crossed with `error: toWireError(undefined)`.)
+        return outcome;
+      default:
+        return { ...outcome, error: toWireError(outcome.error) };
+  }
 }

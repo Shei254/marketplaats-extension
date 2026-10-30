@@ -37,9 +37,9 @@ import java.util.Optional;
 record RelistPace(Duration minimumInterval, int burstLimit, Duration burstWindow) {
 
 	RelistPace {
-		if (burstLimit < 1) {
+		if (burstLimit < 0) {
 			throw new IllegalArgumentException("A burst limit of " + burstLimit + " would refuse every relist "
-					+ "with no wait that could resolve it; mprelist.safety.burst-limit must be at least 1");
+					+ "with no wait that could resolve it; mprelist.safety.burst-limit must at least 0 and never negative");
 		}
 		if (minimumInterval.isNegative() || burstWindow.isNegative()) {
 			throw new IllegalArgumentException("A negative pacing rail refuses nothing and would read as one "
@@ -57,8 +57,16 @@ record RelistPace(Duration minimumInterval, int burstLimit, Duration burstWindow
 	 * and nothing about the answer would look wrong.
 	 */
 	OffsetDateTime readsBackTo(OffsetDateTime now) {
+		if (!this.burstCapped()) {
+			return now.minus(this.minimumInterval);
+		}
+
 		return now.minus(this.minimumInterval.compareTo(this.burstWindow) > 0 ? this.minimumInterval
 				: this.burstWindow);
+	}
+
+	boolean burstCapped () {
+		return this.burstLimit > 0;
 	}
 
 	/**
@@ -69,7 +77,7 @@ record RelistPace(Duration minimumInterval, int burstLimit, Duration burstWindow
 	 * number an operator configures rather than by how much a user has done.
 	 */
 	int relistsWorthReading() {
-		return this.burstLimit;
+		return Math.max(this.burstLimit, 1);
 	}
 
 	/**
@@ -97,7 +105,7 @@ record RelistPace(Duration minimumInterval, int burstLimit, Duration burstWindow
 		if (!mostRecentFirst.isEmpty()) {
 			free = later(free, mostRecentFirst.get(0).plus(this.minimumInterval));
 		}
-		if (mostRecentFirst.size() >= this.burstLimit) {
+		if (burstCapped() && mostRecentFirst.size() >= this.burstLimit) {
 			free = later(free, mostRecentFirst.get(this.burstLimit - 1).plus(this.burstWindow));
 		}
 		return free.isAfter(now) ? Optional.of(wholeSeconds(Duration.between(now, free))) : Optional.empty();

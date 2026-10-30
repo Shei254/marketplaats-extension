@@ -70,7 +70,6 @@ const extractors = {
           const match = content.match(/['"]?(?:xsrf|csrf)[_A-Z]*[tT]oken['"]?\s*[:=]\s*['"]([^'"]+)['"]/);
 
           if (match && match[1]) {
-            console.log("[CSRF] Token successfully extracted from React hydration state.");
             return match[1]; // Found it!
           }
         }
@@ -79,7 +78,6 @@ const extractors = {
       // 2. Global Fallback (Just in case it's in a meta tag or custom attribute instead of JSON)
       const metaMatch = htmlText.match(/['"](?:xsrf|csrf)[_A-Z]*[tT]oken['"]\s*[:=]\s*['"]([^'"]+)['"]/i);
       if (metaMatch && metaMatch[1]) {
-        console.log("[CSRF] Token extracted via global Regex fallback.");
         return metaMatch[1];
       }
 

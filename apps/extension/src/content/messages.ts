@@ -162,7 +162,6 @@ export function fromWireError(error: WireError): Error {
         case "TIMEOUT":
             return named("TimeoutError", error.message)
         default:
-            console.log("[Unknown / Unhandled Error]", error);
             return new Error("Something went wrong. Please try again");
     }
 }

@@ -214,6 +214,7 @@ services:
       # Unset rather than empty where nobody has set it: an empty duration is not a value this API can read,
       # and `:-` with nothing after it would hand it one. The application.yml default is what fills the gap.
       MPRELIST_MINIMUM_INTERVAL: ${MPRELIST_MINIMUM_INTERVAL:-5s}
+      MPRELIST_BURST_LIMIT: ${MPRELIST_BURST_LIMIT:0}
       # **The limit below is not enough on its own, and it fails in the direction that looks like success.**
       # A modern JVM reads its cgroup, so `mem_limit: 1g` correctly bounds this container — to a 256 MB heap,
       # a quarter of its allowance, because ≈25% is the default `MaxRAMPercentage`. The stack would be

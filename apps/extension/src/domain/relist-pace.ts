@@ -59,7 +59,7 @@ export interface PacingWindow {
  * deployment on every day nobody has tuned one. On the API it is two settings,
  * `MPRELIST_PACING_MIN_MS` and `MPRELIST_PACING_MAX_MS`, and a restart.
  */
-export const HUMAN_PACE: PacingWindow = { minMs: 10_000, maxMs: 30_000 };
+export const HUMAN_PACE: PacingWindow = { minMs: 7_000, maxMs: 12_000 };
 
 /**
  * Where the window comes from **at the moment it is needed**, which since T27

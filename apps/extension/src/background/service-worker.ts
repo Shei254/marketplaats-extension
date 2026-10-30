@@ -141,7 +141,7 @@ async function resumeInterruptedRelists(): Promise<void> {
 
 /** A relist the popup started that left an ad pending gets the quick retries. */
 function retryIfPending(outcome: RelistOutcome): RelistOutcome {
-  if (outcome.status === "failed-recoverable") void retries.afterFailure();
+  if (outcome.status === "failed-recoverable" || outcome.status === "unconfirmed") void retries.afterFailure();
   return outcome;
 }
 
@@ -239,6 +239,8 @@ function answer(
       return openStripePage(subscribing.checkout(request.tierCode, request.interval), inANewTab);
     case "portal":
       return openStripePage(subscribing.portal(), inANewTab);
+    case "relist-status":
+      return Promise.resolve(orchestrator.activeRepost())
   }
 }
 

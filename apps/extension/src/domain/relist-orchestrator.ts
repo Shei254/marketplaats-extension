@@ -13,7 +13,6 @@ import type { RelistPacing } from "./relist-pace";
 import type { SnapshotStore } from "./snapshot-store";
 import type {AdPresence, AdSnapshot, AdsPage, Landed, ListingSummary, PendingRepost} from "./types";
 import {failureKind, type FailureKind} from "./failure";
-import {snapshot} from "node:test";
 
 const DELETE_WINDOW_MS = 120_000;
 const CREATE_WINDOW_MS = 180_000;
@@ -45,7 +44,8 @@ export type RelistOutcome =
    * upgrade prompt, a cooldown, "update your card", or "try again" (#34).
    */
   | { status: "refused"; locked: LockedState }
-  | { status: "unconfirmed"; listingId: string; reason: FailureKind };
+  | { status: "unconfirmed"; listingId: string; reason: FailureKind }
+  | { status: "busy"; listingId: string; reason: "running" | "pending" };;
 
 /**
  * An interrupted repost whose ad Marktplaats still has: nothing was deleted, so
@@ -84,7 +84,10 @@ export class RelistOrchestrator {
    * joins them: their snapshot looks exactly like an interrupted one, and
    * finishing it twice is the ad posted twice (ADR-0039).
    */
-  private readonly running = new Map<string, Promise<RelistOutcome>>();
+  private current: { listingId: string; promise: Promise<RelistOutcome> } | null = null;
+  private isRunning(id: string) { return this.current?.listingId === id; }
+  activeRepost(): string | null { return this.current?.listingId ?? null; }
+
 
   /** The resume in progress, which a second caller joins rather than repeats. */
   private resuming: Promise<RelistOutcome[]> | null = null;
@@ -135,7 +138,7 @@ export class RelistOrchestrator {
   }
 
   relist(listingId: string): Promise<RelistOutcome> {
-    return this.once(listingId, () => this.relistNow(listingId));
+    return this.once(listingId, "start", () => this.relistNow(listingId));
   }
 
   private async relistNow(listingId: string): Promise<RelistOutcome> {
@@ -168,7 +171,6 @@ export class RelistOrchestrator {
     let snapshot: AdSnapshot;
     try {
       const captured = await this.client.captureAd(listingId);
-      console.log("Captured", captured);
       snapshot = {
         listingId,
         draft: captured.draft,
@@ -233,11 +235,12 @@ export class RelistOrchestrator {
       await this.client.deleteAd(snapshot.listingId);
       return this.markDeleted(snapshot)
     } catch (error) {
-      if (!(error instanceof AdNotFoundError)) return this.markDeleted(snapshot);
-      if (this.deleteWasRefused(error)) return { state: "refused", error }
-      lastError = error
+      if (error instanceof AdNotFoundError || isGone(error)) {
+        return this.markDeleted(snapshot);
+      }
+      if (this.deleteWasRefused(error)) return { state: "refused", error };
+      lastError = error;
     }
-
     if ((await this.probe(snapshot.listingId)) === "gone") return this.markDeleted(snapshot)
     return { state: "unknown", error: lastError };
   }
@@ -271,10 +274,10 @@ export class RelistOrchestrator {
 
   /** Retry a relist that was left recoverable, from its persisted snapshot. */
   retry(listingId: string): Promise<RelistOutcome> {
-    return this.once(listingId, async () => {
+    return this.once(listingId, "finish", async () => {
       const snapshot = await this.store.get(listingId);
       if (!snapshot) throw new Error(`No snapshot to retry for listing ${listingId}`);
-      return this.resumeSnapshot(snapshot);
+      return this.resumeSnapshot(snapshot, true);
     });
   }
 
@@ -284,7 +287,9 @@ export class RelistOrchestrator {
       listingId: snapshot.listingId,
       title: snapshot.draft.title,
       needsUser: snapshot.needsUser ?? false,
-      running: this.running.has(snapshot.listingId),
+      running: this.isRunning(snapshot.listingId),
+      deleted: snapshot.phase === "deleted",
+      failure: snapshot.failure,
     }));
   }
 
@@ -295,18 +300,31 @@ export class RelistOrchestrator {
    * is being put back, since that attempt may be creating the ad this second.
    */
   async letGo(listingId: string): Promise<boolean> {
-    if (this.running.has(listingId)) return false;
+    if (this.isRunning(listingId)) return false;
     await this.store.clear(listingId);
     return true;
   }
 
   /** Run `work` for a listing unless it is already running, in which case join it. */
-  private once(listingId: string, work: () => Promise<RelistOutcome>): Promise<RelistOutcome> {
-    const running = this.running.get(listingId);
-    if (running) return running;
-    const started = work().finally(() => this.running.delete(listingId));
-    this.running.set(listingId, started);
-    return started;
+  private once(listingId: string, kind: "start" | "finish", work: () => Promise<RelistOutcome>) {
+    if (this.current?.listingId === listingId) return this.current.promise;
+    if (this.current) {
+      return Promise.resolve<RelistOutcome>({ status: "busy", listingId: this.current.listingId, reason: "running" });
+    }
+    const promise = (async (): Promise<RelistOutcome> => {
+      if (kind === "start") {
+        const blocking = await this.unfinishedRepost(listingId);
+        if (blocking) return { status: "busy", listingId: blocking, reason: "pending" };
+      }
+      return work();
+    })().finally(() => { this.current = null; });
+    this.current = { listingId, promise };   // taken synchronously, before any await
+    return promise;
+  }
+
+  private async unfinishedRepost(listingId: string): Promise<string | null> {
+    const stored = await this.store.list();
+    return stored.find((s) => s.listingId !== listingId && !s.needsUser)?.listingId ?? null;
   }
 
   /**
@@ -343,11 +361,12 @@ export class RelistOrchestrator {
 
   private async resumeEach(): Promise<RelistOutcome[]> {
     const snapshots = (await this.store.list()).filter(
-      (snapshot) => !snapshot.needsUser && !this.running.has(snapshot.listingId),
+      (snapshot) => !snapshot.needsUser && !this.isRunning(snapshot.listingId),
     );
     const outcomes: RelistOutcome[] = [];
     for (const snapshot of snapshots) {
-      outcomes.push(await this.once(snapshot.listingId, () => this.resumeSnapshot(snapshot)));
+      if (this.current) break
+      outcomes.push(await this.once(snapshot.listingId, "finish", () => this.resumeSnapshot(snapshot)));
     }
     return outcomes;
   }
@@ -385,7 +404,7 @@ export class RelistOrchestrator {
       const deleted: AdSnapshot = { ...snapshot, phase: "deleted" }
       await this.store.save(deleted)
 
-      return this.createFromSnapshot(snapshot)
+      return this.createFromSnapshot(deleted)
     }
 
     if (presence === "exists") {
@@ -451,6 +470,7 @@ export class RelistOrchestrator {
     for (const delay of [0, 1_500, 4_000]) {
       if (delay) await sleep(delay);
       const found = await this.lookForCreated(attempt);
+
       if (found.state === "landed") return this.finish(attempt, found.id);
       if (found.state === "ambiguous") return this.park({ ...attempt, needsUser: true }, "unknown");
     }
@@ -493,17 +513,32 @@ export class RelistOrchestrator {
     return null
   }
 
+  private async currentAds(): Promise<ListingSummary[] | null> {
+    try {
+      const page = await this.client.listMyAdsPage();
+      if (page.ads.length === 0 && page.totalNumberOfResults > 0) return null;
+      return page.ads;               // genuinely empty (total 0) is a real answer
+    } catch (error) {
+      console.warn("[relist] could not list ads", error);
+      return null;
+    }
+  }
+
   private async lookForCreated (s: AdSnapshot): Promise<Landed> {
-    if (s.idsBeforeCreate) return { state: "none" }
+    // if (!s.idsBeforeCreate) return { state: "none" }
+    const currentList = await this.currentAds()
+    if (currentList === null) return { state: "unknown" };
 
 
-    const currentList = await this.listAds()
-    if (!currentList.length) return { state: "unknown" };
     const earlier = new Set(s.idsBeforeCreate);
     const cents = Number(s.draft.price.priceCent);
+
     const matches = currentList.filter(
-        (ad) => !earlier.has(ad.id) && ad.title === s.draft.title && ad.priceCents === cents,
+        (ad) => {
+          return !earlier.has(ad.id) && ad.title === s.draft.title
+        },
     );
+
     if (matches.length === 1) return { state: "landed", id: matches[0]!.id };
     // An ad we can't identify but the account grew: leave it to the user, never create over it.
     if (matches.length > 1) {

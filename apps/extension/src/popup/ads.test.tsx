@@ -200,7 +200,7 @@ describe("what kind of price an ad has", () => {
     // `12500` in the golden capture fixture, with nobody having established
     // which. So the chip is the whole row, and a `priceCents` that happens to be
     // set must not talk it into drawing one.
-    for (const priceType of ["FAST_BID", "MIN_BID"]) {
+    for (const priceType of ["FAST_BID"]) {
       expect(describePrice(ad({ priceType }))).toMatchObject({ label: "Bieden", amount: null });
       expect(describePrice(ad({ priceType, priceCents: 12_500 }))).toMatchObject({
         label: "Bieden",

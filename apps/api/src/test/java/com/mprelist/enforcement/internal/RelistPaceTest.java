@@ -17,7 +17,7 @@ import org.junit.jupiter.api.Test;
  * <p><strong>No Spring and no database, which is what the type is for.</strong> Every claim below is
  * arithmetic over instants, and reaching it through {@code /api/relist/authorize} would mean arranging rows
  * against a clock this suite does not control — a boundary case like "the interval ran out this very
- * millisecond" is not a thing an HTTP call can be made to land on. {@link RelistPacingTest} is then free to be
+ * millisecond" is not a thing an HTTP call can be made to land on. {@link RelistPaceTest} is then free to be
  * about the wiring rather than about the edges: that the gate refuses on this, reads the rows it should, and
  * says so in the shape the contract fixes.
  *
@@ -163,14 +163,51 @@ class RelistPaceTest {
 	}
 
 	/**
-	 * A cap of none is a gate nobody gets through and no wait resolves, so it is refused where it is
-	 * configured rather than where it is applied — at startup, by the operator who typed it, rather than
-	 * silently at every relist.
+	 * A cap below zero is neither a cap nor an off switch, so it is refused where it is configured rather than
+	 * where it is applied — at startup, by the operator who typed it. Zero is the off switch (below), the same
+	 * convention the interval has.
 	 */
 	@Test
-	void aBurstCapOfNoneIsRefusedWhereItIsConfigured() {
-		assertThatThrownBy(() -> new RelistPace(Duration.ofSeconds(30), 0, Duration.ofHours(1)))
+	void aNegativeBurstCapIsRefusedWhereItIsConfigured() {
+		assertThatThrownBy(() -> new RelistPace(Duration.ofSeconds(30), -1, Duration.ofHours(1)))
 				.isInstanceOf(IllegalArgumentException.class);
+	}
+
+	/** A cap of zero is accepted and means there is no cap: the interval is then the only rail. */
+	@Test
+	void aBurstCapOfZeroTurnsTheCapOff() {
+		RelistPace uncapped = new RelistPace(Duration.ofSeconds(30), 0, Duration.ofHours(1));
+
+		assertThat(uncapped.burstCapped()).isFalse();
+		assertThat(PACE.burstCapped()).isTrue();
+	}
+
+	/** However many relists are in the window, with no cap only the most recent can make anybody wait. */
+	@Test
+	void withNoCapAWindowFullOfRelistsIsNotRefused() {
+		RelistPace uncapped = new RelistPace(Duration.ofSeconds(30), 0, Duration.ofHours(1));
+		List<OffsetDateTime> fifty = java.util.stream.IntStream.range(0, 50).mapToObj(i -> secondsAgo(60L + i))
+				.toList();
+
+		assertThat(uncapped.waitAfter(fifty, NOW)).isEmpty();
+	}
+
+	/** The interval still binds with the cap off, and answers with what is left of it. */
+	@Test
+	void withNoCapTheIntervalStillRefusesAVolley() {
+		RelistPace uncapped = new RelistPace(Duration.ofSeconds(30), 0, Duration.ofHours(1));
+
+		assertThat(uncapped.waitAfter(List.of(secondsAgo(10), secondsAgo(70)), NOW))
+				.contains(Duration.ofSeconds(20));
+	}
+
+	/** With no cap there is nothing to count back to, but the one relist the interval needs is still read. */
+	@Test
+	void withNoCapOnlyTheLatestRelistIsWorthReadingAndOnlyAsFarBackAsTheInterval() {
+		RelistPace uncapped = new RelistPace(Duration.ofSeconds(30), 0, Duration.ofHours(1));
+
+		assertThat(uncapped.relistsWorthReading()).isEqualTo(1);
+		assertThat(uncapped.readsBackTo(NOW)).isEqualTo(NOW.minusSeconds(30));
 	}
 
 	/** And so is a rail set to less than nothing, which refuses nothing while reading as one that was set. */

@@ -214,12 +214,11 @@ describe("the built-in window", () => {
     expect(HUMAN_PACE.minMs).toBeGreaterThan(BACKEND_RAIL_MS);
   });
 
-  it("and is the ten seconds it was asked for, rather than most of a minute", () => {
-    // The number in the request, and the reason the rail moved under it. Asserted as
-    // the floor alone, because the ceiling is free to be tuned and this is not: it is
-    // what somebody was promised when they asked for reposts that do not make them
-    // wait.
-    expect(HUMAN_PACE.minMs).toBe(10_000);
+  it("and is the seven seconds it was moved to, rather than most of a minute", () => {
+    // Asserted as the floor alone, because the ceiling is free to be tuned and this
+    // is not: it is what somebody was promised when they asked for reposts that do
+    // not make them wait. It was 10s until the window was shortened to 7-12s.
+    expect(HUMAN_PACE.minMs).toBe(7_000);
   });
 
   it("and is still a window rather than a metronome", () => {

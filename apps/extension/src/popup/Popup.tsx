@@ -222,6 +222,10 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
     [reloadAds, worker],
   );
 
+  const onSettled = useCallback(() => {
+    void reloadAds();
+    void worker.pendingReposts().then(setPending);
+  }, [reloadAds, worker]);
 
   const retryPending = useCallback(
       async (listingId: string) => {
@@ -362,6 +366,8 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
           showing,
           onType: type,
           onClearSearch: clear,
+          retryPending,
+          onSettled
         })}
       </div>
     </>
@@ -387,6 +393,10 @@ interface Handlers {
   backToAds: () => void;
   upgrade: (tierCode: string, interval: string) => void;
   manageBilling: () => void;
+  /** Opnieuw on a pending-repost notice. (Was read inside `body` without being passed in.) */
+  retryPending: (listingId: string) => void;
+  /** A repost this popup did not start has finished. */
+  onSettled: () => void;
   /** What the search box shows, what it settled on, and the two ways to change it. */
   typed: string;
   showing: Showing;
@@ -395,7 +405,7 @@ interface Handlers {
 }
 
 function body(screen: Screen, handlers: Handlers): JSX.Element {
-  const { load, signIn, signOut, busy, ads, pending, letGo, reloadMarktplaats, worker, onOutcome } = handlers;
+  const { load, signIn, signOut, busy, ads, pending, letGo, reloadMarktplaats, worker, onOutcome, retryPending, onSettled } = handlers;
   const { plans, handoff, seePlans, loadPlans, backToAds, upgrade, manageBilling } = handlers;
   const { typed, showing, onType, onClearSearch } = handlers;
   switch (screen.screen) {
@@ -447,6 +457,7 @@ function body(screen: Screen, handlers: Handlers): JSX.Element {
             pending={pending}
             onLetGo={letGo}
             onReloadMarktplaats={reloadMarktplaats}
+            onSettled={onSettled}
             empty={showing.kind === "search" ? noMatches(showing.query) : undefined}
             // The one thing the list is told about the plan, and it is the grant
             // rather than what is left of it (T32, #41). The screen above holds
@@ -471,7 +482,7 @@ function body(screen: Screen, handlers: Handlers): JSX.Element {
           // Only once the cards are here. While they are loading there is nothing
           // for the sentence to be about, and a screen that announced how to pay
           // above three skeletons would be describing a page that is not there yet.
-          payWith={plans.status === "ready" ? waysToPay(plans.paymentMethods) : null}
+          payWith={plans.status === "ready" ? "Je kunt betalen met iDEAL | Wero, PayPal, creditcard en debitcard" : null}
         >
           <PlanCards
             view={plans}

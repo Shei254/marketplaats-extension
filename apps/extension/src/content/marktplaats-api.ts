@@ -376,7 +376,6 @@ export async function createAd(draft: CapturedAd, photos: Photo[]): Promise<void
   // created — Marktplaats answers with 200/201/a redirect and no JSON to read.
   await request(cfg, "createAd", { init: { method: "POST", body: form } });
 
-  console.log("Ad Created Successfully");
 }
 // FIX: Returned a single UploadPhoto instead of an array.
 async function uploadPhoto(cfg: EndpointConfig, photo: Photo): Promise<UploadPhoto> {

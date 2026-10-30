@@ -159,4 +159,5 @@ export interface WorkerPort {
   portal(): Promise<HandoffAnswer>;
   signIn(): Promise<void>;
   signOut(): Promise<void>;
+  relistStatus(): Promise<string | null>;
 }

@@ -33,8 +33,10 @@ import com.mprelist.Subscribers.Subscriber;
  * (#54) and cannot be anything else: a backend can refuse a call that came too soon, it cannot make one arrive
  * at a human-shaped moment.
  *
- * <p><strong>This suite overrides none of the three settings</strong>, so what it is written against is what
- * the application ships — and {@link #theShippedRailsAreBothOnesThatCanBind()} is what holds those numbers in
+ * <p><strong>This suite overrides one of the three settings</strong>: {@code burst-limit} is pinned to 10, the
+ * value the application shipped before the cap was switched off by default (0), because the burst-rail tests
+ * below are about the cap and have nothing to say with it off ({@code RelistPaceTest} covers the off case
+ * without a database). The other two are what the application ships — and {@link #theShippedRailsAreBothOnesThatCanBind()} is what holds those numbers in
  * the range the tests below assume. It is the same choice {@link ReservationReconciliationTest} makes about
  * the grace window, and for the same reason: a rail is a judgement about the world, and a suite that set its
  * own would be asserting arithmetic that {@code RelistPaceTest} already covers without a database.
@@ -53,7 +55,7 @@ import com.mprelist.Subscribers.Subscriber;
  * {@link RelistAuthorizationTest}'s reasons.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-		properties = "mprelist.reconciliation.interval=24h")
+		properties = { "mprelist.reconciliation.interval=24h", "mprelist.safety.burst-limit=10" })
 @Import(PostgresFromCompose.class)
 class RelistPacingTest {
 

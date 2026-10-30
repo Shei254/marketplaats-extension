@@ -17,6 +17,13 @@ import type { WorkerPort } from "./screen";
  */
 export function workerPort(): WorkerPort {
   return {
+    async relistStatus(): Promise<string | null> {
+      try {
+        return await ask({ kind: "relist-status" })
+      } catch {
+        return null
+      }
+    },
     async displayState(): Promise<DisplayStateAnswer> {
       try {
         return await ask({ kind: "display-state" });
@@ -108,7 +115,8 @@ export function workerPort(): WorkerPort {
     },
     async signOut(): Promise<void> {
       await ask({ kind: "sign-out" });
-    },
+    }
+
   };
 }
 

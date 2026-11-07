@@ -42,6 +42,7 @@ afterEach(() => {
 });
 
 const picture = () => container.querySelector<HTMLImageElement>(".popup-ad-thumbnail img");
+const noPhotoIcon = () => container.querySelector(".popup-ad-thumbnail svg");
 
 async function draw(url?: string) {
   await act(async () => root.render(<Thumbnail url={url} />));
@@ -54,21 +55,27 @@ describe("a thumbnail", () => {
     expect(picture()?.getAttribute("src")).toBe(PHOTO);
   });
 
-  it("is the placeholder alone for an ad with no photo", async () => {
+  it("shows no icon while the photo may still be loading", async () => {
+    await draw(PHOTO);
+
+    expect(noPhotoIcon()).toBeNull();
+  });
+
+  it("draws the no-photo icon for an ad with no photo", async () => {
     await draw(undefined);
 
-    expect(container.querySelector(".popup-ad-thumbnail")).not.toBeNull();
+    expect(noPhotoIcon()).not.toBeNull();
     expect(picture()).toBeNull();
   });
 
-  it("falls back to the placeholder when the photo will not load", async () => {
+  it("falls back to the no-photo icon when the photo will not load", async () => {
     await draw(PHOTO);
 
     await act(async () => {
       picture()?.dispatchEvent(new Event("error"));
     });
 
-    expect(container.querySelector(".popup-ad-thumbnail")).not.toBeNull();
+    expect(noPhotoIcon()).not.toBeNull();
     expect(picture()).toBeNull();
   });
 

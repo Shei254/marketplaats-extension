@@ -166,23 +166,7 @@ export interface FakeClientOptions {
    * lost on the way back, which is what the duplicate check exists for.
    */
   lostReplies?: number;
-  /** The seller has nothing but `ads`, so deleting the last leaves an empty list. */
-  noOtherAds?: boolean;
 }
-
-/**
- * The seller's other ad, which every list carries unless a test says otherwise.
- * A create is refused while the list reads empty (`createFromSnapshot`), so a
- * one-ad fixture would otherwise never reach the create these tests are about.
- */
-const BYSTANDER: ListingSummary = {
-  id: "bystander",
-  title: "Een andere advertentie",
-  priceCents: 100,
-  priceType: "FIXED",
-  biddingEnabled: false,
-  reserved: false,
-};
 
 /**
  * A retry holds off for three minutes after a create was sent, in case it landed.
@@ -228,7 +212,7 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
 
   async listMyAds(): Promise<ListingSummary[]> {
     if (this.opts.listError) throw this.opts.listError;
-    const rows = [...this.ads.entries()].map(([id, ad]) => ({
+    return [...this.ads.entries()].map(([id, ad]) => ({
       id,
       title: ad.draft.title,
       // The two ends of this disagree on the wire: the capture payload's
@@ -247,7 +231,6 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
       // badge is drawn from this flag.
       reserved: ad.draft.reserved,
     }));
-    return this.opts.noOtherAds ? rows : [...rows, BYSTANDER];
   }
 
   /**

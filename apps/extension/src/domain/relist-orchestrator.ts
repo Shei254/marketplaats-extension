@@ -213,8 +213,9 @@ export class RelistOrchestrator {
       }
     }
 
-    // 5. Re-create the identical ad from the snapshot.
-    return this.createFromSnapshot(snapshot);
+    // 5. Re-create the identical ad from the snapshot. The one the delete advanced:
+    //    parking the earlier copy would write `captured` back over `deleted`.
+    return this.createFromSnapshot(deletion.snapshot);
   }
 
   /**
@@ -443,8 +444,10 @@ export class RelistOrchestrator {
       }
     }
 
-    const before = await this.listAds()
-    if (!before.length) return this.park(snapshot, "unknown")
+    // `null` and not empty: deleting a seller's only ad leaves a list that is rightly
+    // empty, and refusing that would park the repost on every retry.
+    const before = await this.currentAds()
+    if (before === null) return this.park(snapshot, "unknown")
 
     const attempt: AdSnapshot = {
       ...snapshot,
@@ -536,7 +539,9 @@ export class RelistOrchestrator {
 
     const matches = currentList.filter(
         (ad) => {
-          return !earlier.has(ad.id) && ad.title === s.draft.title
+          // Not the original: a list that lags can still show it, and with nothing
+          // listed before the create it is not among `earlier`.
+          return ad.id !== s.listingId && !earlier.has(ad.id) && ad.title === s.draft.title
         },
     );
 

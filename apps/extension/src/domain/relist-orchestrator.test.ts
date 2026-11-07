@@ -27,7 +27,7 @@ describe("RelistOrchestrator", () => {
    * silently.
    */
   it("answers with the user's own ads rather than printing them", async () => {
-    const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() }, noOtherAds: true });
+    const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() } });
     const orchestrator = new RelistOrchestrator(
       client,
       new InMemorySnapshotStore(),
@@ -63,7 +63,7 @@ describe("RelistOrchestrator", () => {
    * rows are the list's own, because the button beside a match is the same button.
    */
   it("answers with the matches rather than printing them", async () => {
-    const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() }, noOtherAds: true });
+    const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() } });
     const orchestrator = new RelistOrchestrator(
       client,
       new InMemorySnapshotStore(),
@@ -223,6 +223,74 @@ describe("RelistOrchestrator", () => {
     expect(client.has("ad-1")).toBe(true);
     expect(client.lastCreated()).toBeNull();
     expect(await store.get("ad-1")).toBeNull();
+  });
+
+  /**
+   * **A seller's only ad.** Deleting it leaves a list that is rightly empty, and
+   * that has to read as an answer: treating it as "could not tell" parks the repost
+   * on every retry, and the ad never comes back.
+   */
+  describe("a seller's only ad", () => {
+    it("is put back", async () => {
+      const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() } });
+      const store = new InMemorySnapshotStore();
+      const orchestrator = new RelistOrchestrator(client, store, new FakeRelistPermission(), new FakePace());
+
+      const outcome = await orchestrator.relist("ad-1");
+
+      expect(outcome).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
+      expect(client.lastCreated()).toEqual(sampleAd());
+      expect(await store.get("ad-1")).toBeNull();
+    });
+
+    it("is not posted twice when the create's reply was lost", async () => {
+      const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() }, lostReplies: 1 });
+      const store = new InMemorySnapshotStore();
+      const orchestrator = new RelistOrchestrator(client, store, new FakeRelistPermission(), new FakePace());
+      expect((await orchestrator.relist("ad-1")).status).toBe("failed-recoverable");
+
+      pastTheCreateWindow();
+      const outcome = await orchestrator.retry("ad-1");
+
+      expect(outcome).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
+      expect(client.creates()).toBe(1);
+    });
+
+    it("is told apart from a list that came back empty while counting ads", async () => {
+      const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() } });
+      client.listMyAdsPage = async () => ({ ads: [], totalNumberOfResults: 3 });
+      const store = new InMemorySnapshotStore();
+      const orchestrator = new RelistOrchestrator(client, store, new FakeRelistPermission(), new FakePace());
+
+      const outcome = await orchestrator.relist("ad-1");
+
+      expect(outcome.status).toBe("unconfirmed");
+      expect(client.creates()).toBe(0);
+      expect((await store.get("ad-1"))?.phase).toBe("deleted");
+    });
+
+    it("is not mistaken for its own copy when a lagging list shows the deleted original", async () => {
+      // With nothing listed before the create, the original is not among the ids
+      // being diffed against. Reading it as the new ad would drop the only snapshot.
+      const ad = sampleAd();
+      const client = new FakeMarktplaatsClient([], { ads: { "ad-1": ad } });
+      const store = new InMemorySnapshotStore();
+      store.seed({
+        listingId: "ad-1",
+        draft: ad.draft,
+        photos: ad.photos,
+        phase: "deleted",
+        createdAt: 1,
+        idsBeforeCreate: [],
+        createSentAt: 1,
+      });
+      const orchestrator = new RelistOrchestrator(client, store, new FakeRelistPermission(), new FakePace());
+
+      const outcome = await orchestrator.retry("ad-1");
+
+      expect(outcome).toEqual({ status: "relisted", quota: null });
+      expect(client.creates()).toBe(1);
+    });
   });
 
   /**
@@ -572,9 +640,8 @@ describe("RelistOrchestrator", () => {
 
     /**
      * **Nothing is created while the list cannot be read**, because the list is
-     * what shows later whether the create landed (ADR-0039). The snapshot is what
-     * has to survive. What `relist` answers here is deliberately not asserted: it
-     * rejects today, and the todos below are what is open about this path.
+     * what shows later whether the create landed (ADR-0039). The ad is already
+     * deleted by now, so the snapshot stays and a later retry picks it up.
      */
     it("creates nothing and keeps the snapshot when the ads cannot be listed", async () => {
       const events: FakeEvent[] = [];
@@ -585,15 +652,13 @@ describe("RelistOrchestrator", () => {
       const store = new InMemorySnapshotStore();
       const orchestrator = new RelistOrchestrator(client, store, new FakeRelistPermission(), new FakePace());
 
-      await orchestrator.relist("ad-1").catch(() => {});
+      const outcome = await orchestrator.relist("ad-1");
 
+      expect(outcome.status).toBe("unconfirmed");
       expect(client.creates()).toBe(0);
       expect(client.has("ad-1")).toBe(false);
       expect((await store.get("ad-1"))?.phase).toBe("deleted");
     });
-
-    it.todo("answers with an outcome, not a rejection, when the ads cannot be listed after the delete");
-    it.todo("puts back a seller's only ad, whose list reads empty once it is deleted");
 
     /**
      * And the third of the three cases the log line distinguishes: the diff found
@@ -660,7 +725,6 @@ describe("RelistOrchestrator", () => {
     it("crosses into the popup's own list", async () => {
       const client = new FakeMarktplaatsClient([], {
         ads: { "ad-1": sampleAd("Bank", true), "ad-2": sampleAd("Stoel") },
-        noOtherAds: true,
       });
       const orchestrator = new RelistOrchestrator(
         client,

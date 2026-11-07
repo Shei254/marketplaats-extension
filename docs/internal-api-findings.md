@@ -379,12 +379,6 @@ Open questions, each with a ticket where there is one:
   popup, so a leading `//` is read as `https:` on suspicion. Check against a real build. No ticket.
 - **How long does Marktplaats keep serving a deleted ad's photos?** A pending repost's Thumbnail points at one,
   and draws the placeholder once it stops answering. No ticket.
-- **Can a seller's only ad be reposted?** `createFromSnapshot` parks the repost when `listMyAds` reads empty, and
-  deleting the only ad makes it read empty, so no retry ever creates it unless the list lags. Read from the code
-  and reproduced with the fake client, **not seen live**. A `todo` in `relist-orchestrator.test.ts` holds the
-  place. No ticket.
-- **What should a list failure after the delete answer?** That same `listAds()` call is outside any `try`, so
-  `relist` rejects rather than returning an outcome. The snapshot survives and nothing is created. No ticket.
 - **Is there a stable Marktplaats account identifier?** Blocks multi-account as a sellable entitlement.
   T38 ([#47](https://github.com/Shei254/marketplaats-extension/issues/47)).
 - **How do you tell an ad on a page is the user's own?** Needed before anything is injected into the site.

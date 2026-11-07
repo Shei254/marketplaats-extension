@@ -4,10 +4,19 @@ import {useCallback, useEffect, useState, type JSX, useRef} from "react";
 import type { WireRelistOutcome } from "../background/messages";
 
 import type { ListingSummary, PendingRepost } from "../domain/types";
-import {STALE_TAB, describePrice, type AdsView, type PriceLine, INITIAL_MORE} from "./ads";
+import { positionAfter, type AdPage, type SavedPosition } from "./ad-pages";
+import { STALE_TAB, describePrice, type AdsView, type PriceLine } from "./ads";
 import { IDLE, PACING_NOTE, refusalNote, refusedTone, rowStateFor, type RowState } from "./relisting";
 import type { WorkerPort } from "./screen";
 import { Thumbnail } from "./Thumbnail";
+
+/**
+ * How long a reposted row says so before it leaves, with every Repost button
+ * locked. The next row slides up under the pointer, and a stray click on it would
+ * delete an ad. The pacing gap counts from when a repost starts, so this rarely
+ * adds to the wait.
+ */
+export const LEAVING_MS = 1500;
 
 /**
  * The ad list, and the Repost button on each row (T30a #39, T30b #79).
@@ -40,14 +49,16 @@ export function AdList({
   pending = [],
   onLetGo = () => {},
   onReloadMarktplaats = () => {},
-  onSettled = () => {}
+  onSettled = () => {},
+  onGoToPage = () => {},
+  onSavePosition = () => {},
+  refreshes = 0,
 }: {
   view: AdsView;
   worker: WorkerPort;
   /**
    * Every finished attempt, handed up whole. The plan strip belongs to the screen
-   * above and moves on the quota this carries; the ad list is reloaded there too,
-   * since a reposted ad has a new id.
+   * above and moves on the quota this carries.
    */
   onOutcome: (outcome: WireRelistOutcome) => void;
   /**
@@ -96,7 +107,12 @@ export function AdList({
   onLetGo?: (listingId: string) => void;
   /** Reload a **Stale tab**; the list is asked for again once it has. */
   onReloadMarktplaats?: (tabId: number) => void;
-  onSettled?: () => void
+  onSettled?: () => void;
+  /** Show another **Ad page**. The screen above fetches it and hands it back as `view`. */
+  onGoToPage?: (number: number, batchSize: number) => void;
+  onSavePosition?: (position: SavedPosition) => void;
+  /** Goes up with every refresh, which is what shows the seller the copies just counted. */
+  refreshes?: number;
 }): JSX.Element {
   const [running, setRunning] = useState<string | null>(null);
   /**
@@ -152,56 +168,70 @@ export function AdList({
   const [pacingUntil, setPacingUntil] = useState<number | null>(null);
   const pacingSeconds = useCountdown(pacingUntil, () => setPacingUntil(null));
 
-  const firstPage = view.status === "ready" ? view.ads : null;
-  const [more, setMore] = useState(INITIAL_MORE);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [moreError, setMoreError] = useState<string | null>(null);
-  const generation = useRef(0);
+  /**
+   * The rows that have been reposted. Their ids are dead on Marktplaats, so hiding
+   * them stays right for as long as this popup is open, whatever page comes and goes.
+   */
+  const [gone, setGone] = useState<ReadonlySet<string>>(new Set());
+  const goneRef = useRef(gone);
+  /** A reposted row is saying so, which locks every button (`LEAVING_MS`). */
+  const [leaving, setLeaving] = useState(false);
+  const leavingTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(leavingTimer.current), []);
+  /** Reposted since the list last showed their copies. */
+  const [reposted, setReposted] = useState(0);
+  useEffect(() => setReposted(0), [refreshes]);
+  /** The attempt the line above the page bar can speak for once its row is off screen. */
+  const [lastAttempt, setLastAttempt] = useState<{ id: string; title: string } | null>(null);
 
-// A repost moves the ad to the top, so every later page has shifted. The screen
-// reloads page 1 after each outcome; drop the extra pages with it and let any
-// request still in flight discover it is stale.
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const onGoToPageRef = useRef(onGoToPage);
+  onGoToPageRef.current = onGoToPage;
+
+  const shown = view.status === "ready" ? view.ads.filter((ad) => !gone.has(ad.id)) : [];
+  const page = view.status === "ready" ? view.page : undefined;
+
+  // A new set of rows opens at the row it landed on, or else at the top.
+  const listRef = useRef<HTMLUListElement | null>(null);
+  const fetched = view.status === "ready" ? view.ads : null;
   useEffect(() => {
-    generation.current += 1;
-    setMore(INITIAL_MORE);
-    setLoadingMore(false);
-    setMoreError(null);
-  }, [firstPage]);
+    const list = listRef.current;
+    if (!list) return;
+    const landOn = viewRef.current.status === "ready" ? viewRef.current.page?.landOn : null;
+    const row = [...list.children].find((child) => (child as HTMLElement).dataset["adId"] === landOn);
+    list.scrollTop = row ? (row as HTMLElement).offsetTop : 0;
+  }, [fetched]);
 
-  const batchSize = firstPage?.length ?? 0; // the first response defines the batch size
-  const total = more.total ?? (view.status === "ready" ? view.total : 0);
-  const hasMore =
-      firstPage !== null && !more.exhausted && more.nextBatch <= pageCount(total, batchSize);
-
-  const loadMore = useCallback(async () => {
-    if (loadingMore || firstPage === null) return;
-    const gen = generation.current;
-    setLoadingMore(true);
-    setMoreError(null);
-    try {
-      const page = await worker.ads(more.nextBatch, firstPage.length);
-      if (gen !== generation.current) return;
-      setMore((current) => {
-        const seen = new Set([...firstPage, ...current.ads].map((ad) => ad.id));
-        return {
-          ads: [...current.ads, ...page.ads.filter((ad) => !seen.has(ad.id))],
-          nextBatch: current.nextBatch + 1,
-          total: page.totalNumberOfResults,
-          exhausted: page.ads.length === 0,
-        };
-      });
-    } catch (error) {
-      if (gen !== generation.current) return;
-      setMoreError(
-          `Meer advertenties konden niet worden geladen. ${error instanceof Error ? error.message : String(error)}`,
-      );
-    } finally {
-      if (gen === generation.current) setLoadingMore(false);
-    }
-  }, [worker, loadingMore, firstPage, more.nextBatch]);
+  /** The row says it worked, then leaves. If it was the page's last, the next page comes. */
+  const leave = useCallback((listingId: string) => {
+    setLeaving(true);
+    leavingTimer.current = setTimeout(() => {
+      goneRef.current = new Set(goneRef.current).add(listingId);
+      setGone(goneRef.current);
+      setStates(({ [listingId]: _left, ...others }) => others);
+      setReposted((count) => count + 1);
+      setLeaving(false);
+      const current = viewRef.current;
+      if (current.status !== "ready" || !current.page) return;
+      const { number, last, batchSize } = current.page;
+      const emptied =
+        current.ads.some((ad) => ad.id === listingId) && current.ads.every((ad) => goneRef.current.has(ad.id));
+      if (emptied && number < last) onGoToPageRef.current(number + 1, batchSize);
+    }, LEAVING_MS);
+  }, []);
 
   const start = useCallback(
     async (listingId: string, action: "relist" | "retry") => {
+      const current = viewRef.current;
+      const rows = current.status === "ready" ? current.ads.filter((ad) => !goneRef.current.has(ad.id)) : [];
+      const row = rows.find((ad) => ad.id === listingId);
+      setLastAttempt(row ? { id: listingId, title: row.title } : null);
+      // Now rather than when it finishes: closing the popup mid-repost does not
+      // stop the repost, and would leave nothing here to write this.
+      if (action === "relist" && row && current.status === "ready" && current.page) {
+        onSavePosition(positionAfter(rows, listingId, current.page));
+      }
       setRunning(listingId);
       setStates((current) => ({ ...current, [listingId]: { kind: "busy" } }));
 
@@ -249,12 +279,26 @@ export function AdList({
         // than two agreeing.
         setCooldownUntil(Date.now() + (state.locked.retryAfter ?? 0) * 1000);
       }
+      if (state.kind === "done") leave(listingId);
       onOutcome(outcome ?? { status: "refused", locked: { state: "retry" } });
     },
-    [worker, onOutcome],
+    [worker, onOutcome, onSavePosition, leave],
   );
 
   const noTab = view.status === "failed" && view.noTab === true;
+  const moving = view.status === "ready" && view.moving === true;
+  const onScreen = (id: string) =>
+    shown.some((ad) => ad.id === id) || pending.some((repost) => repost.listingId === id);
+  const line = listLine({
+    attempt: lastAttempt !== null && !onScreen(lastAttempt.id) ? lastAttempt : null,
+    running: running !== null && running === lastAttempt?.id,
+    state: lastAttempt ? states[lastAttempt.id] : undefined,
+    pacingSeconds,
+    grantsNothing,
+    reposted,
+    page,
+  });
+  const bar = page !== undefined && page.last > 1;
   return (
     <>
       {pending.length > 0 && (
@@ -275,37 +319,111 @@ export function AdList({
         view={view}
         empty={empty}
         onReloadMarktplaats={onReloadMarktplaats}
-        rows={(ads) => (
-            <ul className="popup-ads">
-              {[...ads, ...more.ads].map((ad) => (
-                  <AdRow
-                      ad={ad}
-                      key={ad.id}
-                      state={states[ad.id] ?? IDLE}
-                      locked={
-                        (running !== null && running !== ad.id) ||
-                        remote !== null ||
-                        secondsLeft !== null ||
-                        grantsNothing
-                      }
-                      secondsLeft={secondsLeft}
-                      pacingSeconds={running === ad.id ? pacingSeconds : null}
-                      onStart={start}
-                      grantsNothing={grantsNothing}
-                  />
-              ))}
-              {hasMore && (
-                  <li className="popup-ads-more">
-                    {moreError && <Note tone="error">{moreError}</Note>}
-                    <Button shape="rect" tone={loadingMore ? "busy" : "secondary"} onClick={() => void loadMore()}>
-                      {loadingMore ? "Laden…" : `Meer laden · ${ads.length + more.ads.length} van ${total}`}
-                    </Button>
-                  </li>
-              )}
-            </ul>
+        rows={() => (
+          <ul className="popup-ads" ref={listRef}>
+            {shown.length === 0 && (
+              <li className="popup-ads-empty">
+                {page ? "Alle advertenties op deze pagina zijn herplaatst." : "Alle gevonden advertenties zijn herplaatst."}
+              </li>
+            )}
+            {shown.map((ad) => (
+              <AdRow
+                ad={ad}
+                key={ad.id}
+                state={states[ad.id] ?? IDLE}
+                locked={
+                  (running !== null && running !== ad.id) ||
+                  remote !== null ||
+                  secondsLeft !== null ||
+                  leaving ||
+                  moving ||
+                  grantsNothing
+                }
+                secondsLeft={secondsLeft}
+                pacingSeconds={running === ad.id ? pacingSeconds : null}
+                onStart={start}
+                grantsNothing={grantsNothing}
+              />
+            ))}
+          </ul>
         )}
       />
+      {view.status === "ready" && view.moveError && (
+        <div className="popup-page-error">
+          <Note tone="error">Deze pagina kon niet worden geladen. {view.moveError}</Note>
+        </div>
+      )}
+      {line && <p className="popup-list-line">{line}</p>}
+      {bar && page && (
+        <PageBar page={page} moving={moving} onGoTo={(number) => onGoToPage(number, page.batchSize)} />
+      )}
     </>
+  );
+}
+
+/**
+ * The one line about reposting that is not on a row: the repost whose row is off
+ * screen if there is one to speak for, and otherwise how many have gone and where.
+ *
+ * A failure stays until the next repost starts, since it is the only place a seller
+ * who moved on would hear of it. An ad that was already deleted says nothing here:
+ * it is a **Pending repost**, on screen wherever the seller is.
+ */
+function listLine({
+  attempt,
+  running,
+  state,
+  pacingSeconds,
+  grantsNothing,
+  reposted,
+  page,
+}: {
+  attempt: { id: string; title: string } | null;
+  running: boolean;
+  state: RowState | undefined;
+  pacingSeconds: number | null;
+  grantsNothing: boolean;
+  reposted: number;
+  page: AdPage | undefined;
+}): string | null {
+  if (attempt && running) {
+    return `Bezig: ${attempt.title}${pacingSeconds != null ? ` · ${pacingSeconds} s` : ""}`;
+  }
+  if (attempt && state?.kind === "failed" && state.action === "relist") return `${attempt.title}: ${state.message}`;
+  if (attempt && state?.kind === "refused") return `${attempt.title}: ${refusalNote(state.locked, grantsNothing)}`;
+  if (reposted === 0) return null;
+  // Past the first page, a move to page 1 fetches it and shows them. On it, only a
+  // refresh can.
+  const where = page && page.number > 1 ? "ze staan bovenaan pagina 1" : "ze staan bovenaan na Vernieuwen";
+  return `${reposted} herplaatst · ${where}`;
+}
+
+/** The controls for an **Ad page**, pinned under the list. */
+function PageBar({
+  page,
+  moving,
+  onGoTo,
+}: {
+  page: AdPage;
+  moving: boolean;
+  onGoTo: (number: number) => void;
+}): JSX.Element {
+  const { number, last } = page;
+  return (
+    <nav className="popup-page-bar" aria-label="Pagina's">
+      <Button tone="secondary" aria-label="Naar begin" title="Naar begin" disabled={moving || number <= 1} onClick={() => onGoTo(1)}>
+        «
+      </Button>
+      <Button tone="secondary" disabled={moving || number <= 1} onClick={() => onGoTo(number - 1)}>
+        ‹ Vorige
+      </Button>
+      <span className="popup-page-number" aria-live="polite">
+        {moving ? "Laden…" : `Pagina ${number} van ${last}`}
+      </span>
+      <Button tone="secondary" disabled={moving || number >= last} onClick={() => onGoTo(number + 1)}>
+        Volgende ›
+      </Button>
+    </nav>
   );
 }
 
@@ -319,7 +437,7 @@ function Ads({
   view: AdsView;
   empty: string;
   onReloadMarktplaats: (tabId: number) => void;
-  rows: (ads: ListingSummary[]) => JSX.Element;
+  rows: () => JSX.Element;
 }): JSX.Element {
   switch (view.status) {
     case "loading":
@@ -342,7 +460,7 @@ function Ads({
     case "ready":
       // An account with no ads is an answer, not a failure — and a spinner left
       // turning over one is the version of this screen that looks broken.
-      return view.ads.length === 0 ? <p className="popup-ads-empty">{empty}</p> : rows(view.ads);
+      return view.ads.length === 0 ? <p className="popup-ads-empty">{empty}</p> : rows();
   }
 }
 
@@ -468,7 +586,7 @@ export function AdRow({
   // what it is waiting for is the number it should be counting down.
   const counting = pacingSeconds ?? secondsLeft ?? null;
   return (
-    <li className="popup-ad" data-state={state.kind}>
+    <li className="popup-ad" data-state={state.kind} data-ad-id={ad.id}>
       <div className="popup-ad-row">
         <Thumbnail url={ad.thumbnailUrl} />
         <div className="popup-ad-info">
@@ -577,8 +695,6 @@ function RowNote({
   // busy row says nothing at all — which is the hang this note exists to not be.
   if (pacing) return <Note tone="warn">{PACING_NOTE}</Note>;
   switch (state.kind) {
-    case "done":
-      return <Note tone="ok">Herplaatst. Je advertenties worden opnieuw geladen…</Note>;
     case "failed":
       return <Note tone={state.tone}>{state.message}</Note>;
     case "refused":
@@ -665,8 +781,4 @@ function LoadingRows(): JSX.Element {
       ))}
     </ul>
   );
-}
-
-export function pageCount(total: number, batchSize: number): number {
-  return batchSize > 0 ? Math.ceil(total / batchSize) : 1;
 }

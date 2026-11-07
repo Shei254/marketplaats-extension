@@ -9,14 +9,7 @@ import {
   SpikePendingError,
 } from "../domain/marktplaats-client";
 import type { ListingSummary } from "../domain/types";
-
-export const INITIAL_MORE = {
-  ads: [] as ListingSummary[],
-  nextBatch: 2,
-  total: null as number | null,
-  exhausted: false,
-};
-
+import type { AdPage } from "./ad-pages";
 
 /**
  * The ad list, as the popup holds it (T30a, #39).
@@ -33,7 +26,17 @@ export const INITIAL_MORE = {
  */
 export type AdsView =
   | { status: "loading" }
-  | { status: "ready"; ads: ListingSummary[]; total: number }
+  | {
+      status: "ready";
+      ads: ListingSummary[];
+      total: number;
+      /** Which **Ad page** this is. Absent on search results, which are not paged. */
+      page?: AdPage;
+      /** Another page is on its way. These rows stay up, with their buttons locked. */
+      moving?: boolean;
+      /** Why the last move failed. These rows are still good, so they stay. */
+      moveError?: string;
+    }
     /** `noTab` when it failed for want of a marktplaats.nl tab, which pending rows say too. */
   | { status: "failed"; message: string; noTab?: boolean }
   /**

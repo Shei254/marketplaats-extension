@@ -2,6 +2,7 @@ import type { DisplayStateAnswer } from "../api/display-state";
 import type { HandoffAnswer, PlansAnswer } from "../api/subscribing";
 import type {AdsPage, ListingSummary, PendingRepost} from "../domain/types";
 import type { BackgroundRequest, BackgroundResponse, WireRelistOutcome } from "../background/messages";
+import { clearSavedPosition, readSavedPosition, writeSavedPosition } from "../adapters/chrome-position-store";
 import { fromWireError } from "../content/messages";
 import type { WorkerPort } from "./screen";
 
@@ -17,6 +18,9 @@ import type { WorkerPort } from "./screen";
  */
 export function workerPort(): WorkerPort {
   return {
+    savedPosition: readSavedPosition,
+    savePosition: writeSavedPosition,
+    clearPosition: clearSavedPosition,
     async relistStatus(): Promise<string | null> {
       try {
         return await ask({ kind: "relist-status" })

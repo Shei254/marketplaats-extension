@@ -372,8 +372,9 @@ reading and starts being the thing somebody opens under time pressure.
 
 Open questions, each with a ticket where there is one:
 
-- **Is `listMyAds` paginated?** The code does `data.ads ?? []` and never asks for a second page. An account
-  with many ads may silently show a prefix of them. T37 ([#46](https://github.com/Shei254/marketplaats-extension/issues/46)).
+- **Is `listMyAds` paginated, and does a repost go to the top?** The popup's **Ad pages** and **Saved position**
+  rely on `batchNumber`/`batchSize` asking for any page directly and on the list being newest-first. Neither has
+  been seen on a live account with several pages, and the real page size is unknown. T37 ([#46](https://github.com/Shei254/marketplaats-extension/issues/46)).
 - **What does `primaryImageUrl` look like on a live row?** The popup draws it as the row's **Thumbnail**, and
   a pending repost's row draws the first of `gallery.imageUrls` instead. Neither has been seen rendering in the
   popup, so a leading `//` is read as `https:` on suspicion. Check against a real build. No ticket.

@@ -6,6 +6,7 @@ import type { WireRelistOutcome } from "../background/messages";
 import type { HandoffAnswer } from "../api/subscribing";
 import { NoMarktplaatsTabError, StaleMarktplaatsTabError } from "../adapters/relay-marktplaats-client";
 import type { PendingRepost } from "../domain/types";
+import { fetchAdPage } from "./ad-pages";
 import { ADS_LOADING, describeAdsFailure, type AdsView } from "./ads";
 import { adListCss, planCardCss, popupCss } from "./popup-styles";
 import { AdList } from "./AdList";
@@ -52,6 +53,8 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
   const [ads, setAds] = useState<AdsView>(ADS_LOADING);
   /** Reposts that did not finish, which the ad list draws above the ads (ADR-0039). */
   const [pending, setPending] = useState<PendingRepost[]>([]);
+  /** How many times the list was refreshed, which shows the seller their new copies. */
+  const [refreshes, setRefreshes] = useState(0);
   const [busy, setBusy] = useState(false);
   const [plans, setPlans] = useState<PlansView>(PLANS_LOADING);
   const [handoff, setHandoff] = useState<Handoff>(NOT_OPENING);
@@ -79,18 +82,25 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
     async (want: Showing) => {
       displayed.current = want;
       const mine = ++latest.current;
-      setAds(ADS_LOADING);
+      // The ads stay up while their replacement is fetched, so going back to the
+      // **Saved position** does not flash an empty list.
+      setAds((current) =>
+        want.kind === "all" && current.status === "ready" && current.page
+          ? { ...current, moving: true, moveError: undefined }
+          : ADS_LOADING,
+      );
       // Beside the list rather than after it: these come from the worker's own
       // storage, and are shown even when the list cannot be had at all.
       const holding = worker.pendingReposts();
       try {
         if (want.kind === "all") {
-          const page = await worker.ads();
-          if (mine === latest.current) {
-            setAds({ status: "ready", ads: page.ads, total: page.totalNumberOfResults });
-          }
+          const saved = await worker.savedPosition();
+          const { ads, total, page } = await fetchAdPage(worker, saved?.page ?? 1, saved?.batchSize ?? 0);
+          // An ad that has gone since costs only the row: this opens at the top of the page.
+          const landOn = ads.some((ad) => ad.id === saved?.nextAdId) ? (saved?.nextAdId ?? null) : null;
+          if (mine === latest.current) setAds({ status: "ready", ads, total, page: { ...page, landOn } });
         } else {
-          // Search isn't paged: total equals what arrived, so `AdList` never shows the button.
+          // Search isn't paged, so this carries no page and `AdList` draws no page bar.
           const found = await worker.searchAds(want.query);
           if (mine === latest.current) setAds({ status: "ready", ads: found, total: found.length });
         }
@@ -99,6 +109,32 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
       }
       const held = await holding;
       if (mine === latest.current) setPending(held);
+    },
+    [worker],
+  );
+
+  /**
+   * Another **Ad page**, at the seller's word or because the last row of this one
+   * left. It becomes the **Saved position** only once it has arrived. A failure
+   * leaves the rows in place, since nothing is wrong with them.
+   */
+  const showPage = useCallback(
+    async (number: number, batchSize: number) => {
+      const mine = ++latest.current;
+      setAds((current) => (current.status === "ready" ? { ...current, moving: true, moveError: undefined } : current));
+      try {
+        const { ads, total, page } = await fetchAdPage(worker, number, batchSize);
+        if (mine !== latest.current) return;
+        setAds({ status: "ready", ads, total, page });
+        void worker.savePosition({ page: page.number, batchSize: page.batchSize, nextAdId: null });
+      } catch (error) {
+        if (mine !== latest.current) return;
+        setAds((current) =>
+          current.status === "ready"
+            ? { ...current, moving: false, moveError: describeAdsFailure(error) }
+            : current,
+        );
+      }
     },
     [worker],
   );
@@ -156,6 +192,7 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
     }
 
     await showAds(displayed.current);
+    setRefreshes((count) => count + 1);
     setBusy(false);
   }, [worker, showAds, loadPlans]);
 
@@ -174,7 +211,7 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
     void showAds(showing);
   }, [showing, screen.screen, showAds]);
 
-  /** The ads alone — what a finished relist invalidates, since the ad has a new id. */
+  /** The ads alone, back at the **Saved position**. */
   const reloadAds = useCallback(() => showAds(displayed.current), [showAds]);
 
   /** Drop a pending repost at the user's word, and draw what is left. */
@@ -204,6 +241,10 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
    * left, and asking again would be a second read of the same subtraction — one
    * that can disagree with the first if a relist lands in between. `/api/me` is
    * still what the popup opens with; this is what keeps it true afterwards.
+   *
+   * **The list is not reloaded**: the row leaves by itself (`AdList`), so a seller
+   * deep in their ads keeps their place. Any attempt can start, finish or change a
+   * pending repost, so that is asked again every time.
    */
   const onOutcome = useCallback(
     (outcome: WireRelistOutcome) => {
@@ -215,11 +256,9 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
             : current,
         );
       }
-      if (outcome.status === "relisted") void reloadAds();
-      // Any attempt can start, finish or change a pending repost.
-      else void worker.pendingReposts().then(setPending);
+      void worker.pendingReposts().then(setPending);
     },
-    [reloadAds, worker],
+    [worker],
   );
 
   const onSettled = useCallback(() => {
@@ -337,6 +376,8 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
     // list already filtered by a word they never typed.
     clear();
     displayed.current = ALL;
+    // The next person here starts from the top, for the same reason.
+    void worker.clearPosition();
   }, [worker, clear]);
 
   return (
@@ -355,6 +396,8 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
           reloadMarktplaats,
           worker,
           onOutcome,
+          showPage,
+          refreshes,
           plans,
           handoff,
           seePlans,
@@ -385,6 +428,8 @@ interface Handlers {
   reloadMarktplaats: (tabId: number) => void;
   worker: WorkerPort;
   onOutcome: (outcome: WireRelistOutcome) => void;
+  showPage: (number: number, batchSize: number) => void;
+  refreshes: number;
   plans: PlansView;
   handoff: Handoff;
   seePlans: () => void;
@@ -406,6 +451,7 @@ interface Handlers {
 
 function body(screen: Screen, handlers: Handlers): JSX.Element {
   const { load, signIn, signOut, busy, ads, pending, letGo, reloadMarktplaats, worker, onOutcome, retryPending, onSettled } = handlers;
+  const { showPage, refreshes } = handlers;
   const { plans, handoff, seePlans, loadPlans, backToAds, upgrade, manageBilling } = handlers;
   const { typed, showing, onType, onClearSearch } = handlers;
   switch (screen.screen) {
@@ -458,6 +504,9 @@ function body(screen: Screen, handlers: Handlers): JSX.Element {
             onLetGo={letGo}
             onReloadMarktplaats={reloadMarktplaats}
             onSettled={onSettled}
+            onGoToPage={showPage}
+            onSavePosition={worker.savePosition}
+            refreshes={refreshes}
             empty={showing.kind === "search" ? noMatches(showing.query) : undefined}
             // The one thing the list is told about the plan, and it is the grant
             // rather than what is left of it (T32, #41). The screen above holds

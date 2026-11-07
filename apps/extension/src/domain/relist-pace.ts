@@ -40,18 +40,18 @@ export interface PacingWindow {
  * The built-in window, and what a build paces with until a deployment says
  * otherwise.
  *
- * **10 to 30 seconds**, uniform. It was 45 to 90 until 2026-08, which was drawn
+ * **7 to 12 seconds**, uniform. It was 45 to 90 until 2026-08, which was drawn
  * against a 30s rail on the API and turned every second repost into most of a
  * minute of watching a countdown. The rail moved with it — `minimum-interval` is
  * 5s now — and the floor here is what has to stay above that one: a gap that could
  * come in under the rail hands the user the very cooldown this exists to keep them
- * away from. 10s over a 5s rail is double the room a request and two disagreeing
- * clocks need, and it is the number the ticket asked for.
+ * away from. 7s over a 5s rail leaves room for a request and two disagreeing
+ * clocks.
  *
  * **The ceiling is what keeps this from being a metronome**, which the floor alone
  * cannot do: a fixed gap is as machine-shaped as no gap at all, only slower
- * (ADR-0008). Three times the floor leaves a spread wide enough for that and still
- * averages 20s, which is a wait a person will sit through.
+ * (ADR-0008). It leaves a spread for that and still averages under 10s, which is a
+ * wait a person will sit through.
  *
  * **Changing it needs no store release.** An operator's `pacing` block reaches
  * `RelistPacer` as a source rather than a value (T27, #36), and this window is

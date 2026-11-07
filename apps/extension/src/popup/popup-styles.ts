@@ -48,6 +48,17 @@ body {
   width: 360px;
   background: var(--mp-bg);
 }
+/* A screen with the ad list on it is a column no taller than Chrome's 600px limit
+   for a popup, so the list can take what the bands around it leave. */
+body:has(.popup-ads),
+body:has(.popup-ads) > *,
+.mp-root:has(> .popup-ads) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+body:has(.popup-ads) { max-height: 600px; }
+.mp-root:has(> .popup-ads) > :not(.popup-ads) { flex-shrink: 0; }
 
 .popup-header {
   display: flex;
@@ -202,11 +213,6 @@ export const adListCss = `
 /* The search box over the list (T31, #40). It sits in the list's own sheet
    because it is the list's control and shares its gutter — and its bottom line is
    the one the first row would have drawn, so the two never double up. */
-.popup-ads-more {
-  display: grid;
-  gap: var(--mp-space-xs);
-  padding: var(--mp-space-sm) var(--mp-space-md);
-}
 .popup-search {
   display: flex;
   align-items: center;
@@ -217,17 +223,58 @@ export const adListCss = `
 .popup-search .mp-input { padding: 6px 10px; font: var(--mp-text-secondary) var(--mp-font-family); }
 .popup-search-clear { flex: none; }
 
-.popup-ads { 
-    --popup-chrome: 196px;
-    list-style: none; 
-    margin: 0; 
-    padding: 0; 
-    max-height: calc(600px - var(--popup-chrome)); 
-    overflow-y: auto; 
- }
- .popup-ads.popup-pending {
-    max-height: 140px;
-  }
+.popup-ads {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  /* Takes whatever the bands around it leave of the 600px Chrome allows a popup, so
+     the page bar stays on screen however tall a prompt or a failure line is. The
+     floor is for the worst case: a list too short to use is worse than a popup
+     that scrolls. */
+  flex: 1 1 auto;
+  min-height: 180px;
+  overflow-y: auto;
+  position: relative;
+}
+.popup-list-line {
+  margin: 0;
+  padding: 5px var(--mp-space-md);
+  font: var(--mp-text-caption) var(--mp-font-family);
+  color: var(--mp-muted);
+  background: var(--mp-subtle);
+  border-top: 1px solid var(--mp-line);
+}
+.popup-page-error { padding: var(--mp-space-xs) var(--mp-space-md) 0; }
+/* Pinned under the list, so the way to the next page never takes a scroll to reach. */
+.popup-page-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: var(--mp-space-xs) var(--mp-space-sm);
+  border-top: 1px solid var(--mp-line);
+}
+.popup-page-bar .mp-btn {
+  padding: 5px 7px;
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  font-weight: 600;
+}
+.popup-page-number {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  font-weight: 600;
+  color: var(--mp-fg);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.popup-ads.popup-pending {
+  flex: none;
+  min-height: 0;
+  max-height: 140px;
+}
 .popup-ad {
   padding: var(--mp-space-sm) var(--mp-space-md);
   border-bottom: 1px solid var(--mp-line);

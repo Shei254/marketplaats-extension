@@ -100,14 +100,15 @@ of fact and is what made the pair legible once one of them was known.
 The popup had been rendering it as a floor: a `FAST_BID` or `MIN_BID` row drew `Bieden · vanaf € X` from
 `minimumBidPriceCents || priceCents`. On an ad with bids that is a number the seller never chose, presented as
 though they had; on an ad with none it silently fell through to `priceCents`. T67 removes it — a bidding row
-now shows the `Bieden` chip and no number at all — and this note is why, so the field is not read as a floor a
-second time.
+now shows no number from that field — and this note is why, so the field is not read as a floor a second time.
 
 Two things that follow, and one that does not:
 
 - **A bid ad's `priceCents` is not reliably its asking price.** The live rows that prompted this carry `0`,
   while the golden capture fixture's `FAST_BID` ad carries `priceCent: "12500"`. Which is which has not been
-  established, and it is the reason the row shows no number rather than the other one.
+  established. T67 showed no number for that reason; **since `158aaa8` a `FAST_BID` or `MIN_BID` row with a
+  non-zero `priceCents` draws it as its price**, and only a `0` draws the `Bieden` chip. That is the current
+  behaviour by choice, and it does not settle what the number means.
 - **The three price *types* are still sound.** `FIXED` → Vraagprijs, `FREE` → Gratis, `SEE_DESCRIPTION` →
   Zie beschrijving is what fixed the older bug where all three drew `€ 0,00`. Only the bid branch was wrong.
 - **This says nothing about `captureAd`.** `CapturedAd.price.minimumBidPriceCent` comes off the ad's own edit
@@ -218,9 +219,9 @@ rather than its presence — `on` or `off`. `phoneNumberSwitch` is `"true"` only
 **and** the capture has a number, in which case `contactInformation.phoneNumber` rides with it; otherwise
 `"false"` alone, because a switch turned on over an empty field is a payload the site refuses.
 
-**The two amounts are written differently, and that is not a slip.** `price.value` is a bare number
-(`125.99`), `price.minimumBidPrice` is nl-NL with two places (`50,00`). Each is a form field filled in the
-way that form fills it. Both are omitted for a `FREE` or `SEE_DESCRIPTION` ad, and `price.minimumBidPrice` is
+**Both amounts are nl-NL with two places:** `price.value` is `125,00` and `price.minimumBidPrice` is `50,00`.
+`price.value` was a bare number (`125`, `125.99`) until `158aaa8`; the nl-NL form has been **observed working
+live** (confirmed 2026-11-07), and the goldens are frozen onto it. Both are omitted for a `FREE` or `SEE_DESCRIPTION` ad, and `price.minimumBidPrice` is
 also omitted when there is no floor — guarded on `Number(…) > 0`, because the capture carries cents as
 **strings** and `"0"` is truthy. Guarding on the raw value put `price.minimumBidPrice=0,00` on every ad
 without a floor, which is a number the seller never chose.
@@ -375,6 +376,17 @@ Open questions, each with a ticket where there is one:
 
 - **Is `listMyAds` paginated?** The code does `data.ads ?? []` and never asks for a second page. An account
   with many ads may silently show a prefix of them. T37 ([#46](https://github.com/Shei254/marketplaats-extension/issues/46)).
+- **What does `primaryImageUrl` look like on a live row?** The popup draws it as the row's **Thumbnail**, and
+  a pending repost's row draws the first of `gallery.imageUrls` instead. Neither has been seen rendering in the
+  popup, so a leading `//` is read as `https:` on suspicion. Check against a real build. No ticket.
+- **How long does Marktplaats keep serving a deleted ad's photos?** A pending repost's Thumbnail points at one,
+  and draws the placeholder once it stops answering. No ticket.
+- **Can a seller's only ad be reposted?** `createFromSnapshot` parks the repost when `listMyAds` reads empty, and
+  deleting the only ad makes it read empty, so no retry ever creates it unless the list lags. Read from the code
+  and reproduced with the fake client, **not seen live**. A `todo` in `relist-orchestrator.test.ts` holds the
+  place. No ticket.
+- **What should a list failure after the delete answer?** That same `listAds()` call is outside any `try`, so
+  `relist` rejects rather than returning an outcome. The snapshot survives and nothing is created. No ticket.
 - **Is there a stable Marktplaats account identifier?** Blocks multi-account as a sellable entitlement.
   T38 ([#47](https://github.com/Shei254/marketplaats-extension/issues/47)).
 - **How do you tell an ad on a page is the user's own?** Needed before anything is injected into the site.

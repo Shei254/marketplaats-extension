@@ -81,7 +81,7 @@ async function handle(request: RelayRequest): Promise<RelayResult> {
  * predate it — an absent flag is an unreserved ad, and `undefined` on a boolean
  * would draw the badge nowhere and typecheck everywhere.
  */
-function toListingSummary(ad: ListingDraft): ListingSummary {
+export function toListingSummary(ad: ListingDraft): ListingSummary {
     return {
         id: String(ad.itemId),
         title: ad.title,
@@ -89,6 +89,8 @@ function toListingSummary(ad: ListingDraft): ListingSummary {
         priceType: ad.priceType,
         biddingEnabled: ad.biddingEnabled,
         reserved: ad.reserved ?? false,
+        // `||`: an ad with no photos may carry an empty string as readily as nothing.
+        thumbnailUrl: ad.primaryImageUrl || undefined,
     };
 }
 

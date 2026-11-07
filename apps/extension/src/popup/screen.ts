@@ -2,6 +2,7 @@ import type { DisplayState } from "@mprelist/contracts";
 
 import type { DisplayStateAnswer } from "../api/display-state";
 import type { HandoffAnswer, PlansAnswer } from "../api/subscribing";
+import type { SavedPosition } from "./ad-pages";
 import type { WireRelistOutcome } from "../background/messages";
 import type {AdsPage, ListingSummary, PendingRepost} from "../domain/types";
 
@@ -160,4 +161,8 @@ export interface WorkerPort {
   signIn(): Promise<void>;
   signOut(): Promise<void>;
   relistStatus(): Promise<string | null>;
+  /** The **Saved position**, which is `null` when there is none or it cannot be read. */
+  savedPosition(): Promise<SavedPosition | null>;
+  savePosition(position: SavedPosition): Promise<void>;
+  clearPosition(): Promise<void>;
 }

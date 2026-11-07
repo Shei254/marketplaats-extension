@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { WireRelistOutcome } from "../background/messages";
 import type { ListingSummary } from "../domain/types";
-import { AdList } from "./AdList";
+import type { AdPage } from "./ad-pages";
+import type { AdsView } from "./ads";
+import { AdList, LEAVING_MS } from "./AdList";
 import type { WorkerPort } from "./screen";
 
 /**
@@ -124,7 +126,8 @@ describe("reposting one ad", () => {
     await show(worker, (outcome) => outcomes.push(outcome));
     await press(0);
 
-    expect(text()).toContain("Herplaatst. Je advertenties worden opnieuw geladen…");
+    expect(buttons()[0]?.textContent).toBe("Herplaatst");
+    expect(text()).not.toContain("opnieuw geladen");
     expect(outcomes).toEqual([RELISTED]);
   });
 });
@@ -502,5 +505,281 @@ describe("a plan that grants no reposts at all", () => {
 
     expect(text()).toContain("Dit abonnement bevat geen herplaatsingen");
     expect(text()).not.toContain("je limiet voor herplaatsingen");
+  });
+});
+
+describe("a list in pages", () => {
+  const page: AdPage = { number: 2, batchSize: 2, last: 4, landOn: null };
+  const onPage = (ads = ADS, on = page): AdsView => ({ status: "ready", ads, total: 8, page: on });
+  const onGoToPage = vi.fn();
+  const onSavePosition = vi.fn();
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    onGoToPage.mockClear();
+    onSavePosition.mockClear();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function draw(worker: WorkerPort, view: AdsView, refreshes = 0): Promise<void> {
+    await act(async () => {
+      root.render(
+        <AdList
+          view={view}
+          worker={worker}
+          onOutcome={() => {}}
+          grantsNothing={false}
+          onGoToPage={onGoToPage}
+          onSavePosition={onSavePosition}
+          refreshes={refreshes}
+        />,
+      );
+    });
+  }
+  const pass = (ms: number) => act(async () => void vi.advanceTimersByTime(ms));
+  const repostButtons = () => buttons().filter((button) => button.closest("li"));
+  const barButton = (label: string) =>
+    [...container.querySelectorAll<HTMLButtonElement>("nav button")].find((b) => b.textContent?.includes(label));
+
+  describe("after a repost", () => {
+    it("the row says so with every button locked, then leaves", async () => {
+      const { worker } = fakeWorker();
+      await draw(worker, onPage());
+      await press(0);
+
+      expect(repostButtons()[0]?.textContent).toBe("Herplaatst");
+      expect(repostButtons()[1]?.disabled).toBe(true);
+
+      await pass(LEAVING_MS - 1);
+      expect(text()).toContain("Vintage Eames");
+
+      await pass(1);
+      expect(text()).not.toContain("Vintage Eames");
+      expect(repostButtons()).toHaveLength(1);
+      expect(repostButtons()[0]?.disabled).toBe(false);
+    });
+
+    it("counts it, and says where the copy is", async () => {
+      const { worker } = fakeWorker();
+      await draw(worker, onPage());
+      await press(0);
+      await pass(LEAVING_MS);
+
+      expect(text()).toContain("1 herplaatst · ze staan bovenaan pagina 1");
+    });
+
+    it("on the first page only a refresh can show the copy, which then ends the count", async () => {
+      const { worker } = fakeWorker();
+      const first = onPage(ADS, { ...page, number: 1 });
+      await draw(worker, first);
+      await press(0);
+      await pass(LEAVING_MS);
+      expect(text()).toContain("1 herplaatst · ze staan bovenaan na Vernieuwen");
+
+      await draw(worker, first, 1);
+      expect(text()).not.toContain("herplaatst ·");
+    });
+
+    it("a repost that failed keeps its row", async () => {
+      const { worker } = fakeWorker({ status: "failed-before-delete", error: WIRE_ERROR, quota: QUOTA });
+      await draw(worker, onPage());
+      await press(0);
+      await pass(LEAVING_MS);
+
+      expect(text()).toContain("Vintage Eames");
+      expect(text()).not.toContain("herplaatst ·");
+    });
+  });
+
+  describe("when the page's last row leaves", () => {
+    const one = [ADS[0]!];
+
+    it("the next page comes by itself, and only then", async () => {
+      const { worker } = fakeWorker();
+      await draw(worker, onPage());
+      await press(0);
+      await pass(LEAVING_MS);
+      expect(onGoToPage).not.toHaveBeenCalled();
+
+      await press(0);
+      await pass(LEAVING_MS);
+      expect(onGoToPage).toHaveBeenCalledWith(3, 2);
+    });
+
+    it("the buttons stay locked until the rows arrive", async () => {
+      const { worker } = fakeWorker();
+      await draw(worker, { ...onPage(ADS), moving: true } as AdsView);
+
+      expect(repostButtons().every((button) => button.disabled)).toBe(true);
+    });
+
+    it("the last page says so, instead of claiming the account has no ads", async () => {
+      const { worker } = fakeWorker();
+      await draw(worker, onPage(one, { ...page, number: 4 }));
+      await press(0);
+      await pass(LEAVING_MS);
+
+      expect(onGoToPage).not.toHaveBeenCalled();
+      expect(text()).toContain("Alle advertenties op deze pagina zijn herplaatst.");
+      expect(text()).not.toContain("geen actieve");
+    });
+
+    it("a seller who already moved on is not moved again", async () => {
+      const { worker, hang, finish } = fakeWorker();
+      hang();
+      await draw(worker, onPage(one));
+      await press(0);
+      await draw(worker, onPage([ADS[1]!], { ...page, number: 3 }));
+      await finish(RELISTED);
+      await pass(LEAVING_MS);
+
+      expect(onGoToPage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("the saved position", () => {
+    it("is written at the click, before the repost has done anything", async () => {
+      const { worker, hang } = fakeWorker();
+      hang();
+      await draw(worker, onPage());
+      await press(0);
+
+      expect(onSavePosition).toHaveBeenCalledWith({ page: 2, batchSize: 2, nextAdId: "m2" });
+    });
+
+    it("is the next page's top after the page's last row", async () => {
+      const { worker, hang } = fakeWorker();
+      hang();
+      await draw(worker, onPage());
+      await press(1);
+
+      expect(onSavePosition).toHaveBeenCalledWith({ page: 3, batchSize: 2, nextAdId: null });
+    });
+  });
+
+  describe("the page bar", () => {
+    it("says where the seller is and moves them", async () => {
+      const { worker } = fakeWorker();
+      await draw(worker, onPage());
+
+      expect(text()).toContain("Pagina 2 van 4");
+      await act(async () => barButton("Volgende")?.click());
+      expect(onGoToPage).toHaveBeenLastCalledWith(3, 2);
+      await act(async () => barButton("Vorige")?.click());
+      expect(onGoToPage).toHaveBeenLastCalledWith(1, 2);
+      await act(async () => barButton("«")?.click());
+      expect(onGoToPage).toHaveBeenLastCalledWith(1, 2);
+    });
+
+    it("stops at either end", async () => {
+      const { worker } = fakeWorker();
+      await draw(worker, onPage(ADS, { ...page, number: 1 }));
+      expect(barButton("Vorige")?.disabled).toBe(true);
+      expect(barButton("«")?.disabled).toBe(true);
+
+      await draw(worker, onPage(ADS, { ...page, number: 4 }));
+      expect(barButton("Volgende")?.disabled).toBe(true);
+    });
+
+    it("is not there with one page, or on search results", async () => {
+      const { worker } = fakeWorker();
+      await draw(worker, onPage(ADS, { ...page, number: 1, last: 1 }));
+      expect(container.querySelector("nav")).toBeNull();
+
+      await draw(worker, { status: "ready", ads: ADS, total: 2 });
+      expect(container.querySelector("nav")).toBeNull();
+    });
+
+    it("stays usable while a repost runs, with the rows it shows locked", async () => {
+      const { worker, hang } = fakeWorker();
+      hang();
+      await draw(worker, onPage());
+      await press(0);
+
+      expect(barButton("Volgende")?.disabled).toBe(false);
+
+      await draw(worker, onPage([ADS[1]!], { ...page, number: 3 }));
+      expect(repostButtons()[0]?.disabled).toBe(true);
+    });
+
+    it("opens a new set of rows at the row it landed on, and otherwise at the top", async () => {
+      const { worker } = fakeWorker();
+      await draw(worker, onPage(ADS, { ...page, landOn: "m2" }));
+      const list = container.querySelector("ul")!;
+      const row = container.querySelector<HTMLElement>('[data-ad-id="m2"]')!;
+      Object.defineProperty(row, "offsetTop", { value: 60 });
+      await draw(worker, onPage([...ADS], { ...page, landOn: "m2" }));
+      expect(list.scrollTop).toBe(60);
+
+      await draw(worker, onPage([...ADS]));
+      expect(list.scrollTop).toBe(0);
+    });
+  });
+
+  describe("a repost whose row is off screen", () => {
+    const elsewhere = onPage([ADS[1]!], { ...page, number: 3 });
+
+    it("is named while it runs", async () => {
+      const { worker, hang } = fakeWorker();
+      hang();
+      await draw(worker, onPage());
+      await press(0);
+      await draw(worker, elsewhere);
+
+      expect(text()).toContain("Bezig: Vintage Eames lounge chair");
+    });
+
+    it("is counted when it finishes", async () => {
+      const { worker, hang, finish } = fakeWorker();
+      hang();
+      await draw(worker, onPage());
+      await press(0);
+      await draw(worker, elsewhere);
+      await finish(RELISTED);
+      await pass(LEAVING_MS);
+
+      expect(text()).toContain("1 herplaatst");
+    });
+
+    it("says it failed, and keeps saying so until the next one starts", async () => {
+      const { worker, hang, finish } = fakeWorker();
+      hang();
+      await draw(worker, onPage());
+      await press(0);
+      await draw(worker, elsewhere);
+      await finish({ status: "failed-before-delete", error: WIRE_ERROR, quota: QUOTA });
+
+      expect(text()).toContain("Vintage Eames lounge chair: Er is niets herplaatst");
+
+      await press(0);
+      expect(text()).not.toContain("Vintage Eames lounge chair: Er is niets herplaatst");
+    });
+
+    it("runs on its row again when the seller comes back", async () => {
+      const { worker, hang } = fakeWorker();
+      hang();
+      const here = onPage();
+      await draw(worker, here);
+      await press(0);
+      await draw(worker, elsewhere);
+      await draw(worker, here);
+
+      expect(repostButtons()[0]?.textContent).toContain("Bezig met herplaatsen");
+      expect(text()).not.toContain("Bezig: ");
+    });
+  });
+
+  it("search results lose a row the same way, and write no position", async () => {
+    const { worker } = fakeWorker();
+    await draw(worker, { status: "ready", ads: [ADS[0]!], total: 1 });
+    await press(0);
+    await pass(LEAVING_MS);
+
+    expect(onSavePosition).not.toHaveBeenCalled();
+    expect(onGoToPage).not.toHaveBeenCalled();
+    expect(text()).toContain("Alle gevonden advertenties zijn herplaatst.");
+    expect(text()).toContain("1 herplaatst");
   });
 });

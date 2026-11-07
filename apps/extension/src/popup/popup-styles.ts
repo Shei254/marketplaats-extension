@@ -241,8 +241,8 @@ export const adListCss = `
   justify-content: space-between;
   gap: 10px;
 }
-/* The box is the placeholder and the picture is laid over it, so a row is the same
-   shape with a photo, without one, and while one loads. The inset line rather than
+/* One box, so a row is the same shape with a photo, without one, and while one
+   loads. Grid centres the no-photo icon, and \`--mp-muted\` is its colour. The inset line rather than
    a fill alone because \`.popup-ad:hover\` paints the row in the same \`--mp-subtle\`,
    which would make an empty box vanish under the pointer. */
 .popup-ad-thumbnail {
@@ -251,6 +251,9 @@ export const adListCss = `
   height: 40px;
   overflow: hidden;
   border-radius: 6px;
+  display: grid;
+  place-items: center;
+  color: var(--mp-muted);
   background: var(--mp-subtle);
   box-shadow: inset 0 0 0 1px var(--mp-line);
 }

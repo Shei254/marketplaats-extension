@@ -539,13 +539,23 @@ export class RelistOrchestrator {
    * the list before it and carries the same title. Only for that case — a
    * Confirmed create names its ad, and is never second-guessed by this.
    */
-  private async lookForCreated(r: { idsBeforeCreate?: string[] | null; title?: string; draft?: CapturedAd }): Promise<Landed> {
+  private async lookForCreated(r: {
+    listingId: string;
+    idsBeforeCreate?: string[] | null;
+    title?: string;
+    draft?: CapturedAd;
+  }): Promise<Landed> {
     const currentList = await this.currentAds();
     if (currentList === null) return { state: "unknown" };
 
     const earlier = new Set(r.idsBeforeCreate ?? []);
     const title = sameTitle(r.title ?? r.draft?.title ?? "");
-    const matches = currentList.filter((ad) => !earlier.has(ad.id) && sameTitle(ad.title) === title);
+    // **Never the original.** A list that was empty or lagging before the create
+    // leaves it out of `earlier`, and taking it for its own copy would delete it as
+    // "replaced" — the seller's only ad, gone (#189).
+    const matches = currentList.filter(
+      (ad) => ad.id !== r.listingId && !earlier.has(ad.id) && sameTitle(ad.title) === title,
+    );
 
     if (matches.length === 1) return { state: "landed", id: matches[0]!.id };
     // Two new ads with this title: there is nothing to tell ours by. Never guess.

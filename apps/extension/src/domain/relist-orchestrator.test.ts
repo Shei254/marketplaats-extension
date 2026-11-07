@@ -374,6 +374,55 @@ describe("RelistOrchestrator", () => {
   });
 
   /**
+   * **A seller's only ad** (#189). Under delete-first, deleting it left a list that
+   * was rightly empty, and reading that as "could not tell" parked the repost
+   * forever. Create-first keeps the original listed throughout, but the edges the
+   * fix found still have to hold.
+   */
+  describe("a seller's only ad", () => {
+    it("is reposted", async () => {
+      const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() } });
+      const store = new InMemorySnapshotStore();
+      const orchestrator = new RelistOrchestrator(client, store, new FakeRelistPermission(), new FakePace());
+
+      expect(await orchestrator.relist("ad-1")).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
+      expect(client.ids()).toEqual(["new-1"]);
+      expect(await store.get("ad-1")).toBeNull();
+    });
+
+    it("is left alone when the list comes back empty while counting ads", async () => {
+      const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() } });
+      client.listMyAdsPage = async () => ({ ads: [], totalNumberOfResults: 3 });
+      const store = new InMemorySnapshotStore();
+      const orchestrator = new RelistOrchestrator(client, store, new FakeRelistPermission(), new FakePace());
+
+      expect((await orchestrator.relist("ad-1")).status).toBe("failed-before-delete");
+      expect(client.creates()).toBe(0);
+      expect(client.has("ad-1")).toBe(true);
+      expect(await store.list()).toEqual([]);
+    });
+
+    /**
+     * The one that would be fatal under create-first: an original missing from
+     * the ids taken before the create, read back as "the new copy", is deleted as
+     * replaced — and it is the only ad there is.
+     */
+    it("is never taken for its own copy and deleted", async () => {
+      const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() } });
+      const store = new InMemorySnapshotStore();
+      store.seed({
+        phase: "creating", listingId: "ad-1", title: "Vintage bike", reserved: false, createdAt: 1,
+        idsBeforeCreate: [], createSentAt: 1, attempts: 1,
+      });
+      const orchestrator = new RelistOrchestrator(client, store, new FakeRelistPermission(), new FakePace());
+
+      expect((await orchestrator.retry("ad-1")).status).toBe("relisted");
+      expect(client.creates()).toBe(1);
+      expect(client.ids()).toEqual(["new-1"]);
+    });
+  });
+
+  /**
    * **ADR-0003's snapshots, carried over by an update** (ADR-0041). For a seller
    * who updates with one of these pending, the ad is gone and this is its only
    * copy, so they are finished the old way and never written again.
@@ -406,6 +455,22 @@ describe("RelistOrchestrator", () => {
       expect(client.has("ad-1")).toBe(true);
       expect(client.lastCreated()).toBeNull();
       expect(await store.get("ad-1")).toBeNull();
+    });
+
+    it("does not take a lagging list's deleted original for its copy", async () => {
+      // With nothing listed before the create, the original is not among the ids
+      // diffed against. Reading it as the new ad would drop the only copy (#189).
+      const ad = sampleAd();
+      const client = new FakeMarktplaatsClient([], { ads: { "ad-1": ad } });
+      const store = new InMemorySnapshotStore();
+      store.seed({
+        listingId: "ad-1", draft: ad.draft, photos: ad.photos, phase: "deleted", createdAt: 1,
+        idsBeforeCreate: [], createSentAt: 1,
+      });
+      const orchestrator = new RelistOrchestrator(client, store, new FakeRelistPermission(), new FakePace());
+
+      expect(await orchestrator.retry("ad-1")).toEqual({ status: "relisted", quota: null });
+      expect(client.creates()).toBe(1);
     });
 
     it("keeps a 'deleted' one whose create fails, and settles the unit it spent", async () => {

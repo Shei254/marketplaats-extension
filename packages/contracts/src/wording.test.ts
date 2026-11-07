@@ -86,11 +86,11 @@ describe("what a buyer can pay with", () => {
     // ADR-0006 chose Stripe over a card-only arrangement precisely to keep iDEAL,
     // and the order here is what that decision buys at the moment somebody is
     // deciding. Stripe's own order is alphabetical and would bury it under `card`.
-    expect(waysToPay(["card", "paypal", "ideal"])).toBe("Je kunt betalen met iDEAL, PayPal of creditcard.");
+    expect(waysToPay(["card", "paypal", "ideal"])).toBe("Je kunt betalen met iDEAL, PayPal of credit card.");
   });
 
   it("joins two with `or` and one with neither", () => {
-    expect(waysToPay(["card", "ideal"])).toBe("Je kunt betalen met iDEAL of creditcard.");
+    expect(waysToPay(["card", "ideal"])).toBe("Je kunt betalen met iDEAL of credit card.");
     expect(waysToPay(["ideal"])).toBe("Je kunt betalen met iDEAL.");
   });
 
@@ -108,14 +108,15 @@ describe("what a buyer can pay with", () => {
     // month" is a lie about money. Here it is silence, and "or sepa_debit" in the
     // one line meant to reassure is worse than absent. The API logs the whole
     // offered set on refresh, so the gap is visible where the operator is.
-    expect(waysToPay(["ideal", "twint", "card"])).toBe("Je kunt betalen met iDEAL of creditcard.");
+    expect(waysToPay(["ideal", "twint", "card"])).toBe("Je kunt betalen met iDEAL of credit card.");
   });
 
-  it("leaves the wallets out, which is what keeps the sentence non-exhaustive", () => {
-    // `link`, `apple_pay` and `google_pay` are usually on and are not what somebody
-    // hesitating over a subscription is looking for. Omitting a method never makes
-    // the sentence false; only naming one that is off would.
-    expect(waysToPay(["card", "link", "apple_pay", "google_pay"])).toBe("Je kunt betalen met creditcard.");
+  it("names the wallets it can spell, and drops the one it cannot", () => {
+    // `link` and `apple_pay` have names since `158aaa8`, and `google_pay` still has
+    // none, so it falls under the same silence as any other unnamed method.
+    expect(waysToPay(["card", "link", "apple_pay", "google_pay"])).toBe(
+      "Je kunt betalen met credit card, Apple Pay of Link.",
+    );
   });
 
   it("names SEPA and Bancontact when they are on, in the order they say them", () => {
@@ -133,7 +134,7 @@ describe("what a buyer can pay with", () => {
     // by a side door: the popup would again be holding an opinion about which of
     // the enabled methods are worth naming.
     expect(waysToPay(["ideal", "paypal", "card", "bancontact", "sepa_debit"])).toBe(
-      "Je kunt betalen met iDEAL, PayPal, creditcard, Bancontact of SEPA-incasso.",
+      "Je kunt betalen met iDEAL, PayPal, credit card, Bancontact of SEPA-incasso.",
     );
   });
 
@@ -142,7 +143,7 @@ describe("what a buyer can pay with", () => {
     // reads and its membership decides what may appear at all — neither is
     // positional, so nothing falls off the end.
     expect(waysToPay(["ideal", "card", "bancontact", "sepa_debit"])).toBe(
-      "Je kunt betalen met iDEAL, creditcard, Bancontact of SEPA-incasso.",
+      "Je kunt betalen met iDEAL, credit card, Bancontact of SEPA-incasso.",
     );
   });
 
@@ -151,7 +152,7 @@ describe("what a buyer can pay with", () => {
     // and step 4 then checks these are the same names Checkout offers. The four are
     // what T22 keeps ticked in the dashboard, and a truncating cap would break this.
     expect(waysToPay(["ideal", "paypal", "card", "sepa_debit"])).toBe(
-      "Je kunt betalen met iDEAL, PayPal, creditcard of SEPA-incasso.",
+      "Je kunt betalen met iDEAL, PayPal, credit card of SEPA-incasso.",
     );
   });
 });

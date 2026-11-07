@@ -8,6 +8,7 @@ let toListingSummary: (ad: ListingDraft) => { thumbnailUrl?: string };
 beforeAll(async () => {
   vi.stubGlobal("chrome", {
     runtime: { onMessage: { addListener: vi.fn() }, sendMessage: vi.fn(async () => {}) },
+    storage: { onChanged: { addListener: vi.fn() } },
   });
   ({ toListingSummary } = await import("./content-script"));
 });

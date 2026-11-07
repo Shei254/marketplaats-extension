@@ -1,3 +1,4 @@
+import { vi } from "vitest";
 import type { RelistOutcomeCode, RemainingQuota } from "@mprelist/contracts";
 
 import type { GateDecision, LockedState } from "../../gate/authorization-gate";
@@ -10,7 +11,9 @@ import {
 import type { RelistPacing } from "../relist-pace";
 import type { SnapshotStore } from "../snapshot-store";
 import type {
+  AdPresence,
   AdSnapshot,
+  AdsPage,
   CapturedAd,
   CapturedListing,
   ListingSummary,
@@ -152,6 +155,8 @@ export interface FakeClientOptions {
    * ambiguity the reserve diff must refuse to guess through.
    */
   strayAdsOnCreate?: number;
+  /** What those extra ads are called, when a test needs one to pass for the repost. */
+  strayTitle?: string;
   /** If set, listMyAds throws this. Drives the "the diff could not be taken" path. */
   listError?: Error;
   /** If set, captureAd throws this — a capture that says nothing about the ad. */
@@ -161,6 +166,32 @@ export interface FakeClientOptions {
    * lost on the way back, which is what the duplicate check exists for.
    */
   lostReplies?: number;
+  /** The seller has nothing but `ads`, so deleting the last leaves an empty list. */
+  noOtherAds?: boolean;
+}
+
+/**
+ * The seller's other ad, which every list carries unless a test says otherwise.
+ * A create is refused while the list reads empty (`createFromSnapshot`), so a
+ * one-ad fixture would otherwise never reach the create these tests are about.
+ */
+const BYSTANDER: ListingSummary = {
+  id: "bystander",
+  title: "Een andere advertentie",
+  priceCents: 100,
+  priceType: "FIXED",
+  biddingEnabled: false,
+  reserved: false,
+};
+
+/**
+ * A retry holds off for three minutes after a create was sent, in case it landed.
+ * Takes `Date` alone, so a test can step past that and promises still run; the
+ * caller's `afterEach` puts the real clock back.
+ */
+export function pastTheCreateWindow(): void {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(Date.now() + 181_000);
 }
 
 export class FakeMarktplaatsClient implements MarktplaatsClient {
@@ -180,9 +211,24 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
     this.lostRepliesLeft = opts.lostReplies ?? 0;
   }
 
+  /** One page holding everything: no test here is about the paging itself. */
+  async listMyAdsPage(): Promise<AdsPage> {
+    const ads = await this.listMyAds();
+    return { ads, totalNumberOfResults: ads.length };
+  }
+
+  /**
+   * What Marktplaats would say about the ad. A capture that says nothing says
+   * nothing here either, since both read the same page.
+   */
+  async probeAd(listingId: string): Promise<AdPresence> {
+    if (this.opts.captureError) throw this.opts.captureError;
+    return this.ads.has(listingId) ? "exists" : "gone";
+  }
+
   async listMyAds(): Promise<ListingSummary[]> {
     if (this.opts.listError) throw this.opts.listError;
-    return [...this.ads.entries()].map(([id, ad]) => ({
+    const rows = [...this.ads.entries()].map(([id, ad]) => ({
       id,
       title: ad.draft.title,
       // The two ends of this disagree on the wire: the capture payload's
@@ -201,6 +247,7 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
       // badge is drawn from this flag.
       reserved: ad.draft.reserved,
     }));
+    return this.opts.noOtherAds ? rows : [...rows, BYSTANDER];
   }
 
   /**
@@ -250,7 +297,7 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
     // Ads that appeared during the create's window and are not it — the hazard
     // the reserve diff exists to refuse: another tab, or a second repost.
     for (let n = 0; n < (this.opts.strayAdsOnCreate ?? 0); n++) {
-      this.ads.set(`stray-${this.nextId++}`, sampleAd("Somebody else's ad"));
+      this.ads.set(`stray-${this.nextId++}`, sampleAd(this.opts.strayTitle ?? "Somebody else's ad"));
     }
     if (this.lostRepliesLeft > 0) {
       this.lostRepliesLeft -= 1;

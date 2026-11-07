@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiRequestError } from "./marktplaats-client";
 import { RelistOrchestrator } from "./relist-orchestrator";
 import {
@@ -6,6 +6,7 @@ import {
   FakePace,
   FakeRelistPermission,
   InMemorySnapshotStore,
+  pastTheCreateWindow,
   refusing,
   sampleAd,
   type FakeEvent,
@@ -15,6 +16,10 @@ import {
 const REPORTED_QUOTA = { quotaRemaining: 2, resetAt: "2026-09-14T08:31:22.101Z" };
 
 describe("RelistOrchestrator", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   /**
    * The popup renders these (T30a, #39), so they have to come back rather than be
    * logged — which is what this did while its only caller was a console hook. A
@@ -22,7 +27,7 @@ describe("RelistOrchestrator", () => {
    * silently.
    */
   it("answers with the user's own ads rather than printing them", async () => {
-    const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() } });
+    const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() }, noOtherAds: true });
     const orchestrator = new RelistOrchestrator(
       client,
       new InMemorySnapshotStore(),
@@ -58,7 +63,7 @@ describe("RelistOrchestrator", () => {
    * rows are the list's own, because the button beside a match is the same button.
    */
   it("answers with the matches rather than printing them", async () => {
-    const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() } });
+    const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() }, noOtherAds: true });
     const orchestrator = new RelistOrchestrator(
       client,
       new InMemorySnapshotStore(),
@@ -108,20 +113,36 @@ describe("RelistOrchestrator", () => {
     expect(createAt).toBeLessThan(clearAt); // snapshot only cleared after create
   });
 
-  it("reports failure and leaves the original untouched when deletion fails", async () => {
+  it("reports failure and leaves the original untouched when Marktplaats refuses the delete", async () => {
     const client = new FakeMarktplaatsClient([], {
       ads: { "ad-1": sampleAd() },
-      deleteError: new Error("network down"),
+      deleteError: new ApiRequestError("deleteAd", 403, ""),
     });
     const store = new InMemorySnapshotStore();
-    const gate = new FakeRelistPermission();
-    const orchestrator = new RelistOrchestrator(client, store, gate, new FakePace());
+    const orchestrator = new RelistOrchestrator(client, store, new FakeRelistPermission(), new FakePace());
 
     const outcome = await orchestrator.relist("ad-1");
 
     expect(outcome.status).toBe("failed-before-delete");
     expect(client.has("ad-1")).toBe(true); // original still there
     expect(await store.get("ad-1")).toBeNull(); // no orphan snapshot
+  });
+
+  it("keeps the snapshot when it cannot tell whether a delete ran", async () => {
+    // A network error says nothing about the delete, and the snapshot may be the
+    // only copy left, so it stays for a resume to settle (ADR-0039).
+    const client = new FakeMarktplaatsClient([], {
+      ads: { "ad-1": sampleAd() },
+      deleteError: new Error("network down"),
+    });
+    const store = new InMemorySnapshotStore();
+    const orchestrator = new RelistOrchestrator(client, store, new FakeRelistPermission(), new FakePace());
+
+    const outcome = await orchestrator.relist("ad-1");
+
+    expect(outcome.status).toBe("unconfirmed");
+    expect(client.has("ad-1")).toBe(true);
+    expect((await store.get("ad-1"))?.phase).toBe("captured");
   });
 
   it("reports failure without saving a snapshot when the ad cannot be captured", async () => {
@@ -151,6 +172,7 @@ describe("RelistOrchestrator", () => {
     const kept = await store.get("ad-1");
     expect(kept?.phase).toBe("deleted"); // snapshot retained for recovery
 
+    pastTheCreateWindow();
     const retried = await orchestrator.retry("ad-1");
     expect(retried).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
     expect(client.lastCreated()).toEqual(sampleAd()); // restored from the snapshot
@@ -241,7 +263,7 @@ describe("RelistOrchestrator", () => {
 
       // Not knowing whether the last create landed is not permission to send
       // another: the snapshot waits for an attempt that can look.
-      expect(outcome.status).toBe("failed-recoverable");
+      expect(outcome.status).toBe("unconfirmed");
       expect(client.creates()).toBe(1);
       expect((await store.get("ad-1"))?.phase).toBe("deleted");
     });
@@ -267,6 +289,7 @@ describe("RelistOrchestrator", () => {
       expect(await orchestrator.resumeAll()).toEqual([]);
       expect(client.creates()).toBe(0);
 
+      pastTheCreateWindow();
       expect((await orchestrator.retry("ad-1")).status).toBe("relisted");
       expect(client.creates()).toBe(1);
     });
@@ -276,6 +299,7 @@ describe("RelistOrchestrator", () => {
       await orchestrator.relist("ad-1");
 
       expect((await store.get("ad-1"))?.needsUser).toBeFalsy();
+      pastTheCreateWindow();
       expect(await orchestrator.resumeAll()).toEqual([{ status: "relisted", quota: REPORTED_QUOTA }]);
     });
   });
@@ -335,9 +359,47 @@ describe("RelistOrchestrator", () => {
       await orchestrator.relist("ad-2");
 
       expect(await orchestrator.pendingReposts()).toEqual([
-        { listingId: "ad-1", title: "Fiets", needsUser: true, running: false },
-        { listingId: "ad-2", title: "Stoel", needsUser: true, running: false },
+        {
+          listingId: "ad-1",
+          title: "Fiets",
+          needsUser: true,
+          running: false,
+          deleted: true,
+          failure: "unknown",
+          thumbnailUrl: "https://example.test/bike.jpg",
+        },
+        {
+          listingId: "ad-2",
+          title: "Stoel",
+          needsUser: true,
+          running: false,
+          deleted: true,
+          failure: "unknown",
+          thumbnailUrl: "https://example.test/bike.jpg",
+        },
       ]);
+    });
+
+    it("have no thumbnail when the ad had no photos", async () => {
+      const ad = sampleAd();
+      const store = new InMemorySnapshotStore();
+      store.seed({
+        listingId: "ad-1",
+        draft: { ...ad.draft, gallery: { imageUrls: [] } },
+        photos: [],
+        phase: "deleted",
+        createdAt: 1,
+      });
+      const orchestrator = new RelistOrchestrator(
+        new FakeMarktplaatsClient(),
+        store,
+        new FakeRelistPermission(),
+        new FakePace(),
+      );
+
+      const [repost] = await orchestrator.pendingReposts();
+
+      expect(repost?.thumbnailUrl).toBeUndefined();
     });
 
     it("can be let go, which drops the snapshot and nothing else", async () => {
@@ -441,7 +503,7 @@ describe("RelistOrchestrator", () => {
      * no way to tell which of them is ours, and flagging a guess would mark an
      * unrelated *live* listing as promised to a buyer.
      */
-    it("flags nothing when the repost is not the only ad that appeared", async () => {
+    it("flags the repost when the ad beside it is called something else", async () => {
       const events: FakeEvent[] = [];
       const client = new FakeMarktplaatsClient(events, {
         ads: { "ad-1": sampleAd("Bank", true) },
@@ -457,16 +519,32 @@ describe("RelistOrchestrator", () => {
       const outcome = await orchestrator.relist("ad-1");
 
       expect(outcome).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
+      expect(events.filter((event) => event.type === "reserve")).toHaveLength(1);
+    });
+
+    it("flags nothing and waits for the user when two new ads carry its title", async () => {
+      // Losing the flag is a smaller harm than flagging a stranger's ad, and
+      // creating again could post the ad a third time.
+      const events: FakeEvent[] = [];
+      const client = new FakeMarktplaatsClient(events, {
+        ads: { "ad-1": sampleAd("Bank", true) },
+        strayAdsOnCreate: 1,
+        strayTitle: "Bank",
+      });
+      const store = new InMemorySnapshotStore(events);
+      const orchestrator = new RelistOrchestrator(client, store, new FakeRelistPermission(), new FakePace());
+
+      const outcome = await orchestrator.relist("ad-1");
+
+      expect(outcome.status).toBe("unconfirmed");
       expect(events.filter((event) => event.type === "reserve")).toEqual([]);
-      // And the ad is still live and still reposted — which is the point of the
-      // silence. Losing the flag is a smaller harm than flagging a stranger's ad.
-      expect(newAd(client)?.draft.reserved).toBe(false);
+      expect((await store.get("ad-1"))?.needsUser).toBe(true);
     });
 
     /**
      * Zero additions: the list lagged, or it is paginated and the new ad landed on
-     * a page nobody asked for (T37, #46). Same answer as the ambiguous case, for a
-     * different reason — there is no id here at all.
+     * a page nobody asked for (T37, #46). The create may have worked, so the
+     * snapshot stays and the next retry looks again.
      */
     it("flags nothing when the diff finds no new ad", async () => {
       const events: FakeEvent[] = [];
@@ -483,37 +561,39 @@ describe("RelistOrchestrator", () => {
         new FakePace(),
       );
 
-      const outcome = await orchestrator.relist("ad-1");
+      vi.useFakeTimers();
+      const relisting = orchestrator.relist("ad-1");
+      await vi.runAllTimersAsync();
+      const outcome = await relisting;
 
-      expect(outcome).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
+      expect(outcome.status).toBe("unconfirmed");
       expect(events.filter((event) => event.type === "reserve")).toEqual([]);
     });
 
     /**
-     * **A list call that throws does not fail the repost.** The ad is live and the
-     * quota unit is rightly spent by the time this runs, so a listing failure that
-     * turned `relisted` into `failed-recoverable` would offer the user a Retry that
-     * deletes and recreates an ad which is already fine.
+     * **Nothing is created while the list cannot be read**, because the list is
+     * what shows later whether the create landed (ADR-0039). The snapshot is what
+     * has to survive. What `relist` answers here is deliberately not asserted: it
+     * rejects today, and the todos below are what is open about this path.
      */
-    it("still reposts when the ads cannot be listed at all", async () => {
+    it("creates nothing and keeps the snapshot when the ads cannot be listed", async () => {
       const events: FakeEvent[] = [];
       const client = new FakeMarktplaatsClient(events, {
         ads: { "ad-1": sampleAd("Bank", true) },
         listError: new Error("marktplaats said no"),
       });
-      const orchestrator = new RelistOrchestrator(
-        client,
-        new InMemorySnapshotStore(),
-        new FakeRelistPermission(),
-        new FakePace(),
-      );
+      const store = new InMemorySnapshotStore();
+      const orchestrator = new RelistOrchestrator(client, store, new FakeRelistPermission(), new FakePace());
 
-      const outcome = await orchestrator.relist("ad-1");
+      await orchestrator.relist("ad-1").catch(() => {});
 
-      expect(outcome).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
-      expect(events.filter((event) => event.type === "reserve")).toEqual([]);
+      expect(client.creates()).toBe(0);
       expect(client.has("ad-1")).toBe(false);
+      expect((await store.get("ad-1"))?.phase).toBe("deleted");
     });
+
+    it.todo("answers with an outcome, not a rejection, when the ads cannot be listed after the delete");
+    it.todo("puts back a seller's only ad, whose list reads empty once it is deleted");
 
     /**
      * And the third of the three cases the log line distinguishes: the diff found
@@ -580,6 +660,7 @@ describe("RelistOrchestrator", () => {
     it("crosses into the popup's own list", async () => {
       const client = new FakeMarktplaatsClient([], {
         ads: { "ad-1": sampleAd("Bank", true), "ad-2": sampleAd("Stoel") },
+        noOtherAds: true,
       });
       const orchestrator = new RelistOrchestrator(
         client,

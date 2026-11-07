@@ -436,7 +436,7 @@ describe("createAd", () => {
     ["dropOffLocationCode", "1011AB"],
     ["Dropdown-prijstype", "FAST_BID"],
     ["price.typeValue", "FAST_BID"],
-    ["price.value", "125"],
+    ["price.value", "125,00"],
     ["previousPriceType", ""],
     ["price.biddingEnabled", "on"],
     ["contactInformation.sellerName", "Jan Jansen"],
@@ -478,7 +478,7 @@ describe("createAd", () => {
         "&deliveryMethod=SHIPPING_AND_PICKUP&buyerProtectionAllowed=on" +
         "&shippingMethod=dhl&shippingDetails.price=695" +
         "&shippingDetails.provider=other&packageSize=M&dropOffLocationCode=1011AB" +
-        "&Dropdown-prijstype=FAST_BID&price.typeValue=FAST_BID&price.value=125" +
+        "&Dropdown-prijstype=FAST_BID&price.typeValue=FAST_BID&price.value=125%2C00" +
         "&previousPriceType=" +
         "&price.biddingEnabled=on&contactInformation.sellerName=Jan+Jansen" +
         "&contactInformation.phoneNumberSwitch=false" +
@@ -726,7 +726,7 @@ describe("createAd", () => {
     );
 
     const body = urlencoded(http.only("/plaats/ads"));
-    expect(body.pairs).toContainEqual(["price.value", "125.99"]);
+    expect(body.pairs).toContainEqual(["price.value", "125,99"]);
   });
 
   it("sends a minimum-bid ad as FIXED, carrying both the bid floor and the price", async () => {
@@ -753,7 +753,7 @@ describe("createAd", () => {
       // nl-NL with two places, which is how the form's own field is filled in —
       // `50,00`, never `50`. `price.value` beside it is still a bare number.
       ["price.minimumBidPrice", "50,00"],
-      ["price.value", "125"],
+      ["price.value", "125,00"],
       ["price.biddingEnabled", "on"],
     ]);
   });
@@ -780,7 +780,7 @@ describe("createAd", () => {
     const body = urlencoded(http.only("/plaats/ads"));
     expect(body.pairs.map(([k]) => k)).not.toContain("price.minimumBidPrice");
     // And the rest of the price block is untouched by the guard.
-    expect(body.pairs).toContainEqual(["price.value", "125"]);
+    expect(body.pairs).toContainEqual(["price.value", "125,00"]);
   });
 
   it("never sends Dropdown-prijstype twice, whatever the price type", async () => {

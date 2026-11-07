@@ -290,6 +290,7 @@ export class RelistOrchestrator {
       running: this.isRunning(snapshot.listingId),
       deleted: snapshot.phase === "deleted",
       failure: snapshot.failure,
+      thumbnailUrl: snapshot.draft.gallery?.imageUrls?.[0],
     }));
   }
 

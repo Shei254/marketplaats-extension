@@ -93,8 +93,9 @@ function fakeWorker(
       asked.push("list-ads");
       const error = adsErrors.shift();
       if (error) throw error;
-      return ads;
+      return { ads, totalNumberOfResults: ads.length };
     }),
+    relistStatus: vi.fn(async () => null),
     pendingReposts: vi.fn(async () => pendingNow),
     letGo: vi.fn(async (listingId: string) => {
       pendingNow = pendingNow.filter((repost) => repost.listingId !== listingId);
@@ -856,14 +857,14 @@ describe("the plan cards", () => {
   it("say what a buyer can pay with, before they leave for a page they have never seen", async () => {
     // The conversion point of T65 (#137): a Dutch buyer's question at this exact
     // moment is whether iDEAL is on the other side of that tab, and ADR-0006 chose
-    // Stripe over a card-only arrangement to make sure it is. The default worker
-    // answers `ideal, paypal, card`.
+    // Stripe over a card-only arrangement to make sure it is. The sentence is fixed
+    // in `Popup.tsx` rather than built from what the worker answers.
     const { worker } = fakeWorker();
 
     await show(worker);
     await click("Abonnementen");
 
-    expect(text()).toContain("Je kunt betalen met iDEAL, PayPal of creditcard");
+    expect(text()).toContain("Je kunt betalen met iDEAL | Wero, PayPal, creditcard en debitcard");
   });
 
   it("and say nothing at all when Stripe could not be asked what they are", async () => {
@@ -1085,7 +1086,7 @@ describe("a marktplaats.nl tab opened before the extension", () => {
 });
 
 describe("reposts that did not finish", () => {
-  const PENDING: PendingRepost = { listingId: "m9", title: "Gazelle damesfiets", needsUser: false, running: false };
+  const PENDING: PendingRepost = { listingId: "m9", title: "Gazelle damesfiets", needsUser: false, running: false, deleted: true };
 
   it("are shown above the ads while they are put back", async () => {
     const { worker } = fakeWorker(undefined, ADS, {}, { pending: [PENDING] });

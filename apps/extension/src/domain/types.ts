@@ -33,6 +33,8 @@ export interface ListingSummary {
    * `createFromSnapshot` puts it back — see `docs/adr/0028-a-repost-puts-back-what-it-can.md`.
    */
   reserved: boolean;
+  /** The ad's first photo, for the row's **Thumbnail**. Absent when it has none. */
+  thumbnailUrl?: string;
 }
 
 export type AdPresence = "exists" | "gone" | "unknown"
@@ -313,6 +315,11 @@ export interface PendingRepost {
   running: boolean;
   deleted: boolean;
   failure?: FailureKind
+  /**
+   * The ad's first photo, for the row's **Thumbnail**. Read off the snapshot's own
+   * draft, so the URL is the old ad's and may stop answering once it is deleted.
+   */
+  thumbnailUrl?: string;
 }
 
 export interface UploadPhoto {

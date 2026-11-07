@@ -25,7 +25,7 @@ const render = (view: Parameters<typeof AdList>[0]["view"]): string =>
 
 describe("the ads themselves", () => {
   it("are a row each, titled and priced", () => {
-    const markup = render({ status: "ready", ads: ADS });
+    const markup = render({ status: "ready", ads: ADS, total: 0 });
 
     expect(markup).toContain("Vintage Eames lounge chair");
     expect(markup).toContain("Trek Marlin 7 mountainbike (M)");
@@ -38,13 +38,13 @@ describe("the ads themselves", () => {
     // can identify in a 360px popup and leave nothing to hover for the rest.
     const long = { id: "m3", title: "A".repeat(120), priceCents: 100, priceType: "FIXED", biddingEnabled: false, reserved: false };
 
-    expect(render({ status: "ready", ads: [long] })).toContain(`title="${"A".repeat(120)}"`);
+    expect(render({ status: "ready", ads: [long], total: 0 })).toContain(`title="${"A".repeat(120)}"`);
   });
 
   it("each carry a Repost button that says what pressing it does", () => {
     // Repost deletes the ad first (ADR-0002), and a button that says only
     // "Herplaats" says so nowhere. The POC popup put it in the hover text.
-    const markup = render({ status: "ready", ads: ADS });
+    const markup = render({ status: "ready", ads: ADS, total: 0 });
 
     expect(markup).toContain("Herplaats</button>");
     expect(markup).toContain("en plaats de advertentie opnieuw, zodat deze weer bovenaan staat");
@@ -53,7 +53,7 @@ describe("the ads themselves", () => {
 
 describe("an account with nothing on it", () => {
   it("is told so, rather than left with a spinner turning", () => {
-    const markup = render({ status: "ready", ads: [] });
+    const markup = render({ status: "ready", ads: [], total: 0 });
 
     expect(markup).toContain("Je hebt geen actieve advertenties.");
     expect(markup).not.toContain("mp-skeleton");
@@ -116,7 +116,7 @@ describe("an ad that is reserved", () => {
   const reserved = { ...ADS[0]!, reserved: true };
 
   it("says so, and says what a repost does about it", () => {
-    const markup = render({ status: "ready", ads: [reserved] });
+    const markup = render({ status: "ready", ads: [reserved], total: 0 });
 
     expect(markup).toContain("Gereserveerd");
     expect(markup).toContain("Gereserveerd voor een koper. Bij herplaatsen blijft de advertentie gereserveerd.");
@@ -127,13 +127,13 @@ describe("an ad that is reserved", () => {
   //   // lining up across rows so that the badges do. A row tint and a left rail
   //   // were both unavailable — `[data-ticked]` and `[data-state="busy"]` already
   //   // own that background and that inset rail.
-  //   const markup = render({ status: "ready", ads: [reserved] });
+  //   const markup = render({ status: "ready", ads: [reserved], total: 0 });
   //
   //   expect(markup.indexOf("Gereserveerd")).toBeLessThan(markup.indexOf("Vraagprijs"));
   // });
 
   it("is the only row that says it", () => {
-    const markup = render({ status: "ready", ads: [reserved, ADS[1]!] });
+    const markup = render({ status: "ready", ads: [reserved, ADS[1]!], total: 2 });
 
     // The badge's own text, not the bare word: since T74 the tooltip opens with
     // "Gereserveerd" too, so counting the word counts one row twice.
@@ -148,7 +148,7 @@ describe("an ad that is reserved", () => {
   it("says it even on a row that has nothing to say about the price", () => {
     const unpriceable = { ...reserved, priceType: "SOMETHING_NEW", priceCents: 0 };
 
-    expect(render({ status: "ready", ads: [unpriceable] })).toContain("Gereserveerd");
+    expect(render({ status: "ready", ads: [unpriceable], total: 0 })).toContain("Gereserveerd");
   });
 });
 
@@ -193,18 +193,15 @@ describe("what kind of price an ad has", () => {
     });
   });
 
-  it("names no number at all on a bid ad, whatever the row carries", () => {
-    // **T67.** There is no field here that is the floor the seller set:
-    // `minimumBidPriceCents` is the minimum bid *placed* and is no longer on the
-    // summary at all, and a bid ad's `priceCents` is `0` on the live rows and
-    // `12500` in the golden capture fixture, with nobody having established
-    // which. So the chip is the whole row, and a `priceCents` that happens to be
-    // set must not talk it into drawing one.
-    for (const priceType of ["FAST_BID"]) {
-      expect(describePrice(ad({ priceType }))).toMatchObject({ label: "Bieden", amount: null });
+  it("draws a bid ad's number when the row carries one, and only the chip when it does not", () => {
+    // `priceCents` is `0` on the live rows T67 was written against and `12500` in
+    // the golden capture fixture, and nobody has established which a bid ad's is.
+    // See `docs/internal-api-findings.md` § `listMyAds`.
+    for (const priceType of ["FAST_BID", "MIN_BID"]) {
+      expect(describePrice(ad({ priceType, priceCents: 0 }))).toMatchObject({ label: "Bieden", amount: null });
       expect(describePrice(ad({ priceType, priceCents: 12_500 }))).toMatchObject({
-        label: "Bieden",
-        amount: null,
+        label: "",
+        amount: formatEuro(12_500),
       });
     }
   });

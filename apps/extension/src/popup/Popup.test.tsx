@@ -11,6 +11,8 @@ import type { ListingSummary, PendingRepost } from "../domain/types";
 import { NoMarktplaatsTabError, StaleMarktplaatsTabError } from "../adapters/relay-marktplaats-client";
 import { SignInCancelledError, SignInFailedError } from "../auth/errors";
 import { Popup } from "./Popup";
+import type { SavedPosition } from "./ad-pages";
+import { LEAVING_MS } from "./AdList";
 import type { WorkerPort } from "./screen";
 
 /**
@@ -74,8 +76,9 @@ function fakeWorker(
    * The reposts the worker is holding (ADR-0039), and what the ad list throws
    * before it answers — one error per call, in order.
    */
-  holding: { pending?: PendingRepost[]; adsErrors?: Error[] } = {},
+  holding: { pending?: PendingRepost[]; adsErrors?: Error[]; position?: SavedPosition } = {},
 ) {
+  let position = holding.position ?? null;
   let pendingNow = [...(holding.pending ?? [])];
   const adsErrors = [...(holding.adsErrors ?? [])];
   const asked: string[] = [];
@@ -96,6 +99,13 @@ function fakeWorker(
       // One page with everything on it: the paging (`batchNumber`) is not
       // what these tests are about.
       return { ads, totalNumberOfResults: ads.length };
+    }),
+    savedPosition: vi.fn(async () => position),
+    savePosition: vi.fn(async (saved: SavedPosition) => {
+      position = saved;
+    }),
+    clearPosition: vi.fn(async () => {
+      position = null;
     }),
     pendingReposts: vi.fn(async () => pendingNow),
     // Nobody else holds the worker's one repost slot in these tests.
@@ -452,7 +462,7 @@ describe("searching the ad list", () => {
     expect(searchBox()?.value).toBe("trek");
   });
 
-  it("and after a repost, because the reposted ad has a new id", async () => {
+  it("but not after a repost, whose row leaves by itself", async () => {
     const { worker, asked } = fakeWorker();
 
     await show(worker);
@@ -460,7 +470,7 @@ describe("searching the ad list", () => {
     await settle();
     await click("Herplaats");
 
-    expect(asked).toEqual(["display-state", "list-ads", "search:trek", "relist", "search:trek"]);
+    expect(asked).toEqual(["display-state", "list-ads", "search:trek", "relist"]);
   });
 
   it("is not on the screen at all when nobody is signed in", async () => {
@@ -501,13 +511,13 @@ describe("the quota after a relist", () => {
     expect(asked.filter((question) => question === "display-state")).toHaveLength(1);
   });
 
-  it("but the ad list is re-read, because the ad has a new id", async () => {
+  it("and the ad list is not read again, so nobody loses their place", async () => {
     const { worker, asked } = fakeWorker();
 
     await show(worker);
     await click("Herplaats");
 
-    expect(asked).toEqual(["display-state", "list-ads", "relist", "list-ads"]);
+    expect(asked).toEqual(["display-state", "list-ads", "relist"]);
   });
 
   it("is left alone when the backend could not be told what happened", async () => {
@@ -1139,5 +1149,126 @@ describe("reposts that did not finish", () => {
 
     expect(text()).toContain("Wordt teruggezet…");
     expect(() => click("Niet terugzetten")).toThrow();
+  });
+});
+
+describe("the saved position", () => {
+  beforeEach(() => void vi.useFakeTimers());
+  afterEach(() => void vi.useRealTimers());
+
+  const page = (number: number) =>
+    Array.from({ length: 2 }, (_, i): ListingSummary => ({
+      id: `p${number}-${i}`,
+      title: `Pagina ${number} rij ${i}`,
+      priceCents: 100,
+      priceType: "FIXED",
+      biddingEnabled: false,
+      reserved: false,
+    }));
+  /** Four pages of two, answering the way `listMyAds` does. */
+  const paged = (saved?: SavedPosition) => {
+    const fake = fakeWorker(undefined, undefined, {}, saved ? { position: saved } : {});
+    fake.worker.ads = vi.fn(async (number = 1) => ({ ads: page(number), totalNumberOfResults: 8 }));
+    return fake;
+  };
+
+  it("is where the popup opens, for one request", async () => {
+    const { worker } = paged({ page: 3, batchSize: 2, nextAdId: "p3-1" });
+
+    await show(worker);
+
+    expect(worker.ads).toHaveBeenCalledTimes(1);
+    expect(worker.ads).toHaveBeenCalledWith(3, 2);
+    expect(text()).toContain("Pagina 3 rij 0");
+    expect(text()).toContain("Pagina 3 van 4");
+  });
+
+  it("opens on the first page when there is none", async () => {
+    const { worker } = paged();
+
+    await show(worker);
+
+    expect(worker.ads).toHaveBeenCalledWith();
+    expect(text()).toContain("Pagina 1 van 4");
+  });
+
+  it("still opens on its page when the saved ad has gone", async () => {
+    const { worker } = paged({ page: 3, batchSize: 2, nextAdId: "sold" });
+
+    await show(worker);
+
+    expect(text()).toContain("Pagina 3 rij 0");
+  });
+
+  it("is where refreshing goes back to", async () => {
+    const { worker } = paged({ page: 3, batchSize: 2, nextAdId: null });
+
+    await show(worker);
+    await click("Vernieuwen");
+
+    expect(worker.ads).toHaveBeenCalledTimes(2);
+    expect(worker.ads).toHaveBeenLastCalledWith(3, 2);
+  });
+
+  it("is where clearing a search goes back to", async () => {
+    const { worker } = paged({ page: 3, batchSize: 2, nextAdId: null });
+
+    await show(worker);
+    await type("trek");
+    await settle();
+    await click("Zoekopdracht wissen");
+
+    expect(worker.ads).toHaveBeenLastCalledWith(3, 2);
+    expect(text()).toContain("Pagina 3 van 4");
+  });
+
+  it("moves with the seller, one request a page", async () => {
+    const { worker } = paged({ page: 3, batchSize: 2, nextAdId: "p3-1" });
+
+    await show(worker);
+    await click("Volgende ›");
+
+    expect(worker.ads).toHaveBeenLastCalledWith(4, 2);
+    expect(text()).toContain("Pagina 4 rij 0");
+    expect(worker.savePosition).toHaveBeenLastCalledWith({ page: 4, batchSize: 2, nextAdId: null });
+  });
+
+  it("stays put, with the rows, when a page cannot be had", async () => {
+    const { worker } = paged({ page: 3, batchSize: 2, nextAdId: null });
+
+    await show(worker);
+    worker.ads = vi.fn(async () => {
+      throw new Error("kapot");
+    });
+    await click("Volgende ›");
+
+    expect(text()).toContain("Deze pagina kon niet worden geladen. kapot");
+    expect(text()).toContain("Pagina 3 rij 0");
+    expect(worker.savePosition).not.toHaveBeenCalled();
+  });
+
+  it("is written when Herplaats is clicked, and a repost from search leaves it alone", async () => {
+    const { worker } = paged({ page: 3, batchSize: 2, nextAdId: null });
+
+    await show(worker);
+    await click("Herplaats");
+    expect(worker.savePosition).toHaveBeenCalledWith({ page: 3, batchSize: 2, nextAdId: "p3-1" });
+
+    await act(async () => void vi.advanceTimersByTime(LEAVING_MS));
+    vi.mocked(worker.savePosition).mockClear();
+    await type("trek");
+    await settle();
+    await click("Herplaats");
+    expect(worker.relist).toHaveBeenCalledTimes(2);
+    expect(worker.savePosition).not.toHaveBeenCalled();
+  });
+
+  it("goes with the session when signing out", async () => {
+    const { worker } = paged({ page: 3, batchSize: 2, nextAdId: null });
+
+    await show(worker);
+    await click("Uitloggen");
+
+    expect(worker.clearPosition).toHaveBeenCalled();
   });
 });

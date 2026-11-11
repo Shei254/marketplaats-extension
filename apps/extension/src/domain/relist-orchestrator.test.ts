@@ -86,6 +86,23 @@ describe("RelistOrchestrator", () => {
     expect(await store.get("ad-1")).toBeNull(); // snapshot cleared on success
   });
 
+  /**
+   * Marktplaats trims a title on create, so the new ad's title is not the one
+   * captured. Compared as they were, the repost never found its own ad, parked
+   * as unconfirmed, and the retries posted it again — three copies (2026-11-11).
+   */
+  it("finds the ad it created when Marktplaats trimmed the title", async () => {
+    const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd("Bandrecorder 2 ") } });
+    const store = new InMemorySnapshotStore();
+    const orchestrator = new RelistOrchestrator(client, store, new FakeRelistPermission(), new FakePace());
+
+    const outcome = await orchestrator.relist("ad-1");
+
+    expect(outcome).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
+    expect((await orchestrator.listAds()).map((ad) => ad.title)).toEqual(["Bandrecorder 2"]);
+    expect(await store.get("ad-1")).toBeNull();
+  });
+
   it("persists a durable snapshot before deleting anything (delete-first)", async () => {
     const events: FakeEvent[] = [];
     const client = new FakeMarktplaatsClient(events, { ads: { "ad-1": sampleAd() } });

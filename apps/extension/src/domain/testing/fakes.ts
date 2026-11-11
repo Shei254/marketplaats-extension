@@ -10,7 +10,9 @@ import {
 import type { RelistPacing } from "../relist-pace";
 import type { SnapshotStore } from "../snapshot-store";
 import type {
+  AdPresence,
   AdSnapshot,
+  AdsPage,
   CapturedAd,
   CapturedListing,
   ListingSummary,
@@ -203,6 +205,17 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
     }));
   }
 
+  /** One page holding every ad: the fake never has enough to need a second. */
+  async listMyAdsPage(): Promise<AdsPage> {
+    const ads = await this.listMyAds();
+    return { ads, totalNumberOfResults: ads.length };
+  }
+
+  /** Whether Marktplaats still serves the ad, which the fake always knows. */
+  async probeAd(listingId: string): Promise<AdPresence> {
+    return this.ads.has(listingId) ? "exists" : "gone";
+  }
+
   /**
    * Substring match on title — enough to stand in for Marktplaats's own
    * filtering, and it answers with the rows `listMyAds` does, since a search
@@ -245,7 +258,12 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
     // and the ad that comes back has lost its Gereserveerd flag. A fake that
     // carried the flag over would make the orchestrator's reserve call untestable
     // — every assertion about it would already be true before it ran.
-    this.ads.set(id, { draft: { ...draft, reserved: false }, photos });
+    //
+    // **And its title is trimmed**, which is what Marktplaats does (observed
+    // 2026-11-11): an ad saved as "Bandrecorder 2 " comes back as
+    // "Bandrecorder 2", so a repost that looks for its ad by the captured title
+    // must not compare the two as they are.
+    this.ads.set(id, { draft: { ...draft, title: draft.title.trim(), reserved: false }, photos });
     this.events.push({ type: "create", newId: id });
     // Ads that appeared during the create's window and are not it — the hazard
     // the reserve diff exists to refuse: another tab, or a second repost.

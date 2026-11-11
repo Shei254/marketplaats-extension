@@ -442,8 +442,10 @@ export class RelistOrchestrator {
       }
     }
 
-    const before = await this.listAds()
-    if (!before.length) return this.park(snapshot, "unknown")
+    // `null` is a list that could not be read; `[]` is somebody whose only ad
+    // this was, and parking that one would leave it deleted for good.
+    const before = await this.currentAds()
+    if (before === null) return this.park(snapshot, "unknown")
 
     const attempt: AdSnapshot = {
       ...snapshot,
@@ -533,11 +535,8 @@ export class RelistOrchestrator {
     const earlier = new Set(s.idsBeforeCreate);
     const cents = Number(s.draft.price.priceCent);
 
-    const matches = currentList.filter(
-        (ad) => {
-          return !earlier.has(ad.id) && ad.title === s.draft.title
-        },
-    );
+    const title = sameTitle(s.draft.title);
+    const matches = currentList.filter((ad) => !earlier.has(ad.id) && sameTitle(ad.title) === title);
 
     if (matches.length === 1) return { state: "landed", id: matches[0]!.id };
     // An ad we can't identify but the account grew: leave it to the user, never create over it.
@@ -669,4 +668,15 @@ function sendingAgainCannotFix(error: unknown): boolean {
   if (!(error instanceof ApiRequestError)) return false;
   const passing = [401, 403, 408, 429];
   return error.status >= 400 && error.status < 500 && !passing.includes(error.status);
+}
+
+/**
+ * A title as Marktplaats stores it. It trims the title on create, so the ad a
+ * repost makes from "Bandrecorder 2 " is called "Bandrecorder 2"; compared as
+ * captured, the repost never found its own ad, parked, and was posted again by
+ * every retry. Inner runs are collapsed too, so a second normalisation of the
+ * same kind cannot do it again.
+ */
+function sameTitle(title: string): string {
+  return title.trim().replace(/\s+/g, " ");
 }

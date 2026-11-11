@@ -111,11 +111,12 @@ describe("what a buyer can pay with", () => {
     expect(waysToPay(["ideal", "twint", "card"])).toBe("Je kunt betalen met iDEAL of creditcard.");
   });
 
-  it("leaves the wallets out, which is what keeps the sentence non-exhaustive", () => {
-    // `link`, `apple_pay` and `google_pay` are usually on and are not what somebody
-    // hesitating over a subscription is looking for. Omitting a method never makes
-    // the sentence false; only naming one that is off would.
-    expect(waysToPay(["card", "link", "apple_pay", "google_pay"])).toBe("Je kunt betalen met creditcard.");
+  it("names the wallets it has a name for, after the main methods", () => {
+    // Apple Pay and Link are named; `google_pay` has no entry, so it is left out.
+    // The sentence only names what Stripe says is on, so naming one is never false.
+    expect(waysToPay(["card", "link", "apple_pay", "google_pay"])).toBe(
+      "Je kunt betalen met creditcard, Apple Pay of Link.",
+    );
   });
 
   it("names SEPA and Bancontact when they are on, in the order they say them", () => {

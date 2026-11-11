@@ -1935,8 +1935,10 @@ answers `410 Gone` at once — is in `internal-api-findings.md`.
 - **The method charged** is the subscription's default, else the customer's invoice default.
 - **`past_due` with an open invoice** goes to the hosted invoice page (`ConfirmPayment`). A failed debit later
   is Dunning, unchanged.
-- **Not in it:** dialog copy about when a debit clears; whether the Customer Portal (the popup's route) can
-  switch a SEPA payer, which is to be checked in test mode.
+- **The Customer Portal (the popup's route) already switches a SEPA payer at once**, checked in test mode on
+  2026-11-12 (see the ADR-0036 amendment). It does so only when the Portal configuration lets customers
+  switch plans, and the test account's default configuration did not. The live configuration is unchecked.
+- **Not in it:** dialog copy about when a debit clears.
 ---
 
 ## Deferred

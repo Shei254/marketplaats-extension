@@ -110,5 +110,12 @@ once with `allow_incomplete`**, and the prorated amount is collected afterwards.
   will clear. Stripe's mandate emails do, and Dunning's copy covers a debit that bounces.
 
 **Considered and declined:** sending payers on these methods to the Customer Portal to switch (a second
-door, and it is unconfirmed that the Portal handles them any better), and refusing them with "Overstappen
-kan alleen met een kaart" (honest, and it blocks a paying customer from upgrading).
+door to build), and refusing them with "Overstappen kan alleen met een kaart" (honest, and it blocks a
+paying customer from upgrading).
+
+**The Portal does the same, checked in test mode on 2026-11-12.** A SEPA subscription that refused
+`pending_if_incomplete` with the client's exact error was switched Pro → Unlimited through the Portal. The
+Price changed at once, there was no pending update, and a €13.00 prorated `subscription_update` invoice was
+debited by SEPA. So the popup's door already switched SEPA payers the way this amendment now has the site
+do it. One condition: the Portal only offers a switch when the account's Portal configuration has
+"Customers can switch plans" on, and the test account's default configuration had it off that day.

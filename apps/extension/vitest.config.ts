@@ -34,6 +34,7 @@ export default defineConfig(async () => ({
     // `scripts/build.test.ts`, which is the only place that can.
     __API_BASE_URL__: JSON.stringify(LOCAL_STACK.apiBaseUrl),
     __AUTH_ISSUER__: JSON.stringify(LOCAL_STACK.issuer),
+    __SITE_URL__: JSON.stringify(`https://${(await readBrand()).domain}`),
   },
   test: {
     globals: true,

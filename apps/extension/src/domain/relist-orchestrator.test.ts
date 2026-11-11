@@ -294,6 +294,41 @@ describe("RelistOrchestrator", () => {
    * Marktplaats refuses outright gets the same answer every time it is sent, so
    * it is not sent again until somebody presses Opnieuw.
    */
+  /**
+   * **The attempt cap stops the background, not the user.** After three creates
+   * that could not be confirmed, the retries stop and the repost waits for the
+   * user. An explicit Opnieuw still looks for the landed ad first, and if it is
+   * not there, sends one more create.
+   */
+  describe("a repost that used its three create attempts", () => {
+    function capped(needsUser: boolean) {
+      const ad = sampleAd();
+      const client = new FakeMarktplaatsClient([], { ads: {} });
+      const store = new InMemorySnapshotStore();
+      store.seed({
+        listingId: "ad-1", draft: ad.draft, photos: ad.photos, phase: "deleted", createdAt: 1, grantJti: "grant-0",
+        idsBeforeCreate: [], createSentAt: 1, attempts: 3, needsUser,
+      });
+      return { client, store, orchestrator: new RelistOrchestrator(client, store, new FakeRelistPermission(), new FakePace()) };
+    }
+
+    it("is not created again by the background", async () => {
+      const { client, store, orchestrator } = capped(false);
+
+      expect((await orchestrator.resumeAll())[0]?.status).toBe("unconfirmed");
+      expect(client.creates()).toBe(0);
+      expect((await store.get("ad-1"))?.needsUser).toBe(true);
+    });
+
+    it("gets one more create from an explicit Opnieuw", async () => {
+      const { client, store, orchestrator } = capped(true);
+
+      expect((await orchestrator.retry("ad-1")).status).toBe("relisted");
+      expect(client.creates()).toBe(1);
+      expect(await store.get("ad-1")).toBeNull();
+    });
+  });
+
   describe("a create that will not work by trying again", () => {
     function refusedOnce(createError: Error) {
       const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() }, createFailures: 1, createError });

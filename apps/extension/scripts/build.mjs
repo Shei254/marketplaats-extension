@@ -88,6 +88,7 @@ const define = {
   __CLIENT_VERSION__: JSON.stringify(manifestTemplate.version),
   __API_BASE_URL__: JSON.stringify(addresses.apiBaseUrl),
   __AUTH_ISSUER__: JSON.stringify(addresses.issuer),
+  __SITE_URL__: JSON.stringify(`https://${brand.domain}`),
   // React ships two implementations of itself behind `process.env.NODE_ENV`: a
   // development one carrying warnings and dev-only bookkeeping, and a production
   // one. Nothing substitutes that for us — and `process` does not exist in a page
@@ -114,8 +115,15 @@ await build({
 });
 
 // Content scripts are loaded as classic scripts, not modules → IIFE.
+//
+// Two of them since ADR-0040: the relay on every marktplaats.nl page, and the
+// **Page button** on Mijn Advertenties only — React's weight paid on the one page
+// that draws anything. The manifest's `content_scripts` says which goes where.
 await build({
-  entryPoints: { content: "src/content/content-script.ts" },
+  entryPoints: {
+    content: "src/content/content-script.ts",
+    "page-button": "src/page-button/page-button-entry.tsx",
+  },
   bundle: true,
   format: "iife",
   target: "chrome110",

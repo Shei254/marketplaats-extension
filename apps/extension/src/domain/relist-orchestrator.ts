@@ -400,7 +400,7 @@ export class RelistOrchestrator {
    * that outlived its worker still settles the unit it spent.
    */
   private async resumeSnapshot(snapshot: AdSnapshot, force = false): Promise<RelistOutcome> {
-    if (snapshot.phase === "deleted") return this.createFromSnapshot(snapshot);
+    if (snapshot.phase === "deleted") return this.createFromSnapshot(snapshot, force);
 
     const waiting: RelistOutcome = { status: "unconfirmed", listingId: snapshot.listingId, reason: "unknown" }
     if (!force && (snapshot.nextCheckAt ?? 0) > Date.now()) return waiting
@@ -410,7 +410,7 @@ export class RelistOrchestrator {
       const deleted: AdSnapshot = { ...snapshot, phase: "deleted" }
       await this.store.save(deleted)
 
-      return this.createFromSnapshot(deleted)
+      return this.createFromSnapshot(deleted, force)
     }
 
     if (presence === "exists") {
@@ -432,7 +432,14 @@ export class RelistOrchestrator {
     return waiting
   }
 
-  private async createFromSnapshot(snapshot: AdSnapshot): Promise<RelistOutcome> {
+  /**
+   * @param explicit an Opnieuw the user pressed, rather than a background retry.
+   * It still looks for a landed ad first and still waits out the create window;
+   * what it lifts is the attempt cap, which exists to stop the background, so
+   * one more create is sent. If that one cannot be confirmed either, the next
+   * background check finds the cap reached and hands it back to the user.
+   */
+  private async createFromSnapshot(snapshot: AdSnapshot, explicit = false): Promise<RelistOutcome> {
     // A create tried before may have landed and lost its reply: look for the ad
     // it made before making another (ADR-0039).
     if (snapshot.idsBeforeCreate) {
@@ -443,7 +450,7 @@ export class RelistOrchestrator {
         return this.park(snapshot, "unknown")
       }
 
-      if ((snapshot?.attempts ?? 0) >= MAX_CREATE_ATTEMPTS) {
+      if (!explicit && (snapshot?.attempts ?? 0) >= MAX_CREATE_ATTEMPTS) {
         return this.park({ ...snapshot, needsUser: true }, "unknown")
       }
     }

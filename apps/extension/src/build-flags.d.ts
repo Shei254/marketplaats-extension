@@ -55,3 +55,11 @@ declare const __API_BASE_URL__: string;
  * arriving after sign-in cannot have said which realm to sign into.
  */
 declare const __AUTH_ISSUER__: string;
+
+/**
+ * The site's address, `https://` and `brand.json`'s `domain` — where a **Page
+ * button**'s card sends a seller to see the plans (ADR-0040, ADR-0036: the site
+ * sells). From the brand rather than `deployment.json`, because it is the address
+ * a user reads, and the same one the sign-in page's footer links to.
+ */
+declare const __SITE_URL__: string;

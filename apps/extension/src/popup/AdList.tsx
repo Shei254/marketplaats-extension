@@ -5,7 +5,16 @@ import type { WireRelistOutcome } from "../background/messages";
 
 import type { ListingSummary, PendingRepost } from "../domain/types";
 import {STALE_TAB, describePrice, type AdsView, type PriceLine, INITIAL_MORE} from "./ads";
-import { IDLE, PACING_NOTE, refusalNote, refusedTone, rowStateFor, type RowState } from "./relisting";
+import {
+  IDLE,
+  PACING_NOTE,
+  labelFor,
+  refusalNote,
+  rowStateFor,
+  toneFor,
+  tooltipFor,
+  type RowState,
+} from "./relisting";
 import type { WorkerPort } from "./screen";
 
 /**
@@ -540,7 +549,7 @@ const RESERVED_TOOLTIP = "Gereserveerd voor een koper. Bij herplaatsen blijft de
  * buttons come back on their own, which is the half that makes it a countdown
  * rather than a label.
  */
-function useCountdown(until: number | null, onElapsed: () => void): number | null {
+export function useCountdown(until: number | null, onElapsed: () => void): number | null {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -593,54 +602,6 @@ function RowNote({
  * every inert one is disabled by the component rather than by this caller —
  * which is what stops a locked row being clickable at all.
  */
-function toneFor(state: RowState, locked: boolean): "primary" | "busy" | "done" | "retry" | "locked" | "cooldown"  {
-  switch (state.kind) {
-    case "busy":
-      return "busy";
-    case "done":
-      return "done";
-    case "failed":
-      return "retry";
-    case "refused":
-      return refusedTone(state.locked);
-    case "idle":
-    case "waiting":
-      return locked ? "locked" : "primary";
-    case "parked":
-      return "locked"
-  }
-}
-
-function labelFor(state: RowState): string {
-  switch (state.kind) {
-    case "busy":
-      return "Bezig met herplaatsen…";
-    case "done":
-      return "Herplaatst";
-    case "failed":
-      // "Opnieuw" is a resume from the snapshot — the ad is already gone and this
-      // is what puts it back. "Opnieuw proberen" starts over on an ad that is
-      // still there.
-      return state.action === "retry" ? "Opnieuw" : "Opnieuw proberen";
-    case "parked":
-      return "Wordt gecontroleerd…";
-    default:
-      return "Herplaats";
-  }
-}
-
-/**
- * The hover text, which is where the sentence that matters goes: **Repost deletes
- * the ad first** (ADR-0002), and a button that says only "Repost" does not say so
- * anywhere. The POC popup put it here and this keeps it.
- */
-function tooltipFor(state: RowState, title: string): string {
-  if (state.kind === "idle") {
-    return `Verwijder “${title}” en plaats de advertentie opnieuw, zodat deze weer bovenaan staat.`;
-  }
-  return labelFor(state);
-}
-
 /** The shape of the answer while it is on its way — the canvas's Loading artboard. */
 function LoadingRows(): JSX.Element {
   return (

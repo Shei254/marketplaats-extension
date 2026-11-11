@@ -42,9 +42,17 @@ export { STORE_URL } from "./store";
 export function Landing({
   loadPlans,
   account = NOBODY,
+  onSettled,
 }: {
   loadPlans: LoadPlans;
   account?: Account;
+  /**
+   * Called once the plans have answered and the page is at its full height. A
+   * link to `/#abonnementen` — the extension's *Bekijk abonnementen* — arrives
+   * before this page is drawn, so the browser's own jump to the fragment finds
+   * nothing; whoever owns the window does it here instead.
+   */
+  onSettled?: () => void;
 }): JSX.Element {
   const [plans, setPlans] = useState<PlansOnOffer | "loading">("loading");
 
@@ -60,6 +68,11 @@ export function Landing({
   }, [loadPlans]);
 
   useEffect(ask, [ask]);
+
+  const settled = plans !== "loading";
+  useEffect(() => {
+    if (settled) onSettled?.();
+  }, [settled, onSettled]);
 
   return <LandingPage plans={plans} onRetry={ask} account={account} />;
 }

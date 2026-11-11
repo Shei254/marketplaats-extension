@@ -160,3 +160,56 @@ export function refusalNote(locked: LockedState, grantsNothing: boolean): string
 export function refusedTone(locked: LockedState): "locked" | "cooldown" {
   return locked.state === "cooldown" ? "cooldown" : "locked";
 }
+
+/**
+ * The button's tone, label and hover text for a row state — the popup row's, and
+ * since ADR-0040 the **Page button**'s too, so one ad says the same words on
+ * whichever surface it is pressed.
+ */
+export function toneFor(state: RowState, locked: boolean): "primary" | "busy" | "done" | "retry" | "locked" | "cooldown"  {
+  switch (state.kind) {
+    case "busy":
+      return "busy";
+    case "done":
+      return "done";
+    case "failed":
+      return "retry";
+    case "refused":
+      return refusedTone(state.locked);
+    case "idle":
+    case "waiting":
+      return locked ? "locked" : "primary";
+    case "parked":
+      return "locked"
+  }
+}
+
+export function labelFor(state: RowState): string {
+  switch (state.kind) {
+    case "busy":
+      return "Bezig met herplaatsen…";
+    case "done":
+      return "Herplaatst";
+    case "failed":
+      // "Opnieuw" is a resume from the snapshot — the ad is already gone and this
+      // is what puts it back. "Opnieuw proberen" starts over on an ad that is
+      // still there.
+      return state.action === "retry" ? "Opnieuw" : "Opnieuw proberen";
+    case "parked":
+      return "Wordt gecontroleerd…";
+    default:
+      return "Herplaats";
+  }
+}
+
+/**
+ * The hover text, which is where the sentence that matters goes: **Repost deletes
+ * the ad first** (ADR-0002), and a button that says only "Repost" does not say so
+ * anywhere. The POC popup put it here and this keeps it.
+ */
+export function tooltipFor(state: RowState, title: string): string {
+  if (state.kind === "idle") {
+    return `Verwijder “${title}” en plaats de advertentie opnieuw, zodat deze weer bovenaan staat.`;
+  }
+  return labelFor(state);
+}

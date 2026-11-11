@@ -39,12 +39,15 @@ export function Site({
   year,
   loadPlans,
   account,
+  onLandingSettled,
 }: {
   pathname: string;
   year: number;
   loadPlans: LoadPlans;
   /** The landing page's visitor (T85); absent, every page is drawn for nobody in particular. */
   account?: Account;
+  /** Handed to the landing page: its plans have answered (see `Landing`). */
+  onLandingSettled?: () => void;
 }): JSX.Element {
   const showing = pageFor(pathname);
   const wide = showing === "landing";
@@ -64,7 +67,7 @@ export function Site({
         </nav>
       </header>
       <main className={wide ? "web-page web-page--landing" : "web-page"}>
-        {page(showing, loadPlans, account)}
+        {page(showing, loadPlans, account, onLandingSettled)}
       </main>
       <footer className="web-footer">
         <span>
@@ -115,10 +118,15 @@ function DocumentLink({ to, showing }: { to: "privacy" | "terms"; showing: Page 
 }
 
 /** Total over the route table, so a page added there without one here does not compile. */
-function page(name: Page, loadPlans: LoadPlans, account: Account | undefined): JSX.Element {
+function page(
+  name: Page,
+  loadPlans: LoadPlans,
+  account: Account | undefined,
+  onLandingSettled: (() => void) | undefined,
+): JSX.Element {
   switch (name) {
     case "landing":
-      return <Landing loadPlans={loadPlans} account={account} />;
+      return <Landing loadPlans={loadPlans} account={account} onSettled={onLandingSettled} />;
     case "privacy":
       return <PrivacyPage />;
     case "terms":

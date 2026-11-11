@@ -290,6 +290,24 @@ describe("the landing page, asking", () => {
     expect(host.textContent).not.toContain("niet worden geladen");
   });
 
+  it("says it has settled once the plans answer, so a link to #abonnementen can land", async () => {
+    let answer: (plans: PlansOnOffer) => void = () => {};
+    let settled = 0;
+    await act(async () => {
+      root.render(
+        <Landing
+          loadPlans={() => new Promise((resolve) => (answer = resolve))}
+          onSettled={() => (settled += 1)}
+        />,
+      );
+    });
+    expect(settled).toBe(0);
+    expect(host.querySelector("#abonnementen")).not.toBeNull();
+
+    await act(async () => answer(ON_SALE));
+    expect(settled).toBe(1);
+  });
+
   it("shows the yearly prices under Jaarlijks, and keeps a plan sold monthly only", async () => {
     await act(async () => {
       root.render(<Landing loadPlans={async () => ON_SALE} />);

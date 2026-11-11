@@ -28,7 +28,28 @@ export function BrowserSite({ loadPlans }: { loadPlans: LoadPlans }): JSX.Elemen
     },
     pageFor(location.pathname) === "landing",
   );
-  return <Site pathname={location.pathname} year={new Date().getFullYear()} loadPlans={loadPlans} account={account} />;
+  return (
+    <Site
+      pathname={location.pathname}
+      year={new Date().getFullYear()}
+      loadPlans={loadPlans}
+      account={account}
+      onLandingSettled={revealFragment}
+    />
+  );
+}
+
+/**
+ * Scroll to the address's `#fragment`, which the browser tried on load — before
+ * React had drawn the element it names. Once per load, so a later re-render (a
+ * retried plans question) never yanks a visitor who has scrolled away.
+ */
+let revealed = false;
+function revealFragment(): void {
+  if (revealed) return;
+  revealed = true;
+  const id = decodeURIComponent(location.hash.slice(1));
+  if (id) document.getElementById(id)?.scrollIntoView({ block: "start" });
 }
 
 /**

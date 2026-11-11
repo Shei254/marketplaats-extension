@@ -114,11 +114,12 @@ describe("extension build", () => {
     await rm(dev.dir, { recursive: true, force: true });
   });
 
-  it("emits the five loadable files, the icon set, and no Options page", () => {
+  it("emits the six loadable files, the icon set, and no Options page", () => {
     // Deliberately exact: options.html/options.js coming back is the regression
     // this ticket removed, and a new asset should be a considered addition. The
     // four icons are T48's (#78) — one master in `brand/`, resized here, so
-    // nothing in the repository holds a second copy of the mark.
+    // nothing in the repository holds a second copy of the mark. `page-button.js`
+    // is ADR-0040's: the Page button's content script, on Mijn Advertenties only.
     expect(production.files).toEqual([
       "background.js",
       "content.js",
@@ -127,6 +128,7 @@ describe("extension build", () => {
       join("icons", "icon-32.png"),
       join("icons", "icon-48.png"),
       "manifest.json",
+      "page-button.js",
       "popup.html",
       "popup.js",
     ]);

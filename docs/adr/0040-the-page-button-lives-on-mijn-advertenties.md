@@ -25,7 +25,8 @@ weight is paid on the one page that uses it.
 across both surfaces (it reads the worker's `activeRepost()`); a cooldown counts down on the button; every
 other refusal opens an anchored card with `refusalNote`'s sentence and at most one action (plans page,
 Portal, or *Opnieuw proberen*); success fades the row and offers a *Vernieuwen* toast rather than reloading;
-a **Pending repost** shows on its button, and *Niet terugzetten* stays in the popup alone. Geometry is
+a **Pending repost** shows on its button, follows the worker until it settles, and offers *Opnieuw* (the
+worker's `retry`, which deletes nothing) — while *Niet terugzetten* stays in the popup alone. Geometry is
 Marktplaats's `hz-Button`, colour and mark (`logo`) are ours.
 
 ## Considered options

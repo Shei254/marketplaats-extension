@@ -50,6 +50,7 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0037](0037-an-annual-price-buys-a-monthly-grant.md) | An annual price buys a monthly grant | Accepted, refines 0014 and 0019 |
 | [0038](0038-bulk-repost-leaves-the-extension.md) | Bulk repost leaves the extension, and the API keeps its half | Accepted, supersedes 0027 |
 | [0039](0039-a-pending-repost-is-finished-never-re-authorized.md) | A pending repost is finished, never re-authorized | Accepted, refines 0003 and 0007; re-admits `alarms` |
+| [0040](0040-the-page-button-lives-on-mijn-advertenties.md) | The second surface is a Page button on Mijn Advertenties, in its own React content script | Accepted, narrows 0004 |
 
 **Amended by the 2026-08-13 session:** 0006 (Stripe narrowed to money + lifecycle), 0007 (gating depth,
 `/api/me` display state, `marktplaatsAccountId` dropped), 0009 (monorepo, React popup, Options page removed).

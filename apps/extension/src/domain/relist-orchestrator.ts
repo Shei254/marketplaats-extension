@@ -198,6 +198,7 @@ export class RelistOrchestrator {
       listingId,
       title: captured.draft.title,
       reserved: captured.draft.reserved,
+      thumbnailUrl: firstPhoto(captured.draft),
       grantJti,
       createdAt: Date.now(),
       idsBeforeCreate: before.map((ad) => ad.id),
@@ -264,6 +265,7 @@ export class RelistOrchestrator {
       phase: "replaced",
       listingId: record.listingId,
       title: record.title,
+      thumbnailUrl: record.thumbnailUrl,
       grantJti: record.grantJti,
       createdAt: record.createdAt,
       newListingId: newId,
@@ -341,6 +343,7 @@ export class RelistOrchestrator {
       deleted: record.phase === "deleted",
       replaced: record.phase === "replaced",
       failure: record.failure,
+      thumbnailUrl: isLegacy(record) ? firstPhoto(record.draft) : record.thumbnailUrl,
     }));
   }
 
@@ -475,6 +478,7 @@ export class RelistOrchestrator {
       ...record,
       title: captured.draft.title,
       reserved: captured.draft.reserved,
+      thumbnailUrl: firstPhoto(captured.draft),
       idsBeforeCreate: before.map((ad) => ad.id),
       createSentAt: Date.now(),
       attempts: record.attempts + 1,
@@ -655,6 +659,10 @@ export class RelistOrchestrator {
     if (snapshot.draft.reserved) await this.reserve(snapshot.listingId, newId);
     return { status: "relisted", quota: await this.report(snapshot.grantJti, "SUCCESS") };
   }
+}
+
+function firstPhoto(draft: CapturedAd): string | undefined {
+  return draft.gallery?.imageUrls?.[0];
 }
 
 function isLegacy(record: RepostRecord): record is AdSnapshot {

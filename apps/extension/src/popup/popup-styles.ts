@@ -241,6 +241,28 @@ export const adListCss = `
   justify-content: space-between;
   gap: 10px;
 }
+/* One box, so a row is the same shape with a photo, without one, and while one
+   loads. Grid centres the no-photo icon, and \`--mp-muted\` is its colour. The inset line rather than
+   a fill alone because \`.popup-ad:hover\` paints the row in the same \`--mp-subtle\`,
+   which would make an empty box vanish under the pointer. */
+.popup-ad-thumbnail {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  overflow: hidden;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  color: var(--mp-muted);
+  background: var(--mp-subtle);
+  box-shadow: inset 0 0 0 1px var(--mp-line);
+}
+.popup-ad-thumbnail img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
 /* Two rows, and the explicit \`minmax(0, 1fr)\` is what lets both of them shrink:
    a grid column is \`auto\` by default, which is wide enough for the whole title
    and would take the ellipsis off it.

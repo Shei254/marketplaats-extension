@@ -229,6 +229,13 @@ describe("RelistOrchestrator", () => {
       expect(gate.reports).toEqual([]);
     });
 
+    it("keeps the photo URL for the pending row's thumbnail, and no photo itself", async () => {
+      const { orchestrator } = failingOnce();
+      await orchestrator.relist("ad-1");
+
+      expect((await orchestrator.pendingReposts())[0]?.thumbnailUrl).toBe("https://example.test/bike.jpg");
+    });
+
     it("is finished by a retry, which captures the original again", async () => {
       const { client, store, gate, orchestrator } = failingOnce();
       await orchestrator.relist("ad-1");

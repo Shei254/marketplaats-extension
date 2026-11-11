@@ -17,7 +17,7 @@ import org.junit.jupiter.api.Test;
  * <p><strong>No Spring and no database, which is what the type is for.</strong> Every claim below is
  * arithmetic over instants, and reaching it through {@code /api/relist/authorize} would mean arranging rows
  * against a clock this suite does not control — a boundary case like "the interval ran out this very
- * millisecond" is not a thing an HTTP call can be made to land on. {@link RelistPaceTest} is then free to be
+ * millisecond" is not a thing an HTTP call can be made to land on. {@link RelistPacingTest} is then free to be
  * about the wiring rather than about the edges: that the gate refuses on this, reads the rows it should, and
  * says so in the shape the contract fixes.
  *

@@ -33,6 +33,8 @@ export interface ListingSummary {
    * `createFromSnapshot` puts it back — see `docs/adr/0028-a-repost-puts-back-what-it-can.md`.
    */
   reserved: boolean;
+  /** The ad's first photo, for the row's **Thumbnail**. Absent when it has none. */
+  thumbnailUrl?: string;
 }
 
 export type AdPresence = "exists" | "gone" | "unknown"
@@ -285,6 +287,8 @@ interface RecordBase {
   /** Only the user's Opnieuw retries it; the background leaves it alone (ADR-0039). */
   needsUser?: boolean;
   failure?: FailureKind;
+  /** The ad's first photo as captured, for the pending row's **Thumbnail**. */
+  thumbnailUrl?: string;
 }
 
 /** A create was sent and nothing confirmed it (ADR-0041). */
@@ -366,6 +370,11 @@ export interface PendingRepost {
   /** The new ad is live and the original is still to delete (ADR-0041). */
   replaced: boolean;
   failure?: FailureKind
+  /**
+   * The ad's first photo, for the row's **Thumbnail** — as captured, so the URL is
+   * the original's and may stop answering once it is deleted.
+   */
+  thumbnailUrl?: string;
 }
 
 export interface UploadPhoto {

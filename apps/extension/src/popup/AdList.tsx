@@ -16,6 +16,7 @@ import {
   type RowState,
 } from "./relisting";
 import type { WorkerPort } from "./screen";
+import { Thumbnail } from "./Thumbnail";
 
 /**
  * The ad list, and the Repost button on each row (T30a #39, T30b #79).
@@ -384,6 +385,7 @@ function PendingRow({
   return (
     <li className="popup-ad" data-state="pending">
       <div className="popup-ad-row">
+        <Thumbnail url={repost.thumbnailUrl} />
         <div className="popup-ad-info">
           <span className="popup-ad-title" title={repost.title}>
             {repost.title}
@@ -477,6 +479,7 @@ export function AdRow({
   return (
     <li className="popup-ad" data-state={state.kind}>
       <div className="popup-ad-row">
+        <Thumbnail url={ad.thumbnailUrl} />
         <div className="popup-ad-info">
           <span className="popup-ad-title" title={ad.title}>
             {ad.title}
@@ -609,6 +612,7 @@ function LoadingRows(): JSX.Element {
       {[78, 62, 88].map((width) => (
         <li className="popup-ad" key={width}>
           <div className="popup-ad-row">
+            <Skeleton width={40} height={40} />
             <div className="popup-ad-info" style={{ flex: 1 }}>
               <Skeleton width={`${width}%`} height={11} />
               <span className="popup-ad-meta">

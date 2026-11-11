@@ -125,7 +125,7 @@ describe("what the backend is told", () => {
     // The quota is unknown — the call that would have said it threw — and that is
     // `null` rather than a stale number, because "we do not know" and "unchanged"
     // are different things for the strip above to render.
-    await expect(orchestrator.relist("ad-1")).resolves.toEqual({ status: "relisted", quota: null });
+    await expect(orchestrator.relist("ad-1")).resolves.toEqual({ status: "relisted", newListingId: expect.any(String), quota: null });
   });
 });
 
@@ -160,7 +160,7 @@ describe("finishing what a crash interrupted", () => {
 
     const [outcome] = await orchestrator.resumeAll();
 
-    expect(outcome).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
+    expect(outcome).toEqual({ status: "relisted", newListingId: expect.any(String), quota: REPORTED_QUOTA });
     expect(gate.authorized).toEqual([]);
     expect(gate.reports).toEqual([{ jti: "grant-0", outcome: "SUCCESS" }]);
     expect(client.lastCreated()).toEqual(sampleAd());
@@ -206,7 +206,7 @@ describe("finishing what a crash interrupted", () => {
     pastTheCreateWindow();
     const outcome = await orchestrator.retry("ad-1");
 
-    expect(outcome).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
+    expect(outcome).toEqual({ status: "relisted", newListingId: expect.any(String), quota: REPORTED_QUOTA });
     expect(gate.authorized).toEqual(["ad-1"]);
     expect(client.lastCreated()).toEqual(sampleAd());
   });
@@ -228,7 +228,7 @@ describe("finishing what a crash interrupted", () => {
     pastTheCreateWindow();
     const outcomes = await orchestrator.resumeAll();
 
-    expect(outcomes).toEqual([{ status: "relisted", quota: REPORTED_QUOTA }]);
+    expect(outcomes).toEqual([{ status: "relisted", newListingId: expect.any(String), quota: REPORTED_QUOTA }]);
     expect(await store.get("ad-1")).toBeNull();
     expect(gate.authorized).toEqual(["ad-1"]);
   });

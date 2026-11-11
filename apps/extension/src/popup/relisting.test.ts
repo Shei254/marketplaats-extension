@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { AD_IS_DOWN, AD_UNCHANGED, refusalNote, refusedTone, rowStateFor } from "./relisting";
+import { AD_IS_DOWN, AD_UNCHANGED, labelFor, refusalNote, refusedTone, rowStateFor, tooltipFor } from "./relisting";
 
 /**
  * The two plans a refusal can land on, named rather than passed as a bare `true`
@@ -13,9 +13,21 @@ const WIRE_ERROR = { code: "NO_MARKTPLAATS_TAB", message: "No marktplaats.nl tab
 
 const QUOTA = { quotaRemaining: 1, resetAt: "2026-09-14T08:31:22.101Z" };
 
+/**
+ * One busy word for both surfaces (ADR-0040): the long sentence pushed the popup's
+ * title down to a few letters and spilled out of the Page button's cell, so it is
+ * the hover text and the button says the short one.
+ */
+describe("a repost that is running", () => {
+  it("says Herplaatsen… on the button, and the whole sentence on hover", () => {
+    expect(labelFor({ kind: "busy" })).toBe("Herplaatsen…");
+    expect(tooltipFor({ kind: "busy" }, "Fiets")).toBe("Bezig met herplaatsen…");
+  });
+});
+
 describe("what an outcome does to the row", () => {
   it("is done when the ad was reposted", () => {
-    expect(rowStateFor({ status: "relisted", quota: QUOTA })).toEqual({ kind: "done" });
+    expect(rowStateFor({ status: "relisted", newListingId: "copy-1", quota: QUOTA })).toEqual({ kind: "done" });
   });
 
   it("offers to start over when nothing was removed", () => {

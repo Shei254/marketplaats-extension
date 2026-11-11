@@ -17,7 +17,7 @@ import { rowHtml } from "./testing/row";
  * shadow roots are opened here the way a test can and the page cannot.
  */
 const PLANS_URL = "https://www.example.test/#abonnementen";
-const RELISTED: WireRelistOutcome = { status: "relisted", quota: null };
+const RELISTED: WireRelistOutcome = { status: "relisted", newListingId: "copy-1", quota: null };
 const PARKED: WireRelistOutcome = { status: "unconfirmed", listingId: "m1", reason: "unknown" };
 
 /** A snapshot the worker is holding for the first row. */

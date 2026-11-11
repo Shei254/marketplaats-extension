@@ -27,7 +27,7 @@ const ADS: ListingSummary[] = [
 const WIRE_ERROR = { code: "NO_MARKTPLAATS_TAB", message: "No marktplaats.nl tab is open" } as const;
 
 const QUOTA = { quotaRemaining: 1, resetAt: "2026-09-14T08:31:22.101Z" };
-const RELISTED: WireRelistOutcome = { status: "relisted", quota: QUOTA };
+const RELISTED: WireRelistOutcome = { status: "relisted", newListingId: "copy-1", quota: QUOTA };
 
 function fakeWorker(outcome: WireRelistOutcome = RELISTED) {
   let release: ((value: WireRelistOutcome) => void) | null = null;
@@ -140,7 +140,7 @@ describe("one relist at a time", () => {
     await show(worker);
     await press(0);
 
-    expect(text()).toContain("Bezig met herplaatsen…");
+    expect(text()).toContain("Herplaatsen…");
     expect(buttons()[1]?.disabled).toBe(true);
     // And the running one cannot be pressed twice either.
     expect(buttons()[0]?.disabled).toBe(true);
@@ -349,7 +349,7 @@ describe("a wait the extension chose", () => {
       vi.advanceTimersByTime(2100);
     });
 
-    expect(buttons()[0]?.textContent).toContain("Bezig met herplaatsen");
+    expect(buttons()[0]?.textContent).toContain("Herplaatsen…");
     expect(text()).not.toContain("look like clicks");
 
     vi.useRealTimers();
@@ -364,7 +364,7 @@ describe("a wait the extension chose", () => {
     await show(worker);
     await press(0);
 
-    expect(buttons()[0]?.textContent).toContain("Bezig met herplaatsen");
+    expect(buttons()[0]?.textContent).toContain("Herplaatsen…");
     expect(text()).not.toContain("look like clicks");
   });
 
@@ -384,7 +384,7 @@ describe("a wait the extension chose", () => {
     hang();
     await press(1);
 
-    expect(buttons()[1]?.textContent).toContain("Bezig met herplaatsen");
+    expect(buttons()[1]?.textContent).toContain("Herplaatsen…");
 
     vi.useRealTimers();
   });
@@ -570,16 +570,72 @@ describe("a list in pages", () => {
       expect(text()).toContain("1 herplaatst · ze staan bovenaan pagina 1");
     });
 
-    it("on the first page only a refresh can show the copy, which then ends the count", async () => {
-      const { worker } = fakeWorker();
+    describe("on the first page", () => {
       const first = onPage(ADS, { ...page, number: 1 });
-      await draw(worker, first);
+      const ids = () => rows().map((row) => row.dataset["adId"]);
+
+      it("the copy takes the top row, under its own id and the original's face", async () => {
+        const { worker } = fakeWorker();
+        await draw(worker, first);
+        await press(1);
+        await pass(LEAVING_MS);
+
+        expect(ids()).toEqual(["copy-1", "m1"]);
+        expect(rows()[0]?.textContent).toContain("Trek Marlin 7");
+        expect(text()).toContain("1 herplaatst · ze staan bovenaan");
+        expect(text()).not.toContain("Vernieuwen");
+      });
+
+      it("the copy is an ordinary row: its Herplaats reposts the copy", async () => {
+        const { worker } = fakeWorker();
+        await draw(worker, first);
+        await press(1);
+        await pass(LEAVING_MS);
+
+        expect(repostButtons()[0]?.disabled).toBe(false);
+        await press(0);
+        expect(worker.relist).toHaveBeenLastCalledWith("copy-1");
+      });
+
+      it("a refresh that already lists the copy does not draw it twice, and ends the count", async () => {
+        const { worker } = fakeWorker();
+        await draw(worker, first);
+        await press(1);
+        await pass(LEAVING_MS);
+
+        const copy = { ...ADS[1]!, id: "copy-1" };
+        await draw(worker, onPage([copy, ADS[0]!], { ...page, number: 1 }), 1);
+
+        expect(ids()).toEqual(["copy-1", "m1"]);
+        expect(text()).not.toContain("herplaatst ·");
+      });
+
+      it("does not move the list, and offers the way up only when the top is out of view", async () => {
+        const { worker } = fakeWorker();
+        await draw(worker, first);
+        const list = container.querySelector<HTMLUListElement>("ul.popup-ads")!;
+        await press(1);
+        await pass(LEAVING_MS);
+        expect(text()).not.toContain("Naar boven");
+
+        list.scrollTop = 120;
+        await act(async () => void list.dispatchEvent(new Event("scroll")));
+        expect(list.scrollTop).toBe(120);
+        const up = buttons().find((button) => button.textContent === "Naar boven");
+        expect(up).toBeDefined();
+
+        await act(async () => up!.click());
+        expect(list.scrollTop).toBe(0);
+      });
+    });
+
+    it("past the first page the copy is not drawn here, since it is on page 1", async () => {
+      const { worker } = fakeWorker();
+      await draw(worker, onPage());
       await press(0);
       await pass(LEAVING_MS);
-      expect(text()).toContain("1 herplaatst · ze staan bovenaan na Vernieuwen");
 
-      await draw(worker, first, 1);
-      expect(text()).not.toContain("herplaatst ·");
+      expect(rows().map((row) => row.dataset["adId"])).toEqual(["m2"]);
     });
 
     it("a repost that failed keeps its row", async () => {
@@ -766,7 +822,7 @@ describe("a list in pages", () => {
       await draw(worker, elsewhere);
       await draw(worker, here);
 
-      expect(repostButtons()[0]?.textContent).toContain("Bezig met herplaatsen");
+      expect(repostButtons()[0]?.textContent).toContain("Herplaatsen…");
       expect(text()).not.toContain("Bezig: ");
     });
   });

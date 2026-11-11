@@ -83,10 +83,30 @@ describe("RelistOrchestrator", () => {
 
     const outcome = await orchestrator.relist("ad-1");
 
-    expect(outcome).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
+    expect(outcome).toEqual({ status: "relisted", newListingId: expect.any(String), quota: REPORTED_QUOTA });
     expect(client.has("ad-1")).toBe(false); // original deleted
     expect(client.lastCreated()).toEqual(sampleAd()); // identical ad created
     expect(await store.get("ad-1")).toBeNull(); // snapshot cleared on success
+  });
+
+  /**
+   * The popup puts the copy's row at the top of the first page, and a row is only
+   * pressable by an id Marktplaats knows — so the answer carries the copy's own id,
+   * the one the Confirmed create named, and never the original's.
+   */
+  it("answers with the id of the copy it placed", async () => {
+    const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() } });
+    const orchestrator = new RelistOrchestrator(
+      client,
+      new InMemorySnapshotStore(),
+      new FakeRelistPermission(),
+      new FakePace(),
+    );
+
+    const outcome = await orchestrator.relist("ad-1");
+
+    expect(client.ids()).toHaveLength(1);
+    expect(outcome).toMatchObject({ status: "relisted", newListingId: client.ids()[0] });
   });
 
   /**
@@ -101,7 +121,7 @@ describe("RelistOrchestrator", () => {
 
     const outcome = await orchestrator.relist("ad-1");
 
-    expect(outcome).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
+    expect(outcome).toEqual({ status: "relisted", newListingId: expect.any(String), quota: REPORTED_QUOTA });
     expect((await orchestrator.listAds()).map((ad) => ad.title)).toEqual(["Bandrecorder 2"]);
     expect(await store.get("ad-1")).toBeNull();
   });
@@ -242,7 +262,7 @@ describe("RelistOrchestrator", () => {
       client.retitle("ad-1", "Fiets, nu met bel"); // edited on Marktplaats meanwhile
 
       pastTheCreateWindow();
-      expect(await orchestrator.retry("ad-1")).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
+      expect(await orchestrator.retry("ad-1")).toEqual({ status: "relisted", newListingId: expect.any(String), quota: REPORTED_QUOTA });
 
       expect(client.lastCreated()?.draft.title).toBe("Fiets, nu met bel");
       expect(client.has("ad-1")).toBe(false);
@@ -298,7 +318,7 @@ describe("RelistOrchestrator", () => {
       const gate = new FakeRelistPermission();
       const orchestrator = new RelistOrchestrator(client, new InMemorySnapshotStore(), gate, new FakePace());
 
-      expect(await orchestrator.relist("ad-1")).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
+      expect(await orchestrator.relist("ad-1")).toEqual({ status: "relisted", newListingId: expect.any(String), quota: REPORTED_QUOTA });
       expect(client.creates()).toBe(1);
       expect(client.has("ad-1")).toBe(false);
       expect(gate.reports).toEqual([{ jti: "grant-1", outcome: "SUCCESS" }]);
@@ -340,7 +360,7 @@ describe("RelistOrchestrator", () => {
     it("still reposts, settles the unit as the canary, and keeps the old id to delete", async () => {
       const { client, store, gate, orchestrator } = deleteFailingOnce();
 
-      expect(await orchestrator.relist("ad-1")).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
+      expect(await orchestrator.relist("ad-1")).toEqual({ status: "relisted", newListingId: expect.any(String), quota: REPORTED_QUOTA });
 
       expect(client.has("ad-1")).toBe(true);
       expect(client.creates()).toBe(1);
@@ -385,7 +405,7 @@ describe("RelistOrchestrator", () => {
       const store = new InMemorySnapshotStore();
       const orchestrator = new RelistOrchestrator(client, store, new FakeRelistPermission(), new FakePace());
 
-      expect(await orchestrator.relist("ad-1")).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
+      expect(await orchestrator.relist("ad-1")).toEqual({ status: "relisted", newListingId: expect.any(String), quota: REPORTED_QUOTA });
       expect(client.ids()).toEqual(["new-1"]);
       expect(await store.get("ad-1")).toBeNull();
     });
@@ -469,7 +489,7 @@ describe("RelistOrchestrator", () => {
       });
       const orchestrator = new RelistOrchestrator(client, store, new FakeRelistPermission(), new FakePace());
 
-      expect(await orchestrator.retry("ad-1")).toEqual({ status: "relisted", quota: null });
+      expect(await orchestrator.retry("ad-1")).toEqual({ status: "relisted", newListingId: expect.any(String), quota: null });
       expect(client.creates()).toBe(1);
     });
 
@@ -652,7 +672,7 @@ describe("RelistOrchestrator", () => {
 
       const outcome = await orchestrator.relist("ad-1");
 
-      expect(outcome).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
+      expect(outcome).toEqual({ status: "relisted", newListingId: expect.any(String), quota: REPORTED_QUOTA });
       // The new ad, and not the one that was deleted: the reserve lands on the id
       // the diff found, which is the whole mechanism.
       const created = events.find((event) => event.type === "create");
@@ -677,7 +697,7 @@ describe("RelistOrchestrator", () => {
 
       const outcome = await orchestrator.relist("ad-1");
 
-      expect(outcome).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
+      expect(outcome).toEqual({ status: "relisted", newListingId: expect.any(String), quota: REPORTED_QUOTA });
       expect(events.filter((event) => event.type === "reserve")).toEqual([]);
       expect(newAd(client)?.draft.reserved).toBe(false);
     });
@@ -704,7 +724,7 @@ describe("RelistOrchestrator", () => {
 
       const outcome = await orchestrator.relist("ad-1");
 
-      expect(outcome).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
+      expect(outcome).toEqual({ status: "relisted", newListingId: expect.any(String), quota: REPORTED_QUOTA });
       const created = events.find((event) => event.type === "create");
       expect(events.filter((event) => event.type === "reserve")).toEqual([
         { type: "reserve", listingId: created?.newId },
@@ -725,7 +745,7 @@ describe("RelistOrchestrator", () => {
       ];
       const orchestrator = new RelistOrchestrator(client, new InMemorySnapshotStore(), new FakeRelistPermission(), new FakePace());
 
-      expect(await orchestrator.relist("ad-1")).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
+      expect(await orchestrator.relist("ad-1")).toEqual({ status: "relisted", newListingId: expect.any(String), quota: REPORTED_QUOTA });
       const created = events.find((event) => event.type === "create");
       expect(events).toContainEqual({ type: "reserve", listingId: created?.newId });
     });
@@ -773,7 +793,7 @@ describe("RelistOrchestrator", () => {
 
       const outcome = await orchestrator.relist("ad-1");
 
-      expect(outcome).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
+      expect(outcome).toEqual({ status: "relisted", newListingId: expect.any(String), quota: REPORTED_QUOTA });
       expect(gate.reports).toEqual([{ jti: "grant-1", outcome: "SUCCESS" }]);
     });
 

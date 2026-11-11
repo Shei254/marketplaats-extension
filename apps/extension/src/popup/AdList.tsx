@@ -187,6 +187,16 @@ export function AdList({
   const [leaving, setLeaving] = useState(false);
   const leavingTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(leavingTimer.current), []);
+  /**
+   * The copies of rows reposted while this popup was open, newest first. Each is
+   * the original's summary under the id the Confirmed create named: the same ad,
+   * which Marktplaats now lists first. Drawn on the first page only, since that is
+   * where they are; a fetch that already lists one draws it once.
+   */
+  const [copies, setCopies] = useState<readonly ListingSummary[]>([]);
+  const copiesRef = useRef(copies);
+  /** Whether the top of the list is on screen, which is where the copies are. */
+  const [atTop, setAtTop] = useState(true);
   /** Reposted since the list last showed their copies. */
   const [reposted, setReposted] = useState(0);
   useEffect(() => setReposted(0), [refreshes]);
@@ -198,8 +208,8 @@ export function AdList({
   const onGoToPageRef = useRef(onGoToPage);
   onGoToPageRef.current = onGoToPage;
 
-  const shown = view.status === "ready" ? view.ads.filter((ad) => !gone.has(ad.id)) : [];
   const page = view.status === "ready" ? view.page : undefined;
+  const shown = view.status === "ready" ? withCopies(view.ads, page, copies).filter((ad) => !gone.has(ad.id)) : [];
 
   // A new set of rows opens at the row it landed on, or else at the top.
   const listRef = useRef<HTMLUListElement | null>(null);
@@ -212,12 +222,20 @@ export function AdList({
     list.scrollTop = row ? (row as HTMLElement).offsetTop : 0;
   }, [fetched]);
 
-  /** The row says it worked, then leaves. If it was the page's last, the next page comes. */
-  const leave = useCallback((listingId: string) => {
+  /**
+   * The row says it worked, then leaves. On the first page its copy takes the top
+   * row; if it was the page's last, the next page comes.
+   */
+  const leave = useCallback((listingId: string, copy: ListingSummary | null) => {
     setLeaving(true);
     leavingTimer.current = setTimeout(() => {
       goneRef.current = new Set(goneRef.current).add(listingId);
       setGone(goneRef.current);
+      const onFirst = viewRef.current.status === "ready" && viewRef.current.page?.number === 1;
+      if (copy && onFirst) {
+        copiesRef.current = [copy, ...copiesRef.current];
+        setCopies(copiesRef.current);
+      }
       setStates(({ [listingId]: _left, ...others }) => others);
       setReposted((count) => count + 1);
       setLeaving(false);
@@ -233,7 +251,10 @@ export function AdList({
   const start = useCallback(
     async (listingId: string, action: "relist" | "retry") => {
       const current = viewRef.current;
-      const rows = current.status === "ready" ? current.ads.filter((ad) => !goneRef.current.has(ad.id)) : [];
+      const rows =
+        current.status === "ready"
+          ? withCopies(current.ads, current.page, copiesRef.current).filter((ad) => !goneRef.current.has(ad.id))
+          : [];
       const row = rows.find((ad) => ad.id === listingId);
       setLastAttempt(row ? { id: listingId, title: row.title } : null);
       // Now rather than when it finishes: closing the popup mid-repost does not
@@ -288,7 +309,9 @@ export function AdList({
         // than two agreeing.
         setCooldownUntil(Date.now() + (state.locked.retryAfter ?? 0) * 1000);
       }
-      if (state.kind === "done") leave(listingId);
+      if (state.kind === "done") {
+        leave(listingId, row && outcome?.status === "relisted" ? { ...row, id: outcome.newListingId } : null);
+      }
       onOutcome(outcome ?? { status: "refused", locked: { state: "retry" } });
     },
     [worker, onOutcome, onSavePosition, leave],
@@ -329,7 +352,11 @@ export function AdList({
         empty={empty}
         onReloadMarktplaats={onReloadMarktplaats}
         rows={() => (
-          <ul className="popup-ads" ref={listRef}>
+          <ul
+            className="popup-ads"
+            ref={listRef}
+            onScroll={(event) => setAtTop(event.currentTarget.scrollTop <= 0)}
+          >
             {shown.length === 0 && (
               <li className="popup-ads-empty">
                 {page ? "Alle advertenties op deze pagina zijn herplaatst." : "Alle gevonden advertenties zijn herplaatst."}
@@ -362,7 +389,16 @@ export function AdList({
           <Note tone="error">Deze pagina kon niet worden geladen. {view.moveError}</Note>
         </div>
       )}
-      {line && <p className="popup-list-line">{line}</p>}
+      {line && (
+        <p className="popup-list-line">
+          {line}
+          {page?.number === 1 && reposted > 0 && !atTop && (
+            <button type="button" className="popup-list-up" onClick={() => listRef.current?.scrollTo({ top: 0 })}>
+              Naar boven
+            </button>
+          )}
+        </p>
+      )}
       {bar && page && (
         <PageBar page={page} moving={moving} onGoTo={(number) => onGoToPage(number, page.batchSize)} />
       )}
@@ -401,10 +437,24 @@ function listLine({
   if (attempt && state?.kind === "failed" && state.action === "relist") return `${attempt.title}: ${state.message}`;
   if (attempt && state?.kind === "refused") return `${attempt.title}: ${refusalNote(state.locked, grantsNothing)}`;
   if (reposted === 0) return null;
-  // Past the first page, a move to page 1 fetches it and shows them. On it, only a
-  // refresh can.
-  const where = page && page.number > 1 ? "ze staan bovenaan pagina 1" : "ze staan bovenaan na Vernieuwen";
+  // On the first page the copies are its top rows; past it, a move to page 1 shows them.
+  const where = page && page.number > 1 ? "ze staan bovenaan pagina 1" : "ze staan bovenaan";
   return `${reposted} herplaatst · ${where}`;
+}
+
+/**
+ * The rows of the first page with this popup's copies over them. A fetch that
+ * already lists a copy keeps its own row for it, so none is drawn twice; past the
+ * first page there are none to add.
+ */
+function withCopies(
+  ads: readonly ListingSummary[],
+  page: AdPage | undefined,
+  copies: readonly ListingSummary[],
+): ListingSummary[] {
+  if (page?.number !== 1 || copies.length === 0) return [...ads];
+  const listed = new Set(ads.map((ad) => ad.id));
+  return [...copies.filter((copy) => !listed.has(copy.id)), ...ads];
 }
 
 /** The controls for an **Ad page**, pinned under the list. */

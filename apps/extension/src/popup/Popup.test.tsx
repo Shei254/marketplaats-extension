@@ -41,6 +41,7 @@ const PLAN: DisplayState = {
 
 const RELISTED: WireRelistOutcome = {
   status: "relisted",
+  newListingId: "copy-1",
   quota: { quotaRemaining: 1, resetAt: "2026-09-14T08:31:22.101Z" },
 };
 
@@ -524,7 +525,7 @@ describe("the quota after a relist", () => {
     // `null` is "we do not know", which is not the same as unchanged — so the
     // strip keeps the last number it was actually given.
     const { worker } = fakeWorker();
-    worker.relist = vi.fn(async () => ({ status: "relisted", quota: null }) as const);
+    worker.relist = vi.fn(async () => ({ status: "relisted", newListingId: "copy-1", quota: null }) as const);
 
     await show(worker);
     await click("Herplaats");

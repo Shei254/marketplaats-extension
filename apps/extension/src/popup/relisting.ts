@@ -186,8 +186,10 @@ export function toneFor(state: RowState, locked: boolean): "primary" | "busy" | 
 
 export function labelFor(state: RowState): string {
   switch (state.kind) {
+    // Short, so it fits beside a title in the popup and inside the cell Marktplaats
+    // gives the Page button; `tooltipFor` says it in full.
     case "busy":
-      return "Bezig met herplaatsen…";
+      return "Herplaatsen…";
     case "done":
       return "Herplaatst";
     case "failed":
@@ -211,5 +213,6 @@ export function tooltipFor(state: RowState, title: string): string {
   if (state.kind === "idle") {
     return `Verwijder “${title}” en plaats de advertentie opnieuw, zodat deze weer bovenaan staat.`;
   }
+  if (state.kind === "busy") return "Bezig met herplaatsen…";
   return labelFor(state);
 }

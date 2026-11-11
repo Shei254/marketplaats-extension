@@ -746,8 +746,8 @@ that ADR's own "revisit if" anticipated. Same audience and same guard as the adm
 - **Auth:** `Authorization: Bearer <Keycloak access token>`, and the reservation must be **that caller's own**.
 - **Body:** `{ "jti": "...", "outcome": "SUCCESS" | "FAILED_BEFORE_DELETE" | "FAILED_AFTER_DELETE" }`
 - Resolves the reservation the `jti` names, and records a **RelistEvent** against it either way.
-  - `SUCCESS` / `FAILED_AFTER_DELETE` → the reservation **settles**; usage stands (the destructive action
-    happened).
+  - `SUCCESS` / `FAILED_AFTER_DELETE` → the reservation **settles**; usage stands (a new ad was placed;
+    since ADR-0041 `FAILED_AFTER_DELETE` is a placed copy whose original could not yet be deleted).
   - `FAILED_BEFORE_DELETE` → the reservation is **refunded**; nothing was consumed on Marktplaats, so the
     unit returns to the period. The RelistEvent is still written — that is the canary below.
 - Idempotent on `jti`: the event's reservation id is unique, so a second report collides in the database, and

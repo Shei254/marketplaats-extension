@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiRequestError } from "./marktplaats-client";
+import { ApiRequestError, CreateNotConfirmedError } from "./marktplaats-client";
 import { RelistOrchestrator } from "./relist-orchestrator";
 import {
   FakeMarktplaatsClient,
@@ -75,7 +75,7 @@ describe("RelistOrchestrator", () => {
     expect(await orchestrator.searchAds("nothing is called this")).toEqual([]);
   });
 
-  it("relists an ad by deleting the original and creating a fresh identical one", async () => {
+  it("relists an ad by creating a fresh identical one and then deleting the original", async () => {
     const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() } });
     const store = new InMemorySnapshotStore();
     const gate = new FakeRelistPermission();
@@ -106,66 +106,45 @@ describe("RelistOrchestrator", () => {
     expect(await store.get("ad-1")).toBeNull();
   });
 
-  it("persists a durable snapshot before deleting anything (delete-first)", async () => {
+  it("creates the copy before deleting the original, and deletes only the id it was given", async () => {
     const events: FakeEvent[] = [];
     const client = new FakeMarktplaatsClient(events, { ads: { "ad-1": sampleAd() } });
     const store = new InMemorySnapshotStore(events);
-    const gate = new FakeRelistPermission();
-    const orchestrator = new RelistOrchestrator(client, store, gate, new FakePace());
+    const orchestrator = new RelistOrchestrator(client, store, new FakeRelistPermission(), new FakePace());
 
     await orchestrator.relist("ad-1");
 
-    const firstSaveCaptured = events.findIndex(
-      (e) => e.type === "save" && e.phase === "captured",
-    );
-    const deleteAt = events.findIndex((e) => e.type === "delete");
-    const createAt = events.findIndex((e) => e.type === "create");
-    const clearAt = events.findIndex((e) => e.type === "clear");
+    const at = (match: (e: FakeEvent) => boolean) => events.findIndex(match);
+    const creatingSaved = at((e) => e.type === "save" && e.phase === "creating");
+    const createAt = at((e) => e.type === "create");
+    const replacedSaved = at((e) => e.type === "save" && e.phase === "replaced");
+    const deleteAt = at((e) => e.type === "delete");
+    const clearAt = at((e) => e.type === "clear");
 
-    expect(firstSaveCaptured).toBeGreaterThanOrEqual(0);
-    expect(firstSaveCaptured).toBeLessThan(deleteAt); // snapshot saved before delete
-    expect(deleteAt).toBeLessThan(createAt); // delete before create
-    expect(createAt).toBeLessThan(clearAt); // snapshot only cleared after create
+    expect(creatingSaved).toBeGreaterThanOrEqual(0);
+    expect(creatingSaved).toBeLessThan(createAt);
+    expect(createAt).toBeLessThan(replacedSaved); // the delete waits for a confirmed create
+    expect(replacedSaved).toBeLessThan(deleteAt);
+    expect(deleteAt).toBeLessThan(clearAt);
+    expect(events.filter((e) => e.type === "delete")).toEqual([{ type: "delete", listingId: "ad-1" }]);
   });
 
-  it("reports failure and leaves the original untouched when deletion fails", async () => {
-    const client = new FakeMarktplaatsClient([], {
-      ads: { "ad-1": sampleAd() },
-      deleteError: new Error("network down"),
-    });
-    const store = new InMemorySnapshotStore();
-    const gate = new FakeRelistPermission();
-    const orchestrator = new RelistOrchestrator(client, store, gate, new FakePace());
+  /**
+   * **A duplicate the seller owns is never at risk** (ADR-0041). The delete names
+   * the id the repost started from, never a match on title.
+   */
+  it("leaves the seller's own duplicate alone", async () => {
+    const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd("Fiets"), "dup-1": sampleAd("Fiets") } });
+    const orchestrator = new RelistOrchestrator(client, new InMemorySnapshotStore(), new FakeRelistPermission(), new FakePace());
 
-    const outcome = await orchestrator.relist("ad-1");
+    expect((await orchestrator.relist("ad-1")).status).toBe("relisted");
 
-    // The delete threw, but Marktplaats still serves the ad: nothing was removed,
-    // so the attempt ends here and its unit goes back.
-    expect(outcome.status).toBe("failed-before-delete");
-    expect(client.has("ad-1")).toBe(true); // original still there
-    expect(await store.get("ad-1")).toBeNull(); // no orphan snapshot
-    expect(gate.reports).toEqual([{ jti: "grant-1", outcome: "FAILED_BEFORE_DELETE" }]);
+    expect(client.has("ad-1")).toBe(false);
+    expect(client.has("dup-1")).toBe(true);
+    expect((await orchestrator.listAds()).map((ad) => ad.title)).toEqual(["Fiets", "Fiets"]);
   });
 
-  it("keeps the snapshot when a delete fails and nobody can tell whether it ran", async () => {
-    const client = new FakeMarktplaatsClient([], {
-      ads: { "ad-1": sampleAd() },
-      deleteError: new Error("network down"),
-    });
-    const store = new InMemorySnapshotStore();
-    const gate = new FakeRelistPermission();
-    const orchestrator = new RelistOrchestrator(client, store, gate, new FakePace());
-    // The probe reads the capture page; from here on it answers nothing useful.
-    client.probeAd = async () => "unknown";
-
-    const outcome = await orchestrator.relist("ad-1");
-
-    expect(outcome.status).toBe("unconfirmed");
-    expect((await store.get("ad-1"))?.phase).toBe("captured");
-    expect(gate.reports).toEqual([]);
-  });
-
-  it("reports failure without saving a snapshot when the ad cannot be captured", async () => {
+  it("reports failure without holding anything when the ad cannot be captured", async () => {
     const client = new FakeMarktplaatsClient([], { ads: {} });
     const store = new InMemorySnapshotStore();
     const gate = new FakeRelistPermission();
@@ -175,117 +154,264 @@ describe("RelistOrchestrator", () => {
 
     expect(outcome.status).toBe("failed-before-delete");
     expect(await store.list()).toHaveLength(0);
-  });
-
-  it("keeps the snapshot and never loses the listing when re-create fails, then relists on retry", async () => {
-    const client = new FakeMarktplaatsClient([], {
-      ads: { "ad-1": sampleAd() },
-      createFailures: 1, // first create throws, second succeeds
-    });
-    const store = new InMemorySnapshotStore();
-    const gate = new FakeRelistPermission();
-    const orchestrator = new RelistOrchestrator(client, store, gate, new FakePace());
-
-    const first = await orchestrator.relist("ad-1");
-    expect(first.status).toBe("failed-recoverable");
-    expect(client.has("ad-1")).toBe(false); // original was deleted
-    const kept = await store.get("ad-1");
-    expect(kept?.phase).toBe("deleted"); // snapshot retained for recovery
-
-    pastTheCreateWindow();
-    const retried = await orchestrator.retry("ad-1");
-    expect(retried).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
-    expect(client.lastCreated()).toEqual(sampleAd()); // restored from the snapshot
-    expect(await store.get("ad-1")).toBeNull();
-  });
-
-  it("resumes an interrupted relist from a 'deleted' snapshot (crash after delete)", async () => {
-    // Ad was already deleted before the crash; only the snapshot remains.
-    const ad = sampleAd();
-    const client = new FakeMarktplaatsClient([], { ads: {} });
-    const store = new InMemorySnapshotStore();
-    const gate = new FakeRelistPermission();
-    store.seed({
-      listingId: "ad-1",
-      draft: ad.draft,
-      photos: ad.photos,
-      phase: "deleted",
-      createdAt: 1,
-    });
-    const orchestrator = new RelistOrchestrator(client, store, gate, new FakePace());
-
-    const [outcome] = await orchestrator.resumeAll();
-
-    expect(outcome?.status).toBe("relisted");
-    expect(await store.get("ad-1")).toBeNull();
-  });
-
-  it("cancels a 'captured' snapshot whose delete never happened", async () => {
-    // The ad still exists (delete never ran before the crash).
-    const ad = sampleAd();
-    const client = new FakeMarktplaatsClient([], { ads: { "ad-1": ad } });
-    const store = new InMemorySnapshotStore();
-    const gate = new FakeRelistPermission();
-    store.seed({
-      listingId: "ad-1",
-      draft: ad.draft,
-      photos: ad.photos,
-      phase: "captured",
-      createdAt: 1,
-    });
-    const orchestrator = new RelistOrchestrator(client, store, gate, new FakePace());
-
-    const [outcome] = await orchestrator.resumeAll();
-
-    // Cancelled rather than finished (ADR-0039): the ad is untouched, and the
-    // user presses Repost again if they still want it.
-    expect(outcome?.status).toBe("failed-before-delete");
-    expect(client.has("ad-1")).toBe(true);
-    expect(client.lastCreated()).toBeNull();
-    expect(await store.get("ad-1")).toBeNull();
+    expect(gate.reports).toEqual([{ jti: "grant-1", outcome: "FAILED_BEFORE_DELETE" }]);
   });
 
   /**
-   * **A create that failed may have worked** (ADR-0039). Marktplaats can create
-   * the ad and lose the reply, and a retry that trusted the failure would post the
-   * user's ad twice — so every retry first looks for the ad the last create made.
+   * **We never pay on a seller's behalf** (ADR-0041). A create whose chain stops
+   * at a payment page placed nothing; the original was never touched, and the
+   * unit goes back.
    */
-  describe("a create whose reply was lost", () => {
-    function losingOneReply() {
-      const events: FakeEvent[] = [];
-      const client = new FakeMarktplaatsClient(events, { ads: { "ad-1": sampleAd() }, lostReplies: 1 });
-      const store = new InMemorySnapshotStore(events);
+  it("cannot repost an ad that would cost money, and leaves it exactly where it was", async () => {
+    const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() }, createEndsOn: "payment" });
+    const store = new InMemorySnapshotStore();
+    const gate = new FakeRelistPermission();
+    const orchestrator = new RelistOrchestrator(client, store, gate, new FakePace());
+
+    const outcome = await orchestrator.relist("ad-1");
+
+    expect(outcome.status).toBe("failed-before-delete");
+    const error = outcome.status === "failed-before-delete" ? outcome.error : null;
+    expect(error).toBeInstanceOf(CreateNotConfirmedError);
+    expect((error as CreateNotConfirmedError).paymentRequired).toBe(true);
+    expect(client.has("ad-1")).toBe(true);
+    expect(client.creates()).toBe(0);
+    expect(await store.list()).toEqual([]);
+    expect(gate.reports).toEqual([{ jti: "grant-1", outcome: "FAILED_BEFORE_DELETE" }]);
+  });
+
+  it("deletes nothing when the create ends somewhere it does not recognise", async () => {
+    const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() }, createEndsOn: "elsewhere" });
+    const gate = new FakeRelistPermission();
+    const orchestrator = new RelistOrchestrator(client, new InMemorySnapshotStore(), gate, new FakePace());
+
+    expect((await orchestrator.relist("ad-1")).status).toBe("failed-before-delete");
+    expect(client.has("ad-1")).toBe(true);
+    expect(gate.reports).toEqual([{ jti: "grant-1", outcome: "FAILED_BEFORE_DELETE" }]);
+  });
+
+  it("hands a create Marktplaats refused back to the user, with the ad untouched", async () => {
+    const client = new FakeMarktplaatsClient([], {
+      ads: { "ad-1": sampleAd() }, createFailures: 1, createError: new ApiRequestError("createAd", 422, ""),
+    });
+    const store = new InMemorySnapshotStore();
+    const gate = new FakeRelistPermission();
+    const orchestrator = new RelistOrchestrator(client, store, gate, new FakePace());
+
+    expect((await orchestrator.relist("ad-1")).status).toBe("failed-before-delete");
+    expect(client.has("ad-1")).toBe(true);
+    expect(await store.list()).toEqual([]);
+    expect(gate.reports).toEqual([{ jti: "grant-1", outcome: "FAILED_BEFORE_DELETE" }]);
+  });
+
+  /**
+   * **Create unconfirmed** (ADR-0041): a create that failed in a way that may pass
+   * leaves the original live and the repost pending. Nothing is reported yet.
+   */
+  describe("a create that may pass on another try", () => {
+    function failingOnce() {
+      const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() }, createFailures: 1 });
+      const store = new InMemorySnapshotStore();
       const gate = new FakeRelistPermission();
       return { client, store, gate, orchestrator: new RelistOrchestrator(client, store, gate, new FakePace()) };
     }
 
-    it("is found by the retry, which creates nothing", async () => {
-      const { client, store, gate, orchestrator } = losingOneReply();
-      expect((await orchestrator.relist("ad-1")).status).toBe("failed-recoverable");
+    it("leaves the original live, and holds ids rather than the ad", async () => {
+      const { client, store, gate, orchestrator } = failingOnce();
 
-      const outcome = await orchestrator.retry("ad-1");
+      expect((await orchestrator.relist("ad-1")).status).toBe("unconfirmed");
 
-      expect(outcome).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
-      expect(client.creates()).toBe(1);
-      expect(await store.get("ad-1")).toBeNull();
-      expect(gate.reports).toEqual([
-        { jti: "grant-1", outcome: "FAILED_AFTER_DELETE" },
-        { jti: "grant-1", outcome: "SUCCESS" },
-      ]);
+      expect(client.has("ad-1")).toBe(true);
+      const record = await store.get("ad-1");
+      expect(record?.phase).toBe("creating");
+      expect(record).not.toHaveProperty("draft");
+      expect(record).not.toHaveProperty("photos");
+      expect(gate.reports).toEqual([]);
     });
 
-    it("holds the retry back when the ads cannot be listed to look", async () => {
-      const { client, store, orchestrator } = losingOneReply();
+    it("is finished by a retry, which captures the original again", async () => {
+      const { client, store, gate, orchestrator } = failingOnce();
       await orchestrator.relist("ad-1");
-      client.breakListing(new Error("offline"));
+      client.retitle("ad-1", "Fiets, nu met bel"); // edited on Marktplaats meanwhile
 
-      const outcome = await orchestrator.retry("ad-1");
+      pastTheCreateWindow();
+      expect(await orchestrator.retry("ad-1")).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
 
-      // Not knowing whether the last create landed is not permission to send
-      // another: the snapshot waits for an attempt that can look.
-      expect(outcome.status).toBe("unconfirmed");
+      expect(client.lastCreated()?.draft.title).toBe("Fiets, nu met bel");
+      expect(client.has("ad-1")).toBe(false);
+      expect(await store.get("ad-1")).toBeNull();
+      expect(gate.reports).toEqual([{ jti: "grant-1", outcome: "SUCCESS" }]);
+    });
+
+    it("waits out the create's window before sending another", async () => {
+      const { client, orchestrator } = failingOnce();
+      await orchestrator.relist("ad-1");
+
+      expect((await orchestrator.resumeAll())[0]?.status).toBe("unconfirmed");
+      expect(client.creates()).toBe(0);
+    });
+
+    it("is dropped, and its unit handed back, when the seller deleted the original themselves", async () => {
+      const { client, store, gate, orchestrator } = failingOnce();
+      await orchestrator.relist("ad-1");
+      client.removeByHand("ad-1");
+
+      pastTheCreateWindow();
+      expect((await orchestrator.resumeAll())[0]?.status).toBe("failed-before-delete");
+      expect(client.creates()).toBe(0);
+      expect(await store.list()).toEqual([]);
+      expect(gate.reports).toEqual([{ jti: "grant-1", outcome: "FAILED_BEFORE_DELETE" }]);
+    });
+
+    it("stops the background after three creates, and an explicit Opnieuw sends one more", async () => {
+      const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() } });
+      const store = new InMemorySnapshotStore();
+      store.seed({
+        phase: "creating", listingId: "ad-1", title: "Vintage bike", reserved: false, createdAt: 1,
+        grantJti: "grant-0", idsBeforeCreate: ["ad-1"], createSentAt: 1, attempts: 3,
+      });
+      const orchestrator = new RelistOrchestrator(client, store, new FakeRelistPermission(), new FakePace());
+
+      expect((await orchestrator.resumeAll())[0]?.status).toBe("unconfirmed");
+      expect(client.creates()).toBe(0);
+      expect((await store.get("ad-1"))?.needsUser).toBe(true);
+
+      expect((await orchestrator.retry("ad-1")).status).toBe("relisted");
       expect(client.creates()).toBe(1);
+    });
+  });
+
+  /**
+   * **A create that failed may have worked** (ADR-0039): Marktplaats can place the
+   * ad and lose the reply. It is looked for before anything else is sent.
+   */
+  describe("a create whose reply was lost", () => {
+    it("is found straight away, and the original replaced by it", async () => {
+      const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() }, lostReplies: 1 });
+      const gate = new FakeRelistPermission();
+      const orchestrator = new RelistOrchestrator(client, new InMemorySnapshotStore(), gate, new FakePace());
+
+      expect(await orchestrator.relist("ad-1")).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
+      expect(client.creates()).toBe(1);
+      expect(client.has("ad-1")).toBe(false);
+      expect(gate.reports).toEqual([{ jti: "grant-1", outcome: "SUCCESS" }]);
+    });
+
+    it("is looked for again by the retry when the list could not be read, and not posted twice", async () => {
+      const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() }, lostReplies: 1 });
+      const store = new InMemorySnapshotStore();
+      const orchestrator = new RelistOrchestrator(client, store, new FakeRelistPermission(), new FakePace());
+      const listPage = client.listMyAdsPage.bind(client);
+      let calls = 0;
+      client.listMyAdsPage = async () => {
+        if (++calls === 2) throw new Error("offline");
+        return listPage();
+      };
+
+      expect((await orchestrator.relist("ad-1")).status).toBe("unconfirmed");
+      expect(client.has("ad-1")).toBe(true);
+      expect((await store.get("ad-1"))?.phase).toBe("creating");
+
+      expect((await orchestrator.retry("ad-1")).status).toBe("relisted");
+      expect(client.creates()).toBe(1);
+      expect(client.has("ad-1")).toBe(false);
+    });
+  });
+
+  /**
+   * **Old ad still to delete** (ADR-0041): the create was confirmed and the delete
+   * failed. The seller has two live copies, never none.
+   */
+  describe("a delete that fails after a confirmed create", () => {
+    function deleteFailingOnce() {
+      const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() }, deleteFailures: 1 });
+      const store = new InMemorySnapshotStore();
+      const gate = new FakeRelistPermission();
+      return { client, store, gate, orchestrator: new RelistOrchestrator(client, store, gate, new FakePace()) };
+    }
+
+    it("still reposts, settles the unit as the canary, and keeps the old id to delete", async () => {
+      const { client, store, gate, orchestrator } = deleteFailingOnce();
+
+      expect(await orchestrator.relist("ad-1")).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
+
+      expect(client.has("ad-1")).toBe(true);
+      expect(client.creates()).toBe(1);
+      const record = await store.get("ad-1");
+      expect(record?.phase).toBe("replaced");
+      expect(gate.reports).toEqual([{ jti: "grant-1", outcome: "FAILED_AFTER_DELETE" }]);
+      expect((await orchestrator.pendingReposts())[0]?.replaced).toBe(true);
+    });
+
+    it("is finished by the background while the new ad is live", async () => {
+      const { client, store, orchestrator } = deleteFailingOnce();
+      await orchestrator.relist("ad-1");
+
+      expect((await orchestrator.resumeAll())[0]?.status).toBe("relisted");
+      expect(client.has("ad-1")).toBe(false);
+      expect(client.creates()).toBe(1);
+      expect(await store.list()).toEqual([]);
+    });
+
+    it("never deletes the original once the seller has removed the copy", async () => {
+      const { client, store, orchestrator } = deleteFailingOnce();
+      await orchestrator.relist("ad-1");
+      const record = await store.get("ad-1");
+      client.removeByHand(record?.phase === "replaced" ? record.newListingId : "");
+
+      await orchestrator.resumeAll();
+
+      expect(client.has("ad-1")).toBe(true);
+      expect(await store.list()).toEqual([]);
+    });
+  });
+
+  /**
+   * **ADR-0003's snapshots, carried over by an update** (ADR-0041). For a seller
+   * who updates with one of these pending, the ad is gone and this is its only
+   * copy, so they are finished the old way and never written again.
+   */
+  describe("a delete-first snapshot from before the update", () => {
+    it("puts a 'deleted' one back from what it stored", async () => {
+      const ad = sampleAd();
+      const client = new FakeMarktplaatsClient([], { ads: {} });
+      const store = new InMemorySnapshotStore();
+      store.seed({ listingId: "ad-1", draft: ad.draft, photos: ad.photos, phase: "deleted", createdAt: 1 });
+      const orchestrator = new RelistOrchestrator(client, store, new FakeRelistPermission(), new FakePace());
+
+      const [outcome] = await orchestrator.resumeAll();
+
+      expect(outcome?.status).toBe("relisted");
+      expect(client.lastCreated()).toEqual(sampleAd());
+      expect(await store.get("ad-1")).toBeNull();
+    });
+
+    it("cancels a 'captured' one whose delete never happened", async () => {
+      const ad = sampleAd();
+      const client = new FakeMarktplaatsClient([], { ads: { "ad-1": ad } });
+      const store = new InMemorySnapshotStore();
+      store.seed({ listingId: "ad-1", draft: ad.draft, photos: ad.photos, phase: "captured", createdAt: 1 });
+      const orchestrator = new RelistOrchestrator(client, store, new FakeRelistPermission(), new FakePace());
+
+      const [outcome] = await orchestrator.resumeAll();
+
+      expect(outcome?.status).toBe("failed-before-delete");
+      expect(client.has("ad-1")).toBe(true);
+      expect(client.lastCreated()).toBeNull();
+      expect(await store.get("ad-1")).toBeNull();
+    });
+
+    it("keeps a 'deleted' one whose create fails, and settles the unit it spent", async () => {
+      const ad = sampleAd();
+      const client = new FakeMarktplaatsClient([], { ads: {}, createFailures: 1 });
+      const store = new InMemorySnapshotStore();
+      const gate = new FakeRelistPermission();
+      store.seed({ listingId: "ad-1", draft: ad.draft, photos: ad.photos, phase: "deleted", createdAt: 1, grantJti: "grant-0" });
+      const orchestrator = new RelistOrchestrator(client, store, gate, new FakePace());
+
+      expect((await orchestrator.resumeAll())[0]?.status).toBe("failed-recoverable");
       expect((await store.get("ad-1"))?.phase).toBe("deleted");
+      expect(gate.reports).toEqual([{ jti: "grant-0", outcome: "FAILED_AFTER_DELETE" }]);
     });
   });
 
@@ -326,36 +452,6 @@ describe("RelistOrchestrator", () => {
       expect((await orchestrator.retry("ad-1")).status).toBe("relisted");
       expect(client.creates()).toBe(1);
       expect(await store.get("ad-1")).toBeNull();
-    });
-  });
-
-  describe("a create that will not work by trying again", () => {
-    function refusedOnce(createError: Error) {
-      const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() }, createFailures: 1, createError });
-      const store = new InMemorySnapshotStore();
-      return { client, store, orchestrator: new RelistOrchestrator(client, store, new FakeRelistPermission(), new FakePace()) };
-    }
-
-    it("is left for the user, and only they retry it", async () => {
-      const { client, store, orchestrator } = refusedOnce(new ApiRequestError("createAd", 422, ""));
-      await orchestrator.relist("ad-1");
-      expect((await store.get("ad-1"))?.needsUser).toBe(true);
-
-      expect(await orchestrator.resumeAll()).toEqual([]);
-      expect(client.creates()).toBe(0);
-
-      pastTheCreateWindow();
-      expect((await orchestrator.retry("ad-1")).status).toBe("relisted");
-      expect(client.creates()).toBe(1);
-    });
-
-    it("is not how a failure that may pass is treated", async () => {
-      const { store, orchestrator } = refusedOnce(new ApiRequestError("createAd", 503, ""));
-      await orchestrator.relist("ad-1");
-
-      expect((await store.get("ad-1"))?.needsUser).toBeFalsy();
-      pastTheCreateWindow();
-      expect(await orchestrator.resumeAll()).toEqual([{ status: "relisted", quota: REPORTED_QUOTA }]);
     });
   });
 
@@ -403,23 +499,23 @@ describe("RelistOrchestrator", () => {
    * started it.
    */
   describe("pending reposts", () => {
-    it("are listed with what the row needs, and whether they wait for the user", async () => {
-      const client = new FakeMarktplaatsClient([], {
-        ads: { "ad-1": sampleAd("Fiets"), "ad-2": sampleAd("Stoel") },
-        createFailures: 2,
-        createError: new ApiRequestError("createAd", 422, ""),
+    it("are listed with what the row needs, and which state they are in", async () => {
+      const client = new FakeMarktplaatsClient([], { ads: {} });
+      const store = new InMemorySnapshotStore();
+      store.seed({
+        phase: "creating", listingId: "ad-1", title: "Fiets", reserved: false, createdAt: 1,
+        idsBeforeCreate: [], createSentAt: 1, attempts: 1, failure: "server",
       });
-      const orchestrator = new RelistOrchestrator(client, new InMemorySnapshotStore(), new FakeRelistPermission(), new FakePace());
-      await orchestrator.relist("ad-1");
-      await orchestrator.relist("ad-2");
+      store.seed({ phase: "replaced", listingId: "ad-2", title: "Stoel", createdAt: 1, newListingId: "new-9", needsUser: true });
+      const orchestrator = new RelistOrchestrator(client, store, new FakeRelistPermission(), new FakePace());
 
       expect(await orchestrator.pendingReposts()).toEqual([
-        { listingId: "ad-1", title: "Fiets", needsUser: true, running: false, deleted: true, failure: "unknown" },
-        { listingId: "ad-2", title: "Stoel", needsUser: true, running: false, deleted: true, failure: "unknown" },
+        { listingId: "ad-1", title: "Fiets", needsUser: false, running: false, deleted: false, replaced: false, failure: "server" },
+        { listingId: "ad-2", title: "Stoel", needsUser: true, running: false, deleted: false, replaced: true, failure: undefined },
       ]);
     });
 
-    it("can be let go, which drops the snapshot and nothing else", async () => {
+    it("can be let go, which drops the record and nothing else", async () => {
       const client = new FakeMarktplaatsClient([], { ads: { "ad-1": sampleAd() }, createFailures: 1 });
       const gate = new FakeRelistPermission();
       const orchestrator = new RelistOrchestrator(client, new InMemorySnapshotStore(), gate, new FakePace());
@@ -428,8 +524,9 @@ describe("RelistOrchestrator", () => {
       expect(await orchestrator.letGo("ad-1")).toBe(true);
 
       expect(await orchestrator.pendingReposts()).toEqual([]);
-      expect(gate.reports).toEqual([{ jti: "grant-1", outcome: "FAILED_AFTER_DELETE" }]);
+      expect(gate.reports).toEqual([]);
       expect(client.creates()).toBe(0);
+      expect(client.has("ad-1")).toBe(true);
     });
 
     it("cannot be let go while it is being put back", async () => {
@@ -544,55 +641,43 @@ describe("RelistOrchestrator", () => {
     });
 
     /**
-     * **No new ad found is not a repost.** The list lagged, or the new ad landed on
-     * a page nobody asked for (T37, #46): either way the create may or may not
-     * have landed, so the repost is unconfirmed and the snapshot waits — and with
-     * no id there is nothing to flag.
+     * **The flag lands on the id the create named** (ADR-0041), so a list that
+     * never shows the new ad — lag, or a page nobody asked for (T37, #46) — no
+     * longer costs the flag or the repost.
      */
-    it("flags nothing, and is unconfirmed, when the new ad cannot be found", async () => {
+    it("flags the ad the create named, even when the list never shows it", async () => {
       const events: FakeEvent[] = [];
-      const store = new InMemorySnapshotStore();
       const client = new FakeMarktplaatsClient(events, { ads: { "ad-1": sampleAd("Bank", true) } });
-      // A list that never moves: the same ids before and after, so the new ad
-      // never shows up however the create went.
       client.listMyAds = async () => [
         { id: "frozen", title: "Bank", priceCents: 1, priceType: "FIXED", biddingEnabled: false, reserved: true },
       ];
-      const orchestrator = new RelistOrchestrator(client, store, new FakeRelistPermission(), new FakePace());
-      // The create is looked for three times over a few seconds; run those waits now.
-      vi.useFakeTimers();
+      const orchestrator = new RelistOrchestrator(client, new InMemorySnapshotStore(), new FakeRelistPermission(), new FakePace());
 
-      const reposting = orchestrator.relist("ad-1");
-      await vi.runAllTimersAsync();
-      const outcome = await reposting;
-
-      expect(outcome).toEqual({ status: "unconfirmed", listingId: "ad-1", reason: "unknown" });
-      expect(events.filter((event) => event.type === "reserve")).toEqual([]);
-      expect((await store.get("ad-1"))?.phase).toBe("deleted");
+      expect(await orchestrator.relist("ad-1")).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
+      const created = events.find((event) => event.type === "create");
+      expect(events).toContainEqual({ type: "reserve", listingId: created?.newId });
     });
 
     /**
-     * **A list that cannot be read means no create.** The ads are listed before
-     * the create, so a later attempt can tell whether it landed; without that list
-     * a create could not be checked, and sending one anyway is how an ad gets
-     * posted twice. The ad is already deleted, so the snapshot stays for the retry.
+     * **A list that cannot be read means no create**: without the ids from before,
+     * a lost reply could not be told from a failure, and sending one anyway is how
+     * an ad gets posted twice. Nothing has been deleted, so the unit goes back.
      */
-    it("creates nothing, and keeps the snapshot, when the ads cannot be listed", async () => {
+    it("creates and deletes nothing when the ads cannot be listed", async () => {
       const events: FakeEvent[] = [];
       const store = new InMemorySnapshotStore();
       const client = new FakeMarktplaatsClient(events, {
         ads: { "ad-1": sampleAd("Bank", true) },
         listError: new Error("marktplaats said no"),
       });
-      const orchestrator = new RelistOrchestrator(client, store, new FakeRelistPermission(), new FakePace());
+      const gate = new FakeRelistPermission();
+      const orchestrator = new RelistOrchestrator(client, store, gate, new FakePace());
 
-      const outcome = await orchestrator.relist("ad-1");
-
-      expect(outcome).toEqual({ status: "unconfirmed", listingId: "ad-1", reason: "unknown" });
+      expect((await orchestrator.relist("ad-1")).status).toBe("failed-before-delete");
       expect(client.creates()).toBe(0);
-      expect(events.filter((event) => event.type === "reserve")).toEqual([]);
-      expect(client.has("ad-1")).toBe(false);
-      expect((await store.get("ad-1"))?.phase).toBe("deleted");
+      expect(client.has("ad-1")).toBe(true);
+      expect(await store.list()).toEqual([]);
+      expect(gate.reports).toEqual([{ jti: "grant-1", outcome: "FAILED_BEFORE_DELETE" }]);
     });
 
     /**

@@ -5,21 +5,32 @@ import type { RelistPermission } from "../gate/relist-permission";
 import {
   AdNotFoundError,
   ApiRequestError,
+  CreateNotConfirmedError,
   SpikePendingError,
   type MarktplaatsClient,
   DraftUnusableError, NotAuthenticatedError
 } from "./marktplaats-client";
 import type { RelistPacing } from "./relist-pace";
 import type { SnapshotStore } from "./snapshot-store";
-import type {AdPresence, AdSnapshot, AdsPage, Landed, ListingSummary, PendingRepost} from "./types";
+import type {
+  AdPresence,
+  AdSnapshot,
+  AdsPage,
+  CapturedAd,
+  CapturedListing,
+  CreateUnconfirmed,
+  Landed,
+  ListingSummary,
+  OldAdToDelete,
+  PendingRepost,
+  RepostRecord,
+} from "./types";
 import {failureKind, type FailureKind} from "./failure";
 
-const DELETE_WINDOW_MS = 120_000;
 const CREATE_WINDOW_MS = 180_000;
 const MAX_CREATE_ATTEMPTS = 3;
 const CHECK_BACKOFF_MS = [5_000, 15_000, 60_000, 300_000];
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const settled = (sentAt: number | undefined, windowMs: number) =>
     sentAt === undefined || Date.now() - sentAt > windowMs;
 
@@ -36,7 +47,10 @@ export type RelistOutcome =
   | { status: "relisted"; quota: RemainingQuota | null }
   /** Nothing was removed from Marktplaats; the original ad is intact. */
   | { status: "failed-before-delete"; error: unknown; quota: RemainingQuota | null }
-  /** The original was deleted but re-create failed; snapshot retained for retry. */
+  /**
+   * Only an ADR-0003 snapshot can end here now: its original was deleted and the
+   * re-create failed, so the stored copy is kept for retry.
+   */
   | { status: "failed-recoverable"; listingId: string; error: unknown; quota: RemainingQuota | null }
   /**
    * The backend did not authorize it, so **nothing ran at all** — no capture, no
@@ -45,7 +59,7 @@ export type RelistOutcome =
    */
   | { status: "refused"; locked: LockedState }
   | { status: "unconfirmed"; listingId: string; reason: FailureKind }
-  | { status: "busy"; listingId: string; reason: "running" | "pending" };;
+  | { status: "busy"; listingId: string; reason: "running" | "pending" };
 
 /**
  * An interrupted repost whose ad Marktplaats still has: nothing was deleted, so
@@ -59,7 +73,7 @@ export class RepostCancelledError extends Error {
 }
 
 /**
- * The delete-first state machine (ADR-0003), now behind the gate (T26, #35).
+ * The repost state machine — create-first since ADR-0041, behind the gate (T26, #35).
  *
  * **The engine runs only on `proceed`.** The authorization is the first thing this
  * does — before the capture, which is what the backend's pacing rails count as an
@@ -141,169 +155,199 @@ export class RelistOrchestrator {
     return this.once(listingId, "start", () => this.relistNow(listingId));
   }
 
+  /**
+   * **Create-first** (ADR-0041): capture → create → confirm → delete. The original
+   * is deleted only after a Confirmed create, by the id the user chose, so no
+   * failure anywhere in here leaves the seller with fewer ads than they had.
+   */
   private async relistNow(listingId: string): Promise<RelistOutcome> {
     // 0. Wait for the gap, before the authorization rather than after it (T46,
     //    #54). The backend's rails count from the reservation `authorize` takes,
     //    so a gap that ran after it would be measured against a clock that had
     //    already started — and a request that is going to be refused for arriving
     //    too soon should not be sent at all.
-    //
-    //    Nothing has happened yet at this point: no grant, no capture, no delete.
-    //    So a worker that is torn down mid-wait — which Chrome may do once the
-    //    popup that asked has closed — costs the user their click and nothing else.
     await this.pace.pause();
 
-    // 1. Permission. Before the capture, because the capture is the attempt the
-    //    backend's pacing rails count and it fetches every photo of the ad; and
-    //    before everything else, because the next steps delete somebody's listing
-    //    and fail-closed means that never happens on a stale grant.
+    // 1. Permission, before the capture — the attempt the backend's pacing rails
+    //    count — and fail-closed: a stale grant never reaches Marktplaats.
     const decision = await this.permission.authorize(listingId);
     if (decision.decision === "refuse") {
-      // Nothing reached Marktplaats, so nothing is paced: a refusal is not an
-      // action to space out, and spacing it would make the cooldown the user is
-      // already being shown longer than the backend said.
+      // Nothing reached Marktplaats, so nothing is paced.
       return { status: "refused", locked: decision.locked };
     }
     await this.pace.startedRelisting();
     const grantJti = decision.grant.jti;
 
-    // 2. Capture the full ad. A failure here removed nothing — the unit goes back.
-    let snapshot: AdSnapshot;
+    // 2. Capture the ad. Held in memory only: the original stays live until a
+    //    confirmed create, so it is its own backup (ADR-0041).
+    let captured: CapturedListing;
     try {
-      const captured = await this.client.captureAd(listingId);
-      snapshot = {
-        listingId,
-        draft: captured.draft,
-        photos: captured.photos,
-        phase: "captured",
-        createdAt: Date.now(),
-        grantJti,
-      };
+      captured = await this.client.captureAd(listingId);
     } catch (error) {
-      console.error("Failed when capturing data");
-      return { status: "failed-before-delete", error, quota: await this.report(grantJti, "FAILED_BEFORE_DELETE") };
+      console.error("[relist] could not capture", listingId, error);
+      return this.nothingChanged(listingId, grantJti, error);
     }
 
-    // 3. Persist the durable snapshot BEFORE anything is deleted (ADR-0003).
+    // 3. The ids before the create, so a create whose reply is lost can be found
+    //    rather than posted twice. Unreadable, and there is nothing to look with.
+    const before = await this.currentAds();
+    if (before === null) return this.nothingChanged(listingId, grantJti, new Error("could not list ads"));
+
+    const record: CreateUnconfirmed = {
+      phase: "creating",
+      listingId,
+      title: captured.draft.title,
+      reserved: captured.draft.reserved,
+      grantJti,
+      createdAt: Date.now(),
+      idsBeforeCreate: before.map((ad) => ad.id),
+      createSentAt: Date.now(),
+      attempts: 1,
+    };
     try {
-      snapshot.deleteSentAt = Date.now()
-      await this.store.save(snapshot);
+      await this.store.save(record);
     } catch (error) {
-      console.error("failed saving snapshot");
-      return { status: "failed-before-delete", error, quota: await this.report(grantJti, "FAILED_BEFORE_DELETE") };
+      console.error("[relist] could not save the pending repost", error);
+      return this.nothingChanged(listingId, grantJti, error);
     }
 
-    // 4. Delete-first. A real delete failure means the original still exists, so
-    //    abandon cleanly with no orphan snapshot.
-    const deletion = await this.ensureDeleted(snapshot);
-    if (deletion.state === "refused") {
-      await this.store.clear(listingId)
-      return {
-        status: "failed-before-delete",
-        error: deletion.error,
-        quota: await this.report(grantJti, "FAILED_BEFORE_DELETE")
-      }
-    }
+    return this.createAndConfirm(record, captured);
+  }
 
-    if (deletion.state === "unknown") {
-      return {
-        status: "unconfirmed",
-        listingId,
-        reason: failureKind(deletion.error)
-      }
+  /** 4. Create, and on a Confirmed create, replace the original with it. */
+  private async createAndConfirm(record: CreateUnconfirmed, captured: CapturedListing): Promise<RelistOutcome> {
+    let newId: string;
+    try {
+      newId = await this.client.createAd(captured.draft, captured.photos);
+    } catch (error) {
+      return this.createNotConfirmed(record, error);
     }
-
-    // 5. Re-create the identical ad — from the snapshot as ensureDeleted saved it,
-    //    phase "deleted", so a park before the create never writes it back as
-    //    "captured" and leaves an ad that is gone looking as if it might not be.
-    return this.createFromSnapshot(deletion.snapshot);
+    return this.replaceOriginal(record, newId);
   }
 
   /**
-   * Delete the original, tolerating "already gone", and advance the snapshot to the
-   * "deleted" phase on success. Returns the delete failure instead of throwing so
-   * callers can choose their own outcome (abort vs. keep-for-retry).
+   * The create did not confirm. **Nothing has been deleted**, so every way out of
+   * here leaves the original live — the only question is whether a copy exists.
    */
-  private async ensureDeleted(
-    snapshot: AdSnapshot,
-  ): Promise<
-      { state: "deleted"; snapshot: AdSnapshot}
-      | { state: "refused"; error: unknown }
-      | { state: "unknown"; error: unknown }
-  > {
+  private async createNotConfirmed(record: CreateUnconfirmed, error: unknown): Promise<RelistOutcome> {
+    // A chain that stopped at a payment page placed nothing, and never will for
+    // free. We never pay on a seller's behalf: this ad cannot be reposted.
+    if (error instanceof CreateNotConfirmedError && error.paymentRequired) {
+      return this.cancel(record, error);
+    }
 
-    let lastError: unknown
+    // Anything else may still have placed the ad and lost the reply: look once.
+    // A miss here is not the last word — every retry looks again, after the
+    // create's window, before it sends another.
+    const seen = await this.lookForCreated(record);
+    if (seen.state === "landed") return this.replaceOriginal(record, seen.id);
+    if (seen.state === "ambiguous") return this.park({ ...record, needsUser: true }, "unknown");
+
+    // Seen not to have landed, and Marktplaats gave an answer the same request
+    // would get again: nothing was placed, and nothing will be.
+    const answered = error instanceof CreateNotConfirmedError || sendingAgainCannotFix(error);
+    if (seen.state === "none" && answered) {
+      return this.cancel(record, error);
+    }
+    return this.park({ ...record, failure: failureKind(error) }, failureKind(error));
+  }
+
+  /**
+   * 5. A Confirmed create placed `newId`: flag it if the original was reserved,
+   *    then delete the original — by its own id, never by a match (ADR-0041).
+   */
+  private async replaceOriginal(
+    record: CreateUnconfirmed | OldAdToDelete,
+    newId: string,
+  ): Promise<RelistOutcome> {
+    const replaced: OldAdToDelete = {
+      phase: "replaced",
+      listingId: record.listingId,
+      title: record.title,
+      grantJti: record.grantJti,
+      createdAt: record.createdAt,
+      newListingId: newId,
+    };
     try {
-      await this.client.deleteAd(snapshot.listingId);
-      return this.markDeleted(snapshot)
+      await this.store.save(replaced);
     } catch (error) {
-      if (error instanceof AdNotFoundError || isGone(error)) {
-        return this.markDeleted(snapshot);
-      }
-      if (this.deleteWasRefused(error)) return { state: "refused", error };
-      lastError = error;
+      // The delete still runs: a record that says "creating" would only make a
+      // retry look for this ad, find it, and replace again.
+      console.warn("[relist] could not record the confirmed create", error);
     }
-    // The delete threw, so ask Marktplaats what happened. An ad it still serves
-    // was not deleted: that is a clean abort, not something to wait on.
-    const presence = await this.probe(snapshot.listingId)
-    if (presence === "gone") return this.markDeleted(snapshot)
-    if (presence === "exists") return { state: "refused", error: lastError }
-    return { state: "unknown", error: lastError };
+
+    if (record.phase === "creating" && record.reserved) await this.reserve(record.listingId, newId);
+
+    const deletion = await this.deleteOriginal(record.listingId);
+    if (deletion.deleted) {
+      await this.store.clear(record.listingId);
+      return { status: "relisted", quota: await this.report(record.grantJti, "SUCCESS") };
+    }
+
+    // Two copies are live, the new one on top: the seller got what the unit buys,
+    // and the delete is retried. FAILED_AFTER_DELETE now means exactly this — the
+    // breakage canary for the mechanic's second half (ADR-0041).
+    await this.park({ ...replaced, failure: failureKind(deletion.error) }, failureKind(deletion.error));
+    return { status: "relisted", quota: await this.report(record.grantJti, "FAILED_AFTER_DELETE") };
   }
 
-  private async markDeleted (snapshot: AdSnapshot): Promise<{ state: "deleted"; snapshot: AdSnapshot}
-      | { state: "refused"; error: unknown }
-      | { state: "unknown"; error: unknown }> {
-    const deleted: AdSnapshot = { ...snapshot, phase: "deleted" }
+  /** Delete the original, counting "already gone" as deleted. */
+  private async deleteOriginal(listingId: string): Promise<{ deleted: true } | { deleted: false; error: unknown }> {
     try {
-      await this.store.save(deleted)
-    } catch (e) {
-      console.error("[relist] could not save deleted phase", e);
-      return { state: "unknown", error: e }
+      await this.client.deleteAd(listingId);
+      return { deleted: true };
+    } catch (error) {
+      if (error instanceof AdNotFoundError || isGone(error)) return { deleted: true };
+      return (await this.probe(listingId)) === "gone" ? { deleted: true } : { deleted: false, error };
     }
-
-    return { state: "deleted", snapshot: deleted }
   }
 
-  private async probe (id: string): Promise<AdPresence> {
+  /** Nothing was created and nothing deleted: drop the record and hand the unit back. */
+  private async cancel(record: RepostRecord, error: unknown): Promise<RelistOutcome> {
     try {
-      return await this.client.probeAd(id)
-    } catch (e) {
-      return "unknown"
+      await this.store.clear(record.listingId);
+    } catch { /* a stale record is looked through, never acted on blindly */ }
+    return this.nothingChanged(record.listingId, record.grantJti, error);
+  }
+
+  private async nothingChanged(_listingId: string, jti: string | null | undefined, error: unknown): Promise<RelistOutcome> {
+    return { status: "failed-before-delete", error, quota: await this.report(jti, "FAILED_BEFORE_DELETE") };
+  }
+
+  private async probe(id: string): Promise<AdPresence> {
+    try {
+      return await this.client.probeAd(id);
+    } catch {
+      return "unknown";
     }
   }
 
-  private deleteWasRefused (error: unknown): boolean {
-    if (error instanceof NotAuthenticatedError) return true
-    return error instanceof ApiRequestError && error.status >= 400 && error.status < 500
-  }
-
-  /** Retry a relist that was left recoverable, from its persisted snapshot. */
+  /** Retry a pending repost at the user's word — Opnieuw. */
   retry(listingId: string): Promise<RelistOutcome> {
     return this.once(listingId, "finish", async () => {
-      const snapshot = await this.store.get(listingId);
-      if (!snapshot) throw new Error(`No snapshot to retry for listing ${listingId}`);
-      return this.resumeSnapshot(snapshot, true);
+      const record = await this.store.get(listingId);
+      if (!record) throw new Error(`No pending repost for listing ${listingId}`);
+      return this.resumeRecord(record, true);
     });
   }
 
-  /** Every repost the extension is holding a snapshot of, as the popup lists them. */
+  /** Every repost the extension is holding a record of, as the popup lists them. */
   async pendingReposts(): Promise<PendingRepost[]> {
-    return (await this.store.list()).map((snapshot) => ({
-      listingId: snapshot.listingId,
-      title: snapshot.draft.title,
-      needsUser: snapshot.needsUser ?? false,
-      running: this.isRunning(snapshot.listingId),
-      deleted: snapshot.phase === "deleted",
-      failure: snapshot.failure,
+    return (await this.store.list()).map((record) => ({
+      listingId: record.listingId,
+      title: isLegacy(record) ? record.draft.title : record.title,
+      needsUser: record.needsUser ?? false,
+      running: this.isRunning(record.listingId),
+      deleted: record.phase === "deleted",
+      replaced: record.phase === "replaced",
+      failure: record.failure,
     }));
   }
 
   /**
-   * Drop a pending repost at the user's word: the snapshot goes, and with it the
-   * only copy of an ad that may no longer be on Marktplaats. Nothing is reported
-   * — the unit was settled when the delete happened. Refused (`false`) while it
-   * is being put back, since that attempt may be creating the ad this second.
+   * Drop a pending repost at the user's word. Nothing is reported. Refused
+   * (`false`) while it is being finished, since that attempt may be creating or
+   * deleting this second.
    */
   async letGo(listingId: string): Promise<boolean> {
     if (this.isRunning(listingId)) return false;
@@ -334,13 +378,12 @@ export class RelistOrchestrator {
   }
 
   /**
-   * Tell the backend what became of a relist it authorized.
+   * Tell the backend what became of a repost it authorized.
    *
-   * Swallows everything. The destructive half has already happened or already
-   * failed by the time this is called, and a thrown reporting error would turn a
-   * successful relist into a failed one on the screen. A reservation nobody
-   * reports on is refunded by reconciliation after a grace window (#24), and a
-   * report that arrives late still wins — which is what makes giving up safe.
+   * Swallows everything: a thrown reporting error would turn a finished repost
+   * into a failed one on the screen. A reservation nobody reports on is refunded
+   * by reconciliation after a grace window (#24), and `/complete` keeps the first
+   * report per grant — which is what lets a resume report again safely.
    */
   private async report(
     jti: string | null | undefined,
@@ -366,166 +409,114 @@ export class RelistOrchestrator {
   }
 
   private async resumeEach(): Promise<RelistOutcome[]> {
-    const snapshots = (await this.store.list()).filter(
-      (snapshot) => !snapshot.needsUser && !this.isRunning(snapshot.listingId),
+    const records = (await this.store.list()).filter(
+      (record) => !record.needsUser && !this.isRunning(record.listingId),
     );
     const outcomes: RelistOutcome[] = [];
-    for (const snapshot of snapshots) {
-      if (this.current) break
-      outcomes.push(await this.once(snapshot.listingId, "finish", () => this.resumeSnapshot(snapshot)));
+    for (const record of records) {
+      if (this.current) break;
+      outcomes.push(await this.once(record.listingId, "finish", () => this.resumeRecord(record)));
     }
     return outcomes;
   }
 
-
   /**
-   * Finish an interrupted relist — **by putting the ad back, and never by asking
-   * the gate again** (ADR-0039).
+   * Finish a pending repost — **never by asking the gate again** (ADR-0039), and
+   * never by deleting an ad whose replacement is not live (ADR-0041).
    *
-   * - `deleted`: the ad is gone; recreate it. Refusing here would leave somebody's
-   *   listing deleted because their quota ran out mid-relist, which is the exact
-   *   outcome ADR-0003 keeps a snapshot to prevent.
-   * - `captured`: the delete may or may not have run, and Marktplaats is asked
-   *   which. An ad it still serves is **cancelled** — nothing was deleted, so its
-   *   unit is refunded now and the user reposts again if they still want to. One
-   *   that answers `410 Gone` is a `deleted` snapshot that did not get to say so.
-   *   Anything else is not known, and the snapshot waits for the next attempt.
-   *
-   * So a resume deletes nothing, and ADR-0007's reason to gate it — the store is
-   * the user's to write — has nothing left to protect: a fabricated snapshot of a
-   * live ad is dropped, and one of an absent ad buys a create, which anyone may
-   * do on Marktplaats for nothing.
-   *
-   * The outcome is reported against the reservation in the snapshot, so a relist
-   * that outlived its worker still settles the unit it spent.
+   * @param explicit an Opnieuw the user pressed, rather than a background retry.
+   * It lifts the attempt cap, which exists to stop the background, and the waits.
    */
-  private async resumeSnapshot(snapshot: AdSnapshot, force = false): Promise<RelistOutcome> {
-    if (snapshot.phase === "deleted") return this.createFromSnapshot(snapshot, force);
-
-    const waiting: RelistOutcome = { status: "unconfirmed", listingId: snapshot.listingId, reason: "unknown" }
-    if (!force && (snapshot.nextCheckAt ?? 0) > Date.now()) return waiting
-
-    const presence = await this.probe(snapshot.listingId)
-    if (presence === "gone") {
-      const deleted: AdSnapshot = { ...snapshot, phase: "deleted" }
-      await this.store.save(deleted)
-
-      return this.createFromSnapshot(deleted, force)
+  private async resumeRecord(record: RepostRecord, explicit = false): Promise<RelistOutcome> {
+    switch (record.phase) {
+      case "creating":
+        return this.resumeCreate(record, explicit);
+      case "replaced":
+        return this.finishReplacing(record);
+      case "deleted":
+        return this.legacyRecreate(record, explicit);
+      case "captured":
+        return this.legacyResumeCaptured(record, explicit);
     }
-
-    if (presence === "exists") {
-      await this.store.clear(snapshot.listingId)
-      return {
-        status: "failed-before-delete",
-        error: new RepostCancelledError(),
-        quota: await this.report(snapshot.grantJti, "FAILED_BEFORE_DELETE")
-      }
-    }
-
-    const checks = (snapshot?.checks ?? 0) + 1;
-    await this.store.save({
-      ...snapshot,
-      checks,
-      nextCheckAt: Date.now() + CHECK_BACKOFF_MS[Math.min(checks - 1, CHECK_BACKOFF_MS.length - 1)]!
-    })
-
-    return waiting
   }
 
   /**
-   * @param explicit an Opnieuw the user pressed, rather than a background retry.
-   * It still looks for a landed ad first and still waits out the create window;
-   * what it lifts is the attempt cap, which exists to stop the background, so
-   * one more create is sent. If that one cannot be confirmed either, the next
-   * background check finds the cap reached and hands it back to the user.
+   * **Create unconfirmed.** Look for the create that may have landed; failing
+   * that, capture the original again — it is live, so it is the backup — and
+   * create from what the seller has *now*.
    */
-  private async createFromSnapshot(snapshot: AdSnapshot, explicit = false): Promise<RelistOutcome> {
-    // A create tried before may have landed and lost its reply: look for the ad
-    // it made before making another (ADR-0039).
-    if (snapshot.idsBeforeCreate) {
-      const found = await this.lookForCreated(snapshot)
-      if (found.state === "landed") return this.finish(snapshot, found.id)
-      if (found.state === "ambiguous") return this.park({ ...snapshot, needsUser: true }, "unknown")
-      if (found.state === "unknown" || !settled(snapshot.createSentAt, CREATE_WINDOW_MS)) {
-        return this.park(snapshot, "unknown")
-      }
-
-      if (!explicit && (snapshot?.attempts ?? 0) >= MAX_CREATE_ATTEMPTS) {
-        return this.park({ ...snapshot, needsUser: true }, "unknown")
-      }
+  private async resumeCreate(record: CreateUnconfirmed, explicit: boolean): Promise<RelistOutcome> {
+    const found = await this.lookForCreated(record);
+    if (found.state === "landed") return this.replaceOriginal(record, found.id);
+    if (found.state === "ambiguous") return this.park({ ...record, needsUser: true }, "unknown");
+    if (found.state === "unknown") return this.park(record, "unknown");
+    // Give a sent create its window to show up in the list before sending another.
+    if (!explicit && !settled(record.createSentAt, CREATE_WINDOW_MS)) return this.park(record, "unknown");
+    if (!explicit && record.attempts >= MAX_CREATE_ATTEMPTS) {
+      return this.park({ ...record, needsUser: true }, "unknown");
     }
 
-    // `null` is a list that could not be read; `[]` is somebody whose only ad
-    // this was, and parking that one would leave it deleted for good.
-    const before = await this.currentAds()
-    if (before === null) return this.park(snapshot, "unknown")
+    const original = await this.probe(record.listingId);
+    // Gone, and no copy of ours is live: the seller removed it themselves, and
+    // there is nothing left for this repost to do.
+    if (original === "gone") return this.cancel(record, new RepostCancelledError());
+    if (original === "unknown") return this.park(record, "unknown");
 
-    const attempt: AdSnapshot = {
-      ...snapshot,
-      phase: "deleted",
-      idsBeforeCreate: before.map(listing => listing.id),
-      totalBefore: before.length,
-      needsUser: false,
+    let captured: CapturedListing;
+    try {
+      captured = await this.client.captureAd(record.listingId);
+    } catch (error) {
+      return this.park(record, failureKind(error));
+    }
+    const before = await this.currentAds();
+    if (before === null) return this.park(record, "unknown");
+
+    const attempt: CreateUnconfirmed = {
+      ...record,
+      title: captured.draft.title,
+      reserved: captured.draft.reserved,
+      idsBeforeCreate: before.map((ad) => ad.id),
       createSentAt: Date.now(),
-      attempts: (snapshot?.attempts ?? 0) + 1
+      attempts: record.attempts + 1,
+      needsUser: false,
     };
-
     try {
       await this.store.save(attempt);
     } catch {
-      return this.park(snapshot, "unknown")
+      return this.park(record, "unknown");
     }
-
-    try {
-      await this.client.createAd(snapshot.draft, snapshot.photos);
-    } catch (error) {
-      return this.createFailed(attempt, error);
-    }
-
-    for (const delay of [0, 1_500, 4_000]) {
-      if (delay) await sleep(delay);
-      const found = await this.lookForCreated(attempt);
-
-      if (found.state === "landed") return this.finish(attempt, found.id);
-      if (found.state === "ambiguous") return this.park({ ...attempt, needsUser: true }, "unknown");
-    }
-    return this.park(attempt, "unknown");
+    return this.createAndConfirm(attempt, captured);
   }
 
-  private async finish (snapshot: AdSnapshot, newId: string) : Promise<RelistOutcome> {
-    await this.store.clear(snapshot.listingId)
-    if (snapshot.draft.reserved) await this.reserve(snapshot.listingId, newId)
-    return { status: "relisted", quota: await this.report(snapshot.grantJti, "SUCCESS") };
+  /**
+   * **Old ad still to delete.** Only while the new ad answers: if the seller
+   * removed the copy by hand, deleting the original would leave them with
+   * nothing, so the record goes instead.
+   */
+  private async finishReplacing(record: OldAdToDelete): Promise<RelistOutcome> {
+    const copy = await this.probe(record.newListingId);
+    if (copy === "unknown") return this.park(record, "unknown");
+    if (copy === "gone") {
+      await this.store.clear(record.listingId);
+      // The create was confirmed, so the unit stays spent; the first report wins.
+      await this.report(record.grantJti, "FAILED_AFTER_DELETE");
+      return { status: "failed-before-delete", error: new RepostCancelledError(), quota: null };
+    }
+
+    const deletion = await this.deleteOriginal(record.listingId);
+    if (!deletion.deleted) return this.park(record, failureKind(deletion.error));
+    await this.store.clear(record.listingId);
+    // A resume can be the first to report, if the worker died after the create.
+    return { status: "relisted", quota: await this.report(record.grantJti, "SUCCESS") };
   }
 
-  private async createFailed(attempt: AdSnapshot, error: unknown): Promise<RelistOutcome> {
-    // It may still have landed, which is why the snapshot stays and the window applies.
+  private async park(record: RepostRecord, reason: FailureKind): Promise<RelistOutcome> {
     try {
-      await this.store.save({ ...attempt, needsUser: sendingAgainCannotFix(error), failure: failureKind(error) });
-    } catch { /* the previous copy is still on disk */ }
-    return {
-      status: "failed-recoverable", listingId: attempt.listingId, error,
-      quota: await this.report(attempt.grantJti, "FAILED_AFTER_DELETE"),
-    };
-  }
-
-  private async park (snapshot: AdSnapshot, reason: FailureKind): Promise<RelistOutcome> {
-    try {
-      await this.store.save({ ...snapshot, failure: reason })
+      await this.store.save({ ...record, failure: reason });
     } catch {
-      //Old copy stays
+      // The old copy stays.
     }
-    return { status: "unconfirmed", listingId: snapshot.listingId, reason };
-  }
-
-  private async listingNow (): Promise<AdsPage | null> {
-    try {
-      return await this.client.listMyAdsPage()
-    } catch (error) {
-      console.warn("[relist] could not list ads", error)
-    }
-
-    return null
+    return { status: "unconfirmed", listingId: record.listingId, reason };
   }
 
   private async currentAds(): Promise<ListingSummary[] | null> {
@@ -539,84 +530,31 @@ export class RelistOrchestrator {
     }
   }
 
-  private async lookForCreated (s: AdSnapshot): Promise<Landed> {
-    // if (!s.idsBeforeCreate) return { state: "none" }
-    const currentList = await this.currentAds()
+  /**
+   * The ad a create made and lost the reply of: exactly one ad that was not in
+   * the list before it and carries the same title. Only for that case — a
+   * Confirmed create names its ad, and is never second-guessed by this.
+   */
+  private async lookForCreated(r: { idsBeforeCreate?: string[] | null; title?: string; draft?: CapturedAd }): Promise<Landed> {
+    const currentList = await this.currentAds();
     if (currentList === null) return { state: "unknown" };
 
-
-    const earlier = new Set(s.idsBeforeCreate);
-    const cents = Number(s.draft.price.priceCent);
-
-    const title = sameTitle(s.draft.title);
+    const earlier = new Set(r.idsBeforeCreate ?? []);
+    const title = sameTitle(r.title ?? r.draft?.title ?? "");
     const matches = currentList.filter((ad) => !earlier.has(ad.id) && sameTitle(ad.title) === title);
 
     if (matches.length === 1) return { state: "landed", id: matches[0]!.id };
-    // An ad we can't identify but the account grew: leave it to the user, never create over it.
-    if (matches.length > 1) {
-      return { state: "ambiguous" };
-    }
+    // Two new ads with this title: there is nothing to tell ours by. Never guess.
+    if (matches.length > 1) return { state: "ambiguous" };
     return { state: "none" };
   }
 
   /**
-   * Put the **Gereserveerd** flag back on the ad the repost just created
-   * (T71, #157; ADR-0028).
-   *
-   * A repost is delete-and-recreate (ADR-0002) and the new ad is not identical:
-   * it comes back unreserved, so an item its seller had promised to a buyer goes
-   * quietly back on the open market as a side-effect of our own mechanic. The
-   * rule being encoded is *a reposted ad keeps the flag it had*, which is domain
-   * state and belongs here rather than in the HTTP layer.
-   *
-   * **Finding the new ad's id is the hard part**, because `createAd` returns
-   * none: Marktplaats answers the create with a redirect chain ending on
-   * `/seller/view/:id`, and reading that final URL is exact, free — and depends
-   * on the middle hop being a server redirect, which nobody has observed. So this
-   * diffs `listMyAds` around the create instead, and **exactly one addition is
-   * the new ad**. Zero means we could not find it (list lag, or T37's open
-   * pagination question); more than one means somebody posted an ad by hand in
-   * another tab inside the window, and reserving the wrong one marks an unrelated
-   * *live* listing as promised to a buyer. Either way this does nothing, because
-   * doing nothing is the smaller harm and there is nothing here to guess with.
-   *
-   * **It fails silently, and that is the decision.** Nothing reaches the popup
-   * and the outcome stays `relisted`: the repost *did* succeed, the ad is live,
-   * and the quota unit is rightly spent. Reporting `FAILED_AFTER_DELETE` because
-   * a flag did not stick would lie to the breakage canary. What is lost is the
-   * seller's knowledge that an item they promised is back on the market, which is
-   * a real cost and is mitigated only by the log line below — it names which of
-   * the four cases this was, because that is the whole diagnosis.
-   *
-   * @param before the ids `listMyAds` held before the create, or `null` when that
-   * call failed — in which case there is no diff to take and no id to guess.
+   * Put the **Gereserveerd** flag on the ad a repost created (ADR-0028), by the
+   * exact id its Confirmed create named (ADR-0041). It fails silently, and that
+   * is the decision: the repost did succeed, and a flag that did not stick is not
+   * a broken mechanic — so it is a log line, never `FAILED_AFTER_DELETE`.
    */
-  private async keepReserved(listingId: string, before: ReadonlySet<string> | null): Promise<void> {
-    if (!before) {
-      console.warn(`[relist] ${listingId} was reserved; could not list ads before the repost`);
-      return;
-    }
-
-    const after = await this.adIdsNow();
-    if (!after) {
-      console.warn(`[relist] ${listingId} was reserved; could not list ads after the repost`);
-      return;
-    }
-
-    const added = [...after].filter((id) => !before.has(id));
-    if (added.length !== 1) {
-      // Named rather than counted away: 0 and 2 are different failures with
-      // different fixes, and the number is what tells them apart in a log.
-      console.warn(
-        `[relist] ${listingId} was reserved; the repost added ${added.length} ads, ` +
-          `so there is no one new ad to flag`,
-      );
-      return;
-    }
-
-    await this.reserve(listingId, added[0]!);
-  }
-
   private async reserve(listingId: string, newListingId: string): Promise<void> {
     try {
       await this.client.reserveAd(newListingId);
@@ -625,39 +563,102 @@ export class RelistOrchestrator {
     }
   }
 
-  /**
-   * The id of the ad an earlier create made, if exactly one ad has appeared
-   * since it was sent and carries the snapshot's title and price; otherwise
-   * `null` (ADR-0039).
-   *
-   * One is the only answer trusted. None means the create did not land, and two
-   * means something else was posted in the window and there is nothing to tell
-   * ours by — both mean "create", which is what happened before this existed.
-   */
-  private async adTheLastCreateMade(snapshot: AdSnapshot, before: readonly string[]): Promise<string | null> {
-    const earlier = new Set(before);
-    const priceCents = Number(snapshot.draft.price.priceCent);
-    const ads = await this.client.listMyAds();
-    const matches = ads.filter(
-      (ad) => !earlier.has(ad.id) && ad.title === snapshot.draft.title && ad.priceCents === priceCents,
-    );
-    return matches.length === 1 ? matches[0]!.id : null;
-  }
+  // ==========================================================================
+  // ADR-0003's delete-first snapshots, drained (ADR-0041)
+  //
+  // A seller who updates with one of these pending has an ad that is gone from
+  // Marktplaats, and this snapshot is its only copy. They are finished as before
+  // and never written in this shape again; this path and `unlimitedStorage` go
+  // together in a later release.
+  // ==========================================================================
 
   /**
-   * The ids Marktplaats currently holds for this user, or `null` if it would not
-   * say. Swallows, because both of its callers are on the success path of a
-   * repost that has already happened: a listing call that failed must not turn a
-   * live ad into a failed relist on the screen.
+   * A `captured` snapshot: the delete may or may not have run. An ad Marktplaats
+   * still serves is cancelled and its unit refunded; one that answers `410 Gone`
+   * is recreated; anything else waits (ADR-0039).
    */
-  private async adIdsNow(): Promise<Set<string> | null> {
-    try {
-      return new Set((await this.client.listMyAds()).map((ad) => ad.id));
-    } catch (error) {
-      console.warn("[relist] could not list ads for the reserve diff", error);
-      return null;
+  private async legacyResumeCaptured(snapshot: AdSnapshot, force: boolean): Promise<RelistOutcome> {
+    const waiting: RelistOutcome = { status: "unconfirmed", listingId: snapshot.listingId, reason: "unknown" };
+    if (!force && (snapshot.nextCheckAt ?? 0) > Date.now()) return waiting;
+
+    const presence = await this.probe(snapshot.listingId);
+    if (presence === "gone") {
+      const deleted: AdSnapshot = { ...snapshot, phase: "deleted" };
+      await this.store.save(deleted);
+      return this.legacyRecreate(deleted, force);
     }
+    if (presence === "exists") return this.cancel(snapshot, new RepostCancelledError());
+
+    const checks = (snapshot.checks ?? 0) + 1;
+    await this.store.save({
+      ...snapshot,
+      checks,
+      nextCheckAt: Date.now() + CHECK_BACKOFF_MS[Math.min(checks - 1, CHECK_BACKOFF_MS.length - 1)]!,
+    });
+    return waiting;
   }
+
+  /** A `deleted` snapshot: the ad is gone, and only its stored copy can bring it back. */
+  private async legacyRecreate(snapshot: AdSnapshot, explicit: boolean): Promise<RelistOutcome> {
+    if (snapshot.idsBeforeCreate) {
+      const found = await this.lookForCreated(snapshot);
+      if (found.state === "landed") return this.legacyFinish(snapshot, found.id);
+      if (found.state === "ambiguous") return this.park({ ...snapshot, needsUser: true }, "unknown");
+      if (found.state === "unknown" || !settled(snapshot.createSentAt, CREATE_WINDOW_MS)) {
+        return this.park(snapshot, "unknown");
+      }
+      if (!explicit && (snapshot.attempts ?? 0) >= MAX_CREATE_ATTEMPTS) {
+        return this.park({ ...snapshot, needsUser: true }, "unknown");
+      }
+    }
+
+    // `[]` is somebody whose only ad this was, and parking that one would leave
+    // it deleted for good; `null` is a list that could not be read.
+    const before = await this.currentAds();
+    if (before === null) return this.park(snapshot, "unknown");
+
+    const attempt: AdSnapshot = {
+      ...snapshot,
+      idsBeforeCreate: before.map((listing) => listing.id),
+      totalBefore: before.length,
+      needsUser: false,
+      createSentAt: Date.now(),
+      attempts: (snapshot.attempts ?? 0) + 1,
+    };
+    try {
+      await this.store.save(attempt);
+    } catch {
+      return this.park(snapshot, "unknown");
+    }
+
+    let newId: string;
+    try {
+      newId = await this.client.createAd(snapshot.draft, snapshot.photos);
+    } catch (error) {
+      if (!(error instanceof CreateNotConfirmedError)) {
+        const found = await this.lookForCreated(attempt);
+        if (found.state === "landed") return this.legacyFinish(attempt, found.id);
+      }
+      try {
+        await this.store.save({ ...attempt, needsUser: sendingAgainCannotFix(error), failure: failureKind(error) });
+      } catch { /* the previous copy is still on disk */ }
+      return {
+        status: "failed-recoverable", listingId: attempt.listingId, error,
+        quota: await this.report(attempt.grantJti, "FAILED_AFTER_DELETE"),
+      };
+    }
+    return this.legacyFinish(attempt, newId);
+  }
+
+  private async legacyFinish(snapshot: AdSnapshot, newId: string): Promise<RelistOutcome> {
+    await this.store.clear(snapshot.listingId);
+    if (snapshot.draft.reserved) await this.reserve(snapshot.listingId, newId);
+    return { status: "relisted", quota: await this.report(snapshot.grantJti, "SUCCESS") };
+  }
+}
+
+function isLegacy(record: RepostRecord): record is AdSnapshot {
+  return record.phase === "captured" || record.phase === "deleted";
 }
 
 /**
@@ -678,6 +679,8 @@ function isGone(error: unknown): boolean {
  */
 function sendingAgainCannotFix(error: unknown): boolean {
   if (error instanceof SpikePendingError || error instanceof DraftUnusableError) return true;
+  // A chain that stopped at payment stops there every time (ADR-0041).
+  if (error instanceof CreateNotConfirmedError) return error.paymentRequired;
   if (!(error instanceof ApiRequestError)) return false;
   const passing = [401, 403, 408, 429];
   return error.status >= 400 && error.status < 500 && !passing.includes(error.status);

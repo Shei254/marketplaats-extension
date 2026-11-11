@@ -1,5 +1,5 @@
 import {
-    AdNotFoundError, DraftUnusableError, NotAuthenticatedError, SpikePendingError,
+    AdNotFoundError, CreateNotConfirmedError, DraftUnusableError, NotAuthenticatedError, SpikePendingError,
 } from "../domain/marktplaats-client";
 import type {AdsPage, CapturedAd, ListingSummary, Photo} from "../domain/types";
 import {base64ToBytes, bytesToBase64} from "../shared/base64";
@@ -39,6 +39,8 @@ export type RelayRequest = | { kind: "listMyAds" } | { kind: "getBuckets"; } | {
 
 export type RelayResult =
     | ListingSummary[]
+    /** The new ad's id, from a Confirmed create (ADR-0041). */
+    | string
     | WireCapturedAd
     | AdsPage
     | WirePhoto[]
@@ -50,6 +52,7 @@ export type RelayResult =
 export type WireErrorCode =
     | "AD_NOT_FOUND"
     | "DRAFT_UNUSABLE"
+    | "CREATE_NOT_CONFIRMED"
     | "SIGN_IN_CANCELLED"
     | "SIGN_IN_FAILED"
     | "NOT_AUTHENTICATED"
@@ -67,6 +70,8 @@ export interface WireError {
     listingId?: string;
     status?: number; // Add these fields
     body?: string;
+    /** Where the create's redirect chain ended, on `CREATE_NOT_CONFIRMED`. */
+    endedOn?: string;
     /** The tab to reload, on `STALE_MARKTPLAATS_TAB`. */
     tabId?: number;
 }
@@ -110,6 +115,10 @@ export function toWireError(error: unknown): WireError {
 
     if (error instanceof DraftUnusableError) {
         return {code: "DRAFT_UNUSABLE", message: error.message};
+    }
+
+    if (error instanceof CreateNotConfirmedError) {
+        return {code: "CREATE_NOT_CONFIRMED", message: error.message, endedOn: error.endedOn};
     }
 
     // The two halves of a sign-in that produced no session are different events —
@@ -159,6 +168,8 @@ export function fromWireError(error: WireError): Error {
             return new SignInFailedError(error.message);
         case "DRAFT_UNUSABLE":
             return new DraftUnusableError(error.message);
+        case "CREATE_NOT_CONFIRMED":
+            return new CreateNotConfirmedError(error.endedOn ?? "");
         case "TIMEOUT":
             return named("TimeoutError", error.message)
         default:

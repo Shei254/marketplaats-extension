@@ -1089,7 +1089,7 @@ describe("a marktplaats.nl tab opened before the extension", () => {
 });
 
 describe("reposts that did not finish", () => {
-  const PENDING: PendingRepost = { listingId: "m9", title: "Gazelle damesfiets", needsUser: false, running: false, deleted: false };
+  const PENDING: PendingRepost = { listingId: "m9", title: "Gazelle damesfiets", needsUser: false, running: false, deleted: false, replaced: false };
 
   it("are shown above the ads while they are put back", async () => {
     const { worker } = fakeWorker(undefined, ADS, {}, { pending: [PENDING] });

@@ -5,6 +5,7 @@ import {
 } from "../adapters/relay-marktplaats-client";
 import {
   AdNotFoundError,
+  CreateNotConfirmedError,
   NotAuthenticatedError,
   SpikePendingError,
 } from "../domain/marktplaats-client";
@@ -70,6 +71,12 @@ export function describeAdsFailure(error: unknown): string {
   }
   if (error instanceof NotAuthenticatedError) {
     return "Log eerst in op Marktplaats en probeer het opnieuw.";
+  }
+  if (error instanceof CreateNotConfirmedError) {
+    // We never pay on a seller's behalf (ADR-0041), and nothing was deleted.
+    return error.paymentRequired
+      ? "Marktplaats vraagt geld om deze advertentie opnieuw te plaatsen, en de extensie betaalt nooit voor je."
+      : "Marktplaats bevestigde niet dat de nieuwe advertentie geplaatst is.";
   }
   if (error instanceof AdNotFoundError) {
     return "Marktplaats heeft deze advertentie niet meer.";

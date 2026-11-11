@@ -7,7 +7,6 @@ import type { PendingRepost } from "../domain/types";
 import type { LockedState } from "../gate/authorization-gate";
 import { useCountdown } from "../popup/AdList";
 import {
-  AD_UNCHANGED,
   BUSY,
   IDLE,
   PACING_NOTE,
@@ -60,15 +59,13 @@ interface CardView {
 
 /** The sentence a repost that deleted the ad and could not put it back says here. */
 export const PUTTING_BACK =
-  "Er ging iets mis tijdens het herplaatsen. We zetten je advertentie automatisch terug. " +
+  "Er ging iets mis tijdens het herplaatsen. Je advertentie staat nog online; we proberen het automatisch opnieuw. " +
   "Je kunt het hier opnieuw proberen; laten gaan kan in de extensie.";
 
 /** A pending repost the background has stopped retrying (`needsUser`). */
 export const NEEDS_YOU =
   "Dit lukt niet vanzelf. Probeer het opnieuw; laten gaan kan in de extensie.";
 
-/** What a waiting row is told when the worker turns out never to have deleted it. */
-export const SETTLED_UNCHANGED = AD_UNCHANGED;
 
 /**
  * What a waiting row is told when the background settled it before the page ever
@@ -238,10 +235,11 @@ export function PageButtons({
     };
 
     /**
-     * The worker holds no snapshot for this row any more, so the background
-     * settled it, and `deleted` as last seen says which way. Seen deleted: the ad
-     * was put back. Seen not deleted: the delete never ran and the repost was
-     * cancelled — the ad is as it was. Never seen: it settled before the first
+     * The worker holds no record for this row any more, so the background
+     * settled it, and the state last seen says which way. Seen `deleted` or
+     * `replaced`: the new ad is live. Seen unconfirmed: it was either finished
+     * or cancelled, and a create-first repost (ADR-0041) cannot tell the page
+     * which — but in neither case is the ad gone. Never seen: it settled before the first
      * check, and the page says neither. (A deleted one let go in the popup also
      * reads as put back; ADR-0040 keeps letting go there, and the popup is where
      * it was done.)
@@ -250,14 +248,16 @@ export function PageButtons({
       const last = lastSeen.current.get(listingId);
       lastSeen.current.delete(listingId);
       setNeedsYou(({ [listingId]: _, ...rest }) => rest);
-      if (last?.deleted) {
+      // Gone with a record that said `deleted` or `replaced`: the new ad is live.
+      if (last?.deleted || last?.replaced) {
         setStates((current) => ({ ...current, [listingId]: { kind: "done" } }));
         setCard((open) => (open === listingId ? null : open));
         setToast(true);
         return;
       }
       setStates((current) => ({ ...current, [listingId]: IDLE }));
-      setNotes((current) => ({ ...current, [listingId]: last ? SETTLED_UNCHANGED : SETTLED_UNSEEN }));
+      // Finished or cancelled, and the page cannot tell which (ADR-0041): say only that it settled.
+      setNotes((current) => ({ ...current, [listingId]: SETTLED_UNSEEN }));
       setCard((open) => open ?? listingId);
     }
   }, [waiting, checked, worker]);

@@ -262,9 +262,11 @@ or a setter is a question nothing here has to answer — and nobody has establis
 order for the *free placement*, **not** the ad — and the chain ends on
 `/seller/view/m2440161354?previousAction=syiSuccess`. Two ways to learn it:
 
-- **Read `res.url` after the redirect chain.** Exact and free, and it depends on the middle hop being a
-  **server** redirect rather than a browser navigation — which **has not been observed**. This is the
-  refinement.
+- **Read `res.url` after the redirect chain.** Exact and free. **Observed 2026-11-11 over CDP** on the
+  extension's own repost of a test ad: both hops are server `302`s inside the one `fetch` (one request id,
+  type `Fetch`) — `POST /plaats/ads` → `302 /payments/orderOverview/…?previousAction=freeAdPlacement&…` →
+  `302 /seller/view/m2464420632?previousAction=syiSuccess` → `200`. So `res.url` carries the new id, and
+  `previousAction=syiSuccess` is Marktplaats's own success marker. This is the refinement, now unblocked.
 - **Diff `listMyAds` around the create.** What ships. Snapshot the ids before, again after, and the single
   addition is the new ad.
 
@@ -389,10 +391,8 @@ Open questions, each with a ticket where there is one:
   `packageSize` at all, while a pickup-only ad still falls back to `M`. One of those two is wrong and the
   form knows which. No ticket.
 - **Is the create-ad signature category-scoped?** We scrape one bicycle form for every ad. No ticket.
-- **Is the create's middle redirect hop a server redirect?** If it is, `res.url` after `createAd` carries the
-  new ad's id exactly, and the `listMyAds` diff — with its two extra requests and its two ways of being unsure
-  — comes out of the orchestrator entirely. Nobody has watched the chain in the network tab with *Preserve
-  log* on. The refinement to T71, no ticket.
+- ~~**Is the create's middle redirect hop a server redirect?**~~ **Yes** (observed 2026-11-11; see the
+  `reserveAd` section). `res.url` after `createAd` carries the new ad's id.
 - **Is `reserveAd` a toggle or a setter?** We only ever set, on an ad that is never already reserved, so it
   has never mattered. It would matter to anything that wanted to *un*-reserve. No ticket.
 - **What does a rejected `createAd` actually answer?** No status, body or shape has been recorded — which is

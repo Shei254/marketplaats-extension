@@ -6,18 +6,19 @@ import type { RelistPermission } from "../../gate/relist-permission";
 import {
   AdNotFoundError,
   ApiRequestError,
+  CreateNotConfirmedError,
   type MarktplaatsClient,
 } from "../marktplaats-client";
 import type { RelistPacing } from "../relist-pace";
 import type { SnapshotStore } from "../snapshot-store";
 import type {
   AdPresence,
-  AdSnapshot,
   AdsPage,
   CapturedAd,
   CapturedListing,
   ListingSummary,
   Photo,
+  RepostRecord,
   SnapshotPhase,
 } from "../types";
 
@@ -110,21 +111,21 @@ export type FakeEvent =
   | { type: "authorize"; listingId: string };
 
 export class InMemorySnapshotStore implements SnapshotStore {
-  private readonly map = new Map<string, AdSnapshot>();
+  private readonly map = new Map<string, RepostRecord>();
 
   constructor(private readonly events: FakeEvent[] = []) {}
 
-  async save(snapshot: AdSnapshot): Promise<void> {
+  async save(snapshot: RepostRecord): Promise<void> {
     this.events.push({ type: "save", phase: snapshot.phase, listingId: snapshot.listingId });
     this.map.set(snapshot.listingId, structuredClone(snapshot));
   }
 
-  async get(listingId: string): Promise<AdSnapshot | null> {
+  async get(listingId: string): Promise<RepostRecord | null> {
     const found = this.map.get(listingId);
     return found ? structuredClone(found) : null;
   }
 
-  async list(): Promise<AdSnapshot[]> {
+  async list(): Promise<RepostRecord[]> {
     return [...this.map.values()].map((s) => structuredClone(s));
   }
 
@@ -134,7 +135,7 @@ export class InMemorySnapshotStore implements SnapshotStore {
   }
 
   /** Test helper: seed a snapshot without emitting a save event. */
-  seed(snapshot: AdSnapshot): void {
+  seed(snapshot: RepostRecord): void {
     this.map.set(snapshot.listingId, structuredClone(snapshot));
   }
 }
@@ -143,6 +144,13 @@ export interface FakeClientOptions {
   ads?: Record<string, CapturedListing>;
   /** If set, deleteAd throws this instead of deleting. */
   deleteError?: Error;
+  /** Number of deletes that throw a network-shaped error before one works. */
+  deleteFailures?: number;
+  /**
+   * Where the next creates' redirect chains end instead of on the new ad, placing
+   * nothing (ADR-0041): a payment page, or somewhere unrecognised.
+   */
+  createEndsOn?: "payment" | "elsewhere";
   /** Number of times createAd throws before it succeeds. */
   createFailures?: number;
   /** What those failed creates throw; a network-shaped error if unset. */
@@ -170,6 +178,7 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
   private readonly ads: Map<string, CapturedListing>;
   private createFailuresLeft: number;
   private lostRepliesLeft: number;
+  private deleteFailuresLeft: number;
   private held: Promise<void> | null = null;
   private creating: Array<() => void> = [];
   private nextId = 1;
@@ -181,6 +190,7 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
     this.ads = new Map(Object.entries(opts.ads ?? {}));
     this.createFailuresLeft = opts.createFailures ?? 0;
     this.lostRepliesLeft = opts.lostReplies ?? 0;
+    this.deleteFailuresLeft = opts.deleteFailures ?? 0;
   }
 
   async listMyAds(): Promise<ListingSummary[]> {
@@ -243,20 +253,29 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
 
   async deleteAd(listingId: string): Promise<void> {
     if (this.opts.deleteError) throw this.opts.deleteError;
+    if (this.deleteFailuresLeft > 0) {
+      this.deleteFailuresLeft -= 1;
+      throw new Error("delete failed");
+    }
     if (!this.ads.has(listingId)) throw new AdNotFoundError(listingId);
     this.ads.delete(listingId);
     this.events.push({ type: "delete", listingId });
   }
 
-  async createAd(draft: CapturedAd, photos: Photo[]): Promise<void> {
+  async createAd(draft: CapturedAd, photos: Photo[]): Promise<string> {
     this.creating.splice(0).forEach((resolve) => resolve());
     if (this.held) await this.held;
+    if (this.opts.createEndsOn === "payment") {
+      throw new CreateNotConfirmedError("https://www.marktplaats.nl/payments/orderOverview/index.html?orderId=1");
+    }
+    if (this.opts.createEndsOn === "elsewhere") {
+      throw new CreateNotConfirmedError("https://www.marktplaats.nl/plaats/ads");
+    }
     if (this.createFailuresLeft > 0) {
       this.createFailuresLeft -= 1;
       throw this.opts.createError ?? new Error("create failed");
     }
-    // The real client gets no id back from Marktplaats; the fake still needs one
-    // internally to keep holding the ad, but never hands it to the caller.
+    // The real client reads this off where the redirects ended (ADR-0041).
     const id = `new-${this.nextId++}`;
     // **The new ad is never reserved**, whatever the captured draft said. That is
     // the fact T71 (#157) exists for: a repost is delete-and-recreate (ADR-0002)
@@ -279,6 +298,7 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
       this.lostRepliesLeft -= 1;
       throw new Error("the reply was lost");
     }
+    return id;
   }
 
   /**
@@ -299,6 +319,22 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
   /** Test helper: is this ad currently flagged Gereserveerd? */
   isReserved(listingId: string): boolean {
     return this.ads.get(listingId)?.draft.reserved ?? false;
+  }
+
+  /** Test helper: remove an ad as the seller would by hand, outside any repost. */
+  removeByHand(listingId: string): void {
+    this.ads.delete(listingId);
+  }
+
+  /** Test helper: the seller edits an ad's title on Marktplaats. */
+  retitle(listingId: string, title: string): void {
+    const ad = this.ads.get(listingId);
+    if (ad) ad.draft.title = title;
+  }
+
+  /** Test helper: the ids of every ad the fake holds now. */
+  ids(): string[] {
+    return [...this.ads.keys()];
   }
 
   /** Test helper: does an ad with this id currently exist? */

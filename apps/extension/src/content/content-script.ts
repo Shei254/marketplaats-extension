@@ -50,10 +50,8 @@ async function handle(request: RelayRequest): Promise<RelayResult> {
             await api.deleteAd(request.listingId);
             return null;
         case "createAd":
-            // No id comes back: Marktplaats answers a create with 200/201/redirect,
-            // never JSON. Not throwing is the success signal.
-            await api.createAd(request.draft, request.photos.map(fromWirePhoto));
-            return null;
+            // The new ad's id, read off where the create's redirects ended (ADR-0041).
+            return api.createAd(request.draft, request.photos.map(fromWirePhoto));
         case "reserveAd":
             // Nothing to hand back — the flag is either on the ad or the call
             // threw. Its one caller (T71, #157) swallows either way.

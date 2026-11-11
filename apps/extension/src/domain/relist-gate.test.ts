@@ -89,15 +89,15 @@ describe("what the backend is told", () => {
     expect(gate.reports).toEqual([{ jti: "grant-1", outcome: "FAILED_BEFORE_DELETE" }]);
   });
 
-  it("keeps the unit spent when the ad was deleted and could not be re-created", async () => {
-    // The destructive half happened. Refunding here would give back a unit for a
-    // relist that cost the user their listing.
+  it("tells it nothing yet while a create is unconfirmed", async () => {
+    // Nothing was deleted and nothing is known to be created: the unit stays
+    // reserved until the repost is finished one way or the other (ADR-0041).
     const { orchestrator, gate } = relisting({ createFailures: 1 });
 
     const outcome = await orchestrator.relist("ad-1");
 
-    expect(outcome.status).toBe("failed-recoverable");
-    expect(gate.reports).toEqual([{ jti: "grant-1", outcome: "FAILED_AFTER_DELETE" }]);
+    expect(outcome.status).toBe("unconfirmed");
+    expect(gate.reports).toEqual([]);
   });
 
   it("reports against the reservation the authorization actually took", async () => {
@@ -105,9 +105,11 @@ describe("what the backend is told", () => {
 
     await orchestrator.relist("ad-1");
 
-    // The snapshot carries it, so a resume hours later still owes the same
+    // The record carries it, so a resume hours later still owes the same
     // reservation an answer.
     expect((await store.get("ad-1"))?.grantJti).toBe("grant-1");
+    pastTheCreateWindow();
+    await orchestrator.retry("ad-1");
     expect(gate.reports.at(-1)?.jti).toBe("grant-1");
   });
 
@@ -186,10 +188,9 @@ describe("finishing what a crash interrupted", () => {
     expect((await store.get("ad-1"))?.phase).toBe("captured");
   });
 
-  it("puts a deleted ad back without asking again", async () => {
-    // The ad is already gone and all that is left is restoring it. Refusing here
-    // would leave somebody's listing deleted because their quota ran out
-    // mid-relist — the exact outcome ADR-0003 keeps a snapshot to prevent.
+  it("finishes an unconfirmed create without asking again", async () => {
+    // The unit was taken for this repost; a gate that refused its finish would
+    // charge the seller twice for one repost (ADR-0039).
     const gate = new FakeRelistPermission((_adId, nth) =>
       nth === 1
         ? {
@@ -200,7 +201,7 @@ describe("finishing what a crash interrupted", () => {
     );
     const { orchestrator, store, client } = relisting({ gate, createFailures: 1 });
     await orchestrator.relist("ad-1");
-    expect((await store.get("ad-1"))?.phase).toBe("deleted");
+    expect((await store.get("ad-1"))?.phase).toBe("creating");
 
     pastTheCreateWindow();
     const outcome = await orchestrator.retry("ad-1");
@@ -217,10 +218,7 @@ describe("finishing what a crash interrupted", () => {
     pastTheCreateWindow();
     await orchestrator.retry("ad-1");
 
-    expect(gate.reports).toEqual([
-      { jti: "grant-1", outcome: "FAILED_AFTER_DELETE" },
-      { jti: "grant-1", outcome: "SUCCESS" },
-    ]);
+    expect(gate.reports).toEqual([{ jti: "grant-1", outcome: "SUCCESS" }]);
   });
 
   it("resumes everything a crash left behind, on the same terms", async () => {

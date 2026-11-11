@@ -1,6 +1,6 @@
 # ADR-0003: Relist safety — delete-first ordering with durable client-side snapshot
 
-**Status:** Accepted (2026-07-25)
+**Status:** Accepted (2026-07-25). **Ordering and durable snapshot superseded by [ADR-0041](0041-a-repost-creates-first-and-deletes-only-what-it-replaced.md)** (2026-11-11).
 
 ## Context
 The relist mechanic is destructive delete + re-create (ADR-0002). The overriding constraint is that a failure must never leave the user with no listing. Two orderings were considered: create-first (never at zero, but a duplicate window that Marktplaats may reject) and delete-first (no duplicate window, but a data-loss gap if re-create fails). The captured snapshot needs a durable home to make delete-first recoverable, and the POC is meant to run with no backend (ADR-0001).

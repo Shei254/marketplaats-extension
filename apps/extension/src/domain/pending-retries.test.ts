@@ -10,7 +10,7 @@ import type { PendingRepost } from "./types";
  */
 
 function pending(overrides: Partial<PendingRepost> = {}): PendingRepost {
-  return { listingId: "ad-1", title: "Fiets", needsUser: false, running: false, deleted: false, ...overrides };
+  return { listingId: "ad-1", title: "Fiets", needsUser: false, running: false, deleted: false, replaced: false, ...overrides };
 }
 
 class FakeAlarm implements RetryAlarm {

@@ -16,7 +16,7 @@ import type {
   UploadPhoto
 } from "../domain/types";
 import { extractCsrfToken } from "./csrf";
-import { ApiRequestError } from "../domain/marktplaats-client";
+import { ApiRequestError, CreateNotConfirmedError } from "../domain/marktplaats-client";
 import {
   isEndpointConfigChange,
   loadEndpointConfig,
@@ -357,7 +357,7 @@ function buildForm(
   }
 }
 
-export async function createAd(draft: CapturedAd, photos: Photo[]): Promise<void> {
+export async function createAd(draft: CapturedAd, photos: Photo[]): Promise<string> {
   const cfg = await config();
 
   // Dry run first. The form is a pure function of the draft, so a draft that
@@ -372,10 +372,31 @@ export async function createAd(draft: CapturedAd, photos: Photo[]): Promise<void
 
   const form = buildForm(draft, uploadedMedia, csrfToken, formAttributes);
 
-  // request() throws on any non-ok status, so reaching here means the ad was
-  // created — Marktplaats answers with 200/201/a redirect and no JSON to read.
-  await request(cfg, "createAd", { init: { method: "POST", body: form } });
+  // request() throws on any non-ok status. A `200` is not a create, though: the
+  // redirects are followed inside this one fetch, and only where they end says
+  // whether an ad was placed, and which (observed 2026-11-11, ADR-0041).
+  const res = await request(cfg, "createAd", { init: { method: "POST", body: form } });
+  return placedAdId(res.url);
+}
 
+/**
+ * The id of the ad a create placed, read off where its redirect chain ended:
+ * `/seller/view/<id>?previousAction=syiSuccess`, after a hop through the free
+ * placement's order page. **That is the only answer trusted** — a chain that
+ * stops on a payment page, or anywhere else, is not a create (ADR-0041).
+ */
+export function placedAdId(finalUrl: string): string {
+  let url: URL;
+  try {
+    url = new URL(finalUrl);
+  } catch {
+    throw new CreateNotConfirmedError(finalUrl);
+  }
+  const id = /^\/seller\/view\/([^/]+)$/.exec(url.pathname)?.[1];
+  if (!id || url.searchParams.get("previousAction") !== "syiSuccess") {
+    throw new CreateNotConfirmedError(finalUrl);
+  }
+  return id;
 }
 // FIX: Returned a single UploadPhoto instead of an array.
 async function uploadPhoto(cfg: EndpointConfig, photo: Photo): Promise<UploadPhoto> {

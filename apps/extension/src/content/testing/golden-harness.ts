@@ -36,6 +36,11 @@ export type RecordedPart =
 /** What the stub should answer with. The first matching key wins. */
 export interface Reply {
   status?: number;
+  /**
+   * Where the response says it came from — `Response.url`, which is where a
+   * followed redirect chain ended. The create reads the new ad's id off it.
+   */
+  finalUrl?: string;
   json?: unknown;
   html?: string;
   text?: string;
@@ -165,7 +170,9 @@ function toResponse(reply: Reply): Response {
   }
 
   // 204/304 must not carry a body.
-  return new Response(status === 204 || status === 304 ? null : body, { status, headers });
+  const res = new Response(status === 204 || status === 304 ? null : body, { status, headers });
+  if (reply.finalUrl !== undefined) Object.defineProperty(res, "url", { value: reply.finalUrl });
+  return res;
 }
 
 function normalizeHeaders(init: HeadersInit | undefined): Record<string, string> {

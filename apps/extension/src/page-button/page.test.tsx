@@ -22,7 +22,7 @@ const PARKED: WireRelistOutcome = { status: "unconfirmed", listingId: "m1", reas
 
 /** A snapshot the worker is holding for the first row. */
 const pending = (overrides: Partial<PendingRepost> = {}): PendingRepost => ({
-  listingId: "m1", title: "Vintage stoel", needsUser: false, running: false, deleted: true, ...overrides,
+  listingId: "m1", title: "Vintage stoel", needsUser: false, running: false, deleted: true, replaced: false, ...overrides,
 });
 
 function fakeWorker(outcome: WireRelistOutcome = RELISTED) {
@@ -294,7 +294,12 @@ describe("a repost the extension is still checking", () => {
     expect(toast()).not.toBeNull();
   });
 
-  it("is Herplaats again, and says nothing changed, when the ad was never deleted", async () => {
+  /**
+   * A create-first repost that was unconfirmed is settled by being finished *or*
+   * cancelled (ADR-0041), and the page cannot tell which — so it claims neither,
+   * and in neither case is the ad gone.
+   */
+  it("is Herplaats again, and claims no outcome, when an unconfirmed create settles", async () => {
     const { worker } = fakeWorker(PARKED);
     worker.pendingReposts.mockResolvedValueOnce([pending({ deleted: false })]).mockResolvedValue([]);
     await parked(worker);
@@ -304,8 +309,23 @@ describe("a repost the extension is still checking", () => {
 
     expect(button(0).textContent).toBe("Herplaats");
     expect(button(0).disabled).toBe(false);
-    expect(card()?.textContent).toContain(AD_UNCHANGED);
+    expect(card()?.textContent).toContain(SETTLED_UNSEEN);
+    expect(card()?.textContent).not.toContain(AD_UNCHANGED);
     expect(toast()).toBeNull();
+  });
+
+  it("is Herplaatst once the old ad a confirmed create replaced has gone", async () => {
+    const { worker } = fakeWorker(PARKED);
+    worker.pendingReposts
+      .mockResolvedValueOnce([pending({ deleted: false, replaced: true })])
+      .mockResolvedValue([]);
+    await parked(worker);
+
+    await now();
+    await later();
+
+    expect(button(0).textContent).toBe("Herplaatst");
+    expect(toast()).not.toBeNull();
   });
 
   it("offers Opnieuw once the background has given up, and puts it back from there", async () => {

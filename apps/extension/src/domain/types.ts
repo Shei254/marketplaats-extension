@@ -252,20 +252,70 @@ export interface CapturedListing {
 }
 
 /**
- * How far a relist has progressed. Delete-first (ADR-0003):
+ * How far a repost has progressed.
+ *
+ * Create-first (ADR-0041), and in neither state is the ad missing:
+ *  - "creating": a create was sent and nothing confirmed it — **create unconfirmed**.
+ *  - "replaced": the create was confirmed, the original is still to delete —
+ *    **old ad still to delete**.
+ *
+ * Delete-first (ADR-0003), only ever read now — drained, never written:
  *  - "captured": snapshot saved, the original may or may not be deleted yet.
  *  - "deleted": the original is confirmed gone; only re-create remains.
  */
-export type SnapshotPhase = "captured" | "deleted";
+export type SnapshotPhase = "creating" | "replaced" | "captured" | "deleted";
 
-/** The durable pre-delete snapshot persisted before anything is removed (ADR-0003). */
+/**
+ * What a **Pending repost** holds, by state. Create-first records hold ids only
+ * — the original is live until a Confirmed create, so it is its own backup
+ * (ADR-0041). A `LegacySnapshot` is ADR-0003's, carried by an update from a build
+ * that deleted first, and is the only copy of an ad that is gone.
+ */
+export type RepostRecord = CreateUnconfirmed | OldAdToDelete | AdSnapshot;
+
+interface RecordBase {
+  /** id of the original listing being reposted — the only id ever deleted. */
+  listingId: string;
+  createdAt: number;
+  /**
+   * The reservation the backend took when it authorized this repost, which its
+   * outcome is reported against — a repost can outlive the worker that started it.
+   */
+  grantJti?: string | null;
+  /** Only the user's Opnieuw retries it; the background leaves it alone (ADR-0039). */
+  needsUser?: boolean;
+  failure?: FailureKind;
+}
+
+/** A create was sent and nothing confirmed it (ADR-0041). */
+export interface CreateUnconfirmed extends RecordBase {
+  phase: "creating";
+  /** As captured: a lost create is found by it, and the popup shows it. */
+  title: string;
+  /** The original was Gereserveerd, so the new ad is flagged too (ADR-0028). */
+  reserved: boolean;
+  /** The ids of the user's ads just before the last create was sent. */
+  idsBeforeCreate: string[];
+  createSentAt: number;
+  attempts: number;
+}
+
+/** The create was confirmed and the original is still live (ADR-0041). */
+export interface OldAdToDelete extends RecordBase {
+  phase: "replaced";
+  title: string;
+  /** The ad the confirmed create placed. While it answers, the original may go. */
+  newListingId: string;
+}
+
+/** ADR-0003's durable pre-delete snapshot — read and finished, never written (ADR-0041). */
 export interface AdSnapshot {
   /** id of the original listing being relisted. */
   listingId: string;
   /** The captured ad, re-submitted verbatim to createAd on restore. */
   draft: CapturedAd;
   photos: Photo[];
-  phase: SnapshotPhase;
+  phase: "captured" | "deleted";
   createdAt: number;
   /**
    * The reservation the backend took when it authorized this relist (T26, #35) —
@@ -301,8 +351,8 @@ export interface AdSnapshot {
 }
 
 /**
- * A **Pending repost** as the popup draws it: an ad the extension is holding a
- * snapshot of because a repost did not finish (ADR-0039).
+ * A **Pending repost** as the popup draws it: a repost that did not finish
+ * (ADR-0039, ADR-0041).
  */
 export interface PendingRepost {
   listingId: string;
@@ -311,7 +361,10 @@ export interface PendingRepost {
   needsUser: boolean;
   /** Being put back right now, so it cannot be let go. */
   running: boolean;
+  /** The ad is gone and not yet back — only a delete-first snapshot can be this. */
   deleted: boolean;
+  /** The new ad is live and the original is still to delete (ADR-0041). */
+  replaced: boolean;
   failure?: FailureKind
 }
 

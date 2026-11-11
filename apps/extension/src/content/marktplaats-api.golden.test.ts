@@ -81,7 +81,9 @@ const UPLOAD: Route = {
   url: "/plaats/api/image/upload",
   reply: [{ json: uploadedPhoto(1) }, { json: uploadedPhoto(2) }],
 };
-const CREATE: Route = { method: "POST", url: "/plaats/ads", reply: { status: 200, text: "" } };
+/** Where a free create's redirects end (observed 2026-11-11): the new ad's own seller view. */
+const PLACED_AT = "https://www.marktplaats.nl/seller/view/m2464420632?previousAction=syiSuccess";
+const CREATE: Route = { method: "POST", url: "/plaats/ads", reply: { status: 200, text: "", finalUrl: PLACED_AT } };
 
 function routes(...extra: Route[]): Route[] {
   return [...extra, CSRF_PAGE, CREATE_AD_PAGE, UPLOAD, CREATE];
@@ -402,6 +404,37 @@ describe("getCreateFormAttributes (via createAd)", () => {
 // ============================================================================
 // createAd — the payload whose field order is load-bearing
 // ============================================================================
+
+describe("createAd's answer — a Confirmed create (ADR-0041)", () => {
+  const createEndingOn = (finalUrl: string) =>
+    stubFetch([CSRF_PAGE, CREATE_AD_PAGE, UPLOAD, { ...CREATE, reply: { status: 200, text: "", finalUrl } }]);
+
+  it("is the id of the ad the redirects ended on", async () => {
+    http = stubFetch(routes());
+    await expect(api.createAd(goldenAd(), [])).resolves.toBe("m2464420632");
+  });
+
+  it("is refused when the chain stops at a payment page, which is not a create", async () => {
+    http = createEndingOn(
+      "https://www.marktplaats.nl/payments/orderOverview/index.html?previousAction=paidAdPlacement&orderId=1",
+    );
+    const failure = await api.createAd(goldenAd(), []).catch((e: unknown) => e);
+    expect(failure).toBeInstanceOf(errors.CreateNotConfirmedError);
+    expect((failure as InstanceType<Errors["CreateNotConfirmedError"]>).paymentRequired).toBe(true);
+  });
+
+  it("is refused on a seller view that does not say the placement succeeded", async () => {
+    http = createEndingOn("https://www.marktplaats.nl/seller/view/m2464420632");
+    const failure = await api.createAd(goldenAd(), []).catch((e: unknown) => e);
+    expect(failure).toBeInstanceOf(errors.CreateNotConfirmedError);
+    expect((failure as InstanceType<Errors["CreateNotConfirmedError"]>).paymentRequired).toBe(false);
+  });
+
+  it("is refused when the form came back instead", async () => {
+    http = createEndingOn("https://www.marktplaats.nl/plaats/ads");
+    await expect(api.createAd(goldenAd(), [])).rejects.toBeInstanceOf(errors.CreateNotConfirmedError);
+  });
+});
 
 describe("createAd", () => {
   /**

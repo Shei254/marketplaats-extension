@@ -43,6 +43,31 @@ export class SpikePendingError extends Error {
 }
 
 /**
+ * A create whose redirect chain did not end where a placed ad's does — on
+ * `/seller/view/<id>?previousAction=syiSuccess` (observed 2026-11-11, ADR-0041).
+ * So it is **not a Confirmed create**, and nothing may be deleted on its account.
+ *
+ * `paymentRequired` is the chain stopping on a `/payments/` page: Marktplaats wants
+ * money to place this ad, and we never pay on a seller's behalf, so the ad cannot
+ * be reposted. Anything else is a chain we do not recognise. `endedOn` is for the
+ * console.
+ */
+export class CreateNotConfirmedError extends Error {
+  constructor(public readonly endedOn: string) {
+    super(`The create did not end on a placed ad: ${endedOn}`);
+    this.name = "CreateNotConfirmedError";
+  }
+
+  get paymentRequired(): boolean {
+    try {
+      return new URL(this.endedOn, "https://www.marktplaats.nl").pathname.startsWith("/payments/");
+    } catch {
+      return false;
+    }
+  }
+}
+
+/**
  * Marktplaats answered a request with a status we do not map to anything else.
  * The status is kept because the resume reads it: a capture answering `410` is
  * an ad that has been deleted (ADR-0039, observed 2026-09-27).
@@ -85,11 +110,13 @@ export interface MarktplaatsClient {
   /** Delete an ad. Throws AdNotFoundError if it is already gone. */
   deleteAd(listingId: string): Promise<void>;
   /**
-   * Create a fresh ad from a captured ad + photos. Marktplaats answers a create
-   * with a 200/201/redirect and no JSON body, so there is no new listing id to
-   * hand back: resolving at all is the success signal, and a failure throws.
+   * Create a fresh ad from a captured ad + photos, and answer with **the new ad's
+   * id** — a Confirmed create (ADR-0041). Marktplaats answers with server redirects
+   * ending on `/seller/view/<id>?previousAction=syiSuccess`, and the id is read off
+   * that. A chain that ends anywhere else throws `CreateNotConfirmedError`; a
+   * request that fails outright throws whatever failed, and may still have landed.
    */
-  createAd(draft: CapturedAd, photos: Photo[]): Promise<void>;
+  createAd(draft: CapturedAd, photos: Photo[]): Promise<string>;
   /**
    * Mark an ad as **Gereserveerd** — promised to a buyer (T71, #157).
    *

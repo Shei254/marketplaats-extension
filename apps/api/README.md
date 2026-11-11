@@ -933,7 +933,7 @@ separately:
 | Outcome | The reservation | Why |
 |---|---|---|
 | `SUCCESS` | settles | the user got what they paid a unit for |
-| `FAILED_AFTER_DELETE` | settles | the ad was deleted — the destructive half happened, and a refund would let a broken relist loop burn a seller's listings for free |
+| `FAILED_AFTER_DELETE` | settles | the new ad was placed and the original could not be deleted — the seller got the fresh ad the unit buys. Since [ADR-0041](../../docs/adr/0041-a-repost-creates-first-and-deletes-only-what-it-replaced.md) a repost creates first, so this no longer means "the ad was deleted"; the name is frozen and the meaning moved |
 | `FAILED_BEFORE_DELETE` | **refunds** | nothing was consumed on Marktplaats, so nothing is consumed here |
 
 A refund still writes a `relist_event`, and that is the point of the table: it is the **breakage canary**, not

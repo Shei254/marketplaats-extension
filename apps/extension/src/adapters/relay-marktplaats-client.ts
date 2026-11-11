@@ -60,8 +60,8 @@ export class RelayMarktplaatsClient implements MarktplaatsClient {
     await this.send<null>({kind: "deleteAd", listingId});
   }
 
-  async createAd(draft: CapturedAd, photos: Photo[]): Promise<void> {
-    await this.send<null>({
+  async createAd(draft: CapturedAd, photos: Photo[]): Promise<string> {
+    return this.send<string>({
       kind: "createAd",
       draft,
       photos: photos.map(toWirePhoto),

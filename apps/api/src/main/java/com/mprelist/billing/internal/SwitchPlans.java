@@ -2,6 +2,7 @@ package com.mprelist.billing.internal;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,10 +15,13 @@ import com.mprelist.identity.UserRef;
 import com.mprelist.subscription.Subscriptions;
 import com.stripe.StripeClient;
 import com.stripe.exception.StripeException;
+import com.stripe.model.Customer;
 import com.stripe.model.Invoice;
+import com.stripe.model.PaymentMethod;
 import com.stripe.model.Subscription;
 import com.stripe.model.SubscriptionItem;
 import com.stripe.param.InvoiceCreatePreviewParams;
+import com.stripe.param.SubscriptionRetrieveParams;
 import com.stripe.param.SubscriptionUpdateParams;
 
 /**
@@ -32,9 +36,17 @@ import com.stripe.param.SubscriptionUpdateParams;
  *
  * <p><strong>Immediate and prorated both ways</strong> — {@code always_invoice}. An upgrade is charged the
  * difference now; a downgrade's negative invoice becomes a credit on the Stripe customer, used against the
- * next ones. {@code pending_if_incomplete} means nothing moves until the money has: a payment that needs the
- * payer leaves the subscription where it was, with the invoice's hosted page to finish it on. The tier then
- * follows the Price through the webhook, which already reads the tier off whatever Price Stripe reports.
+ * next ones. The tier follows the Price through the webhook, which already reads the tier off whatever Price
+ * Stripe reports.
+ *
+ * <p><strong>Waiting for the money, where Stripe can</strong> (ADR-0036, amended 2026-11-12). For a method on
+ * Stripe's pending-updates list, {@code pending_if_incomplete} means nothing moves until the money has: a
+ * payment that needs the payer leaves the subscription where it was, with the invoice's hosted page to finish
+ * it on. Stripe refuses that outright for anything else, every bank debit included ("You cannot set
+ * {@code payment_behavior} to {@code pending_if_incomplete} when the default payment method is
+ * {@code sepa_debit}"), so those switch at once with {@code allow_incomplete} and are collected afterwards, as
+ * Checkout already trusts a first SEPA subscriber. One that then needs the payer comes back {@code past_due}
+ * and goes to the same hosted page. One that fails is Dunning.
  *
  * <p><strong>The preview is Stripe's</strong>, the same call with the same items, so the amount a confirmation
  * dialog shows is the one Stripe computed rather than one we did. The two are made seconds apart and can differ
@@ -95,14 +107,23 @@ class SwitchPlans {
 							.setPrice(price.stripePriceId())
 							.build())
 					.setProrationBehavior(SubscriptionUpdateParams.ProrationBehavior.ALWAYS_INVOICE)
-					.setPaymentBehavior(SubscriptionUpdateParams.PaymentBehavior.PENDING_IF_INCOMPLETE)
+					.setPaymentBehavior(stripeCanWaitFor(current)
+							? SubscriptionUpdateParams.PaymentBehavior.PENDING_IF_INCOMPLETE
+							: SubscriptionUpdateParams.PaymentBehavior.ALLOW_INCOMPLETE)
 					.addExpand("latest_invoice")
 					.build());
-			if (updated.getPendingUpdate() == null) {
+			boolean held = updated.getPendingUpdate() != null;
+			if (!held && !PAST_DUE.equals(updated.getStatus())) {
 				LOG.info("Switched a subscription to `{}` ({})", tierCode, interval);
 				return new PlanSwitch.Switched();
 			}
 			Invoice owed = updated.getLatestInvoiceObject();
+			if (!held && (owed == null || owed.getHostedInvoiceUrl() == null)) {
+				// Switched already, and Dunning has it from here; "unavailable" would be untrue.
+				LOG.warn("Switched a subscription to `{}` ({}), now past due with no page to pay it on", tierCode,
+						interval);
+				return new PlanSwitch.Switched();
+			}
 			if (owed == null || owed.getHostedInvoiceUrl() == null) {
 				// Pending with nowhere to pay it is a switch nobody can finish; say so rather than "done".
 				LOG.warn("A switch to `{}` ({}) is pending payment and Stripe named no page to pay it on", tierCode,
@@ -130,7 +151,12 @@ class SwitchPlans {
 			return new PlanSwitch.Unavailable();
 		}
 		try {
-			Subscription current = client.get().subscriptions().retrieve(subscription.get());
+			Subscription current = client.get().subscriptions().retrieve(subscription.get(),
+					SubscriptionRetrieveParams.builder()
+						.addExpand("default_payment_method")
+						.addExpand("customer.invoice_settings.default_payment_method")
+						.build(),
+					null);
 			return then.ask(client.get(), current, price.get());
 		}
 		catch (StripeException unavailable) {
@@ -147,6 +173,22 @@ class SwitchPlans {
 				.flatMap(List::stream)
 				.filter(sold -> sold.interval().equals(interval))
 				.findFirst();
+	}
+
+	/**
+	 * Whether Stripe can hold a switch until it is paid: whether the method it will charge is on its
+	 * pending-updates list. That is the subscription's own default, else the customer's invoice default. No
+	 * method at all is not on the list.
+	 */
+	private static boolean stripeCanWaitFor(Subscription subscription) {
+		PaymentMethod method = subscription.getDefaultPaymentMethodObject();
+		if (method == null) {
+			Customer customer = subscription.getCustomerObject();
+			if (customer != null && customer.getInvoiceSettings() != null) {
+				method = customer.getInvoiceSettings().getDefaultPaymentMethodObject();
+			}
+		}
+		return method != null && PENDING_UPDATES.contains(method.getType());
 	}
 
 	/**
@@ -171,5 +213,17 @@ class SwitchPlans {
 	private final StripeAccount stripe;
 
 	private static final Logger LOG = LoggerFactory.getLogger(SwitchPlans.class);
+
+	/**
+	 * Stripe's pending-updates list, as {@code PaymentMethod.type}, from
+	 * https://docs.stripe.com/billing/subscriptions/pending-updates on 2026-11-12. Apple Pay and Google Pay
+	 * arrive as {@code card}. NG Card is listed there under a type name this was not sure of, so it is left out.
+	 * A method missing from here switches at once rather than failing to switch, so a stale copy is never stuck.
+	 */
+	private static final Set<String> PENDING_UPDATES = Set.of("card", "link", "alipay", "amazon_pay",
+			"afterpay_clearpay", "cashapp", "eps", "gopay", "kakao_pay", "klarna", "kr_card", "naver_pay", "paypal",
+			"payto", "pix", "promptpay", "revolut_pay", "satispay", "crypto", "swish", "twint", "upi", "wechat_pay");
+
+	private static final String PAST_DUE = "past_due";
 
 }

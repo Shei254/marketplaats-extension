@@ -1922,6 +1922,21 @@ answers `410 Gone` at once — is in `internal-api-findings.md`.
   pending repost above the ads with *Opnieuw* and *Niet terugzetten*.
 - **Not in it:** photos on the pending rows (a snapshot's photo is full size, and the list is asked for on
   every popup open); `chrome.scripting` (ADR-0039 says why).
+
+#### T89 · A bank debit switches plan at once · **S** · T85
+*2026-11-12.* A client paying by SEPA could subscribe but never switch plan. Stripe refused every switch with
+*"You cannot set `payment_behavior` to `pending_if_incomplete` when the default payment method is
+`sepa_debit`"*, and the site said *Dat lukte nu niet*. Decided in the 2026-11-12 amendment to
+[ADR-0036](adr/0036-the-site-sells-and-a-subscriber-switches-in-place.md).
+
+- **Stripe's pending-updates list decides**, not a list of bank debits. A method on it still waits for the
+  money. Anything else, including no method found, switches with `allow_incomplete`: all six bank debits, BLIK,
+  MB Way.
+- **The method charged** is the subscription's default, else the customer's invoice default.
+- **`past_due` with an open invoice** goes to the hosted invoice page (`ConfirmPayment`). A failed debit later
+  is Dunning, unchanged.
+- **Not in it:** dialog copy about when a debit clears; whether the Customer Portal (the popup's route) can
+  switch a SEPA payer, which is to be checked in test mode.
 ---
 
 ## Deferred

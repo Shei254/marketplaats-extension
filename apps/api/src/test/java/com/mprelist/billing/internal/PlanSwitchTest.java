@@ -18,6 +18,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import com.mprelist.catalog.Entitlement;
 import com.mprelist.catalog.FreeTierOnOffer;
@@ -61,8 +63,17 @@ class PlanSwitchTest {
 
 	private boolean stripeAnswers = true;
 
+	/** The query each GET carried, by path. */
+	private final Map<String, String> queried = new HashMap<>();
+
 	/** Whether the update comes back waiting on the payer. */
 	private boolean paymentNeedsThePayer = false;
+
+	/** The type of the subscription's own default payment method, or {@code null} for none. */
+	private String subscriptionMethod = "card";
+
+	/** The type of the customer's invoice default, or {@code null} for none. */
+	private String customerMethod = null;
 
 	private long previewTotal = 743;
 
@@ -72,6 +83,9 @@ class PlanSwitchTest {
 		this.stripe.createContext("/v1/", exchange -> {
 			String path = exchange.getRequestURI().getPath();
 			this.asked.add(exchange.getRequestMethod() + " " + path);
+			if ("GET".equals(exchange.getRequestMethod())) {
+				this.queried.put(path, URLDecoder.decode(String.valueOf(exchange.getRequestURI().getRawQuery()), UTF_8));
+			}
 			if ("POST".equals(exchange.getRequestMethod())) {
 				this.posted.put(path, formIn(new String(exchange.getRequestBody().readAllBytes(), UTF_8)));
 			}
@@ -80,9 +94,8 @@ class PlanSwitchTest {
 				return;
 			}
 			switch (exchange.getRequestMethod() + " " + path) {
-				case "GET /v1/subscriptions/sub_1" -> respond(exchange, 200, subscription("price_pro", false));
-				case "POST /v1/subscriptions/sub_1" ->
-					respond(exchange, 200, subscription("price_power", this.paymentNeedsThePayer));
+				case "GET /v1/subscriptions/sub_1" -> respond(exchange, 200, subscription("price_pro", false, "active"));
+				case "POST /v1/subscriptions/sub_1" -> respond(exchange, 200, updated(this.posted.get(path)));
 				case "POST /v1/invoices/create_preview" -> respond(exchange, 200,
 						"{\"object\":\"invoice\",\"total\":" + this.previewTotal + ",\"currency\":\"eur\"}");
 				default -> respond(exchange, 404, "{\"error\":{\"message\":\"not faked\"}}");
@@ -138,6 +151,103 @@ class PlanSwitchTest {
 
 		assertThat(switches(true).apply(PAYER, "power", "month"))
 				.isEqualTo(new PlanSwitch.ConfirmPayment("https://invoice.stripe.com/i/in_1"));
+	}
+
+	// --- the payment methods Stripe cannot hold a switch for ---------------------------------------------------
+
+	/**
+	 * The client's bug: Stripe refuses {@code pending_if_incomplete} outright when the default method is a SEPA
+	 * debit, so it is never sent for one. The switch happens now and the debit clears afterwards (ADR-0036,
+	 * amended 2026-11-12).
+	 */
+	@Test
+	void aSepaDebitSwitchesAtOnceAndIsCollectedAfterwards() {
+		this.subscriptionMethod = "sepa_debit";
+
+		assertThat(switches(true).apply(PAYER, "power", "month")).isEqualTo(new PlanSwitch.Switched());
+		assertThat(this.posted.get("/v1/subscriptions/sub_1"))
+				.containsEntry("payment_behavior", "allow_incomplete")
+				.containsEntry("proration_behavior", "always_invoice");
+	}
+
+	/** Every bank debit, and the methods that are not bank debits but are just as absent from Stripe's list. */
+	@ParameterizedTest
+	@ValueSource(strings = { "bacs_debit", "au_becs_debit", "nz_bank_account", "acss_debit", "us_bank_account",
+			"blik", "mb_way", "a_method_stripe_adds_next_year" })
+	void soDoesEveryMethodNotOnStripesPendingUpdatesList(String type) {
+		this.subscriptionMethod = type;
+
+		switches(true).apply(PAYER, "power", "month");
+
+		assertThat(this.posted.get("/v1/subscriptions/sub_1")).containsEntry("payment_behavior", "allow_incomplete");
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = { "card", "link", "paypal", "klarna", "eps", "kakao_pay", "naver_pay", "pix" })
+	void whileTheMethodsOnItStillWaitForTheMoney(String type) {
+		this.subscriptionMethod = type;
+
+		switches(true).apply(PAYER, "power", "month");
+
+		assertThat(this.posted.get("/v1/subscriptions/sub_1"))
+				.containsEntry("payment_behavior", "pending_if_incomplete");
+	}
+
+	/** Checkout often leaves the method on the customer rather than the subscription; that is the one charged. */
+	@Test
+	void theCustomersDefaultCountsWhenTheSubscriptionNamesNone() {
+		this.subscriptionMethod = null;
+		this.customerMethod = "sepa_debit";
+
+		switches(true).apply(PAYER, "power", "month");
+
+		assertThat(this.posted.get("/v1/subscriptions/sub_1")).containsEntry("payment_behavior", "allow_incomplete");
+		assertThat(this.queried.get("/v1/subscriptions/sub_1"))
+				.contains("expand[0]=default_payment_method")
+				.contains("expand[1]=customer.invoice_settings.default_payment_method");
+	}
+
+	@Test
+	void andTheSubscriptionsOwnWinsOverTheCustomers() {
+		this.subscriptionMethod = "card";
+		this.customerMethod = "sepa_debit";
+
+		switches(true).apply(PAYER, "power", "month");
+
+		assertThat(this.posted.get("/v1/subscriptions/sub_1"))
+				.containsEntry("payment_behavior", "pending_if_incomplete");
+	}
+
+	/** Nothing to hold the switch for: Stripe could not wait on it either, and the invoice will say what is owed. */
+	@Test
+	void noMethodAtAllSwitchesAtOnce() {
+		this.subscriptionMethod = null;
+		this.customerMethod = null;
+
+		switches(true).apply(PAYER, "power", "month");
+
+		assertThat(this.posted.get("/v1/subscriptions/sub_1")).containsEntry("payment_behavior", "allow_incomplete");
+	}
+
+	/**
+	 * A BLIK or MB Way payment waiting on the payer's phone: the plan has already moved and the subscription is
+	 * {@code past_due}, so they are sent to the invoice's page just as 3-D Secure sends them.
+	 */
+	@Test
+	void aChargeThatNeedsThePayerAfterTheSwitchIsFinishedOnTheInvoicesPage() {
+		this.subscriptionMethod = "blik";
+		this.paymentNeedsThePayer = true;
+
+		assertThat(switches(true).apply(PAYER, "power", "month"))
+				.isEqualTo(new PlanSwitch.ConfirmPayment("https://invoice.stripe.com/i/in_1"));
+	}
+
+	/** A downgrade, or a debit already on its way: the invoice is paid or processing and nothing is owed now. */
+	@Test
+	void aSwitchThatIsNotPastDueIsDone() {
+		this.subscriptionMethod = "sepa_debit";
+
+		assertThat(switches(true).apply(PAYER, "power", "month")).isEqualTo(new PlanSwitch.Switched());
 	}
 
 	/** A second click, or a card drawn before the webhook landed: nothing to charge, and nothing is sent. */
@@ -241,13 +351,31 @@ class PlanSwitchTest {
 				.build());
 	}
 
-	private static String subscription(String price, boolean pending) {
-		return "{\"id\":\"sub_1\",\"object\":\"subscription\","
+	/**
+	 * What Stripe answers an update with: a held switch for {@code pending_if_incomplete}, a {@code past_due}
+	 * one for {@code allow_incomplete}, when the payment needs the payer.
+	 */
+	private String updated(Map<String, String> form) {
+		boolean waits = "pending_if_incomplete".equals(form.get("payment_behavior"));
+		boolean owed = this.paymentNeedsThePayer && !waits;
+		return subscription("price_power", this.paymentNeedsThePayer && waits, owed ? "past_due" : "active");
+	}
+
+	private String subscription(String price, boolean pending, String status) {
+		return "{\"id\":\"sub_1\",\"object\":\"subscription\",\"status\":\"" + status + "\","
+				+ "\"default_payment_method\":" + method(this.subscriptionMethod) + ","
+				+ "\"customer\":{\"id\":\"cus_1\",\"object\":\"customer\",\"invoice_settings\":"
+				+ "{\"default_payment_method\":" + method(this.customerMethod) + "}},"
 				+ "\"items\":{\"object\":\"list\",\"data\":[{\"id\":\"si_1\",\"object\":\"subscription_item\","
 				+ "\"price\":{\"id\":\"" + price + "\",\"object\":\"price\"}}]},"
 				+ "\"pending_update\":" + (pending ? "{\"expires_at\":1790000000}" : "null") + ","
 				+ "\"latest_invoice\":{\"id\":\"in_1\",\"object\":\"invoice\","
-				+ "\"hosted_invoice_url\":\"https://invoice.stripe.com/i/in_1\"}}";
+				+ "\"status\":\"open\",\"hosted_invoice_url\":\"https://invoice.stripe.com/i/in_1\"}}";
+	}
+
+	private static String method(String type) {
+		return type == null ? "null"
+				: "{\"id\":\"pm_1\",\"object\":\"payment_method\",\"type\":\"" + type + "\"}";
 	}
 
 	/** Only `published()` is ever called. */

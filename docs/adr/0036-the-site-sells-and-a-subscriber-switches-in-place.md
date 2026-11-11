@@ -75,3 +75,40 @@ subscriber to the Portal; this ADR decides what the site offers them instead.
 - **Two sign-ins exist again** — the one 0017 was written to avoid — though against one realm, so it is one
   account.
 - **The Stripe customer can carry a credit** our screens never mention; Stripe's invoices do.
+
+## Amended 2026-11-12: a switch waits for the money only where Stripe can wait
+
+**What happened.** A SEPA subscriber could subscribe, but no Plan switch ever went through for them.
+Stripe refused every `subscriptions.update` with *"You cannot set `payment_behavior` to
+`pending_if_incomplete` when the default payment method is `sepa_debit`"*. Nothing changed, no event
+arrived, and the site said "Dat lukte nu niet". The preview worked because it sends no `payment_behavior`.
+Checkout worked because it never asks to wait: it makes a SEPA subscription `active` while the first debit
+is still processing.
+
+**Pending updates are a closed list.** Stripe holds a change back until it is paid only for the methods on
+its pending-updates list: Card, Link, PayPal, Klarna, Apple Pay, Google Pay, EPS and others, 26 in all on
+2026-11-12. No bank debit is on it (`sepa_debit`, `bacs_debit`, `au_becs_debit`, `nz_bank_account`,
+`acss_debit`, `us_bank_account`). Neither are BLIK, MB Way, Payco or Samsung Pay, all of which the
+account offered for subscriptions that day.
+
+**The decision.** The rule above, "`pending_if_incomplete` so nothing moves until the money has", now
+applies only when the subscription's default payment method is on that list. **Any other method switches at
+once with `allow_incomplete`**, and the prorated amount is collected afterwards.
+
+- **The list is Stripe's, in our code.** Keying on "bank debits" would have fixed SEPA and left BLIK and MB
+  Way just as stuck. Stripe can change the list. If our copy falls behind, a method switches at once, which
+  is never stuck.
+- **A charge that needs the payer** (the response is `past_due` with the invoice `open`) goes to the
+  hosted invoice page, the same `ConfirmPayment` as 3-D Secure. The difference is that the plan has already
+  moved.
+- **A failed or unapproved payment is Dunning.** `past_due` already refuses without taking the tier away.
+  The subscriber is refused on both plans until they pay. Paying restores the new plan. Stripe giving up
+  ends the subscription, and ADR-0018 moves them to the default tier. A half-switched state that keeps the
+  old plan running was declined: it is what `pending_if_incomplete` does, and building it ourselves would
+  mean a new state in the mirror.
+- **No copy changes.** The confirm dialog shows Stripe's amount as before and does not say when a debit
+  will clear. Stripe's mandate emails do, and Dunning's copy covers a debit that bounces.
+
+**Considered and declined:** sending payers on these methods to the Customer Portal to switch (a second
+door, and it is unconfirmed that the Portal handles them any better), and refusing them with "Overstappen
+kan alleen met een kaart" (honest, and it blocks a paying customer from upgrading).

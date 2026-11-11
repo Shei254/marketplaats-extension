@@ -213,8 +213,10 @@ export class RelistOrchestrator {
       }
     }
 
-    // 5. Re-create the identical ad from the snapshot.
-    return this.createFromSnapshot(snapshot);
+    // 5. Re-create the identical ad — from the snapshot as ensureDeleted saved it,
+    //    phase "deleted", so a park before the create never writes it back as
+    //    "captured" and leaves an ad that is gone looking as if it might not be.
+    return this.createFromSnapshot(deletion.snapshot);
   }
 
   /**
@@ -241,7 +243,11 @@ export class RelistOrchestrator {
       if (this.deleteWasRefused(error)) return { state: "refused", error };
       lastError = error;
     }
-    if ((await this.probe(snapshot.listingId)) === "gone") return this.markDeleted(snapshot)
+    // The delete threw, so ask Marktplaats what happened. An ad it still serves
+    // was not deleted: that is a clean abort, not something to wait on.
+    const presence = await this.probe(snapshot.listingId)
+    if (presence === "gone") return this.markDeleted(snapshot)
+    if (presence === "exists") return { state: "refused", error: lastError }
     return { state: "unknown", error: lastError };
   }
 

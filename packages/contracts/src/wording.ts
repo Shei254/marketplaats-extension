@@ -120,16 +120,15 @@ function every(interval: string): string {
  * the omission is explicit and reviewable — rather than dropped by position, which
  * would edit the sentence by whatever happened to sort last.
  *
- * **Wallets are deliberately absent.** `apple_pay`, `google_pay` and `link` are
- * usually turned on and are not what somebody hesitating over a subscription is
- * looking for — naming them would pad the sentence, and the sentence is
- * non-exhaustive on purpose. Leaving a method out never makes it false; only
- * naming one that is off would.
+ * **Wallets are named too**, after the main methods: Apple Pay, Link and the
+ * others Stripe may offer. The sentence only ever names what Stripe says is on,
+ * so naming one never makes it false. A method with no entry here (`google_pay`
+ * among them) is still left out.
  */
 const WAYS_TO_PAY: ReadonlyArray<readonly [token: string, name: string]> = [
   ["ideal", "iDEAL"],
   ["paypal", "PayPal"],
-  ["card", "credit card"],
+  ["card", "creditcard"],
   ["bancontact", "Bancontact"],
   ["sepa_debit", "SEPA-incasso"],
   ["amazon_pay", "Amazon Pay"],
@@ -156,10 +155,10 @@ const WAYS_TO_PAY: ReadonlyArray<readonly [token: string, name: string]> = [
  * unaffected either way, which is the whole reason `GET /api/plans` carries this
  * beside them rather than refusing the lot (T65, #137).
  *
- * Every method these surfaces can spell is named, in `WAYS_TO_PAY`'s order. The
- * sentence stays non-exhaustive because that list leaves the wallets out, not
- * because it is truncated — a buyer meets the rest at Checkout regardless, and this
- * line is there to get them to it rather than to enumerate it.
+ * Every method these surfaces can spell is named, in `WAYS_TO_PAY`'s order, never
+ * truncated. A method missing from that list is the only thing left out — a buyer
+ * meets the rest at Checkout regardless, and this line is there to get them to it
+ * rather than to enumerate it.
  *
  * A token that is not in `WAYS_TO_PAY` is dropped rather than shown raw — a
  * departure from `priceAndRhythmOf` and `priceOf` above, and worth saying why. Those render

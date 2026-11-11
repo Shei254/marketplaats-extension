@@ -1,3 +1,4 @@
+import { vi } from "vitest";
 import type { RelistOutcomeCode, RemainingQuota } from "@mprelist/contracts";
 
 import type { GateDecision, LockedState } from "../../gate/authorization-gate";
@@ -211,8 +212,12 @@ export class FakeMarktplaatsClient implements MarktplaatsClient {
     return { ads, totalNumberOfResults: ads.length };
   }
 
-  /** Whether Marktplaats still serves the ad, which the fake always knows. */
+  /**
+   * Whether Marktplaats still serves the ad. The real probe reads the capture
+   * page, so a capture that fails (`captureError`) is a probe that cannot tell.
+   */
   async probeAd(listingId: string): Promise<AdPresence> {
+    if (this.opts.captureError) return "unknown";
     return this.ads.has(listingId) ? "exists" : "gone";
   }
 
@@ -390,4 +395,15 @@ export function sampleAd(title = "Vintage bike", reserved = false): CapturedList
     },
     photos: [{ filename: "bike.jpg", mimeType: "image/jpeg", data: new Uint8Array([1, 2, 3]) }],
   };
+}
+
+/**
+ * Move the clock past the window a sent create is given to land (ADR-0039)
+ * before anything is tried again, so the retry looks, finds nothing, and
+ * creates. Only `Date` is faked: the waits inside a create still really run.
+ * Pair with `vi.useRealTimers()` in an `afterEach`.
+ */
+export function pastTheCreateWindow(): void {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(Date.now() + 181_000);
 }

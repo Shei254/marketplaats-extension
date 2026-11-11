@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { RelistOrchestrator } from "./relist-orchestrator";
 import {
@@ -6,6 +6,7 @@ import {
   FakePace,
   FakeRelistPermission,
   InMemorySnapshotStore,
+  pastTheCreateWindow,
   refusing,
   sampleAd,
   type FakeEvent,
@@ -127,6 +128,8 @@ describe("what the backend is told", () => {
 });
 
 describe("finishing what a crash interrupted", () => {
+  afterEach(() => vi.useRealTimers());
+
   it("cancels one whose ad is still there, and hands its unit back without asking the gate", async () => {
     // A `captured` snapshot whose ad Marktplaats still serves: the delete never
     // ran. Finishing it would be a repost nobody is paying for twice — so it is
@@ -176,7 +179,7 @@ describe("finishing what a crash interrupted", () => {
 
     const [outcome] = await orchestrator.resumeAll();
 
-    expect(outcome?.status).toBe("failed-recoverable");
+    expect(outcome?.status).toBe("unconfirmed");
     expect(gate.authorized).toEqual([]);
     expect(gate.reports).toEqual([]);
     expect(client.has("ad-1")).toBe(true);
@@ -199,6 +202,7 @@ describe("finishing what a crash interrupted", () => {
     await orchestrator.relist("ad-1");
     expect((await store.get("ad-1"))?.phase).toBe("deleted");
 
+    pastTheCreateWindow();
     const outcome = await orchestrator.retry("ad-1");
 
     expect(outcome).toEqual({ status: "relisted", quota: REPORTED_QUOTA });
@@ -210,6 +214,7 @@ describe("finishing what a crash interrupted", () => {
     const { orchestrator, gate } = relisting({ createFailures: 1 });
     await orchestrator.relist("ad-1");
 
+    pastTheCreateWindow();
     await orchestrator.retry("ad-1");
 
     expect(gate.reports).toEqual([
@@ -222,6 +227,7 @@ describe("finishing what a crash interrupted", () => {
     const { orchestrator, gate, store } = relisting({ createFailures: 1 });
     await orchestrator.relist("ad-1");
 
+    pastTheCreateWindow();
     const outcomes = await orchestrator.resumeAll();
 
     expect(outcomes).toEqual([{ status: "relisted", quota: REPORTED_QUOTA }]);

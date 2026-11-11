@@ -83,7 +83,7 @@ async function show(
   await act(async () => {
     root.render(
       <AdList
-        view={{ status: "ready", ads: ADS }}
+        view={{ status: "ready", ads: ADS, total: ADS.length }}
         worker={worker}
         onOutcome={onOutcome}
         grantsNothing={plan.grantsNothing ?? false}

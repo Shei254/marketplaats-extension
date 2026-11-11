@@ -244,6 +244,19 @@ export const adListCss = `
   background: var(--mp-subtle);
   border-top: 1px solid var(--mp-line);
 }
+/* The way up to the copies, on the line that says they are there. A link in look,
+   because it moves the list and changes nothing. */
+.popup-list-up {
+  margin-left: var(--mp-space-xs);
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--mp-accent);
+  cursor: pointer;
+}
+.popup-list-up:hover { color: var(--mp-accent-hover); text-decoration: underline; }
 .popup-page-error { padding: var(--mp-space-xs) var(--mp-space-md) 0; }
 /* Pinned under the list, so the way to the next page never takes a scroll to reach. */
 .popup-page-bar {

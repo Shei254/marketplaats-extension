@@ -97,7 +97,8 @@ export type BackgroundRequest =
 
 /** A RelistOutcome with its `error: unknown` flattened to something serialisable. */
 export type WireRelistOutcome =
-  | { status: "relisted"; quota: RemainingQuota | null }
+  /** `newListingId` is the copy, which the popup puts at the top of the first page. */
+  | { status: "relisted"; newListingId: string; quota: RemainingQuota | null }
   /** Nothing was removed from Marktplaats; the original ad is intact. */
   | { status: "failed-before-delete"; error: WireError; quota: RemainingQuota | null }
   /** The original was deleted but re-create failed; snapshot retained for retry. */

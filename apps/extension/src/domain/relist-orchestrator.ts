@@ -44,7 +44,11 @@ const settled = (sentAt: number | undefined, windowMs: number) =>
  * difference between knowing the number and knowing that we do not.
  */
 export type RelistOutcome =
-  | { status: "relisted"; quota: RemainingQuota | null }
+  /**
+   * `newListingId` is the copy the Confirmed create named — the ad that now stands
+   * where the original did, at the top of the seller's list.
+   */
+  | { status: "relisted"; newListingId: string; quota: RemainingQuota | null }
   /** Nothing was removed from Marktplaats; the original ad is intact. */
   | { status: "failed-before-delete"; error: unknown; quota: RemainingQuota | null }
   /**
@@ -283,14 +287,14 @@ export class RelistOrchestrator {
     const deletion = await this.deleteOriginal(record.listingId);
     if (deletion.deleted) {
       await this.store.clear(record.listingId);
-      return { status: "relisted", quota: await this.report(record.grantJti, "SUCCESS") };
+      return { status: "relisted", newListingId: newId, quota: await this.report(record.grantJti, "SUCCESS") };
     }
 
     // Two copies are live, the new one on top: the seller got what the unit buys,
     // and the delete is retried. FAILED_AFTER_DELETE now means exactly this — the
     // breakage canary for the mechanic's second half (ADR-0041).
     await this.park({ ...replaced, failure: failureKind(deletion.error) }, failureKind(deletion.error));
-    return { status: "relisted", quota: await this.report(record.grantJti, "FAILED_AFTER_DELETE") };
+    return { status: "relisted", newListingId: newId, quota: await this.report(record.grantJti, "FAILED_AFTER_DELETE") };
   }
 
   /** Delete the original, counting "already gone" as deleted. */
@@ -511,7 +515,11 @@ export class RelistOrchestrator {
     if (!deletion.deleted) return this.park(record, failureKind(deletion.error));
     await this.store.clear(record.listingId);
     // A resume can be the first to report, if the worker died after the create.
-    return { status: "relisted", quota: await this.report(record.grantJti, "SUCCESS") };
+    return {
+      status: "relisted",
+      newListingId: record.newListingId,
+      quota: await this.report(record.grantJti, "SUCCESS"),
+    };
   }
 
   private async park(record: RepostRecord, reason: FailureKind): Promise<RelistOutcome> {
@@ -667,7 +675,7 @@ export class RelistOrchestrator {
   private async legacyFinish(snapshot: AdSnapshot, newId: string): Promise<RelistOutcome> {
     await this.store.clear(snapshot.listingId);
     if (snapshot.draft.reserved) await this.reserve(snapshot.listingId, newId);
-    return { status: "relisted", quota: await this.report(snapshot.grantJti, "SUCCESS") };
+    return { status: "relisted", newListingId: newId, quota: await this.report(snapshot.grantJti, "SUCCESS") };
   }
 }
 

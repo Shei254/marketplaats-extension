@@ -82,12 +82,6 @@ const RESUME: CardAction = { kind: "resume", label: "Opnieuw" };
 export const PUTTING_BACK_LABEL = "Wordt teruggezet";
 export const TOAST_TEXT = "Advertentie staat weer bovenaan";
 export const REFRESH = "Vernieuwen";
-/**
- * The busy label on the page. The popup's *Bezig met herplaatsen…* is wider than
- * the cell Marktplaats gives the button (~170px), so it spilled over both edges
- * and pushed the spinner out of sight; the hover text still says it in full.
- */
-export const BUSY_LABEL = "Herplaatsen…";
 
 export function PageButtons({
   worker,
@@ -413,7 +407,7 @@ export function viewFor({
   const tone = toneFor(state, false);
   return {
     tone: tone === "primary" ? "idle" : tone,
-    label: state.kind === "busy" ? BUSY_LABEL : labelFor(state),
+    label: labelFor(state),
     title: tooltipFor(state, title),
     // Busy and done are finished with; every other state is pressable, and the
     // ones that are not a fresh attempt open the card that says why.

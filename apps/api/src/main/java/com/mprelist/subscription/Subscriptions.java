@@ -108,4 +108,13 @@ public interface Subscriptions {
 	 */
 	Optional<String> stripePriceFor(UserRef user);
 
+	/**
+	 * The <strong>Scheduled switch</strong> pending on this account's subscription, as the last schedule event
+	 * said (T90, ADR-0042). From the row, never from Stripe: {@code GET /api/me} asks it on every popup open.
+	 *
+	 * @param user the account to answer about
+	 * @return the switch, or nothing where none is pending or nobody is paying
+	 */
+	Optional<PendingSwitch> pendingSwitchFor(UserRef user);
+
 }

@@ -460,6 +460,22 @@ export const planCardCss = `
 /* The buttons under a card, and the gap that keeps two rhythms from reading as
    one control split in half. */
 .popup-plan-card .mp-btn { margin-top: 10px; }
+/* A Scheduled switch on both its cards (T90): the held one says when it moves,
+   the target when it starts. Accent, because it is news about their own plan. */
+.popup-plan-card-pending {
+  margin: 10px 0 0;
+  font: var(--mp-text-caption) var(--mp-font-family);
+  font-weight: 600;
+  color: var(--mp-accent);
+}
+/* The inline confirm that replaces a card's buttons (T90, ADR-0042). */
+.popup-switch { margin-top: 10px; }
+.popup-switch-copy {
+  margin: 8px 0 0;
+  font: var(--mp-text-caption) var(--mp-font-family);
+  color: var(--mp-fg);
+}
+.popup-plans > .mp-note { margin-bottom: 2px; }
 
 .popup-plans-empty {
   padding: 24px 0;

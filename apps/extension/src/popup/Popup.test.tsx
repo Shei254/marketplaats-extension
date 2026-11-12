@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DisplayStateAnswer } from "../api/display-state";
-import type { HandoffAnswer, PlansAnswer } from "../api/subscribing";
+import type { HandoffAnswer, PlansAnswer, SwitchAnswer } from "../api/subscribing";
 import type { WireRelistOutcome } from "../background/messages";
 import type { ListingSummary, PendingRepost } from "../domain/types";
 import { NoMarktplaatsTabError, StaleMarktplaatsTabError } from "../adapters/relay-marktplaats-client";
@@ -37,6 +37,7 @@ const PLAN: DisplayState = {
   features: {},
   paying: false,
   rhythm: null,
+  pendingSwitch: null,
 };
 
 const RELISTED: WireRelistOutcome = {
@@ -63,6 +64,10 @@ const POWER: Plan = {
 /** A Stripe page the worker has already opened a tab for; the popup is on its way out. */
 const OPENED: HandoffAnswer = { status: "opened", url: "https://checkout.stripe.com/c/pay/cs_1" };
 
+/** Stripe's preview of a switch to Power made now: its full price, and the day Pro renews. */
+const RENEWS = new Date(2026, 11, 12, 10).toISOString();
+const PRICED: SwitchAnswer = { status: "priced", amount: 1999, currency: "eur", renewsAt: RENEWS };
+
 export const ADS: ListingSummary[] = [
   { id: "m1", title: "Vintage Eames lounge chair", priceCents: 125_000, priceType: "FIXED", biddingEnabled: false, reserved: false },
   { id: "m2", title: "Trek Marlin 7 mountainbike (M)", priceCents: 48_000, priceType: "FIXED", biddingEnabled: false, reserved: false },
@@ -72,7 +77,15 @@ function fakeWorker(
   answers: DisplayStateAnswer[] = [{ status: "ready", plan: PLAN }],
   ads: ListingSummary[] = ADS,
   /** What the three subscribing calls answer, when a test is about one of them. */
-  subscribing: { plans?: PlansAnswer; checkout?: HandoffAnswer; portal?: HandoffAnswer } = {},
+  subscribing: {
+    plans?: PlansAnswer;
+    checkout?: HandoffAnswer;
+    portal?: HandoffAnswer;
+    preview?: SwitchAnswer;
+    switchNow?: SwitchAnswer;
+    schedule?: SwitchAnswer;
+    undo?: SwitchAnswer;
+  } = {},
   /**
    * The reposts the worker is holding (ADR-0039), and what the ad list throws
    * before it answers — one error per call, in order.
@@ -157,6 +170,22 @@ function fakeWorker(
     portal: vi.fn(async () => {
       asked.push("portal");
       return subscribing.portal ?? OPENED;
+    }),
+    previewSwitch: vi.fn(async (tierCode: string, interval: string) => {
+      asked.push(`preview:${tierCode}:${interval}`);
+      return subscribing.preview ?? PRICED;
+    }),
+    switchNow: vi.fn(async (tierCode: string, interval: string) => {
+      asked.push(`switch-now:${tierCode}:${interval}`);
+      return subscribing.switchNow ?? ({ status: "switched" } as SwitchAnswer);
+    }),
+    scheduleSwitch: vi.fn(async (tierCode: string, interval: string) => {
+      asked.push(`schedule:${tierCode}:${interval}`);
+      return subscribing.schedule ?? ({ status: "scheduled" } as SwitchAnswer);
+    }),
+    undoSwitch: vi.fn(async () => {
+      asked.push("undo");
+      return subscribing.undo ?? ({ status: "undone" } as SwitchAnswer);
     }),
     signIn: vi.fn(async () => {
       asked.push("sign-in");
@@ -1271,5 +1300,213 @@ describe("the saved position", () => {
     await click("Uitloggen");
 
     expect(worker.clearPosition).toHaveBeenCalled();
+  });
+});
+
+describe("switching plan from the popup (T90, ADR-0042)", () => {
+  /** Paying for Pro by the month, which is the subscriber who met T83's refusal. */
+  const ON_PRO: DisplayState = {
+    ...PLAN,
+    tier: { code: "pro", name: "Pro" },
+    quotaRemaining: 0,
+    relistQuotaPerPeriod: 50,
+    paying: true,
+    rhythm: "month",
+  };
+
+  const buttons = (): string[] => [...container.querySelectorAll("button")].map((b) => readable(b.textContent));
+
+  it("offers a payer Overstappen rather than Checkout", async () => {
+    const { worker, asked } = fakeWorker([{ status: "ready", plan: ON_PRO }]);
+
+    await show(worker);
+    await click("Abonnementen");
+    await click("Overstappen · € 19,99 per maand");
+
+    expect(asked).not.toContain("checkout:power:month");
+    expect(asked).toContain("preview:power:month");
+  });
+
+  it("confirms inline: now at Stripe's price, or at renewal, with nothing preselected", async () => {
+    const { worker } = fakeWorker([{ status: "ready", plan: ON_PRO }]);
+
+    await show(worker);
+    await click("Abonnementen");
+    await click("Overstappen · € 19,99 per maand");
+
+    expect(readable(text())).toContain("Je betaalt vandaag € 19,99.");
+    expect(readable(text())).toContain(
+      "Je nieuwe maand begint vandaag met 200 herplaatsingen; wat over is van Pro vervalt.",
+    );
+    expect(readable(text())).toContain("Vanaf 12 december € 19,99 per maand");
+    expect(buttons()).toEqual(expect.arrayContaining(["Nu", "Op 12 december", "Annuleren"]));
+    const choices = [...container.querySelectorAll("button")].filter((b) =>
+      ["Nu", "Op 12 december"].includes(readable(b.textContent)),
+    );
+    expect(choices.map((b) => b.className)).toEqual([choices[0]?.className, choices[0]?.className]);
+  });
+
+  it("switches now, says so, and settles once /api/me shows the new plan", async () => {
+    vi.useFakeTimers();
+    try {
+      const switched: DisplayState = { ...ON_PRO, tier: { code: "power", name: "Power" }, relistQuotaPerPeriod: 200 };
+      const { worker, asked } = fakeWorker([
+        { status: "ready", plan: ON_PRO },
+        { status: "ready", plan: ON_PRO },
+        { status: "ready", plan: switched },
+      ]);
+
+      await show(worker);
+      await click("Abonnementen");
+      await click("Overstappen · € 19,99 per maand");
+      await click("Nu");
+
+      expect(asked).toContain("switch-now:power:month");
+      expect(text()).toContain("Gelukt");
+      await settle(1500);
+      await settle(1500);
+
+      expect(asked.filter((call) => call === "display-state")).toHaveLength(3);
+      expect(buttons()).toContain("Overstappen · € 9,99 per maand");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("or schedules it for the renewal", async () => {
+    const { worker, asked } = fakeWorker([{ status: "ready", plan: ON_PRO }]);
+
+    await show(worker);
+    await click("Abonnementen");
+    await click("Overstappen · € 19,99 per maand");
+    await click("Op 12 december");
+
+    expect(asked).toContain("schedule:power:month");
+    expect(asked).not.toContain("switch-now:power:month");
+    expect(text()).toContain("Gelukt");
+  });
+
+  it("and Annuleren changes nothing", async () => {
+    const { worker, asked } = fakeWorker([{ status: "ready", plan: ON_PRO }]);
+
+    await show(worker);
+    await click("Abonnementen");
+    await click("Overstappen · € 19,99 per maand");
+    await click("Annuleren");
+
+    expect(asked.some((call) => call.startsWith("switch-now") || call.startsWith("schedule"))).toBe(false);
+    expect(buttons()).toContain("Overstappen · € 19,99 per maand");
+  });
+
+  it("offers their own plan's other Rhythm on their own card", async () => {
+    const bothWays: Plan = {
+      ...PRO,
+      prices: [
+        { amount: 999, currency: "eur", interval: "month" },
+        { amount: 9900, currency: "eur", interval: "year" },
+      ],
+    };
+    const { worker } = fakeWorker([{ status: "ready", plan: ON_PRO }], ADS, {
+      plans: { status: "ready", plans: [bothWays, POWER], paymentMethods: [] },
+    });
+
+    await show(worker);
+    await click("Abonnementen");
+
+    expect(buttons()).toContain("Overstappen · € 99,00 per jaar");
+    expect(buttons()).not.toContain("Overstappen · € 9,99 per maand");
+  });
+
+  it("and none when their Rhythm is not known", async () => {
+    const { worker } = fakeWorker([{ status: "ready", plan: { ...ON_PRO, rhythm: null } }]);
+
+    await show(worker);
+    await click("Abonnementen");
+
+    expect(buttons()).not.toContain("Overstappen · € 9,99 per maand");
+    expect(buttons()).toContain("Overstappen · € 19,99 per maand");
+  });
+
+  it("shows a pending switch on both cards, and Ongedaan maken undoes it", async () => {
+    const pending: DisplayState = {
+      ...ON_PRO,
+      pendingSwitch: { tier: { code: "power", name: "Power" }, rhythm: "month", at: RENEWS },
+    };
+    const { worker, asked } = fakeWorker([{ status: "ready", plan: pending }]);
+
+    await show(worker);
+    await click("Abonnementen");
+
+    expect(text()).toContain("Gaat op 12 december over naar Power");
+    expect(text()).toContain("Vanaf 12 december");
+    expect(buttons()).not.toContain("Overstappen · € 19,99 per maand");
+
+    await click("Ongedaan maken");
+    expect(asked).toContain("undo");
+  });
+
+  it("refuses to switch during Dunning, and says to pay the open invoice", async () => {
+    const { worker } = fakeWorker([{ status: "ready", plan: { ...ON_PRO, subscriptionStatus: "PAST_DUE" } }]);
+
+    await show(worker);
+    await click("Abonnementen");
+
+    expect(text()).toContain("Betaal eerst je openstaande factuur via Betaling beheren.");
+    expect(buttons().some((label) => label.startsWith("Overstappen"))).toBe(false);
+  });
+
+  it("still offers Ongedaan maken during Dunning, which charges nothing", async () => {
+    const plan: DisplayState = {
+      ...ON_PRO,
+      subscriptionStatus: "PAST_DUE",
+      pendingSwitch: { tier: { code: "power", name: "Power" }, rhythm: "month", at: RENEWS },
+    };
+    const { worker, asked } = fakeWorker([{ status: "ready", plan }]);
+
+    await show(worker);
+    await click("Abonnementen");
+    await click("Ongedaan maken");
+
+    expect(text()).toContain("Gaat op 12 december over naar Power");
+    expect(asked).toContain("undo");
+  });
+
+  it("and says the same when the API refuses one", async () => {
+    const { worker } = fakeWorker([{ status: "ready", plan: ON_PRO }], ADS, {
+      preview: { status: "invoice-open" },
+    });
+
+    await show(worker);
+    await click("Abonnementen");
+    await click("Overstappen · € 19,99 per maand");
+
+    expect(text()).toContain("Betaal eerst je openstaande factuur via Betaling beheren.");
+  });
+
+  it("keeps Checkout for somebody not paying", async () => {
+    const { worker, asked } = fakeWorker();
+
+    await show(worker);
+    await click("Abonnementen");
+    await click("€ 19,99 per maand");
+
+    expect(asked).toContain("checkout:power:month");
+  });
+});
+
+describe("a Checkout refused because they already pay (T83, T90)", () => {
+  it("reloads the plan, so the cards become Overstappen", async () => {
+    const paying: DisplayState = { ...PLAN, tier: { code: "pro", name: "Pro" }, paying: true, rhythm: "month" };
+    const { worker } = fakeWorker([{ status: "ready", plan: PLAN }, { status: "ready", plan: paying }], ADS, {
+      checkout: { status: "already-paying" },
+    });
+
+    await show(worker);
+    await click("Abonnementen");
+    await click("€ 19,99 per maand");
+
+    expect(readable(text())).toContain("Stap over met Overstappen");
+    const labels = [...container.querySelectorAll("button")].map((b) => readable(b.textContent));
+    expect(labels).toContain("Overstappen · € 19,99 per maand");
   });
 });

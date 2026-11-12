@@ -1,9 +1,9 @@
 import { UiStyles } from "@mprelist/ui";
 import { waysToPay } from "@mprelist/contracts";
-import { useCallback, useEffect, useRef, useState, type JSX } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
 
 import type { WireRelistOutcome } from "../background/messages";
-import type { HandoffAnswer } from "../api/subscribing";
+import type { HandoffAnswer, SwitchAnswer } from "../api/subscribing";
 import { NoMarktplaatsTabError, StaleMarktplaatsTabError } from "../adapters/relay-marktplaats-client";
 import type { PendingRepost } from "../domain/types";
 import { fetchAdPage } from "./ad-pages";
@@ -12,7 +12,7 @@ import { adListCss, planCardCss, popupCss } from "./popup-styles";
 import { AdList } from "./AdList";
 import { SearchBox } from "./SearchBox";
 import { ALL, noMatches, sameShowing, useSearchBox, type Showing } from "./searching";
-import { PlanCards } from "./PlanCards";
+import { PlanCards, type Switching } from "./PlanCards";
 import {
   grantsNothing,
   handoffFailure,
@@ -326,8 +326,16 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
       }
       const failure = handoffFailure(answer, asked);
       setHandoff(failure ? { kind: "failed", message: failure } : NOT_OPENING);
+      if (answer.status === "already-paying") {
+        // The cards were drawn before Stripe started billing them (T90): ask
+        // again, so they become Overstappen rather than a second Checkout.
+        const fresh = await worker.displayState();
+        if (fresh.status === "ready") {
+          setScreen((current) => (current.screen === "plans" ? { screen: "plans", plan: fresh.plan } : current));
+        }
+      }
     },
-    [],
+    [worker],
   );
 
   /**
@@ -347,6 +355,34 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
     () => void openStripe(MANAGING, () => worker.portal(), "portal"),
     [openStripe, worker],
   );
+
+  /**
+   * A Plan switch from the cards (T90, ADR-0042): the worker's four calls, and a
+   * settle that polls `/api/me` the way the site's `useAccount` does — the switch
+   * is Stripe's the moment it answers, and ours once the webhook is mirrored.
+   * A signed-out or outdated answer is a screen, as everywhere else.
+   */
+  const switching = useMemo<Switching>(() => {
+    const lost = (answer: SwitchAnswer): SwitchAnswer => {
+      if (answer.status === "signed-out" || answer.status === "outdated") setScreen(screenFor(answer));
+      return answer;
+    };
+    return {
+      preview: (tierCode, interval) => worker.previewSwitch(tierCode, interval).then(lost),
+      now: (tierCode, interval) => worker.switchNow(tierCode, interval).then(lost),
+      schedule: (tierCode, interval) => worker.scheduleSwitch(tierCode, interval).then(lost),
+      undo: () => worker.undoSwitch().then(lost),
+      settle: async (until) => {
+        for (let attempt = 0; attempt < SETTLE_ATTEMPTS; attempt++) {
+          await new Promise((resolve) => setTimeout(resolve, SETTLE_INTERVAL_MS));
+          const answer = await worker.displayState();
+          if (answer.status !== "ready") continue;
+          setScreen((current) => (current.screen === "plans" ? { screen: "plans", plan: answer.plan } : current));
+          if (until(answer.plan)) return;
+        }
+      },
+    };
+  }, [worker]);
 
   const signIn = useCallback(async () => {
     setBusy(true);
@@ -405,6 +441,7 @@ export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
           backToAds,
           upgrade,
           manageBilling,
+          switching,
           typed,
           showing,
           onType: type,
@@ -438,6 +475,7 @@ interface Handlers {
   backToAds: () => void;
   upgrade: (tierCode: string, interval: string) => void;
   manageBilling: () => void;
+  switching: Switching;
   /** Opnieuw on a pending-repost notice. (Was read inside `body` without being passed in.) */
   retryPending: (listingId: string) => void;
   /** A repost this popup did not start has finished. */
@@ -449,10 +487,14 @@ interface Handlers {
   onClearSearch: () => void;
 }
 
+/** How long the cards wait for the webhook: twelve seconds, then they show what `/api/me` last said. */
+const SETTLE_ATTEMPTS = 8;
+const SETTLE_INTERVAL_MS = 1500;
+
 function body(screen: Screen, handlers: Handlers): JSX.Element {
   const { load, signIn, signOut, busy, ads, pending, letGo, reloadMarktplaats, worker, onOutcome, retryPending, onSettled } = handlers;
   const { showPage, refreshes } = handlers;
-  const { plans, handoff, seePlans, loadPlans, backToAds, upgrade, manageBilling } = handlers;
+  const { plans, handoff, seePlans, loadPlans, backToAds, upgrade, manageBilling, switching } = handlers;
   const { typed, showing, onType, onClearSearch } = handlers;
   switch (screen.screen) {
     case "loading":
@@ -539,6 +581,7 @@ function body(screen: Screen, handlers: Handlers): JSX.Element {
             handoff={handoff}
             onUpgrade={upgrade}
             onRetry={seePlans}
+            switching={switching}
           />
         </PlansScreen>
       );

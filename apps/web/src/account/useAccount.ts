@@ -34,15 +34,15 @@ export function useAccount(
   const shown = useCallback((me: Me, picked: Choice | null = null): Viewer | null => {
     switch (me.status) {
       case "ready":
-        return { kind: "signed-in", tierCode: me.tierCode, paying: me.paying, rhythm: me.rhythm, picked };
+        return viewerOf(me, picked);
       case "no-tier":
-        return { kind: "signed-in", tierCode: null, paying: false, rhythm: null, picked: null };
+        return ON_NO_TIER;
       case "expired":
         again();
         return null;
       case "unavailable":
         setNotice("Je abonnement kon niet worden geladen. Vernieuw de pagina om het nog eens te proberen.");
-        return { kind: "signed-in", tierCode: null, paying: false, rhythm: null, picked: null };
+        return ON_NO_TIER;
     }
   }, [again]);
 
@@ -138,11 +138,42 @@ export function useAccount(
         depsRef.current.navigate(answer.url);
         return { status: "confirming" };
       case "switched":
-        void settle(signedIn, choice, setViewer, setNotice);
+        void settle(signedIn, (me) => me.tierCode === choice.tierCode && me.rhythm === choice.interval, setViewer, setNotice);
         return { status: "switched" };
       default:
         return answer;
     }
+  }, [again]);
+
+  const scheduleSwitch = useCallback(async (choice: Choice): Promise<SwitchAnswer> => {
+    const signedIn = api.current;
+    if (!signedIn) return { status: "unavailable" };
+    const answer = await signedIn.scheduleSwitch(choice);
+    if (answer.status === "expired") {
+      again();
+      return { status: "unavailable" };
+    }
+    if (answer.status === "scheduled") {
+      void settle(
+        signedIn,
+        (me) => me.pendingSwitch?.tier.code === choice.tierCode && me.pendingSwitch.rhythm === choice.interval,
+        setViewer,
+        setNotice,
+      );
+    }
+    return answer;
+  }, [again]);
+
+  const undoSwitch = useCallback(async (): Promise<SwitchAnswer> => {
+    const signedIn = api.current;
+    if (!signedIn) return { status: "unavailable" };
+    const answer = await signedIn.undoSwitch();
+    if (answer.status === "expired") {
+      again();
+      return { status: "unavailable" };
+    }
+    if (answer.status === "undone") void settle(signedIn, (me) => me.pendingSwitch === null, setViewer, setNotice);
+    return answer;
   }, [again]);
 
   const signOut = useCallback(() => {
@@ -164,19 +195,22 @@ export function useAccount(
       buy,
       previewSwitch,
       switchPlan,
+      scheduleSwitch,
+      undoSwitch,
     }),
-    [viewer, notice, busy, signOut, manageBilling, buy, previewSwitch, switchPlan],
+    [viewer, notice, busy, signOut, manageBilling, buy, previewSwitch, switchPlan, scheduleSwitch, undoSwitch],
   );
 }
 
 /**
- * Waits for the webhook to move the plan, then shows it. The switch is Stripe's
- * the moment it answers, but the tier is ours only once `customer.subscription.updated`
- * has been mirrored — usually a second or two.
+ * Waits for the webhook to say what was asked, then shows it. A switch is
+ * Stripe's the moment it answers, but ours only once `customer.subscription.updated`
+ * — or, for a Scheduled switch, `subscription_schedule.*` — has been mirrored,
+ * usually a second or two.
  */
 async function settle(
   api: CustomerApi,
-  choice: Choice,
+  until: (me: Extract<Me, { status: "ready" }>) => boolean,
   setViewer: (viewer: Viewer) => void,
   setNotice: (notice: string | null) => void,
 ): Promise<void> {
@@ -184,16 +218,41 @@ async function settle(
   for (let attempt = 0; attempt < SETTLE_ATTEMPTS; attempt++) {
     await new Promise((resolve) => setTimeout(resolve, SETTLE_INTERVAL_MS));
     last = await api.me();
-    if (last.status === "ready" && last.tierCode === choice.tierCode && last.rhythm === choice.interval) {
-      setViewer({ kind: "signed-in", tierCode: last.tierCode, paying: last.paying, rhythm: last.rhythm, picked: null });
+    if (last.status === "ready" && until(last)) {
+      setViewer(viewerOf(last, null));
       return;
     }
   }
-  if (last.status === "ready") {
-    setViewer({ kind: "signed-in", tierCode: last.tierCode, paying: last.paying, rhythm: last.rhythm, picked: null });
-  }
-  setNotice("Je overstap is gelukt. Het kan even duren voordat je nieuwe abonnement hier staat.");
+  if (last.status === "ready") setViewer(viewerOf(last, null));
+  setNotice("Gelukt. Het kan even duren voordat je abonnement hier zo staat.");
 }
+
+function viewerOf(me: Extract<Me, { status: "ready" }>, picked: Choice | null): Viewer {
+  return {
+    kind: "signed-in",
+    tierCode: me.tierCode,
+    tierName: me.tierName,
+    grant: me.grant,
+    paying: me.paying,
+    rhythm: me.rhythm,
+    inDunning: me.inDunning,
+    pendingSwitch: me.pendingSwitch,
+    picked,
+  };
+}
+
+/** Signed in on no tier, or on one nobody could read: not paying, nothing current. */
+const ON_NO_TIER: Viewer = {
+  kind: "signed-in",
+  tierCode: null,
+  tierName: null,
+  grant: null,
+  paying: false,
+  rhythm: null,
+  inDunning: false,
+  pendingSwitch: null,
+  picked: null,
+};
 
 const SETTLE_ATTEMPTS = 8;
 const SETTLE_INTERVAL_MS = 1500;

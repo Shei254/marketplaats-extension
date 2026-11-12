@@ -1,7 +1,24 @@
 import { Badge, Button, Icon, Note, Skeleton } from "@mprelist/ui";
-import { grantOf, priceAndRhythmOf, type DisplayState, type Plan, type PlanPrice } from "@mprelist/contracts";
-import type { JSX } from "react";
+import {
+  dayOf,
+  dueToday,
+  freshPeriodLine,
+  fromRenewalLine,
+  grantOf,
+  isInDunning,
+  PAY_THE_OPEN_INVOICE_FIRST,
+  pendingLine,
+  priceAndRhythmOf,
+  SWITCH_AT_RENEWAL,
+  SWITCHED_TODAY,
+  UNDO_FAILED,
+  type DisplayState,
+  type Plan,
+  type PlanPrice,
+} from "@mprelist/contracts";
+import { useEffect, useRef, useState, type JSX } from "react";
 
+import type { SwitchAnswer } from "../api/subscribing";
 import type { Handoff, PlansView } from "./plans";
 import { grantLine } from "./screens";
 
@@ -34,6 +51,7 @@ export function PlanCards({
   handoff,
   onUpgrade,
   onRetry,
+  switching,
 }: {
   view: PlansView;
   /**
@@ -49,7 +67,14 @@ export function PlanCards({
   handoff: Handoff;
   onUpgrade: (tierCode: string, interval: string) => void;
   onRetry: () => void;
+  /**
+   * A Plan switch, for somebody Stripe is already billing (T90, ADR-0042).
+   * Absent where nobody can be paying — on no tier at all — and then every
+   * button is Checkout, as it was.
+   */
+  switching?: Switching;
 }): JSX.Element {
+  const [confirming, setConfirming] = useState<Confirming | null>(null);
   if (view.status === "loading") return <LoadingCards />;
   if (view.status === "failed") {
     return (
@@ -68,9 +93,12 @@ export function PlanCards({
   // On no tier there is nothing to hold, so the inert card above the row is
   // skipped for the opposite reason to "they already hold one that is on sale".
   const holdsOneOnSale = current === null || onSale.some((plan) => plan.tier.code === current.tier.code);
+  const payer = switching && current?.paying ? { switching, current } : null;
+  const inDunning = payer !== null && isInDunning(payer.current.subscriptionStatus);
   return (
     <div className="popup-plans">
-      {holdsOneOnSale ? null : <CurrentPlanCard current={current} />}
+      {inDunning ? <Note tone="warn">{PAY_THE_OPEN_INVOICE_FIRST}</Note> : null}
+      {holdsOneOnSale ? null : <CurrentPlanCard current={current} switching={payer?.switching} />}
       {onSale.map((plan) => (
         <PlanCard
           key={plan.tier.code}
@@ -78,6 +106,11 @@ export function PlanCards({
           current={plan.tier.code === current?.tier.code}
           handoff={handoff}
           onUpgrade={onUpgrade}
+          payer={payer && !inDunning ? payer : null}
+          holder={payer}
+          inDunning={inDunning}
+          confirming={confirming?.tierCode === plan.tier.code ? confirming : null}
+          onConfirming={setConfirming}
         />
       ))}
       {onSale.length === 0 ? (
@@ -97,7 +130,7 @@ export function PlanCards({
  * here and the button says so rather than being absent, so the cards below it read
  * as a row of comparable things.
  */
-function CurrentPlanCard({ current }: { current: DisplayState }): JSX.Element {
+function CurrentPlanCard({ current, switching }: { current: DisplayState; switching?: Switching }): JSX.Element {
   return (
     <div className="popup-plan-card popup-plan-card--current">
       <div className="popup-plan-card-head">
@@ -108,6 +141,7 @@ function CurrentPlanCard({ current }: { current: DisplayState }): JSX.Element {
       <Button shape="block" tone="done" aria-label={`${current.tier.name} is je abonnement`}>
         Je abonnement
       </Button>
+      {switching ? <PendingOnHeldCard current={current} switching={switching} /> : null}
     </div>
   );
 }
@@ -117,11 +151,25 @@ function PlanCard({
   current,
   handoff,
   onUpgrade,
+  payer,
+  holder,
+  inDunning,
+  confirming,
+  onConfirming,
 }: {
   plan: Plan;
   current: boolean;
   handoff: Handoff;
   onUpgrade: (tierCode: string, interval: string) => void;
+  /** Somebody Stripe bills, and not in Dunning: every button here is a switch. */
+  payer: Payer | null;
+  /** Somebody Stripe bills, in Dunning or not: whose pending switch may always be undone. */
+  holder: Payer | null;
+  /** A payer in Dunning, who is offered nothing to press until the invoice is paid. */
+  inDunning: boolean;
+  /** The inline confirm open on this card, if it is. */
+  confirming: Confirming | null;
+  onConfirming: (confirming: Confirming | null) => void;
 }): JSX.Element {
   const opening = handoff.kind === "opening";
   return (
@@ -137,7 +185,36 @@ function PlanCard({
         <Button shape="block" tone="done" aria-label={`${plan.tier.name} is je abonnement`}>
           Je abonnement
         </Button>
-      ) : (
+      ) : null}
+      {current && holder ? <PendingOnHeldCard current={holder.current} switching={holder.switching} /> : null}
+      {confirming && payer ? (
+        <SwitchConfirm plan={plan} payer={payer} confirming={confirming} onConfirming={onConfirming} />
+      ) : payer ? (
+        /*
+         * Overstappen (T90, ADR-0042): every rhythm of another plan, and on their
+         * own card the Rhythm they do not pay — none where theirs is not known,
+         * since the one to leave out cannot be told. A pending switch's target
+         * says when instead of offering itself again.
+         */
+        plan.prices
+          .filter((price) => !current || (payer.current.rhythm !== null && price.interval !== payer.current.rhythm))
+          .map((price) =>
+            isPendingTarget(payer.current, plan, price) ? (
+              <p key={price.interval} className="popup-plan-card-pending">
+                Vanaf {dayOf(payer.current.pendingSwitch?.at ?? "")}
+              </p>
+            ) : (
+              <Button
+                key={price.interval}
+                shape="block"
+                tone="secondary"
+                onClick={() => onConfirming({ tierCode: plan.tier.code, price, phase: { kind: "pricing" } })}
+              >
+                Overstappen · {priceAndRhythmOf(price)}
+              </Button>
+            ),
+          )
+      ) : current || inDunning ? null : (
         /*
          * One button per rhythm (T62, #128), each saying its own amount.
          *
@@ -165,6 +242,197 @@ function PlanCard({
       )}
     </div>
   );
+}
+
+/**
+ * The inline confirm (T90, ADR-0042): Stripe's price for *Nu*, the card's for
+ * *Op {date}*, neither preselected, and Annuleren. Priced as it opens, so the
+ * amount shown is the one Stripe will charge.
+ */
+function SwitchConfirm({
+  plan,
+  payer,
+  confirming,
+  onConfirming,
+}: {
+  plan: Plan;
+  payer: Payer;
+  confirming: Confirming;
+  onConfirming: (confirming: Confirming | null) => void;
+}): JSX.Element {
+  const { switching, current } = payer;
+  const { price, phase } = confirming;
+  const to = (next: Phase) => onConfirming({ ...confirming, phase: next });
+  const close = () => onConfirming(null);
+  const latest = useRef(confirming);
+  latest.current = confirming;
+
+  useEffect(() => {
+    // Priced once per opening: the confirm is unmounted when it closes.
+    let open = true;
+    void switching.preview(plan.tier.code, price.interval).then((answer) => {
+      if (!open) return;
+      const phase: Phase =
+        answer.status === "priced" ? { kind: "priced", preview: answer } : { kind: "failed", message: failureOf(answer) };
+      onConfirming({ ...latest.current, phase });
+    });
+    return () => {
+      open = false;
+    };
+  }, []);
+
+  const made = (answer: SwitchAnswer, when: "now" | "renewal") => {
+    if (answer.status === "switched" || answer.status === "scheduled") {
+      to({ kind: "done", when });
+      void switching
+        .settle((plan) =>
+          when === "now"
+            ? plan.tier.code === confirming.tierCode && plan.rhythm === price.interval
+            : plan.pendingSwitch?.tier.code === confirming.tierCode && plan.pendingSwitch.rhythm === price.interval,
+        )
+        .then(close);
+      return;
+    }
+    if (answer.status === "confirm") return to({ kind: "paying" });
+    to({ kind: "failed", message: failureOf(answer) });
+  };
+
+  return (
+    <div className="popup-switch" role="group" aria-label={`Overstappen naar ${plan.tier.name}`}>
+      {phase.kind === "pricing" ? <p className="popup-switch-copy">Het bedrag wordt opgehaald…</p> : null}
+      {phase.kind === "priced" ? (
+        <>
+          <p className="popup-switch-copy">
+            <b>Nu:</b> {dueToday(phase.preview)}{" "}
+            {freshPeriodLine(plan, { name: current.tier.name, relistQuotaPerPeriod: current.relistQuotaPerPeriod })}
+          </p>
+          <p className="popup-switch-copy">
+            <b>Op {dayOf(phase.preview.renewsAt)}:</b> {fromRenewalLine(phase.preview.renewsAt, price, current.tier.name)}
+          </p>
+          {/* Both the same tone: neither is the default (ADR-0042). */}
+          <Button
+            shape="block"
+            tone="secondary"
+            onClick={() => {
+              to({ kind: "working" });
+              void switching.now(plan.tier.code, price.interval).then((answer) => made(answer, "now"));
+            }}
+          >
+            Nu
+          </Button>
+          <Button
+            shape="block"
+            tone="secondary"
+            onClick={() => {
+              to({ kind: "working" });
+              void switching.schedule(plan.tier.code, price.interval).then((answer) => made(answer, "renewal"));
+            }}
+          >
+            Op {dayOf(phase.preview.renewsAt)}
+          </Button>
+        </>
+      ) : null}
+      {phase.kind === "working" ? <p className="popup-switch-copy">Een moment…</p> : null}
+      {phase.kind === "done" ? (
+        <p className="popup-switch-copy" role="status">
+          {phase.when === "now" ? SWITCHED_TODAY : SWITCH_AT_RENEWAL}
+        </p>
+      ) : null}
+      {phase.kind === "paying" ? (
+        <p className="popup-switch-copy" role="status">
+          Rond de betaling af in het tabblad dat is geopend.
+        </p>
+      ) : null}
+      {phase.kind === "failed" ? <Note tone="warn">{phase.message}</Note> : null}
+      {phase.kind === "pricing" || phase.kind === "priced" ? (
+        <Button shape="block" tone="secondary" onClick={close}>
+          Annuleren
+        </Button>
+      ) : phase.kind === "failed" ? (
+        <Button shape="block" tone="secondary" onClick={close}>
+          Sluiten
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+/** The held card's half of a pending switch: what it moves to and when, and the way back. */
+function PendingOnHeldCard({ current, switching }: { current: DisplayState; switching: Switching }): JSX.Element | null {
+  const [undoing, setUndoing] = useState<"idle" | "busy" | "failed">("idle");
+  const pending = current.pendingSwitch;
+  if (!pending) return null;
+  return (
+    <>
+      <p className="popup-plan-card-pending">{pendingLine(pending)}</p>
+      {undoing === "failed" ? <Note tone="warn">{UNDO_FAILED}</Note> : null}
+      <Button
+        shape="block"
+        tone={undoing === "busy" ? "busy" : "secondary"}
+        onClick={() => {
+          setUndoing("busy");
+          void switching.undo().then(async (answer) => {
+            if (answer.status !== "undone") return setUndoing("failed");
+            await switching.settle((plan) => plan.pendingSwitch === null);
+            setUndoing("idle");
+          });
+        }}
+      >
+        {undoing === "busy" ? "Een moment…" : "Ongedaan maken"}
+      </Button>
+    </>
+  );
+}
+
+function isPendingTarget(current: DisplayState, plan: Plan, price: PlanPrice): boolean {
+  return current.pendingSwitch?.tier.code === plan.tier.code && current.pendingSwitch.rhythm === price.interval;
+}
+
+/** What to say when a switch call did not do what was asked. */
+function failureOf(answer: SwitchAnswer): string {
+  switch (answer.status) {
+    case "invoice-open":
+      return PAY_THE_OPEN_INVOICE_FIRST;
+    case "gone":
+      return "Dat abonnement wordt niet meer aangeboden.";
+    case "not-paying":
+      return "Je hebt nog geen betaald abonnement. Vernieuw om de abonnementen opnieuw te laden.";
+    default:
+      return "Dat lukte nu niet. Er is niets veranderd; probeer het zo nog eens.";
+  }
+}
+
+/**
+ * The Plan switch calls, as the cards need them (T90). `settle` polls `/api/me`
+ * until it shows what was asked for — the webhook moves the plan a second or two
+ * after Stripe answers — and puts that plan on the screen.
+ */
+export interface Switching {
+  preview(tierCode: string, interval: string): Promise<SwitchAnswer>;
+  now(tierCode: string, interval: string): Promise<SwitchAnswer>;
+  schedule(tierCode: string, interval: string): Promise<SwitchAnswer>;
+  undo(): Promise<SwitchAnswer>;
+  settle(until: (plan: DisplayState) => boolean): Promise<void>;
+}
+
+interface Payer {
+  switching: Switching;
+  current: DisplayState;
+}
+
+type Phase =
+  | { kind: "pricing" }
+  | { kind: "priced"; preview: Extract<SwitchAnswer, { status: "priced" }> }
+  | { kind: "working" }
+  | { kind: "done"; when: "now" | "renewal" }
+  /** 3-D Secure: the worker has opened the invoice's page. */
+  | { kind: "paying" }
+  | { kind: "failed"; message: string };
+
+interface Confirming {
+  tierCode: string;
+  price: PlanPrice;
+  phase: Phase;
 }
 
 /** One rhythm's button: what it costs, how often, and what happens when it is pressed. */

@@ -701,6 +701,8 @@ body {
   font: var(--mp-text-caption) var(--mp-font-family);
   opacity: 0.75;
 }
+/* A Scheduled switch on the card it leaves (T90): full strength, since it is news. */
+.web-plan-note--pending { margin: 0 0 10px !important; opacity: 1; font-weight: 600; }
 .web-plan-btn {
   box-sizing: border-box;
   display: block;
@@ -807,7 +809,9 @@ body {
   color: var(--mp-muted);
   line-height: 1.5;
 }
-.web-dialog-actions { display: flex; gap: 12px; }
+.web-dialog-copy p { margin: 0 0 10px; }
+.web-dialog-copy p:last-child { margin-bottom: 0; }
+.web-dialog-actions { display: flex; flex-wrap: wrap; gap: 12px; }
 .web-dialog-actions .web-plan-btn { margin-top: 0; }
 
 /* The header's account corner on /, in the header's own colour. */

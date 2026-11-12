@@ -5,9 +5,11 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import com.mprelist.catalog.TaggedPrice;
+import com.mprelist.subscription.PendingSwitch;
 import com.mprelist.subscription.QuotaPeriod;
 import com.mprelist.subscription.SubscriberOnStripe;
 import com.mprelist.subscription.SubscriptionStatus;
@@ -113,6 +115,88 @@ record StripeEvent(String id, String type, OffsetDateTime created, JsonNode obje
 	boolean isAboutASubscription() {
 		return SUBSCRIPTION_CREATED.equals(this.type) || SUBSCRIPTION_UPDATED.equals(this.type)
 				|| SUBSCRIPTION_DELETED.equals(this.type);
+	}
+
+	/**
+	 * One of the five {@code subscription_schedule.*} events that start, change or end a schedule — which is
+	 * how a <strong>Scheduled switch</strong> is held at Stripe (T90, ADR-0042).
+	 */
+	boolean isAboutASchedule() {
+		return SCHEDULE_EVENTS.contains(this.type);
+	}
+
+	/** The subscription a schedule controls, and its customer. A schedule carries none of our tags. */
+	Optional<SubscriberOnStripe> scheduledSubscriber() {
+		String subscription = text(this.object.path("subscription"));
+		if (subscription == null) {
+			// A released schedule names the subscription it let go of here instead.
+			subscription = text(this.object.path("released_subscription"));
+		}
+		String customer = text(this.object.path("customer"));
+		if (subscription == null || customer == null) {
+			return Optional.empty();
+		}
+		return Optional.of(new SubscriberOnStripe(subscription, customer, Optional.empty()));
+	}
+
+	/** Stripe's id for the schedule an event is about. */
+	String scheduleId() {
+		return text(this.object.path("id"));
+	}
+
+	/**
+	 * Whether the schedule has let go of its subscription — released, cancelled or completed — which is the one
+	 * way a schedule's event clears a pending switch (T90).
+	 */
+	boolean endsTheSchedule() {
+		return ENDED_SCHEDULES.contains(String.valueOf(text(this.object.path("status"))));
+	}
+
+	/**
+	 * The switch a running schedule holds: the Price of the first phase after the current one, from that
+	 * phase's start. None where the schedule is not running, where nothing follows the current phase (a
+	 * schedule just made from the subscription, or one whose last phase has begun), or where what follows is
+	 * the Price already paid. None is not a clear: an ended schedule says so with its status, and a switch that
+	 * took over is cleared by the subscription arriving at its Price.
+	 */
+	Optional<PendingSwitch> pendingSwitch() {
+		if (!"active".equals(text(this.object.path("status")))) {
+			return Optional.empty();
+		}
+		long currentEnd = this.object.path("current_phase").path("end_date").asLong(0);
+		if (currentEnd <= 0) {
+			return Optional.empty();
+		}
+		String paying = null;
+		for (JsonNode phase : this.object.path("phases")) {
+			String price = priceOf(phase);
+			long start = phase.path("start_date").asLong(0);
+			if (start < currentEnd) {
+				paying = price;
+				continue;
+			}
+			if (price == null || price.equals(paying)) {
+				return Optional.empty();
+			}
+			return Optional.of(new PendingSwitch(price, Instant.ofEpochSecond(start).atOffset(ZoneOffset.UTC)));
+		}
+		return Optional.empty();
+	}
+
+	/** The schedule controlling a subscription, as its own event names it, or nothing for none. */
+	Optional<String> controllingSchedule() {
+		return Optional.ofNullable(text(this.object.path("schedule")));
+	}
+
+	/** Whether a subscription is set to end with its period, which drops a pending switch (ADR-0042). */
+	boolean cancelsAtPeriodEnd() {
+		return this.object.path("cancel_at_period_end").asBoolean(false);
+	}
+
+	/** A phase item's Price, which Stripe sends as an id and, expanded, as an object. */
+	private static String priceOf(JsonNode phase) {
+		JsonNode price = phase.path("items").path(0).path("price");
+		return price.isObject() ? text(price.path("id")) : text(price);
 	}
 
 	/**
@@ -250,5 +334,11 @@ record StripeEvent(String id, String type, OffsetDateTime created, JsonNode obje
 	private static final String SUBSCRIPTION_UPDATED = "customer.subscription.updated";
 
 	private static final String SUBSCRIPTION_DELETED = "customer.subscription.deleted";
+
+	private static final Set<String> ENDED_SCHEDULES = Set.of("released", "canceled", "completed");
+
+	private static final Set<String> SCHEDULE_EVENTS = Set.of("subscription_schedule.created",
+			"subscription_schedule.updated", "subscription_schedule.released", "subscription_schedule.canceled",
+			"subscription_schedule.completed");
 
 }

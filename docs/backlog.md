@@ -1940,7 +1940,7 @@ answers `410 Gone` at once — is in `internal-api-findings.md`.
   switch plans, and the test account's default configuration did not. The live configuration is unchecked.
 - **Not in it:** dialog copy about when a debit clears.
 
-#### T90 · A switch buys a fresh period, now or at renewal · **L** · T85, T89
+#### T90 · A switch buys a fresh period, now or at renewal · **L** · T85, T89 · **shipped**
 *2026-11-12.* A `pro_sepa` subscriber pressed Power's **€15,00 per maand** in the popup and got T83's
 *"Je hebt al een betaald abonnement. Wissel of zeg op via Betaling beheren."* The refusal was right. The
 button was wrong: the popup offered Checkout to someone `GET /api/me` already reported as `paying`. Decided in
@@ -1976,6 +1976,13 @@ that a schedule controls. Either answer can change a bullet below. Record both i
   `docs/click-through.md` 6a is rewritten: Overstappen in the popup, both kinds, undo, and a Dunning refusal.
 - **Not in it:** crediting unused days, a date the subscriber picks, more than one pending switch, and
   enforcing the Portal setting in code.
+
+**Built 2026-11-12.** The test-mode checks are in ADR-0042: the anchor works with `pending_if_incomplete`;
+Stripe refuses `cancel_at_period_end` while a schedule holds the subscription, and the Portal's behaviour then
+is **an open check** (`docs/click-through.md` 6a), with nothing releasing the schedule first for now. The
+preview also answers `renewsAt`, Stripe's period end, because `resetAt` is the monthly reset for an annual
+payer and *Op {datum}* needs the renewal. A Checkout refused `ALREADY_PAYING` in the popup now reloads the plan
+so the cards become Overstappen.
 ---
 
 ## Deferred

@@ -118,8 +118,8 @@ public enum ReasonCode {
 
 	/**
 	 * Stripe is already billing this caller, so {@code POST /api/checkout} will not open a second subscription
-	 * on them (T83). What to do about it is the Customer Portal — a plan switch is prorated there, and the
-	 * webhook moves the tier — so it adds nothing: the client already holds the link.
+	 * on them (T83). What to do about it is a <strong>Plan switch</strong>, which both clients' cards offer once
+	 * they know the caller pays (T85, T90), so it adds nothing.
 	 *
 	 * <p>{@code 409}, because the request is fine and the caller's own state is what it conflicts with. The
 	 * second code sent on a route this module does not own, after {@link #NO_TIER}, and for that code's reason:
@@ -135,7 +135,18 @@ public enum ReasonCode {
 	 * <p>{@code 409} for the same reason: the request is fine and the caller's own state is what it conflicts
 	 * with.
 	 */
-	NOT_PAYING(HttpStatus.CONFLICT);
+	NOT_PAYING(HttpStatus.CONFLICT),
+
+	/**
+	 * Stripe is collecting an invoice this caller has not paid — Dunning, {@code past_due}, {@code unpaid} or
+	 * {@code incomplete} — so no <strong>Plan switch</strong> is made or priced, now or at renewal (T90,
+	 * ADR-0042). What to do about it is paying the invoice through the Customer Portal, which the client already
+	 * links to, so it adds nothing. A bank debit still on its way is {@code active} at Stripe and is not this.
+	 *
+	 * <p>{@code 409} for {@link #NOT_PAYING}'s reason. Not {@link #SUBSCRIPTION_INACTIVE}, which is the gate's
+	 * answer to a relist: one code on two routes would be one word for two refusals.
+	 */
+	OPEN_INVOICE(HttpStatus.CONFLICT);
 
 	public HttpStatus status() {
 		return this.status;

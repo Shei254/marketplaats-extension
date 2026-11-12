@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Landing, LandingPage, STORE_URL, largestOf } from "./landing";
-import { actionFor, dueNow, freeActionFor, yearlySaving } from "./plan-cards";
+import { actionFor, freeActionFor, yearlySaving } from "./plan-cards";
 import type { PlansOnOffer } from "./plans-on-offer";
 import { NOBODY, type Account, type Choice, type Viewer } from "./viewer";
 
@@ -167,13 +167,12 @@ describe("the plan cards", () => {
 });
 
 describe("a card's button, by who is looking", () => {
-  const signedIn = (tierCode: string | null, paying: boolean, rhythm: string | null = null): Viewer => ({
-    kind: "signed-in",
-    tierCode,
-    paying,
-    rhythm,
-    picked: null,
-  });
+  const signedIn = (
+    tierCode: string | null,
+    paying: boolean,
+    rhythm: string | null = null,
+    more: Partial<Extract<Viewer, { kind: "signed-in" }>> = {},
+  ): Viewer => ({ ...viewerOn(tierCode, paying, rhythm), ...more });
 
   it("signs a visitor in, carrying the card they pressed", () => {
     expect(actionFor(PRO, "year", { kind: "signed-out" })).toEqual({
@@ -215,6 +214,19 @@ describe("a card's button, by who is looking", () => {
     });
   });
 
+  it("offers a payer in Dunning nothing to switch to (T90)", () => {
+    expect(actionFor(UNLIMITED, "month", signedIn("pro", true, "month", { inDunning: true })).kind).toBe("blocked");
+    expect(actionFor(PRO, "year", signedIn("pro", true, "month", { inDunning: true })).kind).toBe("blocked");
+  });
+
+  it("says when a pending switch starts on the card it lands on (T90)", () => {
+    const pendingSwitch = { tier: { code: "max", name: "Max" }, rhythm: "month", at: RENEWS };
+    expect(actionFor(UNLIMITED, "month", signedIn("pro", true, "month", { pendingSwitch }))).toEqual({
+      kind: "pending",
+      label: "Vanaf 12 december",
+    });
+  });
+
   it("on the free card: install for a visitor, current for its holder, cancel for a payer", () => {
     expect(freeActionFor(FREE, { kind: "signed-out" }).kind).toBe("install");
     expect(freeActionFor(FREE, signedIn("free", false)).kind).toBe("current");
@@ -235,11 +247,6 @@ describe("what a year saves, and what a switch costs", () => {
     expect(yearlySaving(dearer)).toBeUndefined();
   });
 
-  it("says a charge, a credit or nothing — never a minus sign", () => {
-    expect(dueNow({ amount: 743, currency: "eur" })).toMatch(/^Je betaalt nu €\s7,43/);
-    expect(dueNow({ amount: -410, currency: "eur" })).toMatch(/^Je krijgt €\s4,10 tegoed/);
-    expect(dueNow({ amount: 0, currency: "eur" })).toBe("Er wordt nu niets afgeschreven.");
-  });
 });
 
 describe("the landing page, asking", () => {
@@ -347,12 +354,12 @@ describe("the landing page, asking", () => {
     expect(chose).toEqual([{ tierCode: "pro", interval: "year" }]);
   });
 
-  it("asks Stripe what a switch costs, shows it, and switches only once confirmed", async () => {
+  it("asks Stripe what a switch costs, and switches now only once Nu is pressed (T90)", async () => {
     const switched: Choice[] = [];
     const account: Account = {
       ...NOBODY,
-      viewer: { kind: "signed-in", tierCode: "pro", paying: true, rhythm: "month", picked: null },
-      previewSwitch: async () => ({ status: "ready", amount: 743, currency: "eur" }),
+      viewer: viewerOn("pro", true, "month"),
+      previewSwitch: async () => ({ status: "ready", amount: 1500, currency: "eur", renewsAt: RENEWS }),
       switchPlan: async (choice) => {
         switched.push(choice);
         return { status: "switched" };
@@ -364,13 +371,97 @@ describe("the landing page, asking", () => {
 
     await act(async () => button("Overstappen naar Max")?.click());
 
-    expect(host.querySelector('[role="dialog"]')?.textContent).toMatch(/Je betaalt nu €\s7,43/);
+    const dialog = () => host.querySelector('[role="dialog"]')?.textContent?.replace(/\u00a0/g, " ") ?? "";
+    expect(dialog()).toContain("Je betaalt vandaag € 15,00.");
+    expect(dialog()).toContain("Je nieuwe maand begint vandaag met onbeperkt herplaatsen; wat over is van Pro vervalt.");
     expect(switched).toEqual([]);
 
-    const confirm = [...host.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent === "Overstappen");
-    await act(async () => (confirm as HTMLButtonElement | undefined)?.click());
+    await act(async () => dialogButton("Nu")?.click());
 
     expect(switched).toEqual([{ tierCode: "max", interval: "month" }]);
+    expect(dialog()).toContain("Gelukt");
+  });
+
+  it("or at renewal, which charges nothing today (T90)", async () => {
+    const scheduled: Choice[] = [];
+    const account: Account = {
+      ...NOBODY,
+      viewer: viewerOn("pro", true, "month"),
+      previewSwitch: async () => ({ status: "ready", amount: 1500, currency: "eur", renewsAt: RENEWS }),
+      scheduleSwitch: async (choice) => {
+        scheduled.push(choice);
+        return { status: "scheduled" };
+      },
+    };
+    await act(async () => {
+      root.render(<Landing loadPlans={async () => ON_SALE} account={account} />);
+    });
+
+    await act(async () => button("Overstappen naar Max")?.click());
+    await act(async () => dialogButton("Op 12 december")?.click());
+
+    expect(scheduled).toEqual([{ tierCode: "max", interval: "month" }]);
     expect(host.querySelector('[role="dialog"]')?.textContent).toContain("Gelukt");
   });
+
+  it("shows a pending switch on the held card, with Ongedaan maken (T90)", async () => {
+    let undone = 0;
+    const account: Account = {
+      ...NOBODY,
+      viewer: {
+        ...viewerOn("pro", true, "month"),
+        pendingSwitch: { tier: { code: "max", name: "Max" }, rhythm: "month", at: RENEWS },
+      } as Viewer,
+      undoSwitch: async () => {
+        undone++;
+        return { status: "undone" };
+      },
+    };
+    await act(async () => {
+      root.render(<Landing loadPlans={async () => ON_SALE} account={account} />);
+    });
+
+    expect(host.textContent).toContain("Gaat op 12 december over naar Max");
+    expect(host.textContent).toContain("Vanaf 12 december");
+    await act(async () => button("Ongedaan maken")?.click());
+    expect(undone).toBe(1);
+  });
+
+  it("tells a payer in Dunning to pay the open invoice first (T90)", async () => {
+    const account: Account = { ...NOBODY, viewer: { ...viewerOn("pro", true, "month"), inDunning: true } as Viewer };
+    await act(async () => {
+      root.render(<Landing loadPlans={async () => ON_SALE} account={account} />);
+    });
+
+    expect(host.textContent).toContain("Betaal eerst je openstaande factuur via Betaling beheren.");
+    expect(button("Overstappen naar Max")?.disabled).toBe(true);
+  });
 });
+
+/** The day a Scheduled switch takes over in these tests, at ten in the morning local time. */
+const RENEWS = new Date(2026, 11, 12, 10).toISOString();
+
+/** Somebody signed in, on that tier, nothing pending and not in Dunning. */
+function viewerOn(
+  tierCode: string | null,
+  paying: boolean,
+  rhythm: string | null,
+): Extract<Viewer, { kind: "signed-in" }> {
+  return {
+    kind: "signed-in",
+    tierCode,
+    tierName: tierCode === null ? null : tierCode.charAt(0).toUpperCase() + tierCode.slice(1),
+    grant: 50,
+    paying,
+    rhythm,
+    inDunning: false,
+    pendingSwitch: null,
+    picked: null,
+  };
+}
+
+function dialogButton(label: string): HTMLButtonElement | undefined {
+  return [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
+    (b) => b.textContent === label,
+  );
+}

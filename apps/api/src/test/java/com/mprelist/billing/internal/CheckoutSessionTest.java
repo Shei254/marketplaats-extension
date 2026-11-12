@@ -204,7 +204,7 @@ class CheckoutSessionTest {
 	/**
 	 * Stripe would take the money. It knows the customer — the id above is passed precisely so it does — and
 	 * still creates a second subscription on it, so somebody on Pro who presses Business is charged for both.
-	 * A plan switch is the Customer Portal's, which prorates it; this route sells a first subscription only.
+	 * A plan switch is {@code /api/plan-switch}'s (T85, T90); this route sells a first subscription only.
 	 */
 	@Test
 	void somebodyStripeIsAlreadyBillingOpensNoSecondSubscription() {
@@ -384,6 +384,11 @@ class CheckoutSessionTest {
 			@Override
 			public Optional<String> stripePriceFor(UserRef user) {
 				throw new UnsupportedOperationException("that is a plan switch's question");
+			}
+
+			@Override
+			public Optional<com.mprelist.subscription.PendingSwitch> pendingSwitchFor(UserRef user) {
+				throw new UnsupportedOperationException("that is the display's question");
 			}
 
 			@Override

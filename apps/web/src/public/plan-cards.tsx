@@ -1,7 +1,15 @@
 import {
+  PAY_THE_OPEN_INVOICE_FIRST,
   UNLIMITED_REPOSTS,
+  dayOf,
+  dueToday,
+  freshPeriodLine,
+  fromRenewalLine,
+  SWITCH_AT_RENEWAL,
+  SWITCHED_TODAY,
+  UNDO_FAILED,
   grantOf,
-  priceAndRhythmOf,
+  pendingLine,
   priceOf,
   type FreeTier,
   type Plan,
@@ -11,7 +19,7 @@ import { Button, Skeleton } from "@mprelist/ui";
 import { useEffect, useState, type JSX } from "react";
 
 import type { PlansOnOffer } from "./plans-on-offer";
-import type { Account, Choice, SwitchPreviewAnswer, Viewer } from "./viewer";
+import type { Account, Choice, SwitchAnswer, SwitchPreviewAnswer, Viewer } from "./viewer";
 
 /**
  * The plans on `/`, with buttons (T85, ADR-0036): prototype A, chosen on
@@ -54,7 +62,11 @@ export type CardAction =
   | { kind: "buy"; label: string; choice: Choice }
   | { kind: "switch"; label: string; choice: Choice }
   | { kind: "current"; label: string }
-  | { kind: "wait"; label: string };
+  | { kind: "wait"; label: string }
+  /** Dunning (T90): the switch is shown and cannot be pressed until the invoice is paid. */
+  | { kind: "blocked"; label: string }
+  /** The card a Scheduled switch lands on, at that Rhythm: when it starts. */
+  | { kind: "pending"; label: string };
 
 export function actionFor(plan: Plan, interval: string, viewer: Viewer): CardAction {
   const choice = { tierCode: plan.tier.code, interval };
@@ -65,15 +77,22 @@ export function actionFor(plan: Plan, interval: string, viewer: Viewer): CardAct
       return { kind: "sign-in", label: `Kies ${plan.tier.name}`, choice };
     case "signed-in":
       if (!viewer.paying) return { kind: "buy", label: `Kies ${plan.tier.name}`, choice };
+      const pending = viewer.pendingSwitch;
+      if (pending && pending.tier.code === plan.tier.code && pending.rhythm === interval) {
+        return { kind: "pending", label: `Vanaf ${dayOf(pending.at)}` };
+      }
+      let label = `Overstappen naar ${plan.tier.name}`;
       if (viewer.tierCode === plan.tier.code) {
         // A rhythm nobody could read is not a reason to sell them the other
         // one: without it, their own tier is theirs at either.
         if (viewer.rhythm === null || viewer.rhythm === interval) {
           return { kind: "current", label: "Huidig abonnement" };
         }
-        return { kind: "switch", label: `Overstappen naar ${rhythmWord(interval)}`, choice };
+        label = `Overstappen naar ${rhythmWord(interval)}`;
       }
-      return { kind: "switch", label: `Overstappen naar ${plan.tier.name}`, choice };
+      // No switch during Dunning, now or at renewal (ADR-0042).
+      if (viewer.inDunning) return { kind: "blocked", label };
+      return { kind: "switch", label, choice };
   }
 }
 
@@ -190,6 +209,7 @@ export function PlanSection({
   const soldYearly = onSale.some((plan) => plan.prices.some((price) => price.interval === "year"));
   const shownInterval = soldYearly ? interval : "month";
   const picked = account.viewer.kind === "signed-in" ? account.viewer.picked : null;
+  const inDunning = account.viewer.kind === "signed-in" && account.viewer.paying && account.viewer.inDunning;
 
   return (
     <>
@@ -199,6 +219,11 @@ export function PlanSection({
       {account.notice ? (
         <p className="web-plans-notice" role="status">
           {account.notice}
+        </p>
+      ) : null}
+      {inDunning ? (
+        <p className="web-plans-notice" role="status">
+          {PAY_THE_OPEN_INVOICE_FIRST}
         </p>
       ) : null}
       <div className="web-plans">
@@ -342,15 +367,18 @@ function PlanCard({
               }`
             : " "}
       </p>
-      {action.kind === "current" ? (
+      <HeldCardPending plan={plan} account={account} />
+      {action.kind === "current" || action.kind === "pending" ? (
         <span className="web-plan-btn web-plan-btn--current">{action.label}</span>
       ) : (
         <button
           type="button"
           className={
-            action.kind === "switch" ? "web-plan-btn web-plan-btn--secondary" : "web-plan-btn web-plan-btn--primary"
+            action.kind === "switch" || action.kind === "blocked"
+              ? "web-plan-btn web-plan-btn--secondary"
+              : "web-plan-btn web-plan-btn--primary"
           }
-          disabled={action.kind === "wait" || busy}
+          disabled={action.kind === "wait" || action.kind === "blocked" || busy}
           aria-busy={busy || undefined}
           onClick={() => {
             if (action.kind === "sign-in") account.signIn(action.choice);
@@ -362,6 +390,37 @@ function PlanCard({
         </button>
       )}
     </div>
+  );
+}
+
+/**
+ * The held card's half of a pending switch (T90): what it moves to and when, and
+ * Ongedaan maken. Nothing on any other card.
+ */
+function HeldCardPending({ plan, account }: { plan: Plan; account: Account }): JSX.Element | null {
+  const [undoing, setUndoing] = useState<"idle" | "busy" | "failed">("idle");
+  const viewer = account.viewer;
+  if (viewer.kind !== "signed-in" || !viewer.pendingSwitch || viewer.tierCode !== plan.tier.code) return null;
+  return (
+    <>
+      <p className="web-plan-note web-plan-note--pending">{pendingLine(viewer.pendingSwitch)}</p>
+      {undoing === "failed" ? (
+        <p className="web-plan-note" role="status">
+          {UNDO_FAILED}
+        </p>
+      ) : null}
+      <button
+        type="button"
+        className="web-plan-btn web-plan-btn--quiet"
+        disabled={undoing === "busy"}
+        onClick={() => {
+          setUndoing("busy");
+          void account.undoSwitch().then((answer) => setUndoing(answer.status === "undone" ? "idle" : "failed"));
+        }}
+      >
+        {undoing === "busy" ? "Een moment…" : "Ongedaan maken"}
+      </button>
+    </>
   );
 }
 
@@ -400,9 +459,10 @@ function bestSaving(plans: readonly Plan[]): number | undefined {
 }
 
 /**
- * Overstappen, confirmed: what Stripe says the switch invoices now, and what the
- * plan costs after. Nothing is charged until **Overstappen** in here is pressed,
- * which is also what makes a stray click — framed or not — harmless.
+ * Overstappen, confirmed (T90, ADR-0042): *Nu*, at Stripe's price for a fresh
+ * period, or *Op {date}*, at the card's price from the renewal — neither
+ * preselected — and Annuleren. Nothing is charged until one of the two is
+ * pressed, which is also what makes a stray click — framed or not — harmless.
  */
 export function SwitchDialog({
   plan,
@@ -419,10 +479,11 @@ export function SwitchDialog({
     | { kind: "pricing" }
     | { kind: "priced"; preview: Extract<SwitchPreviewAnswer, { status: "ready" }> }
     | { kind: "switching" }
-    | { kind: "done" }
+    | { kind: "done"; when: "now" | "renewal" }
     | { kind: "failed"; message: string };
   const [phase, setPhase] = useState<Phase>({ kind: "pricing" });
   const after = plan.prices.find((price) => price.interval === choice.interval);
+  const viewer = account.viewer.kind === "signed-in" ? account.viewer : null;
 
   useEffect(() => {
     let current = true;
@@ -438,16 +499,14 @@ export function SwitchDialog({
     // Priced once per opening: the dialog is remounted for another plan.
   }, []);
 
-  const confirm = () => {
-    setPhase({ kind: "switching" });
-    void account.switchPlan(choice).then((answer) => {
-      if (answer.status === "switched") return setPhase({ kind: "done" });
-      if (answer.status === "confirming") return;
-      if (answer.status === "not-paying") return onClose();
-      setPhase({ kind: "failed", message: failureOf(answer.status) });
-    });
+  const made = (answer: SwitchAnswer, when: "now" | "renewal") => {
+    if (answer.status === "switched" || answer.status === "scheduled") return setPhase({ kind: "done", when });
+    if (answer.status === "confirming") return;
+    if (answer.status === "not-paying") return onClose();
+    setPhase({ kind: "failed", message: failureOf(answer.status) });
   };
 
+  const renews = phase.kind === "priced" ? dayOf(phase.preview.renewsAt) : "";
   return (
     <div className="web-dialog-backdrop" onClick={onClose}>
       <div
@@ -461,17 +520,31 @@ export function SwitchDialog({
           Overstappen naar {plan.tier.name}
           {after ? ` · ${rhythmWord(after.interval)}` : ""}
         </h3>
-        <p className="web-dialog-copy" aria-live="polite">
-          {phase.kind === "pricing"
-            ? "Het bedrag wordt opgehaald…"
-            : phase.kind === "priced"
-              ? dueNow(phase.preview) + (after ? ` Daarna ${priceAndRhythmOf(after)}.` : "")
-              : phase.kind === "switching"
-                ? "Je abonnement wordt aangepast…"
-                : phase.kind === "done"
-                  ? "Gelukt. Je nieuwe abonnement gaat meteen in."
-                  : phase.message}
-        </p>
+        <div className="web-dialog-copy" aria-live="polite">
+          {phase.kind === "pricing" ? <p>Het bedrag wordt opgehaald…</p> : null}
+          {phase.kind === "priced" ? (
+            <>
+              <p>
+                <b>Nu:</b> {dueToday(phase.preview)}{" "}
+                {freshPeriodLine(plan, {
+                  name: viewer?.tierName ?? "je huidige abonnement",
+                  relistQuotaPerPeriod: viewer?.grant ?? null,
+                })}
+              </p>
+              {after ? (
+                <p>
+                  <b>Op {renews}:</b>{" "}
+                  {fromRenewalLine(phase.preview.renewsAt, after, viewer?.tierName ?? "je huidige abonnement")}
+                </p>
+              ) : null}
+            </>
+          ) : null}
+          {phase.kind === "switching" ? <p>Je abonnement wordt aangepast…</p> : null}
+          {phase.kind === "done" ? (
+            <p>{phase.when === "now" ? SWITCHED_TODAY : SWITCH_AT_RENEWAL}</p>
+          ) : null}
+          {phase.kind === "failed" ? <p>{phase.message}</p> : null}
+        </div>
         <div className="web-dialog-actions">
           {phase.kind === "done" || phase.kind === "failed" ? (
             <button type="button" className="web-plan-btn web-plan-btn--secondary" onClick={onClose}>
@@ -487,13 +560,28 @@ export function SwitchDialog({
               >
                 Annuleren
               </button>
+              {/* The same class for both: neither is the default (ADR-0042). */}
               <button
                 type="button"
-                className="web-plan-btn web-plan-btn--primary"
-                onClick={confirm}
+                className="web-plan-btn web-plan-btn--secondary"
                 disabled={phase.kind !== "priced"}
+                onClick={() => {
+                  setPhase({ kind: "switching" });
+                  void account.switchPlan(choice).then((answer) => made(answer, "now"));
+                }}
               >
-                Overstappen
+                Nu
+              </button>
+              <button
+                type="button"
+                className="web-plan-btn web-plan-btn--secondary"
+                disabled={phase.kind !== "priced"}
+                onClick={() => {
+                  setPhase({ kind: "switching" });
+                  void account.scheduleSwitch(choice).then((answer) => made(answer, "renewal"));
+                }}
+              >
+                {renews ? `Op ${renews}` : "Bij verlenging"}
               </button>
             </>
           )}
@@ -503,15 +591,8 @@ export function SwitchDialog({
   );
 }
 
-/** The preview in a sentence. Negative is a credit, and is said as one rather than as a minus. */
-export function dueNow(preview: { amount: number; currency: string }): string {
-  const amount = priceOf({ amount: Math.abs(preview.amount), currency: preview.currency, interval: "month" });
-  if (preview.amount > 0) return `Je betaalt nu ${amount} voor de rest van deze periode.`;
-  if (preview.amount < 0) return `Je krijgt ${amount} tegoed, dat met je volgende betalingen wordt verrekend.`;
-  return "Er wordt nu niets afgeschreven.";
-}
-
-function failureOf(status: "not-for-sale" | "unavailable"): string {
+function failureOf(status: string): string {
+  if (status === "invoice-open") return PAY_THE_OPEN_INVOICE_FIRST;
   return status === "not-for-sale"
     ? "Dit abonnement wordt niet meer aangeboden. Vernieuw de pagina voor wat er nu te koop is."
     : "Dat lukte nu niet. Er is niets veranderd; probeer het zo nog eens.";

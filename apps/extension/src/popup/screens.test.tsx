@@ -16,6 +16,7 @@ const PLAN = {
   features: {},
   paying: false,
   rhythm: null,
+  pendingSwitch: null,
 } as const;
 
 describe("what is left of the plan", () => {

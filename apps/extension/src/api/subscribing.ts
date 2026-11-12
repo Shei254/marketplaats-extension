@@ -47,9 +47,30 @@ export type HandoffAnswer =
   /**
    * `409 ALREADY_PAYING` (T83): Stripe is already billing this account, so
    * Checkout opens no second subscription. Only Checkout sends it, and the
-   * answer to it is the Portal, where a plan switch is prorated.
+   * answer to it is a Plan switch, which the cards offer once they know (T90).
    */
   | { status: "already-paying" }
+  | { status: "signed-out" }
+  | { status: "outdated" }
+  | { status: "unavailable" };
+
+/**
+ * What came of a Plan switch call (T90, ADR-0042): priced, made, waiting on the
+ * payer, scheduled for renewal, undone — or the refusals they share. One type
+ * for the four routes, since they share their refusals and the popup reads them
+ * in one place.
+ */
+export type SwitchAnswer =
+  | { status: "priced"; amount: number; currency: string; renewsAt: string }
+  | { status: "switched" }
+  /** 3-D Secure: the invoice's hosted page, which the worker opens in a tab. */
+  | { status: "confirm"; url: string }
+  | { status: "scheduled" }
+  | { status: "undone" }
+  | { status: "not-paying" }
+  /** `409 OPEN_INVOICE`: Dunning, so the open invoice is paid first. */
+  | { status: "invoice-open" }
+  | { status: "gone" }
   | { status: "signed-out" }
   | { status: "outdated" }
   | { status: "unavailable" };
@@ -134,6 +155,75 @@ export class Subscribing {
    */
   async portal(): Promise<HandoffAnswer> {
     return this.handoff("/api/portal", undefined);
+  }
+
+  async previewSwitch(tierCode: string, interval: string): Promise<SwitchAnswer> {
+    return this.switching("POST", "/api/plan-switch/preview", { tierCode, interval }, (body) => {
+      const { amount, currency, renewsAt } = (body ?? {}) as Record<string, unknown>;
+      if (typeof amount !== "number" || typeof currency !== "string") return UNAVAILABLE;
+      if (typeof renewsAt !== "string" || Number.isNaN(Date.parse(renewsAt))) return UNAVAILABLE;
+      return { status: "priced", amount, currency, renewsAt };
+    });
+  }
+
+  /** Now: a fresh period at the new plan's full price, nothing credited. */
+  async switchNow(tierCode: string, interval: string): Promise<SwitchAnswer> {
+    return this.switching("POST", "/api/plan-switch", { tierCode, interval }, (body) => {
+      if (typeof body !== "object" || body === null || !("confirmAt" in body)) return UNAVAILABLE;
+      const confirmAt = (body as Record<string, unknown>)["confirmAt"];
+      return typeof confirmAt === "string" ? { status: "confirm", url: confirmAt } : { status: "switched" };
+    });
+  }
+
+  /** At renewal: a Scheduled switch, charging nothing today. */
+  async scheduleSwitch(tierCode: string, interval: string): Promise<SwitchAnswer> {
+    return this.switching("POST", "/api/plan-switch/scheduled", { tierCode, interval }, () => ({
+      status: "scheduled",
+    }));
+  }
+
+  /** Ongedaan maken: the pending Scheduled switch released. */
+  async undoSwitch(): Promise<SwitchAnswer> {
+    return this.switching("DELETE", "/api/plan-switch/scheduled", undefined, () => ({ status: "undone" }));
+  }
+
+  private async switching(
+    method: "POST" | "DELETE",
+    path: string,
+    body: { tierCode: string; interval: string } | undefined,
+    read: (body: unknown) => SwitchAnswer,
+  ): Promise<SwitchAnswer> {
+    const token = await this.deps.tokens.accessToken();
+    if (token.status !== "ready") return { status: token.status };
+
+    let response: Response;
+    try {
+      response = await this.http(`${this.config.baseUrl}${path}`, {
+        method,
+        headers: {
+          authorization: `Bearer ${token.token}`,
+          accept: "application/json",
+          ...(body === undefined ? {} : { "content-type": "application/json" }),
+          ...clientHeaders(),
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+    } catch {
+      return UNAVAILABLE;
+    }
+
+    if (response.status === 401) return { status: "signed-out" };
+    if (response.status === 426) return { status: "outdated" };
+    if (response.status === 404) return { status: "gone" };
+    if (response.status === 409) {
+      const reason = reasonIn(await response.json().catch(() => null));
+      if (reason === "OPEN_INVOICE") return { status: "invoice-open" };
+      if (reason === "NOT_PAYING") return { status: "not-paying" };
+      return UNAVAILABLE;
+    }
+    if (!response.ok) return UNAVAILABLE;
+    if (response.status === 204) return read(null);
+    return read(await response.json().catch(() => null));
   }
 
   /**

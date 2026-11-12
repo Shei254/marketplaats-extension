@@ -38,10 +38,12 @@ import tools.jackson.core.JacksonException;
 @RestController
 class ReceiveStripeEvents {
 
-	ReceiveStripeEvents(SignedByStripe stripe, PriceAdoptions catalog, MirrorSubscriptions subscriptions) {
+	ReceiveStripeEvents(SignedByStripe stripe, PriceAdoptions catalog, MirrorSubscriptions subscriptions,
+			ReleaseFinishedSchedules schedules) {
 		this.stripe = stripe;
 		this.catalog = catalog;
 		this.subscriptions = subscriptions;
+		this.schedules = schedules;
 	}
 
 	/**
@@ -74,6 +76,10 @@ class ReceiveStripeEvents {
 		}
 		else if (event.isAboutASubscription()) {
 			this.subscriptions.apply(event);
+			this.schedules.after(event);
+		}
+		else if (event.isAboutASchedule()) {
+			this.subscriptions.applySchedule(event);
 		}
 		return ResponseEntity.ok().build();
 	}
@@ -110,6 +116,8 @@ class ReceiveStripeEvents {
 	private final PriceAdoptions catalog;
 
 	private final MirrorSubscriptions subscriptions;
+
+	private final ReleaseFinishedSchedules schedules;
 
 	private static final Logger LOG = LoggerFactory.getLogger(ReceiveStripeEvents.class);
 

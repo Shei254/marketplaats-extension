@@ -1,5 +1,7 @@
 package com.mprelist.billing.internal;
 
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -20,7 +22,10 @@ import com.stripe.model.Invoice;
 import com.stripe.model.PaymentMethod;
 import com.stripe.model.Subscription;
 import com.stripe.model.SubscriptionItem;
+import com.stripe.model.SubscriptionSchedule;
 import com.stripe.param.InvoiceCreatePreviewParams;
+import com.stripe.param.SubscriptionScheduleCreateParams;
+import com.stripe.param.SubscriptionScheduleUpdateParams;
 import com.stripe.param.SubscriptionRetrieveParams;
 import com.stripe.param.SubscriptionUpdateParams;
 
@@ -32,12 +37,21 @@ import com.stripe.param.SubscriptionUpdateParams;
  * find it by account or customer rather than by subscription. Two live subscriptions are therefore two
  * charges against one row, and the old one's end drops the holder to the default tier while the new one is
  * still billing. T83 refuses the second Checkout; this is what the site offers instead. The popup's door is the
- * Customer Portal, which does the same thing on Stripe's page.
+ * Customer Portal no longer switches anything (T90).
  *
- * <p><strong>Immediate and prorated both ways</strong> — {@code always_invoice}. An upgrade is charged the
- * difference now; a downgrade's negative invoice becomes a credit on the Stripe customer, used against the
- * next ones. The tier follows the Price through the webhook, which already reads the tier off whatever Price
- * Stripe reports.
+ * <p><strong>A switch buys a fresh period, now or at renewal</strong> (T90, ADR-0042). Now is
+ * {@code billing_cycle_anchor=now} with {@code proration_behavior=none}: the new plan's full price is charged
+ * today, nothing of the old one is credited, and Stripe's new window starts a fresh Quota period with its full
+ * grant. Each grant is paid for in full once, so switching back and forth buys nothing. At renewal is a
+ * Subscription Schedule: the current Price until Stripe's period ends, then the chosen one. At most one is
+ * pending, so a schedule already there is released before either kind is made, and Stripe would otherwise
+ * rewrite that schedule's phases under an update rather than refuse it (checked in test mode, 2026-11-12).
+ * The tier follows the Price through the webhook, and the pending switch through the schedule's own.
+ * Releasing first has one cost, accepted in ADR-0042: a switch now that is left at 3-D Secure has already
+ * dropped a pending Scheduled switch, and nothing re-makes it.
+ *
+ * <p><strong>Not during Dunning.</strong> Stripe's status, read on the call that fetches the subscription, is
+ * {@code past_due}, {@code unpaid} or {@code incomplete}: the open invoice comes first, and nothing is priced.
  *
  * <p><strong>Waiting for the money, where Stripe can</strong> (ADR-0036, amended 2026-11-12). For a method on
  * Stripe's pending-updates list, {@code pending_if_incomplete} means nothing moves until the money has: a
@@ -49,9 +63,7 @@ import com.stripe.param.SubscriptionUpdateParams;
  * and goes to the same hosted page. One that fails is Dunning.
  *
  * <p><strong>The preview is Stripe's</strong>, the same call with the same items, so the amount a confirmation
- * dialog shows is the one Stripe computed rather than one we did. The two are made seconds apart and can differ
- * by those seconds' proration; pinning a {@code proration_date} between them would close that, and is state
- * this does not otherwise need.
+ * dialog shows is the one Stripe computed rather than one we did. With nothing prorated, the two agree.
  */
 @Service
 class SwitchPlans {
@@ -78,11 +90,13 @@ class SwitchPlans {
 									.setId(itemOf(current).getId())
 									.setPrice(price.stripePriceId())
 									.build())
-							.setProrationBehavior(
-									InvoiceCreatePreviewParams.SubscriptionDetails.ProrationBehavior.ALWAYS_INVOICE)
+							.setBillingCycleAnchor(
+									InvoiceCreatePreviewParams.SubscriptionDetails.BillingCycleAnchor.NOW)
+							.setProrationBehavior(InvoiceCreatePreviewParams.SubscriptionDetails.ProrationBehavior.NONE)
 							.build())
 					.build());
-			return new PlanSwitch.Previewed(preview.getTotal(), preview.getCurrency());
+			return new PlanSwitch.Previewed(preview.getTotal(), preview.getCurrency(),
+					Instant.ofEpochSecond(itemOf(current).getCurrentPeriodEnd()).atOffset(ZoneOffset.UTC));
 		});
 	}
 
@@ -101,12 +115,14 @@ class SwitchPlans {
 				// charge, and "not for sale" would be untrue.
 				return new PlanSwitch.Switched();
 			}
+			releaseAnyScheduleOn(client, current);
 			Subscription updated = client.subscriptions().update(current.getId(), SubscriptionUpdateParams.builder()
 					.addItem(SubscriptionUpdateParams.Item.builder()
 							.setId(item.getId())
 							.setPrice(price.stripePriceId())
 							.build())
-					.setProrationBehavior(SubscriptionUpdateParams.ProrationBehavior.ALWAYS_INVOICE)
+					.setBillingCycleAnchor(SubscriptionUpdateParams.BillingCycleAnchor.NOW)
+					.setProrationBehavior(SubscriptionUpdateParams.ProrationBehavior.NONE)
 					.setPaymentBehavior(stripeCanWaitFor(current)
 							? SubscriptionUpdateParams.PaymentBehavior.PENDING_IF_INCOMPLETE
 							: SubscriptionUpdateParams.PaymentBehavior.ALLOW_INCOMPLETE)
@@ -135,16 +151,90 @@ class SwitchPlans {
 		});
 	}
 
-	/** The refusals both calls share, in the order {@code OpenCheckout} asks its own: the caller, the plan, Stripe. */
+	/**
+	 * A <strong>Scheduled switch</strong>: the Price they pay now until Stripe's period ends, then the chosen
+	 * one (T90, ADR-0042). Charges nothing today. Choosing the Price they already pay drops what was pending,
+	 * which is all that can mean.
+	 *
+	 * @param who whoever the token names
+	 * @param tierCode the plan, by its stable handle
+	 * @param interval the Rhythm, in Stripe's vocabulary
+	 */
+	PlanSwitch schedule(UserRef who, String tierCode, String interval) {
+		return target(who, tierCode, interval, (client, current, price) -> {
+			releaseAnyScheduleOn(client, current);
+			SubscriptionItem item = itemOf(current);
+			if (item.getPrice() != null && price.stripePriceId().equals(item.getPrice().getId())) {
+				return new PlanSwitch.Switched();
+			}
+			SubscriptionSchedule made = client.subscriptionSchedules().create(
+					SubscriptionScheduleCreateParams.builder().setFromSubscription(current.getId()).build());
+			// Stripe's own copy of the period they are in, so its end is the one Stripe will renew on.
+			SubscriptionSchedule.Phase now = made.getPhases().getFirst();
+			SubscriptionSchedule scheduled = client.subscriptionSchedules().update(made.getId(),
+					SubscriptionScheduleUpdateParams.builder()
+						.setEndBehavior(SubscriptionScheduleUpdateParams.EndBehavior.RELEASE)
+						.addPhase(SubscriptionScheduleUpdateParams.Phase.builder()
+							.addItem(SubscriptionScheduleUpdateParams.Phase.Item.builder()
+								.setPrice(now.getItems().getFirst().getPrice())
+								.setQuantity(1L)
+								.build())
+							.setStartDate(now.getStartDate())
+							.setEndDate(now.getEndDate())
+							.build())
+						.addPhase(SubscriptionScheduleUpdateParams.Phase.builder()
+							.addItem(SubscriptionScheduleUpdateParams.Phase.Item.builder()
+								.setPrice(price.stripePriceId())
+								.setQuantity(1L)
+								.build())
+							.setIterations(1L)
+							.setProrationBehavior(SubscriptionScheduleUpdateParams.Phase.ProrationBehavior.NONE)
+							.build())
+						.build());
+			LOG.info("Scheduled a switch to `{}` ({}) for the end of the period", tierCode, interval);
+			return new PlanSwitch.Scheduled(
+					Instant.ofEpochSecond(scheduled.getPhases().getFirst().getEndDate()).atOffset(ZoneOffset.UTC));
+		});
+	}
+
+	/**
+	 * <strong>Ongedaan maken</strong>: the pending Scheduled switch released, so the subscription renews at the
+	 * Price it has. Nothing pending is nothing to do, which a second click or a webhook that got there first
+	 * both are.
+	 *
+	 * @param who whoever the token names
+	 */
+	PlanSwitch undo(UserRef who) {
+		// Not refused during Dunning: undo charges nothing, and it is the way out of a cancel the Portal refuses
+		// while a schedule holds the subscription (ADR-0042).
+		return onStripe(who, "undo a scheduled switch", false, (client, current) -> {
+			releaseAnyScheduleOn(client, current);
+			return new PlanSwitch.Switched();
+		});
+	}
+
+	/** The refusals every call shares, in the order {@code OpenCheckout} asks its own: the caller, the plan, Stripe. */
 	private PlanSwitch target(UserRef who, String tierCode, String interval, OnStripe then) {
-		Optional<String> subscription = this.subscriptions.stripeSubscriptionFor(who);
-		if (subscription.isEmpty()) {
+		if (this.subscriptions.stripeSubscriptionFor(who).isEmpty()) {
 			return new PlanSwitch.NotPaying();
 		}
 		Optional<TierPrice> price = onSale(tierCode, interval);
 		if (price.isEmpty()) {
 			LOG.info("Nothing on sale as `{}` ({}), so no subscription was switched", tierCode, interval);
 			return new PlanSwitch.NotForSale();
+		}
+		return onStripe(who, "switch or price a switch to `" + tierCode + "` (" + interval + ")", true,
+				(client, current) -> then.ask(client, current, price.get()));
+	}
+
+	/**
+	 * Their subscription, fetched, and — for a switch — refused during Dunning before anything else is asked of
+	 * Stripe.
+	 */
+	private PlanSwitch onStripe(UserRef who, String what, boolean refusedDuringDunning, OnTheirs then) {
+		Optional<String> subscription = this.subscriptions.stripeSubscriptionFor(who);
+		if (subscription.isEmpty()) {
+			return new PlanSwitch.NotPaying();
 		}
 		Optional<StripeClient> client = this.stripe.client();
 		if (client.isEmpty()) {
@@ -157,12 +247,23 @@ class SwitchPlans {
 						.addExpand("customer.invoice_settings.default_payment_method")
 						.build(),
 					null);
-			return then.ask(client.get(), current, price.get());
+			if (refusedDuringDunning && DUNNING.contains(current.getStatus())) {
+				LOG.info("Did not {}: the subscription is `{}`, so its open invoice comes first", what,
+						current.getStatus());
+				return new PlanSwitch.InvoiceOpen();
+			}
+			return then.ask(client.get(), current);
 		}
 		catch (StripeException unavailable) {
-			LOG.warn("Could not switch or price a switch to `{}` ({}): {}", tierCode, interval,
-					unavailable.getMessage());
+			LOG.warn("Could not {}: {}", what, unavailable.getMessage());
 			return new PlanSwitch.Unavailable();
+		}
+	}
+
+	/** At most one switch is pending, so whatever is about to be made replaces it. */
+	private static void releaseAnyScheduleOn(StripeClient client, Subscription current) throws StripeException {
+		if (current.getSchedule() != null) {
+			client.subscriptionSchedules().release(current.getSchedule());
 		}
 	}
 
@@ -206,6 +307,13 @@ class SwitchPlans {
 
 	}
 
+	@FunctionalInterface
+	private interface OnTheirs {
+
+		PlanSwitch ask(StripeClient client, Subscription current) throws StripeException;
+
+	}
+
 	private final TierCatalog catalog;
 
 	private final Subscriptions subscriptions;
@@ -225,5 +333,8 @@ class SwitchPlans {
 			"payto", "pix", "promptpay", "revolut_pay", "satispay", "crypto", "swish", "twint", "upi", "wechat_pay");
 
 	private static final String PAST_DUE = "past_due";
+
+	/** Dunning, as Stripe spells it: an invoice is open and being collected (ADR-0018, ADR-0042). */
+	private static final Set<String> DUNNING = Set.of(PAST_DUE, "unpaid", "incomplete");
 
 }

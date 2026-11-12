@@ -1,7 +1,7 @@
 import type { DisplayState } from "@mprelist/contracts";
 
 import type { DisplayStateAnswer } from "../api/display-state";
-import type { HandoffAnswer, PlansAnswer } from "../api/subscribing";
+import type { HandoffAnswer, PlansAnswer, SwitchAnswer } from "../api/subscribing";
 import type { SavedPosition } from "./ad-pages";
 import type { WireRelistOutcome } from "../background/messages";
 import type {AdsPage, ListingSummary, PendingRepost} from "../domain/types";
@@ -158,6 +158,11 @@ export interface WorkerPort {
    * about this promise usually not coming back.
    */
   portal(): Promise<HandoffAnswer>;
+  /** A Plan switch (T90, ADR-0042): priced, made now, scheduled for renewal, undone. */
+  previewSwitch(tierCode: string, interval: string): Promise<SwitchAnswer>;
+  switchNow(tierCode: string, interval: string): Promise<SwitchAnswer>;
+  scheduleSwitch(tierCode: string, interval: string): Promise<SwitchAnswer>;
+  undoSwitch(): Promise<SwitchAnswer>;
   signIn(): Promise<void>;
   signOut(): Promise<void>;
   relistStatus(): Promise<string | null>;

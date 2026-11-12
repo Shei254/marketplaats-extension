@@ -14,6 +14,7 @@ const FREE: DisplayState = {
   features: {},
   paying: false,
   rhythm: null,
+  pendingSwitch: null,
 };
 
 const PRO: Plan = {

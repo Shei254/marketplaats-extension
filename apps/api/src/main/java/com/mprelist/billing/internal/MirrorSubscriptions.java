@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import com.mprelist.subscription.Mirroring;
+import com.mprelist.subscription.PendingSwitch;
 import com.mprelist.subscription.QuotaPeriod;
 import com.mprelist.subscription.SubscriberOnStripe;
 import com.mprelist.subscription.SubscriptionMirror;
@@ -75,6 +76,48 @@ class MirrorSubscriptions {
 		}
 		report(this.mirror.mirror(who.get(), status.get(), price.get(), period.get(), event.created()), who.get(),
 				event);
+		if (event.cancelsAtPeriodEnd()) {
+			// A cancellation always wins over a pending switch (T90, ADR-0042). Stripe refuses to set this while
+			// a schedule holds the subscription, so this is belt and braces for a schedule ended out of order.
+			this.mirror.pendingSwitchDropped(who.get(), event.created());
+		}
+	}
+
+	/**
+	 * @param event one of the five {@code subscription_schedule.*} events, already verified as Stripe's
+	 */
+	void applySchedule(StripeEvent event) {
+		Optional<SubscriberOnStripe> who = event.scheduledSubscriber();
+		String schedule = event.scheduleId();
+		if (who.isEmpty() || schedule == null) {
+			LOG.info("A {} event named no schedule, subscription or customer, so no switch was mirrored ({}).",
+					event.type(), event.id());
+			return;
+		}
+		Optional<PendingSwitch> pending = event.pendingSwitch();
+		Mirroring mirrored;
+		if (event.endsTheSchedule()) {
+			mirrored = this.mirror.scheduleEnded(who.get(), schedule, event.created());
+		}
+		else if (pending.isPresent()) {
+			mirrored = this.mirror.switchPending(who.get(), schedule, pending.get(), event.created());
+		}
+		else {
+			// Running with nothing after the current phase: made from the subscription and not yet given its
+			// second phase, or its last phase has begun. Neither changes what is pending.
+			LOG.debug("A {} event about schedule {} holds no switch, so nothing was mirrored.", event.type(),
+					schedule);
+			return;
+		}
+		switch (mirrored) {
+			case MIRRORED -> LOG.info("The pending switch on subscription {} is mirrored as of {} ({}).",
+					who.get().subscriptionId(), event.created(), event.type());
+			case SAID_BEFORE_WHAT_IS_ALREADY_MIRRORED -> LOG.debug("A {} event from {} about subscription {} is "
+					+ "older than the switch already mirrored there.", event.type(), event.created(),
+					who.get().subscriptionId());
+			default -> LOG.info("No subscription here is {}, so the schedule's switch was not mirrored ({}).",
+					who.get().subscriptionId(), event.type());
+		}
 	}
 
 	/**

@@ -260,16 +260,41 @@ rather than a 404 — a host that does not (T55, #86) breaks this step *after* t
    than a month from signing up. Relist once to confirm.
    *If it still says Free:* the webhook is where to look, not the popup — `stripe listen` shows the
    `customer.subscription.created` delivery and its status, and a `400` there is the signing secret.
-6a. Still on Pro, press another plan's button (T83) — any plan on sale that is not the one you hold.
-   *Expect:* no tab opens, and the note under the cards reads **"Je hebt al een betaald abonnement. Wissel of
-   zeg op via Betaling beheren."** The API logs that no second subscription was opened; the Stripe dashboard
-   shows still one subscription on the customer.
-   Then **Betaling beheren → Update plan**, and pick that plan.
-   *First time only:* the Portal offers no **Update plan** until switching is allowed in the Stripe dashboard
-   (Settings → Billing → Customer portal → Subscriptions → *Customers can switch plans*), with the tagged
-   Prices added to its product list.
-   *Expect:* Stripe shows the prorated amount, `customer.subscription.updated` arrives, and the popup shows
-   the new plan — the mirror moves the tier from the Price, and nothing on our side opened a Checkout.
+6a. Still on Pro, open **Abonnementen** (T90, [ADR-0042](adr/0042-a-switch-buys-a-fresh-period-now-or-at-renewal.md)).
+   *First time only, in every Stripe account (operator step):* turn **off** *Customers can switch plans*
+   (Settings → Billing → Customer portal → Subscriptions). Switching is the cards' now; the Portal keeps payment
+   details, invoices and cancelling. A deployed webhook endpoint also needs the five schedule events (see the
+   list above step 1).
+   *Expect:* every other plan's button reads **Overstappen · € … per maand** — never a bare price, which is
+   Checkout — and your own card offers only its other Rhythm, where the plan has one.
+   - **Overstappen, Nu.** Press another plan's Overstappen.
+     *Expect:* the card opens an inline confirm: **Nu** with *"Je betaalt vandaag € …"* (Stripe's preview,
+     the plan's full price) and *"Je nieuwe maand begint vandaag met N herplaatsingen; wat over is van Pro
+     vervalt."*, **Op {datum}** with the card's price, neither highlighted, and **Annuleren**. Press **Nu**.
+     *Expect:* "Gelukt", and within a few seconds that card says **Huidig**. In Stripe the subscription has a
+     **new billing period starting today**, an invoice for the full price, and no proration lines. The popup's
+     strip shows the new plan's **full grant**, e.g. *60 van 60* after Pro → Power with 50 used.
+   - **Overstappen, Op {datum}.** Press another plan's Overstappen and choose **Op {datum}**.
+     *Expect:* nothing charged. `subscription_schedule.created` and `.updated` arrive; your card says **"Gaat
+     op {datum} over naar X"** with **Ongedaan maken**, and X's card says **Vanaf {datum}**. In Stripe the
+     subscription is controlled by a schedule with two phases.
+   - **Ongedaan maken.** *Expect:* `subscription_schedule.released`, and both lines go. In Stripe the
+     subscription has no schedule.
+   - **A switch now replaces a pending one.** Schedule one, then switch to a third plan with **Nu**.
+     *Expect:* the schedule is released before the update, and nothing is left pending.
+   - **The switch taking over.** With a switch scheduled, advance a Stripe test clock past the renewal.
+     *Expect:* `customer.subscription.updated` at the new Price, the card says **Huidig**, nothing is pending,
+     and the API logs that it released the schedule: in Stripe the subscription has no schedule any more.
+   - **Dunning.** Put `4000 0000 0000 0341` on the customer and let a renewal fail (or use Stripe's test
+     clock). *Expect:* the cards offer no Overstappen and say **"Betaal eerst je openstaande factuur via
+     Betaling beheren."**; the API answers any switch with `409 OPEN_INVOICE`. A switch already pending still
+     shows **Ongedaan maken**, and it works.
+   - **Open check, for a later session — cancelling while a switch is pending.** Stripe's API refuses
+     `cancel_at_period_end` on a subscription a schedule controls (checked 2026-11-12). Not yet checked: what
+     the **Customer Portal** does then — whether it offers *Opzeggen*, and whether that succeeds or errors.
+     Schedule a switch, open **Betaling beheren**, and try to cancel. Today nothing releases the schedule
+     first: if the Portal refuses, the subscriber has to press **Ongedaan maken** before cancelling. Record
+     what you see in ADR-0042 and decide whether *Betaling beheren* should release a pending switch first.
 7. Open the Customer Portal from the popup — **Plans → Manage billing** — and cancel **immediately** (not at
    period end, which is what the Portal offers by default — "cancel now" is in the test dashboard's own
    subscription view).
@@ -609,7 +634,7 @@ one ad at a time and has nothing to count a batch with, which ADR-0025 records a
 gap to close.
 
 
-## After Go-Live · I can buy and switch plan on the site (T85)
+## After Go-Live · I can buy and switch plan on the site (T85, T90)
 
 **Proves:** a visitor can subscribe from `/` without the extension, a subscriber switches plan in place —
 priced by Stripe before anything is charged — and nobody is ever sold a second subscription.
@@ -634,16 +659,20 @@ priced by Stripe before anything is charged — and nobody is ever sold a second
    yearly card says **Huidig abonnement**; its monthly price says **Overstappen naar maandelijks**; every other
    plan says **Overstappen naar …**; the free card says **Opzeggen**.
 5. Press **Overstappen naar** the other plan.
-   *Expect:* a dialog says what Stripe will charge **now** and what the plan costs after, and nothing has
-   changed in Stripe yet. **Annuleren** closes it with nothing charged. Open it again and press **Overstappen**.
+   *Expect:* a dialog offers **Nu** — what Stripe will charge today, the plan's full price, and *"Je nieuwe
+   maand begint vandaag …; wat over is van … vervalt."* — and **Op {datum}** with the card's price, neither
+   preselected, and nothing has changed in Stripe yet. **Annuleren** closes it with nothing charged. Open it
+   again and press **Nu**.
    *Expect:* "Gelukt", and within a few seconds that plan's card says **Huidig abonnement**. In Stripe the
-   customer still has **one** subscription, now on the new Price, with a proration invoice.
-6. Switch back to the cheaper plan.
-   *Expect:* the dialog says you **krijgt … tegoed**, not a minus sign; after confirming, the Stripe customer
-   carries that credit.
-7. Put `4000 0027 6000 3184` on the customer (*Mijn account → Betaling beheren*), then switch up again.
-   *Expect:* after **Overstappen** the browser goes to Stripe's invoice page to confirm. Until you do, the
-   subscription is **unchanged** in Stripe and the card on `/` still says what it said.
+   customer still has **one** subscription, now on the new Price, with a new period starting today and no
+   proration lines (T90, ADR-0042).
+6. Switch back to the cheaper plan with **Op {datum}**.
+   *Expect:* nothing charged today; your card says **"Gaat op {datum} over naar …"** with **Ongedaan maken**,
+   and the cheaper card says **Vanaf {datum}**. Press **Ongedaan maken** and both lines go.
+7. Put `4000 0027 6000 3184` on the customer (*Mijn account → Betaling beheren*), then switch up again with
+   **Nu**.
+   *Expect:* the browser goes to Stripe's invoice page to confirm. Until you do, the subscription is
+   **unchanged** in Stripe and the card on `/` still says what it said.
 8. Sign in at `/` as a subscriber, sign out (*Mijn account → Uitloggen*), then press **Kies** on another plan
    and sign in as that subscriber.
    *Expect:* you are **not** taken to Checkout and nothing is charged: the page comes back with that card

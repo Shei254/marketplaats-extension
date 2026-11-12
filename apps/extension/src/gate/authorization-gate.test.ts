@@ -108,6 +108,7 @@ describe("a denial", () => {
       // by something that is not the gate, which is the safe reading's case.
       ALREADY_PAYING: "retry",
       NOT_PAYING: "retry",
+      OPEN_INVOICE: "retry",
     };
 
     for (const reason of DENIAL_REASONS) {

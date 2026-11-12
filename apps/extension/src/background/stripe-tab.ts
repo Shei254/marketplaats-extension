@@ -1,4 +1,4 @@
-import type { HandoffAnswer } from "../api/subscribing";
+import type { HandoffAnswer, SwitchAnswer } from "../api/subscribing";
 
 /**
  * Opening a tab, as the one thing the worker needs from Chrome to hand somebody
@@ -30,5 +30,16 @@ export async function openStripePage(
 ): Promise<HandoffAnswer> {
   const answer = await handoff;
   if (answer.status === "opened") await open(answer.url);
+  return answer;
+}
+
+/**
+ * A switch made now that needs the payer (3-D Secure) is finished on the
+ * invoice's hosted page, opened here for `openStripePage`'s reason: the popup is
+ * gone the moment the tab takes focus (T90).
+ */
+export async function finishSwitchOnStripe(switching: Promise<SwitchAnswer>, open: OpenTab): Promise<SwitchAnswer> {
+  const answer = await switching;
+  if (answer.status === "confirm") await open(answer.url);
   return answer;
 }

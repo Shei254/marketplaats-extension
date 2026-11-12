@@ -284,25 +284,38 @@ about their **software**. It therefore carries none, exactly like every other `4
   subscriber who cancelled and came back (ADR-0018) continues one billing history rather than starting a
   second.
 
-### `POST /api/plan-switch/preview` and `POST /api/plan-switch` — a Plan switch
-- **Auth:** `Authorization: Bearer <Keycloak access token>`. Called by the site (T85,
-  [ADR-0036](adr/0036-the-site-sells-and-a-subscriber-switches-in-place.md)); the popup's door to the same
-  act is the Customer Portal.
+### `POST /api/plan-switch/preview`, `POST /api/plan-switch` and `/api/plan-switch/scheduled` — a Plan switch
+- **Auth:** `Authorization: Bearer <Keycloak access token>`. Called by the site (T85) and, since T90, by the
+  popup ([ADR-0042](adr/0042-a-switch-buys-a-fresh-period-now-or-at-renewal.md)). The Customer Portal no
+  longer switches plans.
 - **Request:** `{ "tierCode": "power", "interval": "month" }` — `POST /api/checkout`'s body, with its `400`
-  for one that is missing either field or is not JSON.
-- **A Plan switch changes the Price on the subscription Stripe is already billing**, in place: immediate,
-  prorated both ways (`always_invoice`), and applied only once paid (`pending_if_incomplete`). It never
-  opens a second subscription, which is the failure `409 ALREADY_PAYING` above is written against.
-- **The preview returns `200`:** `{ "amount": 743, "currency": "eur" }` — Stripe's own invoice for the same
-  switch, which the site shows in a confirmation dialog before anything is charged. **Negative is a credit**:
-  a downgrade leaves it on the Stripe customer against the next invoices. It spends nothing.
+  for one that is missing either field or is not JSON. `DELETE /api/plan-switch/scheduled` has no body.
+- **A switch made now restarts the billing period at the new plan's full price, and credits nothing**
+  (`billing_cycle_anchor=now`, `proration_behavior=none`), up or down and for a tier or a Rhythm. The new
+  period, a fresh Quota period and its full grant all start that day. It is applied only once paid where
+  Stripe can wait for the money (`pending_if_incomplete`, else `allow_incomplete`; ADR-0036's amendment). It
+  never opens a second subscription, which is the failure `409 ALREADY_PAYING` above is written against, and
+  it releases a pending Scheduled switch first.
+- **The preview returns `200`:** `{ "amount": 1500, "currency": "eur", "renewsAt": "2026-12-12T09:00:00Z" }` —
+  Stripe's own invoice for the same switch, which both clients show before anything is charged, and the end
+  of the period they have paid for, which is when a Scheduled switch would take over. It spends nothing.
 - **The switch returns `200`:** `{ "confirmAt": null }` when it is made — the webhook then moves the tier, as
   for any Price change — or `{ "confirmAt": "https://invoice.stripe.com/…" }` when the charge needs the payer
   (3-D Secure) and nothing has moved yet. A switch to the Price already billed is a `200` that sends nothing
   to Stripe.
-- **`409 NOT_PAYING`** when Stripe is billing the caller for nothing — `ALREADY_PAYING` the other way round,
-  and the one refusal here that is a denial: `{ "reason": "NOT_PAYING" }`, adding nothing, since the same card
-  offers Checkout.
+- **`POST /api/plan-switch/scheduled` returns `200`:** `{ "at": "2026-12-12T09:00:00Z" }` — a **Scheduled
+  switch**, a Stripe Subscription Schedule: the current Price until Stripe's period ends, then the chosen one.
+  It charges nothing today and replaces any switch already pending. Choosing the Price already billed only
+  drops what was pending, and answers `{ "at": null }`.
+- **`DELETE /api/plan-switch/scheduled` returns `204`** — *Ongedaan maken*: the pending switch released,
+  or nothing, where none was.
+- **`409 NOT_PAYING`** when Stripe is billing the caller for nothing — `ALREADY_PAYING` the other way round:
+  `{ "reason": "NOT_PAYING" }`, adding nothing, since the same card offers Checkout.
+- **`409 OPEN_INVOICE`** during Dunning — Stripe's status is `past_due`, `unpaid` or `incomplete` — on the
+  three that switch or price one: `{ "reason": "OPEN_INVOICE" }`, adding nothing. **Undo is allowed then**: it
+  charges nothing, and it is the way out of a cancel the Portal refuses while a schedule holds the
+  subscription. The cards say *"Betaal eerst je openstaande factuur
+  via Betaling beheren."* A bank debit still on its way is `active` at Stripe and is not this.
 - **`404` and `503` with empty bodies**, exactly as `POST /api/checkout` answers them: nothing on sale under
   that code and rhythm, or Stripe could not be asked.
 
@@ -572,7 +585,8 @@ that ADR's own "revisit if" anticipated. Same audience and same guard as the adm
 ### `GET /api/me` — display state, **never a grant**
 - **Auth:** `Authorization: Bearer <Keycloak access token>`.
 - **Returns `200`:** `{ subscriptionStatus, tier, quotaRemaining, relistQuotaPerPeriod, resetAt, features,
-  paying, rhythm }` — shipped (#26), with the grant added by #41 and the billing pair by T85:
+  paying, rhythm, pendingSwitch }` — shipped (#26), with the grant added by #41, the billing pair by T85 and
+  the pending switch by T90:
 
   ```json
   { "subscriptionStatus": "ACTIVE",
@@ -582,15 +596,22 @@ that ADR's own "revisit if" anticipated. Same audience and same guard as the adm
     "resetAt": "2026-09-14T08:31:22.101Z",
     "features": {},
     "paying": false,
-    "rhythm": null }
+    "rhythm": null,
+    "pendingSwitch": null }
   ```
 
   **`paying` and `rhythm` say what Stripe is billing** (T85, [ADR-0036](adr/0036-the-site-sells-and-a-subscriber-switches-in-place.md)).
   `paying` is true through dunning and false after a terminal end — the same reading `POST /api/checkout`'s
   `409 ALREADY_PAYING` makes — and is what tells the site whether a card is Checkout or a **Plan switch**.
   `rhythm` is the **Rhythm** of the Price they are billed at, so their own card can offer the other one;
-  `null` when not paying, and when the Price is one no card sells or has not been mirrored since T85. The
-  popup reads neither, and treats an answer without them as not paying.
+  `null` when not paying, and when the Price is one no card sells or has not been mirrored since T85. Both
+  clients read both since T90, and treat an answer without them as not paying.
+
+  **`pendingSwitch` is the Scheduled switch waiting for the period's end** (T90,
+  [ADR-0042](adr/0042-a-switch-buys-a-fresh-period-now-or-at-renewal.md)):
+  `{ "tier": { "code": "power", "name": "Power" }, "rhythm": "month", "at": "2026-12-12T09:00:00Z" }`, or
+  `null`. It is read from the subscription row, which the `subscription_schedule.*` webhooks write, and never
+  from Stripe on the way; `null` too where its Price is no longer on sale.
 
   **`relistQuotaPerPeriod` is the other half of "2 of 3"** — the sentence the popup draws, and one a client
   holding only the numerator cannot. It is the tier's grant and does not move when a unit is spent; lowering

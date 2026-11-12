@@ -8,6 +8,9 @@ import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -39,8 +42,8 @@ import com.sun.net.httpserver.HttpServer;
  * What we send Stripe when a subscriber switches plan, and what we make of its answers (T85, ADR-0036).
  *
  * <p>Against the bytes on the wire, for {@code CheckoutSessionTest}'s reason: the fields here decide whether a
- * switch is one subscription changed or a second one opened, and whether a downgrade is prorated or simply
- * lost — a mocked SDK would accept any of them missing.
+ * switch is one subscription changed or a second one opened, whether it buys a fresh period or a prorated
+ * one, and whether it waits for renewal — a mocked SDK would accept any of them missing.
  */
 class PlanSwitchTest {
 
@@ -77,6 +80,16 @@ class PlanSwitchTest {
 
 	private long previewTotal = 743;
 
+	/** Stripe's status for the subscription as it is fetched. */
+	private String status = "active";
+
+	/** The schedule controlling the subscription, or {@code null} for none. */
+	private String schedule = null;
+
+	private static final long PERIOD_START = 1_794_000_000L;
+
+	private static final long PERIOD_END = 1_796_592_000L;
+
 	@BeforeEach
 	void startStripe() throws IOException {
 		this.stripe = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
@@ -94,7 +107,12 @@ class PlanSwitchTest {
 				return;
 			}
 			switch (exchange.getRequestMethod() + " " + path) {
-				case "GET /v1/subscriptions/sub_1" -> respond(exchange, 200, subscription("price_pro", false, "active"));
+				case "GET /v1/subscriptions/sub_1" -> respond(exchange, 200,
+						subscription("price_pro", false, this.status));
+				case "POST /v1/subscription_schedules" -> respond(exchange, 200, schedule(false));
+				case "POST /v1/subscription_schedules/sub_sched_new" -> respond(exchange, 200, schedule(true));
+				case "POST /v1/subscription_schedules/sub_sched_old/release" -> respond(exchange, 200,
+						"{\"id\":\"sub_sched_old\",\"object\":\"subscription_schedule\",\"status\":\"released\"}");
 				case "POST /v1/subscriptions/sub_1" -> respond(exchange, 200, updated(this.posted.get(path)));
 				case "POST /v1/invoices/create_preview" -> respond(exchange, 200,
 						"{\"object\":\"invoice\",\"total\":" + this.previewTotal + ",\"currency\":\"eur\"}");
@@ -131,17 +149,29 @@ class PlanSwitchTest {
 	}
 
 	/**
-	 * Prorated and invoiced now, both ways — an upgrade charged the difference, a downgrade credited — and held
-	 * back until the money has moved, so a declined card leaves them on the plan they had.
+	 * A fresh period at the new plan's full price, with nothing credited, up or down (T90, ADR-0042) — and
+	 * held back until the money has moved, so a declined card leaves them on the plan they had.
 	 */
 	@Test
-	void proratedNowAndAppliedOnlyOncePaid() {
+	void aSwitchRestartsThePeriodAtTheFullPriceAndAppliesOnlyOncePaid() {
 		switches(true).apply(PAYER, "power", "month");
 
 		assertThat(this.posted.get("/v1/subscriptions/sub_1"))
-				.containsEntry("proration_behavior", "always_invoice")
+				.containsEntry("billing_cycle_anchor", "now")
+				.containsEntry("proration_behavior", "none")
 				.containsEntry("payment_behavior", "pending_if_incomplete")
 				.containsEntry("expand[0]", "latest_invoice");
+	}
+
+	/** At most one switch is pending, and one made now replaces it: the schedule is released first. */
+	@Test
+	void aSwitchNowReleasesAScheduledOneFirst() {
+		this.schedule = "sub_sched_old";
+
+		switches(true).apply(PAYER, "power", "month");
+
+		assertThat(this.asked).containsExactly("GET /v1/subscriptions/sub_1",
+				"POST /v1/subscription_schedules/sub_sched_old/release", "POST /v1/subscriptions/sub_1");
 	}
 
 	/** 3-D Secure: nothing has moved, and the invoice's own page is where the payer finishes it. */
@@ -167,7 +197,7 @@ class PlanSwitchTest {
 		assertThat(switches(true).apply(PAYER, "power", "month")).isEqualTo(new PlanSwitch.Switched());
 		assertThat(this.posted.get("/v1/subscriptions/sub_1"))
 				.containsEntry("payment_behavior", "allow_incomplete")
-				.containsEntry("proration_behavior", "always_invoice");
+				.containsEntry("proration_behavior", "none");
 	}
 
 	/** Every bank debit, and the methods that are not bank debits but are just as absent from Stripe's list. */
@@ -266,17 +296,18 @@ class PlanSwitchTest {
 
 	// --- the preview ---------------------------------------------------------------------------------------
 
-	/** The same items and the same proration, asked of Stripe, so the dialog shows Stripe's number and not ours. */
+	/** The same items, anchor and proration, asked of Stripe, so the dialog shows Stripe's number and not ours. */
 	@Test
 	void thePreviewIsStripesInvoiceForTheSameSwitch() {
 		PlanSwitch previewed = switches(true).preview(PAYER, "power", "month");
 
-		assertThat(previewed).isEqualTo(new PlanSwitch.Previewed(743, "eur"));
+		assertThat(previewed).isEqualTo(new PlanSwitch.Previewed(743, "eur", at(PERIOD_END)));
 		assertThat(this.posted.get("/v1/invoices/create_preview"))
 				.containsEntry("subscription", "sub_1")
 				.containsEntry("subscription_details[items][0][id]", "si_1")
 				.containsEntry("subscription_details[items][0][price]", "price_power")
-				.containsEntry("subscription_details[proration_behavior]", "always_invoice");
+				.containsEntry("subscription_details[billing_cycle_anchor]", "now")
+				.containsEntry("subscription_details[proration_behavior]", "none");
 	}
 
 	@Test
@@ -286,12 +317,69 @@ class PlanSwitchTest {
 		assertThat(this.asked).doesNotContain("POST /v1/subscriptions/sub_1");
 	}
 
-	/** A downgrade: Stripe's total is negative, and that is the credit the customer is left with. */
-	@Test
-	void aDowngradePreviewsAsACredit() {
-		this.previewTotal = -410;
+	// --- the Scheduled switch (T90, ADR-0042) ------------------------------------------------------------
 
-		assertThat(switches(true).preview(PAYER, "power", "month")).isEqualTo(new PlanSwitch.Previewed(-410, "eur"));
+	/**
+	 * A schedule made from the subscription, then given two phases: the Price they pay until Stripe's period
+	 * ends, then the chosen one, once, after which the schedule lets go of the subscription.
+	 */
+	@Test
+	void aScheduledSwitchKeepsThePriceUntilThePeriodEndsThenChanges() {
+		PlanSwitch made = switches(true).schedule(PAYER, "power", "month");
+
+		assertThat(made).isEqualTo(new PlanSwitch.Scheduled(at(PERIOD_END)));
+		assertThat(this.posted.get("/v1/subscription_schedules")).containsEntry("from_subscription", "sub_1");
+		assertThat(this.posted.get("/v1/subscription_schedules/sub_sched_new"))
+				.containsEntry("end_behavior", "release")
+				.containsEntry("phases[0][items][0][price]", "price_pro")
+				.containsEntry("phases[0][start_date]", String.valueOf(PERIOD_START))
+				.containsEntry("phases[0][end_date]", String.valueOf(PERIOD_END))
+				.containsEntry("phases[1][items][0][price]", "price_power")
+				.containsEntry("phases[1][iterations]", "1")
+				.containsEntry("phases[1][proration_behavior]", "none");
+	}
+
+	@Test
+	void aSecondScheduledSwitchReplacesTheFirst() {
+		this.schedule = "sub_sched_old";
+
+		switches(true).schedule(PAYER, "power", "month");
+
+		assertThat(this.asked).containsExactly("GET /v1/subscriptions/sub_1",
+				"POST /v1/subscription_schedules/sub_sched_old/release", "POST /v1/subscription_schedules",
+				"POST /v1/subscription_schedules/sub_sched_new");
+	}
+
+	/** Scheduling the Price they already pay is an undo, which is all it can mean. */
+	@Test
+	void schedulingThePriceTheyAlreadyPayOnlyDropsWhatWasPending() {
+		this.schedule = "sub_sched_old";
+
+		assertThat(switches(true).schedule(PAYER, "pro", "month")).isEqualTo(new PlanSwitch.Switched());
+		assertThat(this.asked).containsExactly("GET /v1/subscriptions/sub_1",
+				"POST /v1/subscription_schedules/sub_sched_old/release");
+	}
+
+	@Test
+	void undoReleasesThePendingSchedule() {
+		this.schedule = "sub_sched_old";
+
+		assertThat(switches(true).undo(PAYER)).isEqualTo(new PlanSwitch.Switched());
+		assertThat(this.asked).containsExactly("GET /v1/subscriptions/sub_1",
+				"POST /v1/subscription_schedules/sub_sched_old/release");
+	}
+
+	/** A second Ongedaan maken, or one pressed after the webhook already cleared it: nothing to release. */
+	@Test
+	void undoWithNothingPendingChangesNothing() {
+		assertThat(switches(true).undo(PAYER)).isEqualTo(new PlanSwitch.Switched());
+		assertThat(this.asked).containsExactly("GET /v1/subscriptions/sub_1");
+	}
+
+	@Test
+	void undoForSomebodyNotPayingIsNotPaying() {
+		assertThat(switches(false).undo(PAYER)).isEqualTo(new PlanSwitch.NotPaying());
+		assertThat(this.asked).isEmpty();
 	}
 
 	// --- the refusals --------------------------------------------------------------------------------------
@@ -302,6 +390,44 @@ class PlanSwitchTest {
 		assertThat(switches(false).apply(PAYER, "power", "month")).isEqualTo(new PlanSwitch.NotPaying());
 		assertThat(switches(false).preview(PAYER, "power", "month")).isEqualTo(new PlanSwitch.NotPaying());
 		assertThat(this.asked).isEmpty();
+	}
+
+	/**
+	 * No switch during Dunning, now or at renewal, and not even priced: the open invoice comes first. Stripe's
+	 * own status decides, read on the same call that fetches the subscription.
+	 */
+	@ParameterizedTest
+	@ValueSource(strings = { "past_due", "unpaid", "incomplete" })
+	void nothingIsSwitchedWhileAnInvoiceIsOpen(String status) {
+		this.status = status;
+
+		assertThat(switches(true).apply(PAYER, "power", "month")).isEqualTo(new PlanSwitch.InvoiceOpen());
+		assertThat(switches(true).preview(PAYER, "power", "month")).isEqualTo(new PlanSwitch.InvoiceOpen());
+		assertThat(switches(true).schedule(PAYER, "power", "month")).isEqualTo(new PlanSwitch.InvoiceOpen());
+		assertThat(this.asked).containsOnly("GET /v1/subscriptions/sub_1");
+	}
+
+	/**
+	 * Undo is not a switch: it charges nothing, and it is the way out of a cancel the Portal refuses while a
+	 * schedule holds the subscription (ADR-0042). So it is allowed during Dunning.
+	 */
+	@ParameterizedTest
+	@ValueSource(strings = { "past_due", "unpaid", "incomplete" })
+	void butUndoIsAllowedWhileAnInvoiceIsOpen(String status) {
+		this.status = status;
+		this.schedule = "sub_sched_old";
+
+		assertThat(switches(true).undo(PAYER)).isEqualTo(new PlanSwitch.Switched());
+		assertThat(this.asked).contains("POST /v1/subscription_schedules/sub_sched_old/release");
+	}
+
+	/** A bank debit on its way is `active` at Stripe, so it is not Dunning and the subscriber may switch. */
+	@ParameterizedTest
+	@ValueSource(strings = { "active", "trialing" })
+	void anythingElseMaySwitch(String status) {
+		this.status = status;
+
+		assertThat(switches(true).apply(PAYER, "power", "month")).isEqualTo(new PlanSwitch.Switched());
 	}
 
 	@Test
@@ -363,14 +489,30 @@ class PlanSwitchTest {
 
 	private String subscription(String price, boolean pending, String status) {
 		return "{\"id\":\"sub_1\",\"object\":\"subscription\",\"status\":\"" + status + "\","
+				+ "\"schedule\":" + (this.schedule == null ? "null" : "\"" + this.schedule + "\"") + ","
 				+ "\"default_payment_method\":" + method(this.subscriptionMethod) + ","
 				+ "\"customer\":{\"id\":\"cus_1\",\"object\":\"customer\",\"invoice_settings\":"
 				+ "{\"default_payment_method\":" + method(this.customerMethod) + "}},"
 				+ "\"items\":{\"object\":\"list\",\"data\":[{\"id\":\"si_1\",\"object\":\"subscription_item\","
+				+ "\"current_period_start\":" + PERIOD_START + ",\"current_period_end\":" + PERIOD_END + ","
 				+ "\"price\":{\"id\":\"" + price + "\",\"object\":\"price\"}}]},"
 				+ "\"pending_update\":" + (pending ? "{\"expires_at\":1790000000}" : "null") + ","
 				+ "\"latest_invoice\":{\"id\":\"in_1\",\"object\":\"invoice\","
 				+ "\"status\":\"open\",\"hosted_invoice_url\":\"https://invoice.stripe.com/i/in_1\"}}";
+	}
+
+	/** A schedule made from the subscription: Stripe copies its one phase, and the update adds the second. */
+	private static String schedule(boolean twoPhases) {
+		String current = "{\"start_date\":" + PERIOD_START + ",\"end_date\":" + PERIOD_END
+				+ ",\"items\":[{\"price\":\"price_pro\",\"quantity\":1}]}";
+		String next = ",{\"start_date\":" + PERIOD_END + ",\"end_date\":" + (PERIOD_END + 2_592_000L)
+				+ ",\"items\":[{\"price\":\"price_power\",\"quantity\":1}]}";
+		return "{\"id\":\"sub_sched_new\",\"object\":\"subscription_schedule\",\"status\":\"active\","
+				+ "\"subscription\":\"sub_1\",\"phases\":[" + current + (twoPhases ? next : "") + "]}";
+	}
+
+	private static OffsetDateTime at(long epochSecond) {
+		return Instant.ofEpochSecond(epochSecond).atOffset(ZoneOffset.UTC);
 	}
 
 	private static String method(String type) {
@@ -436,6 +578,11 @@ class PlanSwitchTest {
 			@Override
 			public Optional<String> stripePriceFor(UserRef user) {
 				throw new UnsupportedOperationException("the current Price is read from Stripe, not the mirror");
+			}
+
+			@Override
+			public Optional<com.mprelist.subscription.PendingSwitch> pendingSwitchFor(UserRef user) {
+				throw new UnsupportedOperationException("that is the display's question");
 			}
 
 			@Override

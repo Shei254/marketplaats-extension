@@ -14,7 +14,7 @@ import { PendingRetries } from "../domain/pending-retries";
 import { RelistOrchestrator, type RelistOutcome } from "../domain/relist-orchestrator";
 import { HUMAN_PACE, RelistPacer, type PacingWindow } from "../domain/relist-pace";
 import type { DevHook, DevHookName } from "./dev-hooks";
-import { openStripePage } from "./stripe-tab";
+import { finishSwitchOnStripe, openStripePage } from "./stripe-tab";
 import { loadEndpointConfig, saveEndpointOverrides } from "../shared/endpoint-config";
 import { readServedConfig } from "../shared/served-config";
 import {
@@ -239,6 +239,14 @@ function answer(
       return openStripePage(subscribing.checkout(request.tierCode, request.interval), inANewTab);
     case "portal":
       return openStripePage(subscribing.portal(), inANewTab);
+    case "switch-preview":
+      return subscribing.previewSwitch(request.tierCode, request.interval);
+    case "switch-now":
+      return finishSwitchOnStripe(subscribing.switchNow(request.tierCode, request.interval), inANewTab);
+    case "switch-schedule":
+      return subscribing.scheduleSwitch(request.tierCode, request.interval);
+    case "switch-undo":
+      return subscribing.undoSwitch();
     case "relist-status":
       return Promise.resolve(orchestrator.activeRepost())
   }

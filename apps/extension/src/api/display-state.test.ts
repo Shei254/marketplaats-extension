@@ -13,6 +13,7 @@ const PLAN: DisplayState = {
   features: {},
   paying: false,
   rhythm: null,
+  pendingSwitch: null,
 };
 
 interface Call {

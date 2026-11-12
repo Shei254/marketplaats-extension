@@ -240,6 +240,15 @@ record StripeEvent(String id, String type, OffsetDateTime created, JsonNode obje
 	}
 
 	/**
+	 * The subscription's latest invoice, by id: what decides whether a {@code past_due} is a debit on its way
+	 * ({@link InvoicesBeingPaid}). An expanded one is read for its id too, though no webhook sends one.
+	 */
+	Optional<String> latestInvoiceId() {
+		JsonNode invoice = this.object.path("latest_invoice");
+		return Optional.ofNullable(text(invoice.isObject() ? invoice.path("id") : invoice));
+	}
+
+	/**
 	 * The status exactly as Stripe spelled it, for the one line that has to say which word we could not read.
 	 *
 	 * <p>Beside {@link #subscriptionStatus()} rather than folded into it, because everything that <em>acts</em>

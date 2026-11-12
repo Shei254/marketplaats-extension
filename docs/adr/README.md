@@ -46,11 +46,12 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0033](0033-the-login-page-is-ours-and-is-generated.md) | The login page is a surface of ours, and it is generated rather than written | Accepted, refines 0005, 0011 and 0021, amended by 0034, refined by 0035 |
 | [0034](0034-the-deployment-tree-ships-with-the-tag.md) | The deployment tree ships with the tag, and the host stops being a checkout | Accepted, amends 0023 and 0033 |
 | [0035](0035-the-mail-is-ours-and-so-are-the-words.md) | The mail that page sends is ours too, and owning it means owning the words | Accepted, refines 0021 and 0033 |
-| [0036](0036-the-site-sells-and-a-subscriber-switches-in-place.md) | The site sells, and a subscriber switches plan in place rather than buying a second one | Accepted, supersedes part of 0017, refines 0019 and 0031 |
+| [0036](0036-the-site-sells-and-a-subscriber-switches-in-place.md) | The site sells, and a subscriber switches plan in place rather than buying a second one | Accepted, supersedes part of 0017, refines 0019 and 0031, partly superseded by 0042 |
 | [0037](0037-an-annual-price-buys-a-monthly-grant.md) | An annual price buys a monthly grant | Accepted, refines 0014 and 0019 |
 | [0038](0038-bulk-repost-leaves-the-extension.md) | Bulk repost leaves the extension, and the API keeps its half | Accepted, supersedes 0027 |
 | [0039](0039-a-pending-repost-is-finished-never-re-authorized.md) | A pending repost is finished, never re-authorized | Accepted, refines 0003 and 0007; re-admits `alarms` |
 | [0040](0040-the-page-button-lives-on-mijn-advertenties.md) | The second surface is a Page button on Mijn Advertenties, in its own React content script | Accepted, narrows 0004 |
+| [0042](0042-a-switch-buys-a-fresh-period-now-or-at-renewal.md) | A switch buys a fresh period, now or at renewal, and both doors are ours | Accepted, supersedes part of 0036, refines 0037 |
 
 **Amended by the 2026-08-13 session:** 0006 (Stripe narrowed to money + lifecycle), 0007 (gating depth,
 `/api/me` display state, `marktplaatsAccountId` dropped), 0009 (monorepo, React popup, Options page removed).

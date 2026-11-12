@@ -1939,6 +1939,43 @@ answers `410 Gone` at once — is in `internal-api-findings.md`.
   2026-11-12 (see the ADR-0036 amendment). It does so only when the Portal configuration lets customers
   switch plans, and the test account's default configuration did not. The live configuration is unchecked.
 - **Not in it:** dialog copy about when a debit clears.
+
+#### T90 · A switch buys a fresh period, now or at renewal · **L** · T85, T89
+*2026-11-12.* A `pro_sepa` subscriber pressed Power's **€15,00 per maand** in the popup and got T83's
+*"Je hebt al een betaald abonnement. Wissel of zeg op via Betaling beheren."* The refusal was right. The
+button was wrong: the popup offered Checkout to someone `GET /api/me` already reported as `paying`. Decided in
+the same day's grilling, recorded in [ADR-0042](adr/0042-a-switch-buys-a-fresh-period-now-or-at-renewal.md),
+with the glossary's **Plan switch**, **Scheduled switch**, **Quota period** and **Dunning**.
+
+**Verify first, in test mode:** that Stripe accepts `billing_cycle_anchor=now` together with
+`pending_if_incomplete` for a card or PayPal payer, and whether the Customer Portal will cancel a subscription
+that a schedule controls. Either answer can change a bullet below. Record both in ADR-0042.
+
+- **An immediate switch restarts the period.** `SwitchPlans.apply` and its preview send
+  `billing_cycle_anchor=now` and `proration_behavior=none`: the full new price is charged today and nothing is
+  credited. This applies up or down and to tier or Rhythm. The mirror already starts a fresh Quota period from
+  Stripe's new window. Test that Pro → Power on day 12 with 50 used reads **60 van 60**.
+- **A Scheduled switch.** A route beside `/api/plan-switch` creates a Subscription Schedule from the
+  subscription: the current Price until `current_period_end`, then the chosen one. It releases any schedule
+  already there (at most one is pending). Undo releases it. An immediate switch releases it before updating.
+- **Mirrored, never asked for.** `subscription_schedule.created/updated/released/canceled/completed` set or
+  clear the pending switch (tier, rhythm, date) on the subscription row. `DisplayState` gains it, and
+  `/api/me` reads the row and never calls Stripe. A cancellation, including `cancel_at_period_end`, clears it.
+- **No switch during Dunning.** Both routes answer a new `409` (reason code in
+  `packages/contracts/src/enforcement.ts` and `docs/enforcement-contract.md`) for `past_due`, `unpaid` and
+  `incomplete`. The cards say *"Betaal eerst je openstaande factuur via Betaling beheren."*
+- **The popup switches.** When `paying` is true, other cards say **Overstappen** and the subscriber's own card
+  offers its other Rhythm (none when `rhythm` is `null`). The inline confirm has *Nu* (Stripe's preview of
+  today's charge, *"Je nieuwe maand begint vandaag met N herplaatsingen; wat over is van X vervalt."*),
+  *Op {period end}* (the card's price), no preselected choice, and **Annuleren**. Afterwards it shows the
+  site's *Gelukt* and settles by polling `/api/me` the way `useAccount.ts` does. A pending switch shows
+  *"Gaat op {date} over naar X"* with **Ongedaan maken** on the held card and *Vanaf {date}* on the target.
+- **The site follows.** It shares `SwitchPlans`, so its proration ends automatically. Its dialog gains the
+  same two choices and its cards show the pending switch and the Dunning line.
+- **Operator step:** turn off *Customers can switch plans* in every account's Customer Portal configuration.
+  `docs/click-through.md` 6a is rewritten: Overstappen in the popup, both kinds, undo, and a Dunning refusal.
+- **Not in it:** crediting unused days, a date the subscriber picks, more than one pending switch, and
+  enforcing the Portal setting in code.
 ---
 
 ## Deferred

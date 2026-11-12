@@ -44,6 +44,7 @@ export {
   type Denial,
   type DenialReason,
   type DisplayState,
+  type PendingSwitch,
   type FreeTier,
   type NewPlan,
   type NewPrice,
@@ -56,6 +57,7 @@ export {
   type RemainingQuota,
   type SubscriptionStatus,
   type SwitchMade,
+  type SwitchScheduled,
   type SwitchPreview,
   type SwitchRequest,
   type TierEdit,
@@ -82,4 +84,15 @@ export {
 
 export { isQuota } from "./quota";
 
-export { grantOf, priceAndRhythmOf, priceOf, UNLIMITED_REPOSTS, waysToPay } from "./wording";
+export {
+  dayOf,
+  dueToday,
+  freshPeriodLine,
+  grantOf,
+  PAY_THE_OPEN_INVOICE_FIRST,
+  pendingLine,
+  priceAndRhythmOf,
+  priceOf,
+  UNLIMITED_REPOSTS,
+  waysToPay,
+} from "./wording";

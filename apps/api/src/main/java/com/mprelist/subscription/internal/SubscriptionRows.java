@@ -18,6 +18,7 @@ import com.mprelist.catalog.TierCatalog;
 import com.mprelist.catalog.TierId;
 import com.mprelist.identity.UserRef;
 import com.mprelist.subscription.Mirroring;
+import com.mprelist.subscription.PendingSwitch;
 import com.mprelist.subscription.QuotaPeriod;
 import com.mprelist.subscription.SubscriberOnStripe;
 import com.mprelist.subscription.Subscription;
@@ -102,6 +103,18 @@ class SubscriptionRows implements Subscriptions, SubscriptionMirror, TierSubscri
 				+ "and stripe_subscription_id is not null")
 				.param(user.id())
 				.query(String.class)
+				.optional();
+	}
+
+	@Override
+	public Optional<PendingSwitch> pendingSwitchFor(UserRef user) {
+		return this.db.sql("""
+				select pending_price_id, pending_at from subscription
+				 where app_user_id = ? and stripe_subscription_id is not null and pending_price_id is not null
+				""")
+				.param(user.id())
+				.query((values, number) -> new PendingSwitch(values.getString("pending_price_id"),
+						utc(values.getObject("pending_at", OffsetDateTime.class))))
 				.optional();
 	}
 
@@ -228,11 +241,15 @@ class SubscriptionRows implements Subscriptions, SubscriptionMirror, TierSubscri
 				update subscription
 				   set tier_id = cast(? as uuid), status = ?, period_start = ?, period_end = ?,
 				       stripe_customer_id = ?, stripe_subscription_id = ?, stripe_price_id = ?,
-				       mirrored_through = ?
+				       mirrored_through = ?,
+				       -- Arriving at the pending Price is the Scheduled switch taking over (T90).
+				       pending_price_id = case when pending_price_id = ? then null else pending_price_id end,
+				       pending_at = case when pending_price_id = ? then null else pending_at end
 				 where id = ?
 				""")
 				.params(landing.map(TierId::id).orElse(null), stored(status), period.start(), period.end(),
-						who.customerId(), who.subscriptionId(), stripePriceId, saidAt, row.get().id())
+						who.customerId(), who.subscriptionId(), stripePriceId, saidAt, stripePriceId, stripePriceId,
+						row.get().id())
 				.update();
 		return tier.isPresent() ? Mirroring.MIRRORED : Mirroring.MIRRORED_ONTO_THE_TIER_THEY_WERE_ALREADY_ON;
 	}
@@ -273,6 +290,7 @@ class SubscriptionRows implements Subscriptions, SubscriptionMirror, TierSubscri
 				update subscription
 				   set tier_id = cast(? as uuid), status = 'active', period_start = ?, period_end = ?,
 				       stripe_customer_id = ?, stripe_subscription_id = null, stripe_price_id = null,
+				       pending_price_id = null, pending_at = null,
 				       mirrored_through = ?
 				 where id = ?
 				""")
@@ -280,6 +298,33 @@ class SubscriptionRows implements Subscriptions, SubscriptionMirror, TierSubscri
 						who.customerId(), saidAt, row.get().id())
 				.update();
 		return Mirroring.FELL_BACK_TO_THE_DEFAULT_TIER;
+	}
+
+	/**
+	 * Two columns and a timestamp of their own, and only on the row holding that subscription. Ordered by
+	 * {@code pending_mirrored_through} for the reason {@code V13__pending_switch.sql} gives.
+	 */
+	@Override
+	@Transactional
+	public Mirroring scheduled(SubscriberOnStripe who, Optional<PendingSwitch> pending, OffsetDateTime saidAt) {
+		int written = this.db.sql("""
+				update subscription
+				   set pending_price_id = ?, pending_at = ?, pending_mirrored_through = ?
+				 where stripe_subscription_id = ? and stripe_customer_id = ?
+				   and (pending_mirrored_through is null or pending_mirrored_through <= ?)
+				""")
+				.params(pending.map(PendingSwitch::stripePriceId).orElse(null),
+						pending.map(PendingSwitch::at).orElse(null), saidAt, who.subscriptionId(), who.customerId(),
+						saidAt)
+				.update();
+		if (written > 0) {
+			return Mirroring.MIRRORED;
+		}
+		Integer held = this.db.sql("select count(*) from subscription where stripe_subscription_id = ?")
+				.param(who.subscriptionId())
+				.query(Integer.class)
+				.single();
+		return held > 0 ? Mirroring.SAID_BEFORE_WHAT_IS_ALREADY_MIRRORED : Mirroring.NOBODY_HERE_IS_BILLED_AS_THAT;
 	}
 
 	/**

@@ -205,6 +205,11 @@ class PortalSessionTest {
 			}
 
 			@Override
+			public Optional<com.mprelist.subscription.PendingSwitch> pendingSwitchFor(UserRef user) {
+				throw new UnsupportedOperationException("that is the display's question");
+			}
+
+			@Override
 			public boolean isPaying(UserRef user) {
 				throw new UnsupportedOperationException("the Portal asks about the customer, never the status");
 			}

@@ -13,6 +13,7 @@ const ON: DisplayState = {
   features: {},
   paying: false,
   rhythm: null,
+  pendingSwitch: null,
 };
 
 describe("a plan that grants nothing (T32, #41)", () => {
@@ -39,10 +40,12 @@ describe("what to say when nothing opened", () => {
     expect(handoffFailure({ status: "gone" }, "portal")).toContain("niets te beheren");
   });
 
-  it("sends somebody who already pays to Betaling beheren rather than to another plan (T83)", () => {
-    // The button is on the same screen, under the cards; a switch is the Portal's,
-    // which prorates it rather than charging twice.
-    expect(handoffFailure({ status: "already-paying" }, "checkout")).toContain("Betaling beheren");
+  it("sends somebody who already pays to Overstappen, never the Portal (T83, T90)", () => {
+    // The Portal no longer switches plans (ADR-0042); the cards do, once the
+    // popup has reloaded the plan that made them a Checkout.
+    const said = handoffFailure({ status: "already-paying" }, "checkout");
+    expect(said).toContain("Overstappen");
+    expect(said).not.toContain("Betaling beheren");
   });
 
   it("says come back in a moment when Stripe could not be asked", () => {

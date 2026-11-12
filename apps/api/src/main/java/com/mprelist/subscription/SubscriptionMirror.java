@@ -87,4 +87,19 @@ public interface SubscriptionMirror {
 	 */
 	Mirroring ended(SubscriberOnStripe who, OffsetDateTime saidAt);
 
+	/**
+	 * Stripe reports a subscription schedule, which is how a <strong>Scheduled switch</strong> is held there
+	 * (T90, ADR-0042): the switch it holds, or none — the schedule has ended, or has no phase after the current
+	 * one, or the subscription is set to cancel, which always wins.
+	 *
+	 * <p>Ordered among the schedule's own events and not behind the subscription's, which interleave with them.
+	 * A schedule for a subscription this row does not hold changes nothing: it is that customer's history.
+	 *
+	 * @param who which subscription, and whose
+	 * @param pending what takes over at the period's end, or empty for nothing
+	 * @param saidAt the moment Stripe generated the event
+	 * @return {@link Mirroring#MIRRORED}, or why it was not
+	 */
+	Mirroring scheduled(SubscriberOnStripe who, java.util.Optional<PendingSwitch> pending, OffsetDateTime saidAt);
+
 }

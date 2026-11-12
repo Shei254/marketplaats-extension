@@ -60,12 +60,22 @@ class PlanSwitchRouteTest {
 	void somebodyStripeIsNotBillingIsToldSo() {
 		Subscriber free = this.rows.entitledTo(3);
 
-		for (String path : new String[] { "/api/plan-switch", "/api/plan-switch/preview" }) {
+		for (String path : new String[] { "/api/plan-switch", "/api/plan-switch/preview",
+				"/api/plan-switch/scheduled" }) {
 			HttpResponse<String> refused = post(path, free.token(), "pro", "month");
 
 			assertThat(refused.statusCode()).as(path).isEqualTo(409);
 			assertThat(refused.body()).as(path).isEqualTo("{\"reason\":\"NOT_PAYING\"}");
 		}
+	}
+
+	/** Undo has nothing to undo for somebody Stripe is not billing, and says so the same way (T90). */
+	@Test
+	void undoForSomebodyNotPayingIsToldSoToo() {
+		HttpResponse<String> refused = delete("/api/plan-switch/scheduled", this.rows.entitledTo(3).token());
+
+		assertThat(refused.statusCode()).isEqualTo(409);
+		assertThat(refused.body()).isEqualTo("{\"reason\":\"NOT_PAYING\"}");
 	}
 
 	@Test
@@ -85,6 +95,8 @@ class PlanSwitchRouteTest {
 
 		assertThat(post("/api/plan-switch/preview", payer.token(), "pro", "month").statusCode()).isEqualTo(503);
 		assertThat(post("/api/plan-switch", payer.token(), "pro", "month").statusCode()).isEqualTo(503);
+		assertThat(post("/api/plan-switch/scheduled", payer.token(), "pro", "month").statusCode()).isEqualTo(503);
+		assertThat(delete("/api/plan-switch/scheduled", payer.token()).statusCode()).isEqualTo(503);
 	}
 
 	@Test
@@ -129,6 +141,14 @@ class PlanSwitchRouteTest {
 				.header("Authorization", "Bearer " + token)
 				.header("Content-Type", "application/json")
 				.POST(HttpRequest.BodyPublishers.ofString(body, UTF_8))
+				.build());
+	}
+
+	private HttpResponse<String> delete(String path, String token) {
+		return Http.send(HttpRequest.newBuilder(uri(path))
+				.timeout(TIMEOUT)
+				.header("Authorization", "Bearer " + token)
+				.DELETE()
 				.build());
 	}
 

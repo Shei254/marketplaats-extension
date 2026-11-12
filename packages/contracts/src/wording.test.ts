@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Plan } from "./enforcement";
-import { grantOf, priceOf, waysToPay } from "./wording";
+import { dayOf, dueToday, freshPeriodLine, grantOf, pendingLine, priceOf, waysToPay } from "./wording";
 
 /** The one rhythm this fixture is sold at, named because several assertions want it. */
 const FIRST_PRICE = { amount: 999, currency: "eur", interval: "month" } as const;
@@ -154,5 +154,46 @@ describe("what a buyer can pay with", () => {
     expect(waysToPay(["ideal", "paypal", "card", "sepa_debit"])).toBe(
       "Je kunt betalen met iDEAL, PayPal, creditcard of SEPA-incasso.",
     );
+  });
+});
+
+describe("what a switch says (T90, ADR-0042)", () => {
+  it("names the fresh month and what is lost of the old plan", () => {
+    expect(freshPeriodLine({ relistQuotaPerPeriod: 60 }, { name: "Pro", relistQuotaPerPeriod: 50 })).toBe(
+      "Je nieuwe maand begint vandaag met 60 herplaatsingen; wat over is van Pro vervalt.",
+    );
+  });
+
+  it("says onbeperkt for a target with no cap", () => {
+    expect(freshPeriodLine({ relistQuotaPerPeriod: null }, { name: "Pro", relistQuotaPerPeriod: 50 })).toBe(
+      "Je nieuwe maand begint vandaag met onbeperkt herplaatsen; wat over is van Pro vervalt.",
+    );
+  });
+
+  it("and the rest of the period, not what is left over, when the plan left has no cap", () => {
+    expect(freshPeriodLine({ relistQuotaPerPeriod: 50 }, { name: "Power", relistQuotaPerPeriod: null })).toBe(
+      "Je nieuwe maand begint vandaag met 50 herplaatsingen; de rest van je Power-periode vervalt.",
+    );
+  });
+
+  it("counts one repost in the singular", () => {
+    expect(freshPeriodLine({ relistQuotaPerPeriod: 1 }, { name: "Pro", relistQuotaPerPeriod: 50 })).toMatch(
+      /met 1 herplaatsing;/,
+    );
+  });
+
+  it("says what is charged today in Dutch money, and nothing as nothing", () => {
+    const fifteen = priceOf({ amount: 1500, currency: "eur", interval: "month" });
+    expect(dueToday({ amount: 1500, currency: "eur" })).toBe(`Je betaalt vandaag ${fifteen}.`);
+    expect(dueToday({ amount: 0, currency: "eur" })).toBe("Er wordt vandaag niets afgeschreven.");
+  });
+
+  it("dates a pending switch by the day it takes over", () => {
+    const at = new Date(2026, 11, 12, 10).toISOString();
+    expect(dayOf(at)).toBe("12 december");
+    expect(pendingLine({ tier: { code: "power", name: "Power" }, rhythm: "month", at })).toBe(
+      "Gaat op 12 december over naar Power",
+    );
+    expect(dayOf("not a date")).toBe("");
   });
 });

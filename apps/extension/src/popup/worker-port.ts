@@ -1,5 +1,5 @@
 import type { DisplayStateAnswer } from "../api/display-state";
-import type { HandoffAnswer, PlansAnswer } from "../api/subscribing";
+import type { HandoffAnswer, PlansAnswer, SwitchAnswer } from "../api/subscribing";
 import type {AdsPage, ListingSummary, PendingRepost} from "../domain/types";
 import type { BackgroundRequest, BackgroundResponse, WireRelistOutcome } from "../background/messages";
 import { clearSavedPosition, readSavedPosition, writeSavedPosition } from "../adapters/chrome-position-store";
@@ -110,6 +110,35 @@ export function workerPort(): WorkerPort {
     async portal(): Promise<HandoffAnswer> {
       try {
         return await ask({ kind: "portal" });
+      } catch {
+        return { status: "unavailable" };
+      }
+    },
+    /** The four Plan switch calls (T90), flattened to `unavailable` like the two above. */
+    async previewSwitch(tierCode: string, interval: string): Promise<SwitchAnswer> {
+      try {
+        return await ask({ kind: "switch-preview", tierCode, interval });
+      } catch {
+        return { status: "unavailable" };
+      }
+    },
+    async switchNow(tierCode: string, interval: string): Promise<SwitchAnswer> {
+      try {
+        return await ask({ kind: "switch-now", tierCode, interval });
+      } catch {
+        return { status: "unavailable" };
+      }
+    },
+    async scheduleSwitch(tierCode: string, interval: string): Promise<SwitchAnswer> {
+      try {
+        return await ask({ kind: "switch-schedule", tierCode, interval });
+      } catch {
+        return { status: "unavailable" };
+      }
+    },
+    async undoSwitch(): Promise<SwitchAnswer> {
+      try {
+        return await ask({ kind: "switch-undo" });
       } catch {
         return { status: "unavailable" };
       }

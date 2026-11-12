@@ -291,3 +291,77 @@ describe("managing what has already been bought", () => {
     expect(calls[0]?.headers["X-Mprelist-Client"]).toBe("extension/9.9.9");
   });
 });
+
+describe("switching plan (T90, ADR-0042)", () => {
+  const RENEWS = "2026-12-12T09:00:00Z";
+
+  it("prices a switch made now with Stripe's preview, and says when the period renews", async () => {
+    const { client, calls } = api({ answer: () => json({ amount: 1500, currency: "eur", renewsAt: RENEWS }) });
+
+    await expect(client.previewSwitch("power", "month")).resolves.toEqual({
+      status: "priced",
+      amount: 1500,
+      currency: "eur",
+      renewsAt: RENEWS,
+    });
+    expect(calls[0]?.url).toBe("http://localhost:8080/api/plan-switch/preview");
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.body).toBe('{"tierCode":"power","interval":"month"}');
+  });
+
+  it("switches now, and is done or names the invoice page to finish it on", async () => {
+    const done = api({ answer: () => json({ confirmAt: null }) });
+    await expect(done.client.switchNow("power", "month")).resolves.toEqual({ status: "switched" });
+    expect(done.calls[0]?.url).toBe("http://localhost:8080/api/plan-switch");
+
+    const threeDS = api({ answer: () => json({ confirmAt: "https://invoice.stripe.com/i/1" }) });
+    await expect(threeDS.client.switchNow("power", "month")).resolves.toEqual({
+      status: "confirm",
+      url: "https://invoice.stripe.com/i/1",
+    });
+  });
+
+  it("schedules a switch for the renewal", async () => {
+    const { client, calls } = api({ answer: () => json({ at: RENEWS }) });
+
+    await expect(client.scheduleSwitch("power", "month")).resolves.toEqual({ status: "scheduled" });
+    expect(calls[0]?.url).toBe("http://localhost:8080/api/plan-switch/scheduled");
+    expect(calls[0]?.method).toBe("POST");
+  });
+
+  it("undoes one with a DELETE and no body", async () => {
+    const { client, calls } = api({ answer: () => empty(204) });
+
+    await expect(client.undoSwitch()).resolves.toEqual({ status: "undone" });
+    expect(calls[0]?.url).toBe("http://localhost:8080/api/plan-switch/scheduled");
+    expect(calls[0]?.method).toBe("DELETE");
+    expect(calls[0]?.body).toBeUndefined();
+  });
+
+  it("reads Dunning as an open invoice, by the code", async () => {
+    const { client } = api({ answer: () => json({ reason: "OPEN_INVOICE" }, 409) });
+
+    await expect(client.switchNow("power", "month")).resolves.toEqual({ status: "invoice-open" });
+    await expect(client.previewSwitch("power", "month")).resolves.toEqual({ status: "invoice-open" });
+  });
+
+  it("and somebody not paying as not paying", async () => {
+    const { client } = api({ answer: () => json({ reason: "NOT_PAYING" }, 409) });
+
+    await expect(client.scheduleSwitch("power", "month")).resolves.toEqual({ status: "not-paying" });
+  });
+
+  it("reads the rest as checkout does", async () => {
+    await expect(api({ answer: () => empty(404) }).client.switchNow("x", "month")).resolves.toEqual({
+      status: "gone",
+    });
+    await expect(api({ answer: () => empty(503) }).client.undoSwitch()).resolves.toEqual({ status: "unavailable" });
+    await expect(api({ answer: () => empty(401) }).client.undoSwitch()).resolves.toEqual({ status: "signed-out" });
+    await expect(api({ answer: () => json({ reason: "SOMETHING_NEW" }, 409) }).client.undoSwitch()).resolves.toEqual(
+      { status: "unavailable" },
+    );
+    await expect(
+      api({ answer: () => json({ amount: "lots", currency: "eur" }) }).client.previewSwitch("power", "month"),
+    ).resolves.toEqual({ status: "unavailable" });
+  });
+});

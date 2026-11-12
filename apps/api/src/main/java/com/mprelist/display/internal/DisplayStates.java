@@ -12,6 +12,7 @@ import com.mprelist.catalog.TierPrice;
 import com.mprelist.enforcement.Quotas;
 import com.mprelist.enforcement.RemainingQuota;
 import com.mprelist.identity.UserRef;
+import com.mprelist.subscription.PendingSwitch;
 import com.mprelist.subscription.Subscription;
 import com.mprelist.subscription.Subscriptions;
 
@@ -73,9 +74,21 @@ class DisplayStates {
 		boolean paying = this.subscriptions.isPaying(caller);
 		String rhythm = paying ? this.subscriptions.stripePriceFor(caller).flatMap(this::rhythmSoldAs).orElse(null)
 				: null;
+		DisplayState.PendingSwitchShown pending = paying
+				? this.subscriptions.pendingSwitchFor(caller).flatMap(this::shown).orElse(null) : null;
 		return new Shown.Plan(new DisplayState(plan.status(), this.tiers.nameOf(tier.get()),
 				left.quotaRemaining(), granted.relistsPerPeriod(), left.resetAt(), granted.features(), paying,
-				rhythm));
+				rhythm, pending));
+	}
+
+	/** A pending switch as the cards show it, read off the plans on sale for {@link #rhythmSoldAs}' reason. */
+	private Optional<DisplayState.PendingSwitchShown> shown(PendingSwitch pending) {
+		return this.tiers.published().stream()
+				.flatMap(plan -> plan.prices().stream()
+						.filter(price -> price.stripePriceId().equals(pending.stripePriceId()))
+						.map(price -> new DisplayState.PendingSwitchShown(plan.tier(), price.interval(),
+								pending.at())))
+				.findFirst();
 	}
 
 	/**

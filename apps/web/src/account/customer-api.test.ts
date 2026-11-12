@@ -39,7 +39,32 @@ describe("who they are", () => {
   it("is their tier, whether Stripe is billing them, and at which rhythm", async () => {
     const { client } = api(() => json({ tier: { code: "pro", name: "Pro" }, paying: true, rhythm: "year" }));
 
-    expect(await client.me()).toEqual({ status: "ready", tierCode: "pro", paying: true, rhythm: "year" });
+    expect(await client.me()).toEqual({
+      status: "ready",
+      tierCode: "pro",
+      tierName: "Pro",
+      grant: null,
+      paying: true,
+      rhythm: "year",
+      inDunning: false,
+      pendingSwitch: null,
+    });
+  });
+
+  it("reads Dunning and a pending switch off the same body (T90)", async () => {
+    const pending = { tier: { code: "max", name: "Max" }, rhythm: "month", at: "2026-12-12T09:00:00Z" };
+    const { client } = api(() =>
+      json({
+        subscriptionStatus: "PAST_DUE",
+        tier: { code: "pro", name: "Pro" },
+        relistQuotaPerPeriod: 50,
+        paying: true,
+        rhythm: "month",
+        pendingSwitch: pending,
+      }),
+    );
+
+    expect(await client.me()).toMatchObject({ inDunning: true, grant: 50, pendingSwitch: pending });
   });
 
   it("and no tier at all is the 403 the API answers it with", async () => {
@@ -51,12 +76,13 @@ describe("who they are", () => {
 
 describe("a Plan switch", () => {
   it("is priced by Stripe, sent the plan and rhythm as a body", async () => {
-    const { client, sent } = api(() => json({ amount: -410, currency: "eur" }));
+    const { client, sent } = api(() => json({ amount: 1500, currency: "eur", renewsAt: "2026-12-12T09:00:00Z" }));
 
     expect(await client.previewSwitch({ tierCode: "pro", interval: "month" })).toEqual({
       status: "ready",
-      amount: -410,
+      amount: 1500,
       currency: "eur",
+      renewsAt: "2026-12-12T09:00:00Z",
     });
     expect(sent[0]?.url).toBe("https://api.example.test/api/plan-switch/preview");
     expect(JSON.parse(String(sent[0]?.init?.body))).toEqual({ tierCode: "pro", interval: "month" });
@@ -81,6 +107,30 @@ describe("a Plan switch", () => {
     });
     expect(await api(() => empty(404)).client.previewSwitch(choice)).toEqual({ status: "not-for-sale" });
     expect(await api(() => empty(503)).client.previewSwitch(choice)).toEqual({ status: "unavailable" });
+  });
+
+  it("reads OPEN_INVOICE as Dunning, by the code (T90)", async () => {
+    const choice = { tierCode: "pro", interval: "month" };
+
+    expect(await api(() => json({ reason: "OPEN_INVOICE" }, 409)).client.switchPlan(choice)).toEqual({
+      status: "invoice-open",
+    });
+    expect(await api(() => json({ reason: "OPEN_INVOICE" }, 409)).client.scheduleSwitch(choice)).toEqual({
+      status: "invoice-open",
+    });
+  });
+
+  it("schedules one for the renewal, and undoes it (T90)", async () => {
+    const scheduled = api(() => json({ at: "2026-12-12T09:00:00Z" }));
+    const undone = api(() => empty(204));
+
+    expect(await scheduled.client.scheduleSwitch({ tierCode: "max", interval: "month" })).toEqual({
+      status: "scheduled",
+    });
+    expect(scheduled.sent[0]?.url).toBe("https://api.example.test/api/plan-switch/scheduled");
+    expect(scheduled.sent[0]?.init?.method).toBe("POST");
+    expect(await undone.client.undoSwitch()).toEqual({ status: "undone" });
+    expect(undone.sent[0]?.init?.method).toBe("DELETE");
   });
 });
 

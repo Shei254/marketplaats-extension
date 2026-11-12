@@ -131,7 +131,8 @@ function lockedBy(body: unknown): LockedState {
       return { state: "no-tier" };
     case "ALREADY_PAYING":
     case "NOT_PAYING":
-      // Checkout's refusal and the Plan switch's (T83, T85), never a relist's.
+    case "OPEN_INVOICE":
+      // Checkout's refusal and the Plan switch's (T83, T85, T90), never a relist's.
       // Meeting either here means something other than the gate answered, which
       // is the safe reading's case.
       return { state: "retry" };

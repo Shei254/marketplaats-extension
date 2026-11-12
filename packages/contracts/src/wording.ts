@@ -1,5 +1,5 @@
 import { inMajorUnits, majorUnitsOf } from "./money";
-import type { Plan, PlanPrice } from "./enforcement";
+import type { PendingSwitch, Plan, PlanPrice } from "./enforcement";
 
 /**
  * How a plan reads, in the words both surfaces use for it (T58): the popup's plan
@@ -174,3 +174,66 @@ export function waysToPay(methods: readonly string[]): string | null {
   if (named.length === 1) return `Je kunt betalen met ${named[0]}.`;
   return `Je kunt betalen met ${named.slice(0, -1).join(", ")} of ${named[named.length - 1]}.`;
 }
+
+/**
+ * What a switch made now does to the reposts (T90, ADR-0042), in the confirm
+ * step both surfaces show before anybody pays: the new month starts today with
+ * its full grant, and the rest of the old plan is gone. Said in those words
+ * because the loss is deliberate and nobody should find it out afterwards.
+ *
+ * A target with no cap grants "onbeperkt herplaatsen" rather than a number, and
+ * a plan left with no cap had nothing "left over" to count, so its period is
+ * what is lost.
+ */
+export function freshPeriodLine(
+  to: { relistQuotaPerPeriod: number | null },
+  from: { name: string; relistQuotaPerPeriod: number | null },
+): string {
+  const grant =
+    to.relistQuotaPerPeriod === null
+      ? "onbeperkt herplaatsen"
+      : `${to.relistQuotaPerPeriod} herplaatsing${to.relistQuotaPerPeriod === 1 ? "" : "en"}`;
+  const lost =
+    from.relistQuotaPerPeriod === null ? `de rest van je ${from.name}-periode vervalt` : `wat over is van ${from.name} vervalt`;
+  return `Je nieuwe maand begint vandaag met ${grant}; ${lost}.`;
+}
+
+/**
+ * Stripe's preview of a switch made now, in a sentence. The new plan's full
+ * price, or less where the Stripe customer holds a credit, and never negative
+ * since nothing is credited (ADR-0042) — so zero is the only other case.
+ */
+export function dueToday(preview: { amount: number; currency: string }): string {
+  if (preview.amount <= 0) return "Er wordt vandaag niets afgeschreven.";
+  return `Je betaalt vandaag ${priceOf({ amount: preview.amount, currency: preview.currency, interval: "month" })}.`;
+}
+
+/** "12 december", in the reader's own zone: the day on their calendar. Empty for no date. */
+export function dayOf(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getDate()} ${MONTHS[date.getMonth()]}`;
+}
+
+/** The held card's line while a Scheduled switch waits (T90). */
+export function pendingLine(pending: PendingSwitch): string {
+  return `Gaat op ${dayOf(pending.at)} over naar ${pending.tier.name}`;
+}
+
+/** What both surfaces' cards say during Dunning instead of offering a switch (T90, `OPEN_INVOICE`). */
+export const PAY_THE_OPEN_INVOICE_FIRST = "Betaal eerst je openstaande factuur via Betaling beheren.";
+
+const MONTHS = [
+  "januari",
+  "februari",
+  "maart",
+  "april",
+  "mei",
+  "juni",
+  "juli",
+  "augustus",
+  "september",
+  "oktober",
+  "november",
+  "december",
+];

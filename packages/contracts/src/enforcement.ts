@@ -86,8 +86,8 @@ export const DENIAL_REASONS = [
    * Stripe is already billing the caller, so `POST /api/checkout` opens no
    * second subscription (T83). **Not the gate's** — it is never an answer to a
    * relist — and it is a denial for `NO_TIER`'s reason: a statement about the
-   * user, on a route the gate does not own. What to do about it is the Customer
-   * Portal, where a plan switch is prorated, so it adds nothing.
+   * user, on a route the gate does not own. What to do about it is a Plan
+   * switch, which the cards offer once they know (T90), so it adds nothing.
    */
   "ALREADY_PAYING",
   /**
@@ -96,6 +96,13 @@ export const DENIAL_REASONS = [
    * ADR-0036). What they want is Checkout, so it adds nothing.
    */
   "NOT_PAYING",
+  /**
+   * Dunning — `past_due`, `unpaid`, `incomplete` — so no Plan switch is made or
+   * priced, now or at renewal, until the open invoice is paid through the
+   * Customer Portal (T90, ADR-0042). On all four `/api/plan-switch` routes. A
+   * bank debit on its way is `active` and is not this. Adds nothing.
+   */
+  "OPEN_INVOICE",
 ] as const;
 
 export type DenialReason = (typeof DENIAL_REASONS)[number];
@@ -122,7 +129,9 @@ export type Denial =
   /** Adds nothing: the Portal link is already on the screen that asked. */
   | { reason: "ALREADY_PAYING" }
   /** Adds nothing: the same card offers Checkout once the client knows. */
-  | { reason: "NOT_PAYING" };
+  | { reason: "NOT_PAYING" }
+  /** Adds nothing: the Portal link is already on the screen that asked. */
+  | { reason: "OPEN_INVOICE" };
 
 /** `POST /api/relist/authorize`. Quota and pacing are per user; there is no account id to send. */
 export interface AuthorizeRequest {
@@ -261,6 +270,21 @@ export interface DisplayState {
    * card sells or has not been mirrored since T85: "unknown", not an error.
    */
   rhythm: string | null;
+  /**
+   * The **Scheduled switch** waiting for the period's end (T90, ADR-0042):
+   * which plan, at which Rhythm, from when. `null` for none, and where its
+   * Price is no longer on sale. Read from the mirror, never from Stripe.
+   */
+  pendingSwitch: PendingSwitch | null;
+}
+
+/** What a pending switch moves to, and the day it does. */
+export interface PendingSwitch {
+  tier: TierName;
+  /** `month` or `year`. */
+  rhythm: string;
+  /** ISO 8601: the end of the period they have paid for. */
+  at: string;
 }
 
 /**
@@ -404,20 +428,31 @@ export interface CheckoutSession {
  * `POST /api/plan-switch/preview` and `POST /api/plan-switch` — a **Plan
  * switch**: the Price on the Stripe subscription a payer already has, changed
  * in place and never by a second Checkout (T85, ADR-0036). The body is
- * {@link CheckoutRequest}'s, and so are the `404` and the `503`; the denial is
- * `409 NOT_PAYING`.
+ * {@link CheckoutRequest}'s, and so are the `404` and the `503`; the denials
+ * are `409 NOT_PAYING` and, during Dunning, `409 OPEN_INVOICE`.
+ *
+ * Since T90 (ADR-0042) a switch now restarts the period at the new plan's full
+ * price and credits nothing. `POST /api/plan-switch/scheduled` takes the same
+ * body and makes it a **Scheduled switch** instead, answered with
+ * {@link SwitchScheduled}; `DELETE /api/plan-switch/scheduled` undoes it, `204`.
  */
 export type SwitchRequest = CheckoutRequest;
 
 /**
  * What the switch would invoice now, from Stripe's own preview — never an
- * amount a client works out. **Negative is a credit**: a downgrade, left on the
- * Stripe customer against the next invoices.
+ * amount a client works out. The new plan's full price, less any credit
+ * already on the Stripe customer.
  */
 export interface SwitchPreview {
   /** In the currency's smallest unit, as {@link PlanPrice.amount} is. */
   amount: number;
   currency: string;
+  /**
+   * ISO 8601: the end of the period they have paid for, when a Scheduled switch
+   * would take over (T90). Stripe's, not `resetAt`, which for an annual payer is
+   * the monthly reset.
+   */
+  renewsAt: string;
 }
 
 /**
@@ -427,6 +462,15 @@ export interface SwitchPreview {
  */
 export interface SwitchMade {
   confirmAt: string | null;
+}
+
+/**
+ * A Scheduled switch, made: the day the chosen Price takes over, or `null`
+ * where the Price chosen is the one already paid and what was pending was only
+ * dropped.
+ */
+export interface SwitchScheduled {
+  at: string | null;
 }
 
 /**

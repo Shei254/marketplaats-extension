@@ -83,7 +83,8 @@ class StripeSubscriptionMirrorTest {
 		// What T51's webhook writes when the Price is created in the dashboard (#82), arranged here because
 		// this suite is about what happens *after* somebody buys it.
 		TierPrices.soldByTheMonth(this.db, "pro", PRO_PRICE);
-		this.db.update("update tier set published = true where code = 'pro'");
+		TierPrices.soldByTheMonth(this.db, "power", POWER_PRICE);
+		this.db.update("update tier set published = true where code in ('pro', 'power')");
 	}
 
 	// --- a subscription that starts ---------------------------------------------------------------------
@@ -603,7 +604,205 @@ class StripeSubscriptionMirrorTest {
 		assertThat(shown.get("quotaRemaining").asInt()).isEqualTo(quotaOf("pro"));
 	}
 
+	// --- a Scheduled switch, mirrored (T90, ADR-0042) ------------------------------------------------------
+
+	/**
+	 * A schedule with a phase after the current one is a pending switch, and {@code /api/me} names it — the
+	 * tier, the Rhythm and the day — from the row, never from Stripe.
+	 */
+	@Test
+	void aScheduleIsThePendingSwitchTheClientsShow() {
+		Account buyer = whoJustSignedIn();
+		Sub bought = subscriptionOf(buyer);
+		this.stripe.delivered(started(bought));
+
+		assertThat(this.stripe.delivered(schedule("subscription_schedule.created", bought, "active", POWER_PRICE,
+				ANY_TIME)).statusCode()).isEqualTo(200);
+
+		JsonNode pending = Json.of(displayStateOf(buyer.token())).get("pendingSwitch");
+		assertThat(pending.get("tier").get("code").asString()).isEqualTo("power");
+		assertThat(pending.get("rhythm").asString()).isEqualTo("month");
+		assertThat(OffsetDateTime.parse(pending.get("at").asString()).withOffsetSameInstant(ZoneOffset.UTC))
+				.isEqualTo(utc(bought.periodEnd()));
+	}
+
+	@Test
+	void nobodyWithoutOneIsShownOne() {
+		Account buyer = whoJustSignedIn();
+		this.stripe.delivered(started(subscriptionOf(buyer)));
+
+		assertThat(Json.of(displayStateOf(buyer.token())).get("pendingSwitch").isNull()).isTrue();
+	}
+
+	/** Made from the subscription and not yet given its second phase: nothing is pending yet. */
+	@Test
+	void aScheduleOfTheCurrentPeriodAloneIsNoSwitch() {
+		Account buyer = whoJustSignedIn();
+		Sub bought = subscriptionOf(buyer);
+		this.stripe.delivered(started(bought));
+
+		this.stripe.delivered(schedule("subscription_schedule.created", bought, "active", null, ANY_TIME));
+
+		assertThat(pendingPriceOf(buyer)).isNull();
+	}
+
+	/** Undo, a dashboard edit, the switch taking over: each ends the schedule, and the row lets go of it. */
+	@Test
+	void aScheduleThatEndsIsNoLongerPending() {
+		for (String[] ending : new String[][] { { "subscription_schedule.released", "released" },
+				{ "subscription_schedule.canceled", "canceled" },
+				{ "subscription_schedule.completed", "completed" },
+				{ "subscription_schedule.updated", "released" } }) {
+			Account buyer = whoJustSignedIn();
+			Sub bought = subscriptionOf(buyer);
+			this.stripe.delivered(started(bought));
+			this.stripe.delivered(schedule("subscription_schedule.created", bought, "active", POWER_PRICE,
+					ANY_TIME));
+
+			this.stripe.delivered(schedule(ending[0], bought, ending[1], POWER_PRICE, ANY_TIME.plusSeconds(1)));
+
+			assertThat(pendingPriceOf(buyer)).as(ending[0]).isNull();
+		}
+	}
+
+	/** Stripe's events about the schedule are ordered among themselves, as the subscription's are. */
+	@Test
+	void aScheduleEventThatHasBeenOvertakenIsNotApplied() {
+		Account buyer = whoJustSignedIn();
+		Sub bought = subscriptionOf(buyer);
+		this.stripe.delivered(started(bought));
+		this.stripe.delivered(schedule("subscription_schedule.released", bought, "released", POWER_PRICE,
+				ANY_TIME.plusSeconds(10)));
+
+		this.stripe.delivered(schedule("subscription_schedule.created", bought, "active", POWER_PRICE, ANY_TIME));
+
+		assertThat(pendingPriceOf(buyer)).isNull();
+	}
+
+	/**
+	 * But not behind the subscription's: a renewal mirrored a second later does not make the schedule made
+	 * just before it old news.
+	 */
+	@Test
+	void andIsNotOvertakenByTheSubscriptionsOwn() {
+		Account buyer = whoJustSignedIn();
+		Sub bought = subscriptionOf(buyer);
+		this.stripe.delivered(started(bought, ANY_TIME.plusSeconds(10)));
+
+		this.stripe.delivered(schedule("subscription_schedule.created", bought, "active", POWER_PRICE, ANY_TIME));
+
+		assertThat(pendingPriceOf(buyer)).isEqualTo(POWER_PRICE);
+	}
+
+	/** A cancellation always wins over a pending switch (ADR-0042). */
+	@Test
+	void aCancellationDropsThePendingSwitch() {
+		Account buyer = whoJustSignedIn();
+		Sub bought = subscriptionOf(buyer);
+		this.stripe.delivered(started(bought));
+		this.stripe.delivered(schedule("subscription_schedule.created", bought, "active", POWER_PRICE, ANY_TIME));
+
+		this.stripe.delivered(ended(bought.as("canceled"), ANY_TIME.plusSeconds(1)));
+
+		assertThat(pendingPriceOf(buyer)).isNull();
+	}
+
+	@Test
+	void andSoDoesOneAtPeriodEnd() {
+		Account buyer = whoJustSignedIn();
+		Sub bought = subscriptionOf(buyer);
+		this.stripe.delivered(started(bought));
+		this.stripe.delivered(schedule("subscription_schedule.created", bought, "active", POWER_PRICE, ANY_TIME));
+
+		Map<String, Object> cancelling = objectOf(bought);
+		cancelling.put("cancel_at_period_end", true);
+		this.stripe.delivered(event("customer.subscription.updated", ANY_TIME.plusSeconds(1), cancelling));
+
+		assertThat(pendingPriceOf(buyer)).isNull();
+	}
+
+	/** At renewal the subscription arrives at the pending Price, which is the switch done. */
+	@Test
+	void theSwitchTakingOverIsNoLongerPending() {
+		Account buyer = whoJustSignedIn();
+		Sub bought = subscriptionOf(buyer);
+		this.stripe.delivered(started(bought));
+		this.stripe.delivered(schedule("subscription_schedule.created", bought, "active", POWER_PRICE, ANY_TIME));
+
+		this.stripe.delivered(changed(bought.forThePrice(POWER_PRICE), ANY_TIME.plusSeconds(1)));
+
+		assertThat(planOf(buyer)).containsEntry("tier", "power");
+		assertThat(pendingPriceOf(buyer)).isNull();
+	}
+
+	/**
+	 * The ticket's own check (T90, ADR-0042): Pro on day 12 with all 50 used, switched to Power now. Stripe's new
+	 * window starts today, and the mirror makes it a fresh Quota period with Power's full grant.
+	 */
+	@Test
+	void aSwitchNowIsAFreshPeriodWithTheNewPlansFullGrant() {
+		Account buyer = whoJustSignedIn();
+		Instant dayTwelve = ANY_TIME;
+		Sub onPro = subscriptionOf(buyer).forThePeriod(dayTwelve.minus(11, ChronoUnit.DAYS),
+				dayTwelve.plus(19, ChronoUnit.DAYS));
+		this.stripe.delivered(started(onPro, dayTwelve.minus(11, ChronoUnit.DAYS)));
+		for (int used = 0; used < quotaOf("pro"); used++) {
+			this.db.update("""
+					insert into usage_reservation (app_user_id, ad_id, reserved_at, expires_at, status, resolved_at)
+					values (?, ?, ?, ?, 'SETTLED', ?)
+					""", buyer.id(), "ad-" + used, utc(dayTwelve.minusSeconds(3600)),
+					utc(dayTwelve.minusSeconds(3555)), utc(dayTwelve.minusSeconds(3550)));
+		}
+		assertThat(Json.of(displayStateOf(buyer.token())).get("quotaRemaining").asInt()).isZero();
+
+		this.stripe.delivered(changed(onPro.forThePrice(POWER_PRICE).forThePeriod(dayTwelve,
+				dayTwelve.plus(30, ChronoUnit.DAYS)), dayTwelve));
+
+		JsonNode shown = Json.of(displayStateOf(buyer.token()));
+		assertThat(shown.get("tier").get("code").asString()).isEqualTo("power");
+		assertThat(shown.get("quotaRemaining").asInt()).isEqualTo(quotaOf("power"));
+		assertThat(shown.get("relistQuotaPerPeriod").asInt()).isEqualTo(quotaOf("power"));
+	}
+
+	/** A schedule for a subscription this row no longer holds is somebody else's history. */
+	@Test
+	void aScheduleForAnotherSubscriptionOfTheSameCustomerChangesNothing() {
+		Account buyer = whoJustSignedIn();
+		Sub bought = subscriptionOf(buyer);
+		this.stripe.delivered(started(bought));
+
+		this.stripe.delivered(schedule("subscription_schedule.created", bought.called("sub_long_gone"), "active",
+				POWER_PRICE, ANY_TIME));
+
+		assertThat(pendingPriceOf(buyer)).isNull();
+	}
+
 	// --- the events, as Stripe sends them ---------------------------------------------------------------
+
+	/**
+	 * A {@code subscription_schedule.*} event: the period they are in at the Price they pay, and, where
+	 * {@code next} is named, the chosen Price from that period's end.
+	 */
+	private static String schedule(String type, Sub subscription, String status, String next, Instant when) {
+		long start = subscription.periodStart().getEpochSecond();
+		long end = subscription.periodEnd().getEpochSecond();
+		List<Map<String, Object>> phases = new java.util.ArrayList<>();
+		phases.add(Map.of("start_date", start, "end_date", end,
+				"items", List.of(Map.of("price", subscription.price(), "quantity", 1))));
+		if (next != null) {
+			phases.add(Map.of("start_date", end, "end_date", end + 2_592_000L,
+					"items", List.of(Map.of("price", next, "quantity", 1))));
+		}
+		Map<String, Object> object = new LinkedHashMap<>();
+		object.put("id", "sub_sched_" + subscription.id());
+		object.put("object", "subscription_schedule");
+		object.put("customer", subscription.customer());
+		object.put("subscription", subscription.id());
+		object.put("status", status);
+		object.put("current_phase", "active".equals(status) ? Map.of("start_date", start, "end_date", end) : null);
+		object.put("phases", phases);
+		return event(type, when, object);
+	}
 
 	/** {@code customer.subscription.created}: what a completed Checkout produces. */
 	private static String started(Sub subscription) {
@@ -773,6 +972,11 @@ class StripeSubscriptionMirrorTest {
 				""", account.id());
 	}
 
+	private String pendingPriceOf(Account account) {
+		return this.db.queryForObject("select pending_price_id from subscription where app_user_id = ?",
+				String.class, account.id());
+	}
+
 	private List<OffsetDateTime> windowOf(Account account) {
 		Map<String, Object> window = this.db.queryForMap(
 				"select period_start, period_end from subscription where app_user_id = ?", account.id());
@@ -810,6 +1014,9 @@ class StripeSubscriptionMirrorTest {
 
 	/** The Price the seeded `pro` is sold at here, as T51's webhook would have written it. */
 	private static final String PRO_PRICE = "price_pro_monthly";
+
+	/** And `power`'s, which a Scheduled switch moves them to (T90). */
+	private static final String POWER_PRICE = "price_power_monthly";
 
 	private static final JsonMapper JSON = JsonMapper.builder().build();
 

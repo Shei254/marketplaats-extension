@@ -74,4 +74,31 @@ badly in one direction or the other:
   6a is rewritten to match.
 - **To verify against Stripe before building:** that `billing_cycle_anchor=now` is accepted with
   `pending_if_incomplete`, and whether the Portal will cancel a subscription that a schedule controls. If
-  it will not, **Betaling beheren** releases the schedule first.
+  it will not, **Betaling beheren** releases the schedule first. What was found is below.
+
+## Checked in test mode (2026-11-12)
+
+Scripted against the sandbox account with the API version `stripe-java` 29.2.0 pins, on throwaway objects
+deleted afterwards.
+
+- **`billing_cycle_anchor=now` with `proration_behavior=none` and `pending_if_incomplete` is accepted.**
+  For a card that pays, the subscription moves at once to a new period starting that second, and the invoice
+  is the new Price's full amount with no proration lines. For a card that needs 3-D Secure
+  (`pm_card_authenticationRequired`), it comes back `active` and unchanged, with a `pending_update` carrying
+  the new anchor and items, and an open invoice with a hosted page, which is the flow the site already had.
+  The preview (`invoices/create_preview` with the same `subscription_details`) totals the same full amount.
+  PayPal was not checked: a test PayPal method cannot be attached without a redirect.
+- **An update made directly on a subscription that a schedule controls is not refused.** Stripe rewrites
+  the schedule's current phase instead and keeps its old end date, which leaves a schedule nobody asked for.
+  So the decision's "an immediate switch releases it before updating" is required, not tidiness.
+- **Stripe's API refuses `cancel_at_period_end` on a subscription a schedule controls:** *"The subscription
+  is managed by the subscription schedule …, and updating any cancelation behavior directly is not allowed.
+  Please update the schedule instead."* An immediate cancel succeeds and cancels the schedule with it, so the
+  mirror clears the pending switch on `customer.subscription.deleted` and `subscription_schedule.canceled`.
+- **Not checked: what the Customer Portal does** for a subscriber with a pending switch, whose cancel is at
+  period end (ADR-0018). If it applies the API's rule, *Opzeggen* is hidden or fails there, and no webhook
+  arrives. **Decided for now (2026-11-12): nothing releases the schedule before the Portal opens.** A cancel
+  the Portal does accept still drops the pending switch through the webhook; one it refuses means pressing
+  **Ongedaan maken** first. The Portal check is an open item in `docs/click-through.md` 6a, to be decided on
+  in a later session: if the Portal refuses, *Betaling beheren* releasing a pending switch first is the
+  fallback this ADR named.

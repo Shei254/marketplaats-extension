@@ -1,5 +1,5 @@
 import type { DisplayStateAnswer } from "../api/display-state";
-import type { HandoffAnswer, PlansAnswer } from "../api/subscribing";
+import type { HandoffAnswer, PlansAnswer, SwitchAnswer } from "../api/subscribing";
 import type { AuthState } from "../auth/session";
 import type { RemainingQuota } from "@mprelist/contracts";
 
@@ -84,7 +84,12 @@ export type AdsRequest = { kind: "list-ads"; batchNumber?: number; batchSize?: n
 export type SubscribingRequest =
   | { kind: "plans" }
   | { kind: "checkout"; tierCode: string; interval: string }
-  | { kind: "portal" };
+  | { kind: "portal" }
+  /** A Plan switch, priced, made now, scheduled for renewal, or undone (T90, ADR-0042). */
+  | { kind: "switch-preview"; tierCode: string; interval: string }
+  | { kind: "switch-now"; tierCode: string; interval: string }
+  | { kind: "switch-schedule"; tierCode: string; interval: string }
+  | { kind: "switch-undo" };
 
 export type BackgroundRequest =
   | RelistRequest
@@ -157,6 +162,11 @@ export interface BackgroundAnswers {
    */
   checkout: HandoffAnswer;
   portal: HandoffAnswer;
+  "switch-preview": SwitchAnswer;
+  /** A `confirm` has already been opened in a tab by the worker. */
+  "switch-now": SwitchAnswer;
+  "switch-schedule": SwitchAnswer;
+  "switch-undo": SwitchAnswer;
 }
 
 export type BackgroundResponse<K extends BackgroundRequest["kind"] = BackgroundRequest["kind"]> =

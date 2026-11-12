@@ -164,8 +164,8 @@ class CheckoutTest {
 
 	/**
 	 * Somebody Stripe is already billing is refused a second subscription, and told why: it is a statement
-	 * about them — the one kind of {@code 4xx} that carries a {@code reason} — and what to do about it is the
-	 * Customer Portal, where a switch is prorated rather than charged twice.
+	 * about them — the one kind of {@code 4xx} that carries a {@code reason} — and what to do about it is a
+	 * Plan switch rather than a second charge (T85, T90).
 	 *
 	 * <p>{@code 409} and not {@code 503}, although no Stripe is configured here: the answer is read off our own
 	 * mirror before Stripe would be asked.

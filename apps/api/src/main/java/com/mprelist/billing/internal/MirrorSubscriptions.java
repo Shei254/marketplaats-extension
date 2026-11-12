@@ -75,6 +75,33 @@ class MirrorSubscriptions {
 		}
 		report(this.mirror.mirror(who.get(), status.get(), price.get(), period.get(), event.created()), who.get(),
 				event);
+		if (event.cancelsAtPeriodEnd()) {
+			// A cancellation always wins over a pending switch (T90, ADR-0042). Stripe refuses to set this while
+			// a schedule holds the subscription, so this is belt and braces for a schedule ended out of order.
+			this.mirror.scheduled(who.get(), Optional.empty(), event.created());
+		}
+	}
+
+	/**
+	 * @param event one of the five {@code subscription_schedule.*} events, already verified as Stripe's
+	 */
+	void applySchedule(StripeEvent event) {
+		Optional<SubscriberOnStripe> who = event.scheduledSubscriber();
+		if (who.isEmpty()) {
+			LOG.info("A {} event named no subscription or no customer, so no switch was mirrored ({}).", event.type(),
+					event.id());
+			return;
+		}
+		Mirroring mirrored = this.mirror.scheduled(who.get(), event.pendingSwitch(), event.created());
+		switch (mirrored) {
+			case MIRRORED -> LOG.info("The pending switch on subscription {} is mirrored as of {} ({}).",
+					who.get().subscriptionId(), event.created(), event.type());
+			case SAID_BEFORE_WHAT_IS_ALREADY_MIRRORED -> LOG.debug("A {} event from {} about subscription {} is "
+					+ "older than the switch already mirrored there.", event.type(), event.created(),
+					who.get().subscriptionId());
+			default -> LOG.info("No subscription here is {}, so the schedule's switch was not mirrored ({}).",
+					who.get().subscriptionId(), event.type());
+		}
 	}
 
 	/**

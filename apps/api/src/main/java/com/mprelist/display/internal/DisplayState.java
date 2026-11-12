@@ -55,8 +55,22 @@ import com.mprelist.subscription.SubscriptionStatus;
  * @param rhythm the <strong>Rhythm</strong> they are billed at — {@code month}, {@code year} — so that their
  * own card can offer the other one. {@code null} when they are not paying, and also for a subscriber from
  * before T85 whose Price has not been mirrored since, which a client reads as "rhythm unknown"
+ * @param pendingSwitch the <strong>Scheduled switch</strong> waiting for the period's end (T90, ADR-0042), or
+ * {@code null} for none — also where its Price is no longer on sale, since no card could then show it. Sent
+ * rather than omitted, for {@code features}' reason
  */
 record DisplayState(SubscriptionStatus subscriptionStatus, TierName tier, Integer quotaRemaining,
 		Integer relistQuotaPerPeriod, OffsetDateTime resetAt, Map<String, Object> features, boolean paying,
-		String rhythm) {
+		String rhythm, PendingSwitchShown pendingSwitch) {
+
+	/**
+	 * What a pending switch moves to and when: the card it lands on, the Rhythm it is billed at, the day.
+	 *
+	 * @param tier both halves of the plan's name, as {@link DisplayState#tier} is
+	 * @param rhythm {@code month} or {@code year}
+	 * @param at the end of the period they have paid for
+	 */
+	record PendingSwitchShown(TierName tier, String rhythm, OffsetDateTime at) {
+	}
+
 }

@@ -29,8 +29,8 @@ sealed interface Checkout {
 
 	/**
 	 * Stripe is already billing this account (T83), so a session would be a second subscription on the same
-	 * customer and a second charge. What they want is a plan switch, and that is the Customer Portal's — it
-	 * prorates one, and {@code customer.subscription.updated} moves the tier. The only one of these that is a
+	 * customer and a second charge. What they want is a Plan switch, which both clients offer through
+	 * {@code /api/plan-switch} (T85, T90), and {@code customer.subscription.updated} moves the tier. The only one of these that is a
 	 * statement about the caller, which is why it alone carries a {@code reason}.
 	 */
 	record AlreadyPaying() implements Checkout {

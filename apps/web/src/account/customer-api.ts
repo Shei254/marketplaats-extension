@@ -1,3 +1,5 @@
+import type { PendingSwitch } from "@mprelist/contracts";
+
 import type { Choice, SwitchAnswer, SwitchPreviewAnswer } from "../public/viewer";
 
 /**
@@ -13,7 +15,16 @@ import type { Choice, SwitchAnswer, SwitchPreviewAnswer } from "../public/viewer
 export type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 
 export type Me =
-  | { status: "ready"; tierCode: string; paying: boolean; rhythm: string | null }
+  | {
+      status: "ready";
+      tierCode: string;
+      tierName: string;
+      grant: number | null;
+      paying: boolean;
+      rhythm: string | null;
+      inDunning: boolean;
+      pendingSwitch: PendingSwitch | null;
+    }
   /** Signed in, on no tier at all (ADR-0032): not paying, nothing current. */
   | { status: "no-tier" }
   | { status: "expired" }
@@ -37,11 +48,16 @@ export class CustomerApi {
     const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
     const tier = body?.["tier"] as Record<string, unknown> | undefined;
     if (typeof tier?.["code"] !== "string") return { status: "unavailable" };
+    const grant = body?.["relistQuotaPerPeriod"];
     return {
       status: "ready",
       tierCode: tier["code"],
+      tierName: typeof tier["name"] === "string" ? tier["name"] : tier["code"],
+      grant: typeof grant === "number" ? grant : null,
       paying: body?.["paying"] === true,
       rhythm: typeof body?.["rhythm"] === "string" ? body["rhythm"] : null,
+      inDunning: DUNNING.includes(String(body?.["subscriptionStatus"])),
+      pendingSwitch: pendingIn(body?.["pendingSwitch"]),
     };
   }
 
@@ -58,13 +74,15 @@ export class CustomerApi {
   async previewSwitch(choice: Choice): Promise<SwitchPreviewAnswer | { status: "expired" }> {
     const response = await this.call("POST", "/api/plan-switch/preview", choice);
     if (!response) return { status: "unavailable" };
-    const refused = refusal(response.status);
+    const refused = await refusal(response);
     if (refused) return refused;
     const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
     const amount = body?.["amount"];
     const currency = body?.["currency"];
+    const renewsAt = body?.["renewsAt"];
     if (typeof amount !== "number" || typeof currency !== "string") return { status: "unavailable" };
-    return { status: "ready", amount, currency };
+    if (typeof renewsAt !== "string" || Number.isNaN(Date.parse(renewsAt))) return { status: "unavailable" };
+    return { status: "ready", amount, currency, renewsAt };
   }
 
   /**
@@ -76,12 +94,26 @@ export class CustomerApi {
   ): Promise<Exclude<SwitchAnswer, { status: "confirming" }> | { status: "confirm"; url: string } | { status: "expired" }> {
     const response = await this.call("POST", "/api/plan-switch", choice);
     if (!response) return { status: "unavailable" };
-    const refused = refusal(response.status);
+    const refused = await refusal(response);
     if (refused) return refused;
     const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
     if (!body || !("confirmAt" in body)) return { status: "unavailable" };
     const confirmAt = body["confirmAt"];
     return typeof confirmAt === "string" ? { status: "confirm", url: confirmAt } : { status: "switched" };
+  }
+
+  /** A Scheduled switch: the chosen plan from the renewal, nothing charged today (T90). */
+  async scheduleSwitch(choice: Choice): Promise<SwitchAnswer | { status: "expired" }> {
+    const response = await this.call("POST", "/api/plan-switch/scheduled", choice);
+    if (!response) return { status: "unavailable" };
+    return (await refusal(response)) ?? { status: "scheduled" };
+  }
+
+  /** Ongedaan maken: the pending Scheduled switch released. */
+  async undoSwitch(): Promise<SwitchAnswer | { status: "expired" }> {
+    const response = await this.call("DELETE", "/api/plan-switch/scheduled");
+    if (!response) return { status: "unavailable" };
+    return (await refusal(response)) ?? { status: "undone" };
   }
 
   private async opening(path: string, body?: Choice): Promise<Opened> {
@@ -94,7 +126,7 @@ export class CustomerApi {
     return typeof url === "string" ? { status: "opened", url } : { status: "refused" };
   }
 
-  private async call(method: "GET" | "POST", path: string, body?: unknown): Promise<Response | null> {
+  private async call(method: "GET" | "POST" | "DELETE", path: string, body?: unknown): Promise<Response | null> {
     try {
       return await this.fetch(`${this.apiBaseUrl}${path}`, {
         method,
@@ -112,12 +144,31 @@ export class CustomerApi {
   }
 }
 
-function refusal(
-  status: number,
-): { status: "expired" | "not-paying" | "not-for-sale" | "unavailable" } | null {
+/** The refusals the four switch routes share. A `409` is read by its code, never its status. */
+async function refusal(
+  response: Response,
+): Promise<{ status: "expired" | "not-paying" | "invoice-open" | "not-for-sale" | "unavailable" } | null> {
+  const status = response.status;
   if (status === 401) return { status: "expired" };
-  if (status === 409) return { status: "not-paying" };
+  if (status === 409) {
+    const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+    if (body?.["reason"] === "NOT_PAYING") return { status: "not-paying" };
+    if (body?.["reason"] === "OPEN_INVOICE") return { status: "invoice-open" };
+    return { status: "unavailable" };
+  }
   if (status === 404) return { status: "not-for-sale" };
   if (status < 200 || status >= 300) return { status: "unavailable" };
   return null;
 }
+
+function pendingIn(value: unknown): PendingSwitch | null {
+  if (typeof value !== "object" || value === null) return null;
+  const { tier, rhythm, at } = value as Record<string, unknown>;
+  const { code, name } = (typeof tier === "object" && tier !== null ? tier : {}) as Record<string, unknown>;
+  if (typeof code !== "string" || typeof name !== "string") return null;
+  if (typeof rhythm !== "string" || typeof at !== "string" || Number.isNaN(Date.parse(at))) return null;
+  return { tier: { code, name }, rhythm, at };
+}
+
+/** Dunning, as `/api/me` spells Stripe's statuses (ADR-0018, ADR-0042). */
+const DUNNING = ["PAST_DUE", "UNPAID", "INCOMPLETE"];

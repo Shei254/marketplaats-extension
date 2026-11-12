@@ -94,7 +94,8 @@ class DisplayStateTest {
 		assertThat(shown.statusCode()).isEqualTo(200);
 		JsonNode state = Json.of(shown);
 		assertThat(state.propertyNames()).containsExactlyInAnyOrder("subscriptionStatus", "tier", "quotaRemaining",
-				"relistQuotaPerPeriod", "resetAt", "features", "paying", "rhythm");
+				"relistQuotaPerPeriod", "resetAt", "features", "paying", "rhythm",
+				"pendingSwitch");
 		assertThat(state.get("subscriptionStatus").asString()).isEqualTo("ACTIVE");
 		assertThat(state.get("quotaRemaining").asInt()).isEqualTo(3);
 		assertThat(resetAtIn(state)).isEqualTo(this.rows.windowOf(user).end());

@@ -8,6 +8,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.mprelist.catalog.TaggedPrice;
+import com.mprelist.subscription.PendingSwitch;
 import com.mprelist.subscription.QuotaPeriod;
 import com.mprelist.subscription.SubscriberOnStripe;
 import com.mprelist.subscription.SubscriptionStatus;
@@ -124,6 +125,68 @@ record StripeEvent(String id, String type, OffsetDateTime created, JsonNode obje
 	 * hand in the dashboard, the two Stripe ids below still find the row for anybody who has paid before, and
 	 * an event refused over it would be one retried for three days over something no retry changes.
 	 */
+	/**
+	 * One of the five {@code subscription_schedule.*} events that start, change or end a schedule — which is
+	 * how a <strong>Scheduled switch</strong> is held at Stripe (T90, ADR-0042).
+	 */
+	boolean isAboutASchedule() {
+		return SCHEDULE_EVENTS.contains(this.type);
+	}
+
+	/** The subscription a schedule controls, and its customer. A schedule carries none of our tags. */
+	Optional<SubscriberOnStripe> scheduledSubscriber() {
+		String subscription = text(this.object.path("subscription"));
+		if (subscription == null) {
+			// A released schedule names the subscription it let go of here instead.
+			subscription = text(this.object.path("released_subscription"));
+		}
+		String customer = text(this.object.path("customer"));
+		if (subscription == null || customer == null) {
+			return Optional.empty();
+		}
+		return Optional.of(new SubscriberOnStripe(subscription, customer, Optional.empty()));
+	}
+
+	/**
+	 * The switch a schedule holds: the Price of the first phase after the current one, from that phase's start.
+	 * None where the schedule is not running ({@code released}, {@code canceled}, {@code completed}, or not
+	 * started), where nothing follows the current phase, or where what follows is the Price already paid.
+	 */
+	Optional<PendingSwitch> pendingSwitch() {
+		if (!"active".equals(text(this.object.path("status")))) {
+			return Optional.empty();
+		}
+		long currentEnd = this.object.path("current_phase").path("end_date").asLong(0);
+		if (currentEnd <= 0) {
+			return Optional.empty();
+		}
+		String paying = null;
+		for (JsonNode phase : this.object.path("phases")) {
+			String price = priceOf(phase);
+			long start = phase.path("start_date").asLong(0);
+			if (start < currentEnd) {
+				paying = price;
+				continue;
+			}
+			if (price == null || price.equals(paying)) {
+				return Optional.empty();
+			}
+			return Optional.of(new PendingSwitch(price, Instant.ofEpochSecond(start).atOffset(ZoneOffset.UTC)));
+		}
+		return Optional.empty();
+	}
+
+	/** Whether a subscription is set to end with its period, which drops a pending switch (ADR-0042). */
+	boolean cancelsAtPeriodEnd() {
+		return this.object.path("cancel_at_period_end").asBoolean(false);
+	}
+
+	/** A phase item's Price, which Stripe sends as an id and, expanded, as an object. */
+	private static String priceOf(JsonNode phase) {
+		JsonNode price = phase.path("items").path(0).path("price");
+		return price.isObject() ? text(price.path("id")) : text(price);
+	}
+
 	Optional<SubscriberOnStripe> subscriber() {
 		String subscription = text(this.object.path("id"));
 		String customer = text(this.object.path("customer"));
@@ -250,5 +313,9 @@ record StripeEvent(String id, String type, OffsetDateTime created, JsonNode obje
 	private static final String SUBSCRIPTION_UPDATED = "customer.subscription.updated";
 
 	private static final String SUBSCRIPTION_DELETED = "customer.subscription.deleted";
+
+	private static final java.util.Set<String> SCHEDULE_EVENTS = java.util.Set.of("subscription_schedule.created",
+			"subscription_schedule.updated", "subscription_schedule.released", "subscription_schedule.canceled",
+			"subscription_schedule.completed");
 
 }

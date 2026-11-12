@@ -3,6 +3,7 @@ import {
   isQuota,
   type DenialReason,
   type DisplayState,
+  type PendingSwitch,
 } from "@mprelist/contracts";
 
 import type { AccessToken } from "../auth/session";
@@ -186,7 +187,21 @@ export function asDisplayState(body: unknown): DisplayState | null {
     // before them is somebody this client has no reason to turn away.
     paying: fields["paying"] === true,
     rhythm: typeof fields["rhythm"] === "string" ? fields["rhythm"] : null,
+    // T90's, read as leniently: a malformed one is no pending switch rather than
+    // no plan, since the cards are all it changes.
+    pendingSwitch: asPendingSwitch(fields["pendingSwitch"]),
   };
+}
+
+function asPendingSwitch(value: unknown): PendingSwitch | null {
+  if (typeof value !== "object" || value === null) return null;
+  const { tier, rhythm, at } = value as Record<string, unknown>;
+  if (typeof tier !== "object" || tier === null) return null;
+  const { code, name } = tier as Record<string, unknown>;
+  if (typeof code !== "string" || code.length === 0 || typeof name !== "string" || name.length === 0) return null;
+  if (typeof rhythm !== "string" || rhythm.length === 0) return null;
+  if (typeof at !== "string" || Number.isNaN(Date.parse(at))) return null;
+  return { tier: { code, name }, rhythm, at };
 }
 
 function isSubscriptionStatus(value: unknown): value is DisplayState["subscriptionStatus"] {

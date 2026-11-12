@@ -66,9 +66,9 @@ export function handoffFailure(answer: HandoffAnswer, asked: "checkout" | "porta
       : "Je hebt nog niets betaald, dus er is niets te beheren.";
   }
   if (answer.status === "already-paying") {
-    // Checkout's alone (T83). The button it names is under the cards on this
-    // same screen, and a switch there is prorated rather than charged twice.
-    return "Je hebt al een betaald abonnement. Wissel of zeg op via Betaling beheren.";
+    // Checkout's alone (T83). Only a stale card meets it now that a payer's cards
+    // say Overstappen (T90), so the popup reloads the plan and these become those.
+    return "Je hebt al een betaald abonnement. Stap over met Overstappen bij het abonnement dat je wilt.";
   }
   if (answer.status === "unavailable") {
     return asked === "checkout"

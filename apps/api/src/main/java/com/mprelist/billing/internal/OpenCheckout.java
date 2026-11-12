@@ -27,8 +27,8 @@ import com.stripe.param.checkout.SessionCreateParams;
  *
  * <p><strong>Nobody pays twice</strong> (T83). Stripe knows a returning customer by the id below and will still
  * create a second subscription on them, so somebody on Pro who presses Business would be charged for both.
- * A payer is refused before anything else is looked at; a plan switch is the Customer Portal's, which
- * prorates it.
+ * A payer is refused before anything else is looked at; what they want is a Plan switch ({@code SwitchPlans},
+ * T85, T90).
  *
  * <p><strong>A returning subscriber is the same customer.</strong> ADR-0018 has a cancelled subscriber fall
  * back to the free tier with {@code stripe_customer_id} kept, precisely so that resubscribing continues one

@@ -12,6 +12,7 @@ const PLAN: DisplayState = {
   features: {},
   paying: false,
   rhythm: null,
+  pendingSwitch: null,
 };
 
 describe("which screen an answer means", () => {

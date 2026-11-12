@@ -28,7 +28,7 @@ com.mprelist
 │   └── internal/                 ◀ the tier table and the tear-down queue, through JdbcClient
 ├── subscription/   public: SubscriptionStatus, Subscription, QuotaPeriod, Subscriptions,
 │   │                       SubscriptionMirror, SubscriberOnStripe, Mirroring,
-│   │                       TierSubscribers, SubscriberCount
+│   │                       TierSubscribers, SubscriberCount, PendingSwitch
 │   └── internal/                 ◀ the table, through JdbcClient, and provisioning on first sign-in
 ├── billing/        public: StripePrices, StripePrice, StripePaymentMethods, StripePlans,
 │   │                       NewPlanInStripe, PlanRhythm, PlanCreation, StripeAccountFacts,
@@ -155,7 +155,9 @@ is not the same as making it, which is the whole lesson of this paragraph and th
 `subscription` gained the write half of its module at T20, #30 — `SubscriptionMirror`, `SubscriberOnStripe`
 and `Mirroring`. `identity` gained `RoutesNeedingARole` (#27), which is how `admin` states a rule the filter
 chain applies without the chain having heard of `admin`. And `clientconfig` (T27, #36) was a whole module
-absent from the tree, the same failure as `billing`'s rather than a smaller one.
+absent from the tree, the same failure as `billing`'s rather than a smaller one. `PendingSwitch` (T90,
+ADR-0042) is a Scheduled switch crossing the same port the other way: `billing` hands it to the mirror, and
+`display` reads it back through `Subscriptions`.
 
 **The `subscription/internal/stripe/` adapter this tree promised at #30 is removed because it was never
 built, and what happened instead is worth keeping.** The mirror is a *port on `subscription`* that `billing`

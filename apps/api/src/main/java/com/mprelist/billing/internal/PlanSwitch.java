@@ -10,13 +10,16 @@ package com.mprelist.billing.internal;
 sealed interface PlanSwitch {
 
 	/**
-	 * What the switch would invoice now, from Stripe's own preview. Negative is a credit — a downgrade, left on
-	 * the Stripe customer against the next invoices — and never an amount we worked out.
+	 * What the switch would invoice now, from Stripe's own preview, and never an amount we worked out. Since
+	 * T90 (ADR-0042) that is the new plan's full price, since nothing is credited; a credit already on the
+	 * Stripe customer can still make it smaller, or zero.
 	 *
 	 * @param amount in the currency's smallest unit, as Stripe counts it
 	 * @param currency ISO 4217, lower case
+	 * @param renewsAt the end of the period they have paid for, which is when a Scheduled switch would take
+	 * over — Stripe's, not the monthly reset {@code /api/me} answers with, which differs for an annual payer
 	 */
-	record Previewed(long amount, String currency) implements PlanSwitch {
+	record Previewed(long amount, String currency, java.time.OffsetDateTime renewsAt) implements PlanSwitch {
 	}
 
 	/** Done, or nothing to do: the subscription is billed at that Price now, and the webhook moves the tier. */
@@ -30,6 +33,22 @@ sealed interface PlanSwitch {
 	 * @param url the invoice's hosted page
 	 */
 	record ConfirmPayment(String url) implements PlanSwitch {
+	}
+
+	/**
+	 * A <strong>Scheduled switch</strong> is pending (T90, ADR-0042): the Price they pay now until Stripe's
+	 * period ends, then the chosen one. The webhook mirrors it; this is only what the route answers.
+	 *
+	 * @param at when the chosen Price takes over, which is Stripe's current period end
+	 */
+	record Scheduled(java.time.OffsetDateTime at) implements PlanSwitch {
+	}
+
+	/**
+	 * Stripe is collecting an invoice that has not been paid — Dunning: {@code past_due}, {@code unpaid} or
+	 * {@code incomplete} (T90, ADR-0042). Nothing is switched, now or at renewal, until it is.
+	 */
+	record InvoiceOpen() implements PlanSwitch {
 	}
 
 	/** Stripe is billing this caller for nothing, so there is nothing to switch: Checkout is theirs. */

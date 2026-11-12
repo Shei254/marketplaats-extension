@@ -75,6 +75,9 @@ class ReceiveStripeEvents {
 		else if (event.isAboutASubscription()) {
 			this.subscriptions.apply(event);
 		}
+		else if (event.isAboutASchedule()) {
+			this.subscriptions.applySchedule(event);
+		}
 		return ResponseEntity.ok().build();
 	}
 

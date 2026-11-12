@@ -4,9 +4,12 @@ import {
   dayOf,
   dueToday,
   freshPeriodLine,
+  fromRenewalLine,
+  SWITCH_AT_RENEWAL,
+  SWITCHED_TODAY,
+  UNDO_FAILED,
   grantOf,
   pendingLine,
-  priceAndRhythmOf,
   priceOf,
   type FreeTier,
   type Plan,
@@ -403,7 +406,7 @@ function HeldCardPending({ plan, account }: { plan: Plan; account: Account }): J
       <p className="web-plan-note web-plan-note--pending">{pendingLine(viewer.pendingSwitch)}</p>
       {undoing === "failed" ? (
         <p className="web-plan-note" role="status">
-          Ongedaan maken lukte nu niet. Probeer het zo nog eens.
+          {UNDO_FAILED}
         </p>
       ) : null}
       <button
@@ -528,19 +531,17 @@ export function SwitchDialog({
                   relistQuotaPerPeriod: viewer?.grant ?? null,
                 })}
               </p>
-              <p>
-                <b>Op {renews}:</b> Vanaf {renews} {after ? priceAndRhythmOf(after) : ""}; tot dan houd je{" "}
-                {viewer?.tierName ?? "je huidige abonnement"}.
-              </p>
+              {after ? (
+                <p>
+                  <b>Op {renews}:</b>{" "}
+                  {fromRenewalLine(phase.preview.renewsAt, after, viewer?.tierName ?? "je huidige abonnement")}
+                </p>
+              ) : null}
             </>
           ) : null}
           {phase.kind === "switching" ? <p>Je abonnement wordt aangepast…</p> : null}
           {phase.kind === "done" ? (
-            <p>
-              {phase.when === "now"
-                ? "Gelukt. Je nieuwe abonnement gaat vandaag in."
-                : "Gelukt. Je stapt over zodra je huidige periode afloopt."}
-            </p>
+            <p>{phase.when === "now" ? SWITCHED_TODAY : SWITCH_AT_RENEWAL}</p>
           ) : null}
           {phase.kind === "failed" ? <p>{phase.message}</p> : null}
         </div>

@@ -242,14 +242,19 @@ class SubscriptionRows implements Subscriptions, SubscriptionMirror, TierSubscri
 				   set tier_id = cast(? as uuid), status = ?, period_start = ?, period_end = ?,
 				       stripe_customer_id = ?, stripe_subscription_id = ?, stripe_price_id = ?,
 				       mirrored_through = ?,
-				       -- Arriving at the pending Price is the Scheduled switch taking over (T90).
+				       -- Arriving at the pending Price is the Scheduled switch taking over (T90), stamped so
+				       -- that a schedule event generated before it cannot bring the switch back.
 				       pending_price_id = case when pending_price_id = ? then null else pending_price_id end,
-				       pending_at = case when pending_price_id = ? then null else pending_at end
+				       pending_at = case when pending_price_id = ? then null else pending_at end,
+				       pending_schedule_id = case when pending_price_id = ? then null else pending_schedule_id end,
+				       pending_mirrored_through = case when pending_price_id = ?
+				                                       then greatest(pending_mirrored_through, ?)
+				                                       else pending_mirrored_through end
 				 where id = ?
 				""")
 				.params(landing.map(TierId::id).orElse(null), stored(status), period.start(), period.end(),
 						who.customerId(), who.subscriptionId(), stripePriceId, saidAt, stripePriceId, stripePriceId,
-						row.get().id())
+						stripePriceId, stripePriceId, saidAt, row.get().id())
 				.update();
 		return tier.isPresent() ? Mirroring.MIRRORED : Mirroring.MIRRORED_ONTO_THE_TIER_THEY_WERE_ALREADY_ON;
 	}
@@ -290,7 +295,7 @@ class SubscriptionRows implements Subscriptions, SubscriptionMirror, TierSubscri
 				update subscription
 				   set tier_id = cast(? as uuid), status = 'active', period_start = ?, period_end = ?,
 				       stripe_customer_id = ?, stripe_subscription_id = null, stripe_price_id = null,
-				       pending_price_id = null, pending_at = null,
+				       pending_price_id = null, pending_at = null, pending_schedule_id = null,
 				       mirrored_through = ?
 				 where id = ?
 				""")
@@ -301,22 +306,56 @@ class SubscriptionRows implements Subscriptions, SubscriptionMirror, TierSubscri
 	}
 
 	/**
-	 * Two columns and a timestamp of their own, and only on the row holding that subscription. Ordered by
+	 * The pending switch's own columns, only on the row holding that subscription, and ordered by
 	 * {@code pending_mirrored_through} for the reason {@code V13__pending_switch.sql} gives.
 	 */
 	@Override
 	@Transactional
-	public Mirroring scheduled(SubscriberOnStripe who, Optional<PendingSwitch> pending, OffsetDateTime saidAt) {
-		int written = this.db.sql("""
+	public Mirroring switchPending(SubscriberOnStripe who, String scheduleId, PendingSwitch pending,
+			OffsetDateTime saidAt) {
+		return pendingWritten(who, saidAt, this.db.sql("""
 				update subscription
-				   set pending_price_id = ?, pending_at = ?, pending_mirrored_through = ?
+				   set pending_price_id = ?, pending_at = ?, pending_schedule_id = ?, pending_mirrored_through = ?
 				 where stripe_subscription_id = ? and stripe_customer_id = ?
 				   and (pending_mirrored_through is null or pending_mirrored_through <= ?)
 				""")
-				.params(pending.map(PendingSwitch::stripePriceId).orElse(null),
-						pending.map(PendingSwitch::at).orElse(null), saidAt, who.subscriptionId(), who.customerId(),
-						saidAt)
-				.update();
+				.params(pending.stripePriceId(), pending.at(), scheduleId, saidAt, who.subscriptionId(),
+						who.customerId(), saidAt)
+				.update());
+	}
+
+	/** As above, and only where the schedule that ended is the one that set what is pending, or none did. */
+	@Override
+	@Transactional
+	public Mirroring scheduleEnded(SubscriberOnStripe who, String scheduleId, OffsetDateTime saidAt) {
+		return pendingWritten(who, saidAt, this.db.sql("""
+				update subscription
+				   set pending_price_id = null, pending_at = null, pending_schedule_id = null,
+				       pending_mirrored_through = ?
+				 where stripe_subscription_id = ? and stripe_customer_id = ?
+				   and (pending_schedule_id is null or pending_schedule_id = ?)
+				   and (pending_mirrored_through is null or pending_mirrored_through <= ?)
+				""")
+				.params(saidAt, who.subscriptionId(), who.customerId(), scheduleId, saidAt)
+				.update());
+	}
+
+	@Override
+	@Transactional
+	public Mirroring pendingSwitchDropped(SubscriberOnStripe who, OffsetDateTime saidAt) {
+		return pendingWritten(who, saidAt, this.db.sql("""
+				update subscription
+				   set pending_price_id = null, pending_at = null, pending_schedule_id = null,
+				       pending_mirrored_through = ?
+				 where stripe_subscription_id = ? and stripe_customer_id = ?
+				   and (pending_mirrored_through is null or pending_mirrored_through <= ?)
+				""")
+				.params(saidAt, who.subscriptionId(), who.customerId(), saidAt)
+				.update());
+	}
+
+	/** Which of the three things a write that touched {@code written} rows was. */
+	private Mirroring pendingWritten(SubscriberOnStripe who, OffsetDateTime saidAt, int written) {
 		if (written > 0) {
 			return Mirroring.MIRRORED;
 		}

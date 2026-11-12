@@ -197,3 +197,11 @@ describe("what a switch says (T90, ADR-0042)", () => {
     expect(dayOf("not a date")).toBe("");
   });
 });
+
+describe("Dunning (T90)", () => {
+  it("is the three statuses with an invoice open, and never a debit on its way", async () => {
+    const { isInDunning } = await import("./enforcement");
+    expect(["PAST_DUE", "UNPAID", "INCOMPLETE"].every(isInDunning)).toBe(true);
+    expect(["ACTIVE", "TRIALING", "CANCELED", "INCOMPLETE_EXPIRED"].some(isInDunning)).toBe(false);
+  });
+});

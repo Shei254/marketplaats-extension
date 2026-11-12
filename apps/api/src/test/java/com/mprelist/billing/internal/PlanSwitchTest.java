@@ -8,6 +8,9 @@ import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -494,8 +497,8 @@ class PlanSwitchTest {
 				+ "\"subscription\":\"sub_1\",\"phases\":[" + current + (twoPhases ? next : "") + "]}";
 	}
 
-	private static java.time.OffsetDateTime at(long epochSecond) {
-		return java.time.Instant.ofEpochSecond(epochSecond).atOffset(java.time.ZoneOffset.UTC);
+	private static OffsetDateTime at(long epochSecond) {
+		return Instant.ofEpochSecond(epochSecond).atOffset(ZoneOffset.UTC);
 	}
 
 	private static String method(String type) {

@@ -1,5 +1,7 @@
 package com.mprelist.billing.internal;
 
+import java.time.OffsetDateTime;
+
 /**
  * What came of asking to switch plan, or what a switch would cost (T85, ADR-0036).
  *
@@ -19,7 +21,7 @@ sealed interface PlanSwitch {
 	 * @param renewsAt the end of the period they have paid for, which is when a Scheduled switch would take
 	 * over — Stripe's, not the monthly reset {@code /api/me} answers with, which differs for an annual payer
 	 */
-	record Previewed(long amount, String currency, java.time.OffsetDateTime renewsAt) implements PlanSwitch {
+	record Previewed(long amount, String currency, OffsetDateTime renewsAt) implements PlanSwitch {
 	}
 
 	/** Done, or nothing to do: the subscription is billed at that Price now, and the webhook moves the tier. */
@@ -41,7 +43,7 @@ sealed interface PlanSwitch {
 	 *
 	 * @param at when the chosen Price takes over, which is Stripe's current period end
 	 */
-	record Scheduled(java.time.OffsetDateTime at) implements PlanSwitch {
+	record Scheduled(OffsetDateTime at) implements PlanSwitch {
 	}
 
 	/**

@@ -5,6 +5,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import com.mprelist.catalog.TaggedPrice;
@@ -117,15 +118,6 @@ record StripeEvent(String id, String type, OffsetDateTime created, JsonNode obje
 	}
 
 	/**
-	 * Which subscription this is, whose customer holds it, and whose account it belongs to if our own tag is
-	 * still on it — or nothing at all where Stripe named no subscription or no customer, which is not a shape
-	 * any real event has.
-	 *
-	 * <p>A tag that is not a UUID is read as no tag rather than as an error: it can only have been written by
-	 * hand in the dashboard, the two Stripe ids below still find the row for anybody who has paid before, and
-	 * an event refused over it would be one retried for three days over something no retry changes.
-	 */
-	/**
 	 * One of the five {@code subscription_schedule.*} events that start, change or end a schedule — which is
 	 * how a <strong>Scheduled switch</strong> is held at Stripe (T90, ADR-0042).
 	 */
@@ -147,10 +139,25 @@ record StripeEvent(String id, String type, OffsetDateTime created, JsonNode obje
 		return Optional.of(new SubscriberOnStripe(subscription, customer, Optional.empty()));
 	}
 
+	/** Stripe's id for the schedule an event is about. */
+	String scheduleId() {
+		return text(this.object.path("id"));
+	}
+
 	/**
-	 * The switch a schedule holds: the Price of the first phase after the current one, from that phase's start.
-	 * None where the schedule is not running ({@code released}, {@code canceled}, {@code completed}, or not
-	 * started), where nothing follows the current phase, or where what follows is the Price already paid.
+	 * Whether the schedule has let go of its subscription — released, cancelled or completed — which is the one
+	 * way a schedule's event clears a pending switch (T90).
+	 */
+	boolean endsTheSchedule() {
+		return ENDED_SCHEDULES.contains(String.valueOf(text(this.object.path("status"))));
+	}
+
+	/**
+	 * The switch a running schedule holds: the Price of the first phase after the current one, from that
+	 * phase's start. None where the schedule is not running, where nothing follows the current phase (a
+	 * schedule just made from the subscription, or one whose last phase has begun), or where what follows is
+	 * the Price already paid. None is not a clear: an ended schedule says so with its status, and a switch that
+	 * took over is cleared by the subscription arriving at its Price.
 	 */
 	Optional<PendingSwitch> pendingSwitch() {
 		if (!"active".equals(text(this.object.path("status")))) {
@@ -187,6 +194,15 @@ record StripeEvent(String id, String type, OffsetDateTime created, JsonNode obje
 		return price.isObject() ? text(price.path("id")) : text(price);
 	}
 
+	/**
+	 * Which subscription this is, whose customer holds it, and whose account it belongs to if our own tag is
+	 * still on it — or nothing at all where Stripe named no subscription or no customer, which is not a shape
+	 * any real event has.
+	 *
+	 * <p>A tag that is not a UUID is read as no tag rather than as an error: it can only have been written by
+	 * hand in the dashboard, the two Stripe ids below still find the row for anybody who has paid before, and
+	 * an event refused over it would be one retried for three days over something no retry changes.
+	 */
 	Optional<SubscriberOnStripe> subscriber() {
 		String subscription = text(this.object.path("id"));
 		String customer = text(this.object.path("customer"));
@@ -314,7 +330,9 @@ record StripeEvent(String id, String type, OffsetDateTime created, JsonNode obje
 
 	private static final String SUBSCRIPTION_DELETED = "customer.subscription.deleted";
 
-	private static final java.util.Set<String> SCHEDULE_EVENTS = java.util.Set.of("subscription_schedule.created",
+	private static final Set<String> ENDED_SCHEDULES = Set.of("released", "canceled", "completed");
+
+	private static final Set<String> SCHEDULE_EVENTS = Set.of("subscription_schedule.created",
 			"subscription_schedule.updated", "subscription_schedule.released", "subscription_schedule.canceled",
 			"subscription_schedule.completed");
 

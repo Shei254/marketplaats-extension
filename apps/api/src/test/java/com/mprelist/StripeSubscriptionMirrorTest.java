@@ -10,6 +10,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -694,6 +695,57 @@ class StripeSubscriptionMirrorTest {
 		assertThat(pendingPriceOf(buyer)).isEqualTo(POWER_PRICE);
 	}
 
+	/**
+	 * A second Scheduled switch releases the first schedule and makes a new one within the same second, and
+	 * Stripe may deliver the old one's release last. That is somebody else's schedule ending, not this one.
+	 */
+	@Test
+	void aReplacedSchedulesLateReleaseLeavesTheNewSwitchPending() {
+		Account buyer = whoJustSignedIn();
+		Sub bought = subscriptionOf(buyer);
+		this.stripe.delivered(started(bought));
+		this.stripe.delivered(schedule("sub_sched_old", "subscription_schedule.updated", bought, "active",
+				POWER_PRICE, ANY_TIME));
+
+		this.stripe.delivered(schedule("sub_sched_new", "subscription_schedule.updated", bought, "active", POWER_PRICE,
+				ANY_TIME.plusSeconds(1)));
+		this.stripe.delivered(schedule("sub_sched_old", "subscription_schedule.released", bought, "released",
+				POWER_PRICE, ANY_TIME.plusSeconds(1)));
+
+		assertThat(pendingPriceOf(buyer)).isEqualTo(POWER_PRICE);
+	}
+
+	/**
+	 * A schedule is made from the subscription and given its second phase a moment later: its `created` names
+	 * only the current phase, and arriving after the `updated` it must not wipe the switch out.
+	 */
+	@Test
+	void aSchedulesCreatedArrivingAfterItsUpdateLeavesTheSwitchPending() {
+		Account buyer = whoJustSignedIn();
+		Sub bought = subscriptionOf(buyer);
+		this.stripe.delivered(started(bought));
+
+		this.stripe.delivered(schedule("subscription_schedule.updated", bought, "active", POWER_PRICE, ANY_TIME));
+		this.stripe.delivered(schedule("subscription_schedule.created", bought, "active", null, ANY_TIME));
+
+		assertThat(pendingPriceOf(buyer)).isEqualTo(POWER_PRICE);
+	}
+
+	/** A switch that took over is done, and an older schedule event arriving late does not bring it back. */
+	@Test
+	void aSwitchThatTookOverDoesNotComeBackFromALateScheduleEvent() {
+		Account buyer = whoJustSignedIn();
+		Sub bought = subscriptionOf(buyer);
+		this.stripe.delivered(started(bought));
+		this.stripe.delivered(schedule("subscription_schedule.created", bought, "active", POWER_PRICE, ANY_TIME));
+		this.stripe.delivered(changed(bought.forThePrice(POWER_PRICE), ANY_TIME.plusSeconds(2)));
+
+		this.stripe.delivered(schedule("subscription_schedule.updated", bought, "active", POWER_PRICE,
+				ANY_TIME.plusSeconds(1)));
+
+		assertThat(pendingPriceOf(buyer)).isNull();
+	}
+
 	/** A cancellation always wins over a pending switch (ADR-0042). */
 	@Test
 	void aCancellationDropsThePendingSwitch() {
@@ -784,9 +836,15 @@ class StripeSubscriptionMirrorTest {
 	 * {@code next} is named, the chosen Price from that period's end.
 	 */
 	private static String schedule(String type, Sub subscription, String status, String next, Instant when) {
+		return schedule("sub_sched_" + subscription.id(), type, subscription, status, next, when);
+	}
+
+	/** The same, from a schedule of its own: a replaced one, as a second Scheduled switch leaves behind. */
+	private static String schedule(String id, String type, Sub subscription, String status, String next,
+			Instant when) {
 		long start = subscription.periodStart().getEpochSecond();
 		long end = subscription.periodEnd().getEpochSecond();
-		List<Map<String, Object>> phases = new java.util.ArrayList<>();
+		List<Map<String, Object>> phases = new ArrayList<>();
 		phases.add(Map.of("start_date", start, "end_date", end,
 				"items", List.of(Map.of("price", subscription.price(), "quantity", 1))));
 		if (next != null) {
@@ -794,7 +852,7 @@ class StripeSubscriptionMirrorTest {
 					"items", List.of(Map.of("price", next, "quantity", 1))));
 		}
 		Map<String, Object> object = new LinkedHashMap<>();
-		object.put("id", "sub_sched_" + subscription.id());
+		object.put("id", id);
 		object.put("object", "subscription_schedule");
 		object.put("customer", subscription.customer());
 		object.put("subscription", subscription.id());

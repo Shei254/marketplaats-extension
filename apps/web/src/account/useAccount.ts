@@ -154,7 +154,12 @@ export function useAccount(
       return { status: "unavailable" };
     }
     if (answer.status === "scheduled") {
-      void settle(signedIn, (me) => me.pendingSwitch?.tier.code === choice.tierCode, setViewer, setNotice);
+      void settle(
+        signedIn,
+        (me) => me.pendingSwitch?.tier.code === choice.tierCode && me.pendingSwitch.rhythm === choice.interval,
+        setViewer,
+        setNotice,
+      );
     }
     return answer;
   }, [again]);

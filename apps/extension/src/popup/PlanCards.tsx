@@ -3,10 +3,15 @@ import {
   dayOf,
   dueToday,
   freshPeriodLine,
+  fromRenewalLine,
   grantOf,
+  isInDunning,
   PAY_THE_OPEN_INVOICE_FIRST,
   pendingLine,
   priceAndRhythmOf,
+  SWITCH_AT_RENEWAL,
+  SWITCHED_TODAY,
+  UNDO_FAILED,
   type DisplayState,
   type Plan,
   type PlanPrice,
@@ -89,7 +94,7 @@ export function PlanCards({
   // skipped for the opposite reason to "they already hold one that is on sale".
   const holdsOneOnSale = current === null || onSale.some((plan) => plan.tier.code === current.tier.code);
   const payer = switching && current?.paying ? { switching, current } : null;
-  const inDunning = payer !== null && DUNNING.includes(payer.current.subscriptionStatus);
+  const inDunning = payer !== null && isInDunning(payer.current.subscriptionStatus);
   return (
     <div className="popup-plans">
       {inDunning ? <Note tone="warn">{PAY_THE_OPEN_INVOICE_FIRST}</Note> : null}
@@ -279,7 +284,7 @@ function SwitchConfirm({
         .settle((plan) =>
           when === "now"
             ? plan.tier.code === confirming.tierCode && plan.rhythm === price.interval
-            : plan.pendingSwitch?.tier.code === confirming.tierCode,
+            : plan.pendingSwitch?.tier.code === confirming.tierCode && plan.pendingSwitch.rhythm === price.interval,
         )
         .then(close);
       return;
@@ -298,8 +303,7 @@ function SwitchConfirm({
             {freshPeriodLine(plan, { name: current.tier.name, relistQuotaPerPeriod: current.relistQuotaPerPeriod })}
           </p>
           <p className="popup-switch-copy">
-            <b>Op {dayOf(phase.preview.renewsAt)}:</b> Vanaf {dayOf(phase.preview.renewsAt)}{" "}
-            {priceAndRhythmOf(price)}; tot dan houd je {current.tier.name}.
+            <b>Op {dayOf(phase.preview.renewsAt)}:</b> {fromRenewalLine(phase.preview.renewsAt, price, current.tier.name)}
           </p>
           {/* Both the same tone: neither is the default (ADR-0042). */}
           <Button
@@ -327,10 +331,7 @@ function SwitchConfirm({
       {phase.kind === "working" ? <p className="popup-switch-copy">Een moment…</p> : null}
       {phase.kind === "done" ? (
         <p className="popup-switch-copy" role="status">
-          Gelukt.{" "}
-          {phase.when === "now"
-            ? "Je nieuwe abonnement gaat vandaag in."
-            : `Je stapt over zodra je huidige periode afloopt.`}
+          {phase.when === "now" ? SWITCHED_TODAY : SWITCH_AT_RENEWAL}
         </p>
       ) : null}
       {phase.kind === "paying" ? (
@@ -360,7 +361,7 @@ function PendingOnHeldCard({ current, switching }: { current: DisplayState; swit
   return (
     <>
       <p className="popup-plan-card-pending">{pendingLine(pending)}</p>
-      {undoing === "failed" ? <Note tone="warn">Ongedaan maken lukte nu niet. Probeer het zo nog eens.</Note> : null}
+      {undoing === "failed" ? <Note tone="warn">{UNDO_FAILED}</Note> : null}
       <Button
         shape="block"
         tone={undoing === "busy" ? "busy" : "secondary"}
@@ -429,9 +430,6 @@ interface Confirming {
   price: PlanPrice;
   phase: Phase;
 }
-
-/** Dunning, as `/api/me` spells Stripe's statuses (ADR-0018, ADR-0042). */
-const DUNNING: readonly DisplayState["subscriptionStatus"][] = ["PAST_DUE", "UNPAID", "INCOMPLETE"];
 
 /** One rhythm's button: what it costs, how often, and what happens when it is pressed. */
 function RhythmButton({

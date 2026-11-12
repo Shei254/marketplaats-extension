@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import com.mprelist.subscription.Mirroring;
+import com.mprelist.subscription.PendingSwitch;
 import com.mprelist.subscription.QuotaPeriod;
 import com.mprelist.subscription.SubscriberOnStripe;
 import com.mprelist.subscription.SubscriptionMirror;
@@ -78,7 +79,7 @@ class MirrorSubscriptions {
 		if (event.cancelsAtPeriodEnd()) {
 			// A cancellation always wins over a pending switch (T90, ADR-0042). Stripe refuses to set this while
 			// a schedule holds the subscription, so this is belt and braces for a schedule ended out of order.
-			this.mirror.scheduled(who.get(), Optional.empty(), event.created());
+			this.mirror.pendingSwitchDropped(who.get(), event.created());
 		}
 	}
 
@@ -87,12 +88,27 @@ class MirrorSubscriptions {
 	 */
 	void applySchedule(StripeEvent event) {
 		Optional<SubscriberOnStripe> who = event.scheduledSubscriber();
-		if (who.isEmpty()) {
-			LOG.info("A {} event named no subscription or no customer, so no switch was mirrored ({}).", event.type(),
-					event.id());
+		String schedule = event.scheduleId();
+		if (who.isEmpty() || schedule == null) {
+			LOG.info("A {} event named no schedule, subscription or customer, so no switch was mirrored ({}).",
+					event.type(), event.id());
 			return;
 		}
-		Mirroring mirrored = this.mirror.scheduled(who.get(), event.pendingSwitch(), event.created());
+		Optional<PendingSwitch> pending = event.pendingSwitch();
+		Mirroring mirrored;
+		if (event.endsTheSchedule()) {
+			mirrored = this.mirror.scheduleEnded(who.get(), schedule, event.created());
+		}
+		else if (pending.isPresent()) {
+			mirrored = this.mirror.switchPending(who.get(), schedule, pending.get(), event.created());
+		}
+		else {
+			// Running with nothing after the current phase: made from the subscription and not yet given its
+			// second phase, or its last phase has begun. Neither changes what is pending.
+			LOG.debug("A {} event about schedule {} holds no switch, so nothing was mirrored.", event.type(),
+					schedule);
+			return;
+		}
 		switch (mirrored) {
 			case MIRRORED -> LOG.info("The pending switch on subscription {} is mirrored as of {} ({}).",
 					who.get().subscriptionId(), event.created(), event.type());

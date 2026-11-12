@@ -1,5 +1,7 @@
 package com.mprelist.billing.internal;
 
+import java.time.OffsetDateTime;
+
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -100,7 +102,7 @@ class StartPlanSwitch {
 	 * What the switch would invoice now, and when a Scheduled switch would take over instead (T90): the end of
 	 * Stripe's period, which for an annual payer is not the monthly {@code resetAt}.
 	 */
-	record SwitchPreview(long amount, String currency, java.time.OffsetDateTime renewsAt) {
+	record SwitchPreview(long amount, String currency, OffsetDateTime renewsAt) {
 	}
 
 	/**
@@ -114,7 +116,7 @@ class StartPlanSwitch {
 	 * When the chosen Price takes over. Sent as {@code null} where nothing was scheduled because the Price
 	 * chosen is the one they pay — the {@link PlanSwitch.Switched} answer on this route.
 	 */
-	record SwitchScheduled(java.time.OffsetDateTime at) {
+	record SwitchScheduled(OffsetDateTime at) {
 	}
 
 	/** {@code {"reason":"NOT_PAYING"}} or {@code {"reason":"OPEN_INVOICE"}}, as {@link StartCheckout.Denied} is. */

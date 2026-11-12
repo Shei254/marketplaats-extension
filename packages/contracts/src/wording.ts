@@ -220,6 +220,16 @@ export function pendingLine(pending: PendingSwitch): string {
   return `Gaat op ${dayOf(pending.at)} over naar ${pending.tier.name}`;
 }
 
+/** *Op {datum}*'s line in the confirm: the card's price from the renewal, and the plan kept until then (T90). */
+export function fromRenewalLine(renewsAt: string, price: PlanPrice, keeping: string): string {
+  return `Vanaf ${dayOf(renewsAt)} ${priceAndRhythmOf(price)}; tot dan houd je ${keeping}.`;
+}
+
+/** What both confirms say once Stripe has taken the switch (T90). */
+export const SWITCHED_TODAY = "Gelukt. Je nieuwe abonnement gaat vandaag in.";
+export const SWITCH_AT_RENEWAL = "Gelukt. Je stapt over zodra je huidige periode afloopt.";
+export const UNDO_FAILED = "Ongedaan maken lukte nu niet. Probeer het zo nog eens.";
+
 /** What both surfaces' cards say during Dunning instead of offering a switch (T90, `OPEN_INVOICE`). */
 export const PAY_THE_OPEN_INVOICE_FIRST = "Betaal eerst je openstaande factuur via Betaling beheren.";
 

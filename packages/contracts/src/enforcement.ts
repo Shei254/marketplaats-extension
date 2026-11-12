@@ -278,6 +278,15 @@ export interface DisplayState {
   pendingSwitch: PendingSwitch | null;
 }
 
+/**
+ * Dunning, as `/api/me` spells Stripe's statuses: an invoice is open and being
+ * collected, so no Plan switch is offered (ADR-0018, ADR-0042). A bank debit on
+ * its way is `ACTIVE` and is not this.
+ */
+export function isInDunning(status: string): boolean {
+  return status === "PAST_DUE" || status === "UNPAID" || status === "INCOMPLETE";
+}
+
 /** What a pending switch moves to, and the day it does. */
 export interface PendingSwitch {
   tier: TierName;

@@ -10,10 +10,15 @@
 -- (a cancellation always wins), and when the subscription arrives at the pending Price, which is the switch
 -- taking over.
 --
+-- `pending_schedule_id` names the schedule that set it, because a second Scheduled switch releases one schedule
+-- and makes another within the same second: the old one's `released` is then not this switch ending, and
+-- Stripe may deliver it last.
+--
 -- Ordered by `pending_mirrored_through` rather than `mirrored_through`: a schedule's events and its
 -- subscription's interleave, and a renewal stamped a second later does not make a schedule made just before it
 -- old news. Both columns null together means nothing is pending.
 alter table subscription
     add column pending_price_id text,
     add column pending_at timestamptz,
+    add column pending_schedule_id text,
     add column pending_mirrored_through timestamptz;

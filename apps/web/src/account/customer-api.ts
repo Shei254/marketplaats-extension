@@ -1,4 +1,4 @@
-import type { PendingSwitch } from "@mprelist/contracts";
+import { isInDunning, type PendingSwitch } from "@mprelist/contracts";
 
 import type { Choice, SwitchAnswer, SwitchPreviewAnswer } from "../public/viewer";
 
@@ -56,7 +56,7 @@ export class CustomerApi {
       grant: typeof grant === "number" ? grant : null,
       paying: body?.["paying"] === true,
       rhythm: typeof body?.["rhythm"] === "string" ? body["rhythm"] : null,
-      inDunning: DUNNING.includes(String(body?.["subscriptionStatus"])),
+      inDunning: isInDunning(String(body?.["subscriptionStatus"])),
       pendingSwitch: pendingIn(body?.["pendingSwitch"]),
     };
   }
@@ -169,6 +169,3 @@ function pendingIn(value: unknown): PendingSwitch | null {
   if (typeof rhythm !== "string" || typeof at !== "string" || Number.isNaN(Date.parse(at))) return null;
   return { tier: { code, name }, rhythm, at };
 }
-
-/** Dunning, as `/api/me` spells Stripe's statuses (ADR-0018, ADR-0042). */
-const DUNNING = ["PAST_DUE", "UNPAID", "INCOMPLETE"];

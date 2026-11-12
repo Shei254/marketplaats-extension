@@ -34,8 +34,9 @@ import com.mprelist.subscription.SubscriptionStatus;
 @Service
 class MirrorSubscriptions {
 
-	MirrorSubscriptions(SubscriptionMirror mirror) {
+	MirrorSubscriptions(SubscriptionMirror mirror, InvoicesBeingPaid invoices) {
 		this.mirror = mirror;
+		this.invoices = invoices;
 	}
 
 	/**
@@ -74,7 +75,17 @@ class MirrorSubscriptions {
 					status.get(), price.isEmpty() ? "no Price on its first item" : "no billing period");
 			return;
 		}
-		report(this.mirror.mirror(who.get(), status.get(), price.get(), period.get(), event.created()), who.get(),
+		SubscriptionStatus mirrored = status.get();
+		if (mirrored == SubscriptionStatus.PAST_DUE
+				&& event.latestInvoiceId().map(this.invoices::beingPaid).orElse(false)) {
+			// A bank debit on its way, most often a switch made minutes ago: not Dunning, so not refused every
+			// relist for the days it takes to clear. A debit that bounces is `past_due` with nothing being paid,
+			// and the next event says so (ADR-0036, amended 2026-11-12).
+			LOG.info("Subscription {} is past due while its invoice is being paid, so it is mirrored as active.",
+					who.get().subscriptionId());
+			mirrored = SubscriptionStatus.ACTIVE;
+		}
+		report(this.mirror.mirror(who.get(), mirrored, price.get(), period.get(), event.created()), who.get(),
 				event);
 		if (event.cancelsAtPeriodEnd()) {
 			// A cancellation always wins over a pending switch (T90, ADR-0042). Stripe refuses to set this while
@@ -158,6 +169,8 @@ class MirrorSubscriptions {
 	}
 
 	private final SubscriptionMirror mirror;
+
+	private final InvoicesBeingPaid invoices;
 
 	private static final Logger LOG = LoggerFactory.getLogger(MirrorSubscriptions.class);
 

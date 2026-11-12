@@ -52,6 +52,8 @@ import com.stripe.param.SubscriptionUpdateParams;
  *
  * <p><strong>Not during Dunning.</strong> Stripe's status, read on the call that fetches the subscription, is
  * {@code past_due}, {@code unpaid} or {@code incomplete}: the open invoice comes first, and nothing is priced.
+ * A {@code past_due} whose invoice is being paid is not Dunning ({@link InvoicesBeingPaid}): a SEPA payer who
+ * switched minutes ago may switch again.
  *
  * <p><strong>Waiting for the money, where Stripe can</strong> (ADR-0036, amended 2026-11-12). For a method on
  * Stripe's pending-updates list, {@code pending_if_incomplete} means nothing moves until the money has: a
@@ -59,8 +61,10 @@ import com.stripe.param.SubscriptionUpdateParams;
  * it on. Stripe refuses that outright for anything else, every bank debit included ("You cannot set
  * {@code payment_behavior} to {@code pending_if_incomplete} when the default payment method is
  * {@code sepa_debit}"), so those switch at once with {@code allow_incomplete} and are collected afterwards, as
- * Checkout already trusts a first SEPA subscriber. One that then needs the payer comes back {@code past_due}
- * and goes to the same hosted page. One that fails is Dunning.
+ * Checkout already trusts a first SEPA subscriber. Stripe answers {@code past_due} while the debit is still
+ * processing (seen in test mode, 2026-11-12), so {@code past_due} alone does not mean the payer has to act: a
+ * PaymentIntent that is {@code processing} is a switch made ({@link InvoicesBeingPaid}). One that needs the payer — BLIK, MB Way — goes to
+ * the same hosted page. One that fails is Dunning.
  *
  * <p><strong>The preview is Stripe's</strong>, the same call with the same items, so the amount a confirmation
  * dialog shows is the one Stripe computed rather than one we did. With nothing prorated, the two agree.
@@ -126,7 +130,7 @@ class SwitchPlans {
 					.setPaymentBehavior(stripeCanWaitFor(current)
 							? SubscriptionUpdateParams.PaymentBehavior.PENDING_IF_INCOMPLETE
 							: SubscriptionUpdateParams.PaymentBehavior.ALLOW_INCOMPLETE)
-					.addExpand("latest_invoice")
+					.addExpand("latest_invoice.payments")
 					.build());
 			boolean held = updated.getPendingUpdate() != null;
 			if (!held && !PAST_DUE.equals(updated.getStatus())) {
@@ -134,6 +138,12 @@ class SwitchPlans {
 				return new PlanSwitch.Switched();
 			}
 			Invoice owed = updated.getLatestInvoiceObject();
+			if (!held && InvoicesBeingPaid.beingPaid(client, owed)) {
+				// A bank debit on its way: Stripe says `past_due` until it clears, but there is nothing for the
+				// payer to do, and the invoice's page would only tell them so.
+				LOG.info("Switched a subscription to `{}` ({}); the payment is being collected", tierCode, interval);
+				return new PlanSwitch.Switched();
+			}
 			if (!held && (owed == null || owed.getHostedInvoiceUrl() == null)) {
 				// Switched already, and Dunning has it from here; "unavailable" would be untrue.
 				LOG.warn("Switched a subscription to `{}` ({}), now past due with no page to pay it on", tierCode,
@@ -245,9 +255,12 @@ class SwitchPlans {
 					SubscriptionRetrieveParams.builder()
 						.addExpand("default_payment_method")
 						.addExpand("customer.invoice_settings.default_payment_method")
+						.addExpand("latest_invoice.payments")
 						.build(),
 					null);
-			if (refusedDuringDunning && DUNNING.contains(current.getStatus())) {
+			if (refusedDuringDunning && DUNNING.contains(current.getStatus())
+					&& !(PAST_DUE.equals(current.getStatus())
+							&& InvoicesBeingPaid.beingPaid(client.get(), current.getLatestInvoiceObject()))) {
 				LOG.info("Did not {}: the subscription is `{}`, so its open invoice comes first", what,
 						current.getStatus());
 				return new PlanSwitch.InvoiceOpen();
@@ -333,6 +346,7 @@ class SwitchPlans {
 			"payto", "pix", "promptpay", "revolut_pay", "satispay", "crypto", "swish", "twint", "upi", "wechat_pay");
 
 	private static final String PAST_DUE = "past_due";
+
 
 	/** Dunning, as Stripe spells it: an invoice is open and being collected (ADR-0018, ADR-0042). */
 	private static final Set<String> DUNNING = Set.of(PAST_DUE, "unpaid", "incomplete");

@@ -101,6 +101,18 @@ once with `allow_incomplete`**, and the prorated amount is collected afterwards.
 - **A charge that needs the payer** (the response is `past_due` with the invoice `open`) goes to the
   hosted invoice page, the same `ConfirmPayment` as 3-D Secure. The difference is that the plan has already
   moved.
+- **A debit that is still processing is not one of those.** Stripe answers `past_due` for it too, until it
+  clears (seen in test mode, 2026-11-12: `past_due` at the switch, `active` 19 seconds later). Its hosted
+  page only says "Payment processing", with nothing for the payer to do. So the invoice's PaymentIntent
+  decides: `processing` is a switch made. It is fetched separately because Stripe expands at most four
+  levels, one short of it.
+- **Nor is it Dunning.** In live mode a debit takes days to clear, and mirrored as `past_due` it would
+  refuse every relist and tell the subscriber to pay an invoice they already paid. So a `past_due` event
+  whose invoice's PaymentIntent is `processing` (or already `succeeded`, an event read late) is mirrored as
+  `active`, and the switch's own Dunning refusal makes the same exception. This is the webhook's first call
+  to Stripe; where Stripe cannot be asked, its `past_due` stands until the next event. **A debit that
+  bounces revokes access:** its PaymentIntent is no longer processing, so the next `past_due` is Dunning,
+  and Stripe giving up ends the subscription as above.
 - **A failed or unapproved payment is Dunning.** `past_due` already refuses without taking the tier away.
   The subscriber is refused on both plans until they pay. Paying restores the new plan. Stripe giving up
   ends the subscription, and ADR-0018 moves them to the default tier. A half-switched state that keeps the

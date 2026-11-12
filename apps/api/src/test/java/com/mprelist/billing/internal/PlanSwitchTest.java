@@ -72,6 +72,9 @@ class PlanSwitchTest {
 	/** Whether the update comes back waiting on the payer. */
 	private boolean paymentNeedsThePayer = false;
 
+	/** The status of the PaymentIntent paying the latest invoice, or {@code null} for an invoice with none. */
+	private String paymentIntentStatus = null;
+
 	/** The type of the subscription's own default payment method, or {@code null} for none. */
 	private String subscriptionMethod = "card";
 
@@ -114,6 +117,9 @@ class PlanSwitchTest {
 				case "POST /v1/subscription_schedules/sub_sched_old/release" -> respond(exchange, 200,
 						"{\"id\":\"sub_sched_old\",\"object\":\"subscription_schedule\",\"status\":\"released\"}");
 				case "POST /v1/subscriptions/sub_1" -> respond(exchange, 200, updated(this.posted.get(path)));
+				case "GET /v1/payment_intents/pi_1" -> respond(exchange, 200,
+						"{\"id\":\"pi_1\",\"object\":\"payment_intent\",\"status\":\"" + this.paymentIntentStatus
+								+ "\"}");
 				case "POST /v1/invoices/create_preview" -> respond(exchange, 200,
 						"{\"object\":\"invoice\",\"total\":" + this.previewTotal + ",\"currency\":\"eur\"}");
 				default -> respond(exchange, 404, "{\"error\":{\"message\":\"not faked\"}}");
@@ -160,7 +166,7 @@ class PlanSwitchTest {
 				.containsEntry("billing_cycle_anchor", "now")
 				.containsEntry("proration_behavior", "none")
 				.containsEntry("payment_behavior", "pending_if_incomplete")
-				.containsEntry("expand[0]", "latest_invoice");
+				.containsEntry("expand[0]", "latest_invoice.payments");
 	}
 
 	/** At most one switch is pending, and one made now replaces it: the schedule is released first. */
@@ -267,17 +273,33 @@ class PlanSwitchTest {
 	void aChargeThatNeedsThePayerAfterTheSwitchIsFinishedOnTheInvoicesPage() {
 		this.subscriptionMethod = "blik";
 		this.paymentNeedsThePayer = true;
+		this.paymentIntentStatus = "requires_action";
 
 		assertThat(switches(true).apply(PAYER, "power", "month"))
 				.isEqualTo(new PlanSwitch.ConfirmPayment("https://invoice.stripe.com/i/in_1"));
 	}
 
-	/** A downgrade, or a debit already on its way: the invoice is paid or processing and nothing is owed now. */
+	/**
+	 * A SEPA debit on its way: Stripe answers {@code past_due} until it clears, but the payer has nothing to do,
+	 * and the invoice's page would only say "Payment processing" (seen in test mode, 2026-11-12).
+	 */
+	@Test
+	void aDebitStillProcessingIsASwitchMadeNotAPageToPayOn() {
+		this.subscriptionMethod = "sepa_debit";
+		this.paymentNeedsThePayer = true;
+		this.paymentIntentStatus = "processing";
+
+		assertThat(switches(true).apply(PAYER, "power", "month")).isEqualTo(new PlanSwitch.Switched());
+		assertThat(this.asked).contains("GET /v1/payment_intents/pi_1");
+	}
+
+	/** A switch that is not {@code past_due} asks Stripe nothing more. */
 	@Test
 	void aSwitchThatIsNotPastDueIsDone() {
 		this.subscriptionMethod = "sepa_debit";
 
 		assertThat(switches(true).apply(PAYER, "power", "month")).isEqualTo(new PlanSwitch.Switched());
+		assertThat(this.asked).noneMatch(request -> request.contains("/payment_intents/"));
 	}
 
 	/** A second click, or a card drawn before the webhook landed: nothing to charge, and nothing is sent. */
@@ -408,6 +430,30 @@ class PlanSwitchTest {
 	}
 
 	/**
+	 * A {@code past_due} whose debit is on its way is not Dunning: a SEPA payer who switched minutes ago reads
+	 * {@code past_due} until it clears, and may switch again (ADR-0036, amended 2026-11-12).
+	 */
+	@Test
+	void aPastDueWhoseInvoiceIsBeingPaidMaySwitch() {
+		this.status = "past_due";
+		this.paymentIntentStatus = "processing";
+
+		assertThat(switches(true).preview(PAYER, "power", "month"))
+				.isEqualTo(new PlanSwitch.Previewed(743, "eur", at(PERIOD_END)));
+		assertThat(switches(true).apply(PAYER, "power", "month")).isEqualTo(new PlanSwitch.Switched());
+		assertThat(this.queried.get("/v1/subscriptions/sub_1")).contains("=latest_invoice.payments");
+	}
+
+	/** One that bounced, or waits on the payer, is Dunning still: that is what revokes access. */
+	@Test
+	void butOneWhoseDebitBouncedMayNot() {
+		this.status = "past_due";
+		this.paymentIntentStatus = "requires_payment_method";
+
+		assertThat(switches(true).apply(PAYER, "power", "month")).isEqualTo(new PlanSwitch.InvoiceOpen());
+	}
+
+	/**
 	 * Undo is not a switch: it charges nothing, and it is the way out of a cancel the Portal refuses while a
 	 * schedule holds the subscription (ADR-0042). So it is allowed during Dunning.
 	 */
@@ -498,7 +544,15 @@ class PlanSwitchTest {
 				+ "\"price\":{\"id\":\"" + price + "\",\"object\":\"price\"}}]},"
 				+ "\"pending_update\":" + (pending ? "{\"expires_at\":1790000000}" : "null") + ","
 				+ "\"latest_invoice\":{\"id\":\"in_1\",\"object\":\"invoice\","
-				+ "\"status\":\"open\",\"hosted_invoice_url\":\"https://invoice.stripe.com/i/in_1\"}}";
+				+ "\"status\":\"open\",\"hosted_invoice_url\":\"https://invoice.stripe.com/i/in_1\","
+				+ "\"payments\":{\"object\":\"list\",\"data\":" + payments() + "}}}";
+	}
+
+	/** The invoice's one payment, by PaymentIntent, or none when no intent was set. */
+	private String payments() {
+		return this.paymentIntentStatus == null ? "[]"
+				: "[{\"id\":\"inpay_1\",\"object\":\"invoice_payment\",\"status\":\"open\","
+						+ "\"payment\":{\"type\":\"payment_intent\",\"payment_intent\":\"pi_1\"}}]";
 	}
 
 	/** A schedule made from the subscription: Stripe copies its one phase, and the update adds the second. */

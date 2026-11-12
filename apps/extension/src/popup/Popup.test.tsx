@@ -1455,6 +1455,22 @@ describe("switching plan from the popup (T90, ADR-0042)", () => {
     expect(buttons().some((label) => label.startsWith("Overstappen"))).toBe(false);
   });
 
+  it("still offers Ongedaan maken during Dunning, which charges nothing", async () => {
+    const plan: DisplayState = {
+      ...ON_PRO,
+      subscriptionStatus: "PAST_DUE",
+      pendingSwitch: { tier: { code: "power", name: "Power" }, rhythm: "month", at: RENEWS },
+    };
+    const { worker, asked } = fakeWorker([{ status: "ready", plan }]);
+
+    await show(worker);
+    await click("Abonnementen");
+    await click("Ongedaan maken");
+
+    expect(text()).toContain("Gaat op 12 december over naar Power");
+    expect(asked).toContain("undo");
+  });
+
   it("and says the same when the API refuses one", async () => {
     const { worker } = fakeWorker([{ status: "ready", plan: ON_PRO }], ADS, {
       preview: { status: "invoice-open" },

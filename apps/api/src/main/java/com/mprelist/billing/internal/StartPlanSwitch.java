@@ -27,7 +27,8 @@ import com.mprelist.identity.UserRef;
  * <p>The body is {@link StartCheckout}'s — a tier code and a Rhythm — and so are the refusals: {@code 404} when
  * nothing is on sale under them, {@code 503} when Stripe could not be asked, both with an empty body. The one
  * denials are {@code 409 NOT_PAYING}, T83's {@code ALREADY_PAYING} the other way round: nothing to switch, so
- * Checkout is theirs; and {@code 409 OPEN_INVOICE} during Dunning, on all four.
+ * Checkout is theirs; and {@code 409 OPEN_INVOICE} during Dunning, on the three that switch or price one.
+ * Undo is allowed then: it charges nothing.
  *
  * <p>A switch answers {@code 200} with {@code {"confirmAt": null}} when it is done, or with the hosted invoice
  * page when the payer has to confirm the charge — 3-D Secure — before anything moves. A Scheduled switch

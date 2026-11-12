@@ -99,8 +99,9 @@ export const DENIAL_REASONS = [
   /**
    * Dunning — `past_due`, `unpaid`, `incomplete` — so no Plan switch is made or
    * priced, now or at renewal, until the open invoice is paid through the
-   * Customer Portal (T90, ADR-0042). On all four `/api/plan-switch` routes. A
-   * bank debit on its way is `active` and is not this. Adds nothing.
+   * Customer Portal (T90, ADR-0042). On the preview, the switch and the
+   * schedule; undo is allowed during Dunning, since it charges nothing. A bank
+   * debit on its way is `active` and is not this. Adds nothing.
    */
   "OPEN_INVOICE",
 ] as const;

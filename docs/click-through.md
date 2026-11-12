@@ -282,9 +282,13 @@ rather than a 404 — a host that does not (T55, #86) breaks this step *after* t
      subscription has no schedule.
    - **A switch now replaces a pending one.** Schedule one, then switch to a third plan with **Nu**.
      *Expect:* the schedule is released before the update, and nothing is left pending.
+   - **The switch taking over.** With a switch scheduled, advance a Stripe test clock past the renewal.
+     *Expect:* `customer.subscription.updated` at the new Price, the card says **Huidig**, nothing is pending,
+     and the API logs that it released the schedule: in Stripe the subscription has no schedule any more.
    - **Dunning.** Put `4000 0000 0000 0341` on the customer and let a renewal fail (or use Stripe's test
      clock). *Expect:* the cards offer no Overstappen and say **"Betaal eerst je openstaande factuur via
-     Betaling beheren."**; the API answers any switch with `409 OPEN_INVOICE`.
+     Betaling beheren."**; the API answers any switch with `409 OPEN_INVOICE`. A switch already pending still
+     shows **Ongedaan maken**, and it works.
    - **Open check, for a later session — cancelling while a switch is pending.** Stripe's API refuses
      `cancel_at_period_end` on a subscription a schedule controls (checked 2026-11-12). Not yet checked: what
      the **Customer Portal** does then — whether it offers *Opzeggen*, and whether that succeeds or errors.

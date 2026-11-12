@@ -183,6 +183,11 @@ record StripeEvent(String id, String type, OffsetDateTime created, JsonNode obje
 		return Optional.empty();
 	}
 
+	/** The schedule controlling a subscription, as its own event names it, or nothing for none. */
+	Optional<String> controllingSchedule() {
+		return Optional.ofNullable(text(this.object.path("schedule")));
+	}
+
 	/** Whether a subscription is set to end with its period, which drops a pending switch (ADR-0042). */
 	boolean cancelsAtPeriodEnd() {
 		return this.object.path("cancel_at_period_end").asBoolean(false);

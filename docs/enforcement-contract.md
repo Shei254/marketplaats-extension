@@ -311,8 +311,10 @@ about their **software**. It therefore carries none, exactly like every other `4
   or nothing, where none was.
 - **`409 NOT_PAYING`** when Stripe is billing the caller for nothing — `ALREADY_PAYING` the other way round:
   `{ "reason": "NOT_PAYING" }`, adding nothing, since the same card offers Checkout.
-- **`409 OPEN_INVOICE`** during Dunning — Stripe's status is `past_due`, `unpaid` or `incomplete` — on all
-  four: `{ "reason": "OPEN_INVOICE" }`, adding nothing. The cards say *"Betaal eerst je openstaande factuur
+- **`409 OPEN_INVOICE`** during Dunning — Stripe's status is `past_due`, `unpaid` or `incomplete` — on the
+  three that switch or price one: `{ "reason": "OPEN_INVOICE" }`, adding nothing. **Undo is allowed then**: it
+  charges nothing, and it is the way out of a cancel the Portal refuses while a schedule holds the
+  subscription. The cards say *"Betaal eerst je openstaande factuur
   via Betaling beheren."* A bank debit still on its way is `active` at Stripe and is not this.
 - **`404` and `503` with empty bodies**, exactly as `POST /api/checkout` answers them: nothing on sale under
   that code and rhythm, or Stripe could not be asked.

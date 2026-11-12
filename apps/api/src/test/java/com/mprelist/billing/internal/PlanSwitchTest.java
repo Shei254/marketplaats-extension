@@ -407,6 +407,20 @@ class PlanSwitchTest {
 		assertThat(this.asked).containsOnly("GET /v1/subscriptions/sub_1");
 	}
 
+	/**
+	 * Undo is not a switch: it charges nothing, and it is the way out of a cancel the Portal refuses while a
+	 * schedule holds the subscription (ADR-0042). So it is allowed during Dunning.
+	 */
+	@ParameterizedTest
+	@ValueSource(strings = { "past_due", "unpaid", "incomplete" })
+	void butUndoIsAllowedWhileAnInvoiceIsOpen(String status) {
+		this.status = status;
+		this.schedule = "sub_sched_old";
+
+		assertThat(switches(true).undo(PAYER)).isEqualTo(new PlanSwitch.Switched());
+		assertThat(this.asked).contains("POST /v1/subscription_schedules/sub_sched_old/release");
+	}
+
 	/** A bank debit on its way is `active` at Stripe, so it is not Dunning and the subscriber may switch. */
 	@ParameterizedTest
 	@ValueSource(strings = { "active", "trialing" })

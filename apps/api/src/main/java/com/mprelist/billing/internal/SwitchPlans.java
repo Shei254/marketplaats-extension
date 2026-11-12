@@ -47,6 +47,8 @@ import com.stripe.param.SubscriptionUpdateParams;
  * pending, so a schedule already there is released before either kind is made, and Stripe would otherwise
  * rewrite that schedule's phases under an update rather than refuse it (checked in test mode, 2026-11-12).
  * The tier follows the Price through the webhook, and the pending switch through the schedule's own.
+ * Releasing first has one cost, accepted in ADR-0042: a switch now that is left at 3-D Secure has already
+ * dropped a pending Scheduled switch, and nothing re-makes it.
  *
  * <p><strong>Not during Dunning.</strong> Stripe's status, read on the call that fetches the subscription, is
  * {@code past_due}, {@code unpaid} or {@code incomplete}: the open invoice comes first, and nothing is priced.
@@ -203,7 +205,9 @@ class SwitchPlans {
 	 * @param who whoever the token names
 	 */
 	PlanSwitch undo(UserRef who) {
-		return onStripe(who, "undo a scheduled switch", (client, current) -> {
+		// Not refused during Dunning: undo charges nothing, and it is the way out of a cancel the Portal refuses
+		// while a schedule holds the subscription (ADR-0042).
+		return onStripe(who, "undo a scheduled switch", false, (client, current) -> {
 			releaseAnyScheduleOn(client, current);
 			return new PlanSwitch.Switched();
 		});
@@ -219,12 +223,15 @@ class SwitchPlans {
 			LOG.info("Nothing on sale as `{}` ({}), so no subscription was switched", tierCode, interval);
 			return new PlanSwitch.NotForSale();
 		}
-		return onStripe(who, "switch or price a switch to `" + tierCode + "` (" + interval + ")",
+		return onStripe(who, "switch or price a switch to `" + tierCode + "` (" + interval + ")", true,
 				(client, current) -> then.ask(client, current, price.get()));
 	}
 
-	/** Their subscription, fetched, and refused during Dunning before anything else is asked of Stripe. */
-	private PlanSwitch onStripe(UserRef who, String what, OnTheirs then) {
+	/**
+	 * Their subscription, fetched, and — for a switch — refused during Dunning before anything else is asked of
+	 * Stripe.
+	 */
+	private PlanSwitch onStripe(UserRef who, String what, boolean refusedDuringDunning, OnTheirs then) {
 		Optional<String> subscription = this.subscriptions.stripeSubscriptionFor(who);
 		if (subscription.isEmpty()) {
 			return new PlanSwitch.NotPaying();
@@ -240,7 +247,7 @@ class SwitchPlans {
 						.addExpand("customer.invoice_settings.default_payment_method")
 						.build(),
 					null);
-			if (DUNNING.contains(current.getStatus())) {
+			if (refusedDuringDunning && DUNNING.contains(current.getStatus())) {
 				LOG.info("Did not {}: the subscription is `{}`, so its open invoice comes first", what,
 						current.getStatus());
 				return new PlanSwitch.InvoiceOpen();

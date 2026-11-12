@@ -107,6 +107,7 @@ export function PlanCards({
           handoff={handoff}
           onUpgrade={onUpgrade}
           payer={payer && !inDunning ? payer : null}
+          holder={payer}
           inDunning={inDunning}
           confirming={confirming?.tierCode === plan.tier.code ? confirming : null}
           onConfirming={setConfirming}
@@ -151,6 +152,7 @@ function PlanCard({
   handoff,
   onUpgrade,
   payer,
+  holder,
   inDunning,
   confirming,
   onConfirming,
@@ -161,6 +163,8 @@ function PlanCard({
   onUpgrade: (tierCode: string, interval: string) => void;
   /** Somebody Stripe bills, and not in Dunning: every button here is a switch. */
   payer: Payer | null;
+  /** Somebody Stripe bills, in Dunning or not: whose pending switch may always be undone. */
+  holder: Payer | null;
   /** A payer in Dunning, who is offered nothing to press until the invoice is paid. */
   inDunning: boolean;
   /** The inline confirm open on this card, if it is. */
@@ -182,7 +186,7 @@ function PlanCard({
           Je abonnement
         </Button>
       ) : null}
-      {current && payer ? <PendingOnHeldCard current={payer.current} switching={payer.switching} /> : null}
+      {current && holder ? <PendingOnHeldCard current={holder.current} switching={holder.switching} /> : null}
       {confirming && payer ? (
         <SwitchConfirm plan={plan} payer={payer} confirming={confirming} onConfirming={onConfirming} />
       ) : payer ? (

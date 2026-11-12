@@ -102,3 +102,20 @@ deleted afterwards.
   **Ongedaan maken** first. The Portal check is an open item in `docs/click-through.md` 6a, to be decided on
   in a later session: if the Portal refuses, *Betaling beheren* releasing a pending switch first is the
   fallback this ADR named.
+
+## Settled in review (2026-11-12)
+
+- **A schedule lets go once its switch has taken over.** Its second phase runs a full period with
+  `end_behavior=release`, so left alone Stripe would hold the subscription for that whole period, refusing a
+  cancel at period end, with nothing pending on the cards to explain it. The webhook releases a schedule
+  named by a subscription event when it is in its last phase and would release anyway
+  (`ReleaseFinishedSchedules`). One that ends by cancelling is never touched.
+- **Ongedaan maken is allowed during Dunning.** It charges nothing, and it is the way out of a cancel the
+  Portal refuses while a schedule holds the subscription. `OPEN_INVOICE` refuses the preview, the switch and
+  the schedule, not the undo, and both clients show the button.
+- **A switch now that is left at 3-D Secure loses a pending Scheduled switch.** The schedule is released
+  before the update, because an update under a schedule rewrites its phases (above). If the payer never
+  confirms, the subscription is unchanged and nothing is pending. Accepted rather than re-made: re-making it
+  would mean a schedule created on the strength of a payment that never happened.
+- **The mirror names the schedule that set a pending switch**, so a replaced schedule's late `released`, or
+  a schedule's `created` arriving after its `updated`, leaves the new switch in place.

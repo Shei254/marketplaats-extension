@@ -54,8 +54,10 @@ export function SignedOutScreen({
     <>
       <Header />
       <div className="popup-centred">
+        {/* The glyph grows with its tile — 40 in 48 is the header's 20 in 24 — so
+            the two marks on this screen read as one mark at two sizes. */}
         <div className="mp-mark popup-badge">
-          <Icon name="logo" />
+          <Icon name="logo" size={40} />
         </div>
         <h1 className="popup-title">Zet je advertenties weer bovenaan</h1>
         <p className="popup-copy">

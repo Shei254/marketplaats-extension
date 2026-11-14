@@ -1985,6 +1985,68 @@ payer and *Op {datum}* needs the renewal. A Checkout refused `ALREADY_PAYING` in
 so the cards become Overstappen.
 ---
 
+## Client review of 2026-11-13
+
+Eight tweaks arrived in one message. 2, 3, 5 and 6 shipped in #200 (copy, the popup hero mark, the
+branded meter and the primary button's corner tint), and the store listing took the same copy. One waits
+on an asset, and three are **out of scope for this round** — each is quoted separately, as a fixed price
+for the pieces listed under it, at the sizes given (S ≈ under a day · M ≈ 1–3 days · L ≈ 3+ days).
+Nothing below is decided; the client has not asked for any of it to be built.
+
+#### T91 · The rounded mark · **XS** · waiting on the client's 512px export
+The client sent the rounded artwork at 128×128; `iconSet` refuses a master smaller than the largest size
+asked of it (the 180px apple-touch icon), and upscaling would blur every large derivative. When the 512px
+PNG arrives: replace `brand/icon.png`, rebuild `apps/keycloak-theme` and commit the regenerated theme.
+That one file is the tab favicon, the toolbar and chrome://extensions icon, the Web Store icon, the login
+page's mark and the apple-touch icon — and it **finishes tweak 5**, since the login mark is over-large only
+because the current master's glyph fills ~80% of its tile and the rounded one's fills ~55%, the header's
+proportion. Note for iOS: a pre-rounded icon shows its transparent corners on a home screen.
+
+#### T92 · "Prijs op aanvraag" — the top plan sold by quote · **out of scope** · quote ≈ 4–6 days
+**Why it cannot be done by hand today.** A quote is a price for one customer, and the catalog has no place
+for one: `tier_price` holds one Price per interval per tier, so tagging a second monthly Price onto the
+top tier *reprices it for every new buyer*; and a separate tier per customer appears on the public plan
+cards the moment its quota is set, because setting a quota is what publishes a tier (ADR-0019, ADR-0029).
+
+**The pieces, quoted one by one:**
+- **The card** · S — a tier marked *on request* renders "Prijs op aanvraag" and "Neem contact op" instead
+  of an amount and a checkout button. Alone, this is a `mailto:` and sells nothing.
+- **The form** · M — name, e-mail, expected reposts per month, a note; delivered to `contact@`. The API
+  sends no mail today (Keycloak does its own), so this includes an outbound mail path and spam protection.
+- **The quote itself** · M–L — a tier that is sellable but never listed, and a one-off checkout link the
+  operator generates in `/admin` for one account, so paying it lands that user on that tier through the
+  webhook the way every other purchase does. Includes the click-through walk against Stripe test mode.
+
+**Ask the client first:** whether it is worth it at their volume. Until enough people want more than the
+second-highest plan, the card plus a `mailto:` and a manually-adjusted plan is cheaper than all three.
+
+#### T93 · English beside Dutch · **out of scope** · quote ≈ 5–8 days, translations supplied by the client
+There is no i18n anywhere in the extension or the site: every string is Dutch inline in components
+(eight popup files, five site files, the page button — ~230 lines of copy). **The pieces:**
+- **Extract the copy** into an `nl` and an `en` dictionary per surface · M — the bulk of the work, and
+  mechanical; the client fills in `en`.
+- **One switch that follows the user** · M — Dutch by default. Once signed in, the choice is stored on
+  the account as Keycloak's own user `locale`, which the login page and the mail already read, so the
+  popup, the site, the sign-in and the mail all follow one setting; a signed-out visitor's choice on the
+  site is kept in the browser and passed to the login page.
+- **Keycloak** · S–M — realm `supportedLocales: ["nl", "en"]`, an English login bundle, and `messages_en`
+  for the mail ADR-0035 wrote.
+- **Legal pages** · S for the plumbing — but the English privacy and terms text is the client's to supply
+  and to stand behind; a translation of a legal text is not a copy edit.
+- **The Web Store listing** in English · S — the store supports one listing per locale.
+
+#### T70 · Bulk repost (tweak 8) · **out of scope** · quote ≈ 3–5 days + a real-account walk
+Already ticketed above; the API half (entitlement, `batch` on `authorize`, pacing, the `/admin` cap) is
+intact, and the client half is a rebuild per [ADR-0038](adr/0038-bulk-repost-leaves-the-extension.md).
+**What a user would have to do:** be on a plan whose tier grants `features.bulk`; tick the ads in the
+popup (up to the batch cap — Pro 10, Power 25); and **keep Chrome open and signed in to Marktplaats while
+the batch runs**, because every repost happens in their own browser session. The pacing rails make a
+Power batch of 25 take about two hours. The quote includes slice E of
+[`click-through.md`](click-through.md) walked against an account with enough real ads to select from —
+the walk that was never done the first time.
+
+---
+
 ## Deferred
 
 | Ticket | Why it waits |

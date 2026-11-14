@@ -41,12 +41,12 @@ AdBump zet je Marktplaats-advertenties weer bovenaan.
 Nieuwe advertenties staan op Marktplaats bovenaan; na een paar dagen zakt de jouwe weg tussen alles wat daarna geplaatst is. Met AdBump herplaats je een advertentie vanuit je browser, zodat hij weer bovenaan de recente advertenties staat.
 
 Zo werkt het
-• Open marktplaats.nl en log in zoals je gewend bent.
+• Open marktplaats.nl en ga in de website naar je advertenties.
 • Klik op het AdBump-icoon in je werkbalk en log in met je AdBump-account.
 • Kies een van je advertenties en klik op Herplaats.
 
 Goed om te weten
-• Herplaatsen verwijdert je advertentie en plaatst hem direct opnieuw, met alle tekst en foto's.
+• Herplaatsen verwijdert je advertentie en plaatst hem direct opnieuw, met behoud van alle tekst en foto's.
 • Alles gebeurt in je eigen browser, onder je eigen Marktplaats-login. AdBump ziet je Marktplaats-wachtwoord niet, en de tekst en foto's van je advertenties komen nooit bij ons.
 • Je hebt een AdBump-account nodig. Aanmelden is gratis, en een gratis abonnement geeft een beperkt aantal herplaatsingen per maand. Wil je vaker herplaatsen, dan kies je een betaald abonnement.
 

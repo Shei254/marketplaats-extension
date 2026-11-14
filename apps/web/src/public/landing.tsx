@@ -93,7 +93,7 @@ export function LandingPage({
         <div>
           <h1 className="web-hero-title">Zet je advertentie weer bovenaan</h1>
           <p className="web-hero-copy">
-            Herplaats hem vanuit je browser, met alle tekst en foto’s.
+            Herplaats hem vanuit je browser, met behoud van alle tekst en foto’s.
           </p>
           <Install />
           <p className="web-hero-micro">Gratis te installeren · werkt in Chrome</p>
@@ -107,7 +107,7 @@ export function LandingPage({
         <ol className="web-steps">
           <li>
             <span className="web-step-title">Open Marktplaats</span>
-            <span className="web-step-copy">En log in zoals je gewend bent.</span>
+            <span className="web-step-copy">Ga in de website naar je advertenties.</span>
           </li>
           <li>
             <span className="web-step-title">Log in bij {BRAND.name}</span>

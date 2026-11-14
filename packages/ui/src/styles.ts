@@ -117,11 +117,21 @@ export const componentCss = `
    lightens towards it; and a 135deg ramp reads as more horizontal the wider the
    control, so a \`pill\` in a row and a \`block\` in the foot are not lit identically.
    Both are cured by an \`--accent-grad\` token drawn on the canvas per theme, which
-   is where to start if either one ever grates. */
+   is where to start if either one ever grates.
+
+   Over the ramp, a touch of the mark's teal in the top-left corner and nowhere
+   else: the button stays the accent, and only its corner says where the colour
+   came from. Fixed lengths rather than percentages, so a \`block\` and a row's
+   \`rect\` get the same corner instead of one sized to their width. It is
+   \`brand-from\` at just under half strength, which is the closest the teal ever gets to
+   label text — BRAND_MARK's "never a fill under label text" holds, because the
+   tint has faded to under a quarter where the first letter starts. */
 .mp-btn--primary {
   color: var(--mp-on-accent);
   background-color: var(--mp-accent);
-  background-image: linear-gradient(135deg, var(--mp-accent), var(--mp-accent-hover));
+  background-image:
+    radial-gradient(70px 46px at 0 0, color-mix(in srgb, var(--mp-brand-from) 45%, transparent), transparent),
+    linear-gradient(135deg, var(--mp-accent), var(--mp-accent-hover));
   box-shadow: var(--mp-shadow-sm);
 }
 .mp-btn--primary:hover:not(:disabled) {
@@ -336,11 +346,14 @@ export const componentCss = `
   background: var(--mp-line);
   overflow: hidden;
 }
+/* The fill is the mark's own ramp, the same one the site's plan meters draw, so
+   the bar in the popup and the bar on the plan card are one bar. A warning or an
+   error is a fact rather than the brand, so those two stay flat. */
 .mp-meter-fill {
   display: block;
   height: 100%;
   border-radius: var(--mp-radius-pill);
-  background: var(--mp-accent);
+  background: linear-gradient(90deg, var(--mp-brand-from), var(--mp-brand-to));
   transition: width var(--mp-fast) var(--mp-ease);
 }
 .mp-meter--warn .mp-meter-fill { background: var(--mp-warn); }

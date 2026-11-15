@@ -1,6 +1,7 @@
 # ADR-0043: The Language belongs to the device, is carried across every hand-off, and changes only our words
 
-**Status:** Accepted (2026-11-15). Two of its claims are unproven until T94 has run; they are marked below.
+**Status:** Accepted (2026-11-15). T94 checked its two unproven claims the same day and both came out
+differently; the mail and the receipts were re-decided on what was found, and the text below is the corrected one.
 **Scope:** every surface a user reads — `apps/web`'s public pages, the popup, the **Page button**, the worker's
 sentences, the sign-in page and the mail in `apps/keycloak-theme`, both realm files, and the two API requests
 that open Stripe Checkout and the Customer Portal. `/admin` is outside it.
@@ -28,7 +29,8 @@ does not, and the terms it uses (**Language**, **Language switch**, **Our words*
 ## Decision
 
 - **The Language belongs to the device.** The site keeps one choice and the extension keeps one. Nothing is
-  synced between them and nothing is stored on the subscription or sent by `/api/me`.
+  synced between them and nothing is stored on the subscription or sent by `/api/me`. Keycloak keeps one fact
+  of its own beside this — the language an account registered in — and only the mail reads it.
 - **Nothing chosen is a state, and it follows the browser — on the site too.** A surface walks the browser's
   language list and takes the first of Dutch or English; a list that names neither gets Dutch. A choice, once
   made, always wins.
@@ -42,11 +44,12 @@ does not, and the terms it uses (**Language**, **Language switch**, **Our words*
   the theme switch. The **Page button** has none and re-labels when the popup's choice changes, without a
   reload. **The sign-in page only inherits**: `en` becomes a second supported locale and the dropdown the
   template would then draw is taken out.
-- **A mail follows the page that asked for it.** The password reset is requested from a sign-in page that has
-  a language *(unproven — T94)*. A mail an operator triggers has no page behind it and is Dutch, the realm's
-  default.
-- **Stripe's receipts are Stripe's.** We open the first Checkout in the reader's Language and do not manage
-  what Stripe records on its customer afterwards *(what it records is unproven — T94)*.
+- **A mail follows the language the account registered in.** Keycloak stores the registration page's language
+  on the account and reads it for every mail, the reset and the operator-triggered one alike — its own
+  behaviour, taken as it is. Only an account that holds nothing follows the page the mail was asked from, and
+  the realm's Dutch after that.
+- **Stripe's receipts are Stripe's, and follow the browser the plan was bought from.** Checkout records the
+  browser's language ahead of the session's on the customer it creates, and we do not manage it afterwards.
 - **Only our words change.** Marktplaats's labels are written as Marktplaats writes them; a **Tier** has one
   name; the brand name, the tagline, the manifest and the Web Store listing stay Dutch. Dates follow the
   Language; **money is written the Dutch way in both** ("€ 9,99").
@@ -70,8 +73,13 @@ does not, and the terms it uses (**Language**, **Language switch**, **Our words*
   an API that must know the language to build Stripe's return URLs — and `/` and `/privacy` are published in
   the Web Store listing. Can be added later if English search traffic becomes a goal.
 - **Keycloak's own dropdown on the sign-in page.** Already drawn and styled, and the one control that would
-  certainly record a language on the account. Declined for one rule over two: the page shows what it was
-  handed. The cost is under Consequences.
+  let a reader change the language their account holds. Declined for one rule over two: the page shows what
+  it was handed. The cost is under Consequences.
+- **Making the mail follow the page**, as this ADR first said it did. It would mean stopping registration from
+  storing a language and clearing what accounts already hold. Declined once T94 showed what Keycloak does:
+  the stored language also reaches the operator-triggered mail, which the page never could.
+- **Setting the Stripe customer's language from the Checkout's**, one more call when a Checkout completes.
+  Declined: it changes a receipt, for the reader who chose against their own browser.
 - **A governing-language line on the English legal pages.** The usual way to offer a convenience translation.
   Declined; the two stand equally.
 - **Money following the Language.** "€1,250.00" for an English reader. Declined: these are amounts on a Dutch
@@ -85,9 +93,11 @@ does not, and the terms it uses (**Language**, **Language switch**, **Our words*
 
 ## Consequences
 
-- **Nothing records a language on the account**, so any mail not requested from a page is Dutch. If T94 shows
-  the reset mail does not follow the page either, this decision reopens before anything is built on it.
-- **A change of Language after subscribing does not reach Stripe's receipts.**
+- **A reader who registered in Dutch and later switches to English keeps receiving Dutch mail**, from an
+  English sign-in page included, and nothing they can press changes it. Every account registered before this
+  ships most likely holds Dutch.
+- **A reader who chose English against a Dutch browser gets Dutch receipts**, and a later change of Language
+  reaches them no more than the first one did. The Portal offers no control for it.
 - **One Dutch line sits on the English sign-in page and mail** — the tagline — and the page's meta description
   is Dutch in both, being written before any Language is known.
 - **A tier named in Dutch reads in Dutch inside an English sentence**, and on Stripe's Checkout. Naming tiers
@@ -98,3 +108,44 @@ does not, and the terms it uses (**Language**, **Language switch**, **Our words*
 - **The catalogs must be bundled, never fetched**: Manifest V3 and the site's `script-src 'self'` both forbid
   the alternative.
 - **A string added later is decided by who wrote it**, not where it appears — the **Our words** test.
+
+## Checked on a throwaway stack and in the sandbox (2026-11-15, T94)
+
+Keycloak 26.7.1 with this repository's realm and theme, `supportedLocales: ["nl", "en"]`, and a local mail
+catcher; Stripe's "Bumpr sandbox", which is not production's account. **Two findings contradicted this ADR as
+first written** — they are marked — and the operator chose the same day to take both as found, which is
+what the Decision above now says.
+
+**Keycloak**
+
+- **`ui_locales` is the parameter, and it carries.** `ui_locales=en` on the authorization request, from a
+  browser that asks for Dutch, gives an English sign-in page, an English reset page and an English mail.
+  `kc_locale` on the same request does nothing.
+- **With no parameter Keycloak already follows the browser the way this ADR's rule does**: a list of Polish,
+  English, Dutch gives English, and German alone gives Dutch.
+- **Signing in writes no language onto the account. Registering does** — *contradicted "nothing records a
+  language on the account"*. The registration form carries a hidden `locale` field holding the page's
+  language, and it is stored as the user's `locale`. That field is on today's one-locale realm too, so
+  accounts registered through the form most likely hold `nl` already; the two seeded local users hold nothing,
+  and production was not looked at.
+- **A stored language beats the page for the mail** — *contradicted "a mail follows the page that asked for
+  it"*. An account holding `nl`, resetting from an English sign-in page, reads English pages and receives a
+  Dutch mail; holding `en` and resetting from a Dutch page, an English one. The mail follows the page only for
+  an account that holds nothing.
+- **The link in the mail carries no language.** Opened in a browser other than the one that asked, the
+  new-password page follows that browser.
+- **The English mail is Keycloak's own** ("Reset password") until T96 writes ours.
+
+**Stripe**
+
+- **`locale=en` on the session gives an English Checkout in a Dutch browser**, and the same on a Portal
+  session gives an English Portal.
+- **The customer Checkout creates records the browser first and the session second** — `preferred_locales`
+  came back `["nl-NL", "en"]` for an English session paid from a Dutch browser, and `["en-US"]` with no
+  locale from an English one. *So opening the first Checkout in the reader's Language does not decide the
+  receipts*: for a reader who chose against their browser, Stripe's stored first preference is the browser's.
+- **A Portal opened without a locale follows that stored preference**, not the browser — Dutch in a German
+  browser for the customer above. The hosted invoice page follows whichever browser opens it.
+- **A subscriber cannot change it.** The Portal's customer updates are name, e-mail, address and phone.
+- **Not observed:** the language of a receipt mail itself. The sandbox sends none; that it follows the first
+  stored preference is Stripe's documented behaviour, not something seen here.

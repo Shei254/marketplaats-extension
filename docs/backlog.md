@@ -1988,19 +1988,26 @@ so the cards become Overstappen.
 ## Client review of 2026-11-13
 
 Eight tweaks arrived in one message. 2, 3, 5 and 6 shipped in #200 (copy, the popup hero mark, the
-branded meter and the primary button's corner tint), and the store listing took the same copy. One waits
-on an asset, and three are **out of scope for this round** — each is quoted separately, as a fixed price
-for the pieces listed under it, at the sizes given (S ≈ under a day · M ≈ 1–3 days · L ≈ 3+ days).
+branded meter and the primary button's corner tint), and the store listing took the same copy. The one
+that waited on an asset has since landed (T91), and three are **out of scope for this round** — each is
+quoted separately, as a fixed price for the pieces listed under it, at the sizes given (S ≈ under a day · M ≈ 1–3 days · L ≈ 3+ days).
 Nothing below is decided; the client has not asked for any of it to be built.
 
-#### T91 · The rounded mark · **XS** · waiting on the client's 512px export
-The client sent the rounded artwork at 128×128; `iconSet` refuses a master smaller than the largest size
-asked of it (the 180px apple-touch icon), and upscaling would blur every large derivative. When the 512px
-PNG arrives: replace `brand/icon.png`, rebuild `apps/keycloak-theme` and commit the regenerated theme.
-That one file is the tab favicon, the toolbar and chrome://extensions icon, the Web Store icon, the login
-page's mark and the apple-touch icon — and it **finishes tweak 5**, since the login mark is over-large only
-because the current master's glyph fills ~80% of its tile and the rounded one's fills ~55%, the header's
-proportion. Note for iOS: a pre-rounded icon shows its transparent corners on a home screen.
+#### T91 · The rounded mark · **XS** · **done 2026-11-15**
+`brand/icon.png` is the client's rounded artwork at 512×512, and `apps/keycloak-theme/theme/` is rebuilt
+from it. That one file is the tab favicon, the toolbar and chrome://extensions icon, the Web Store icon,
+the login page's mark and the apple-touch icon — and it **finishes tweak 5**, since the login mark was
+over-large only because the old master's glyph filled ~80% of its tile and this one's fills ~55%, the
+header's proportion.
+- **The export arrived as a JPEG, so its corners were cut here.** A JPEG has no alpha: the four corners
+  outside the rounded tile were opaque white, which is a white square on a dark toolbar. The master is that
+  file with the corners made transparent along the artwork's own arc (radius 54.5px, measured), and the
+  edge pixels the JPEG had blended into white recoloured from just inside it. Nothing else is touched; a
+  PNG export with real transparency, if the client sends one, replaces it the same way and is lossless
+  around the glyph where this one is not.
+- **Note for iOS:** a pre-rounded icon shows its transparent corners on a home screen.
+- **Not redrawn:** `store/media/promo/` are committed images made by hand, and the popup header draws the
+  vector (T48).
 
 #### T92 · "Prijs op aanvraag" — the top plan sold by quote · **out of scope** · quote ≈ 4–6 days
 **Why it cannot be done by hand today.** A quote is a price for one customer, and the catalog has no place

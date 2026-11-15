@@ -171,6 +171,59 @@ describe("iconSet", () => {
     }
   });
 
+  describe("the small sizes are cut rounder than the artwork", () => {
+    // The master's own corner is about a tenth of the tile: plain at 512px, under
+    // two pixels in a tab, where the icon then reads as a square. A solid master
+    // has no corner of its own, so every transparent pixel below is this cut.
+    const solid = encodePng(image(64, 64, () => [10, 20, 30, 255]));
+    const alpha = (bytes: Uint8Array | undefined, x: number, y: number): number =>
+      pixelAt(decodePng(bytes!), x, y)[3]!;
+
+    it("clears all four corners of a 32px icon, and keeps its middle and its edges", () => {
+      const icon = iconSet(solid, [32]).get(32);
+
+      for (const [x, y] of [[0, 0], [31, 0], [0, 31], [31, 31]] as const) expect(alpha(icon, x, y)).toBe(0);
+      expect(alpha(icon, 16, 16)).toBe(255);
+      expect(alpha(icon, 16, 0)).toBe(255);
+      expect(alpha(icon, 0, 16)).toBe(255);
+    });
+
+    it("draws the arc at 22% of the side, soft at its edge", () => {
+      const icon = iconSet(solid, [32]).get(32);
+
+      // The radius is 7.04px, centred at (7.04, 7.04). On the diagonal, (1,1) is
+      // outside the arc and (2,2) inside it; (1,2) is a pixel the arc crosses —
+      // partly covered, which is the anti-aliasing.
+      expect(alpha(icon, 1, 1)).toBe(0);
+      expect(alpha(icon, 2, 2)).toBe(255);
+      expect(alpha(icon, 1, 2)).toBeGreaterThan(0);
+      expect(alpha(icon, 1, 2)).toBeLessThan(255);
+      expect(alpha(icon, 2, 1)).toBe(alpha(icon, 1, 2));
+    });
+
+    it("cuts 16px the same way", () => {
+      const icon = iconSet(solid, [16]).get(16);
+
+      expect(alpha(icon, 0, 0)).toBe(0);
+      expect(alpha(icon, 8, 8)).toBe(255);
+    });
+
+    it("leaves every larger size as the artwork has it", () => {
+      // 48 and up are the login page's mark, chrome://extensions and the Store,
+      // where the client's own corner can be seen and is the one to show.
+      const set = iconSet(solid, [48, 64]);
+
+      expect(alpha(set.get(48), 0, 0)).toBe(255);
+      expect(alpha(set.get(64), 0, 0)).toBe(255);
+    });
+
+    it("never makes a pixel more opaque than the artwork left it", () => {
+      const hollow = encodePng(image(64, 64, () => [10, 20, 30, 0]));
+
+      expect(alpha(iconSet(hollow, [32]).get(32), 16, 16)).toBe(0);
+    });
+  });
+
   it("refuses a master that is not square, since every size it is asked for is", () => {
     // Cropping would be a decision about which part of somebody's artwork to
     // keep, and squashing puts the mark off its own geometry. Neither is this

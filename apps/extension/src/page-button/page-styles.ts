@@ -64,10 +64,38 @@ const pageCss = `
     box-shadow var(--mp-fast) var(--mp-ease),
     transform var(--mp-fast) var(--mp-ease);
 }
+/* The resting outline is the brand ramp rather than one blue: a ring drawn over
+   the border, masked down to the border's own width, so the fill underneath stays
+   a \`background-color\` that can fade on hover (a gradient border made of two
+   \`background\` layers could only snap). Idle only — every other tone says its
+   state with its own border and has no ring. Still outlined, still the quiet
+   button beside their call to action; it is the edge that says whose it is. */
+.pb-btn { position: relative; }
+.pb-btn[data-tone="idle"] { border-color: transparent; }
+.pb-btn[data-tone="idle"]::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  padding: 1.5px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, var(--mp-brand-from), var(--mp-brand-to));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  pointer-events: none;
+}
 .pb-btn:hover:not(:disabled) {
   background: var(--mp-hover);
   box-shadow: 0 4px 14px -6px var(--mp-accent);
   transform: translateY(-1px);
+}
+/* Idle lifts on a glow in both of the mark's colours, teal to the left and blue
+   to the right, the way the ring runs. */
+.pb-btn[data-tone="idle"]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--mp-accent) 7%, var(--mp-bg));
+  box-shadow:
+    -6px 6px 16px -8px var(--mp-brand-from),
+    6px 6px 16px -8px var(--mp-brand-to);
 }
 .pb-btn:active:not(:disabled) { transform: translateY(0); box-shadow: none; }
 .pb-btn:focus-visible,
@@ -198,16 +226,22 @@ const pageCss = `
   border-radius: 9px;
   color: var(--mp-on-accent);
   background-color: var(--mp-accent);
-  background-image: linear-gradient(135deg, var(--mp-accent), var(--mp-accent-hover));
+  /* The design system's primary ramp, and its hover: twice the width, sliding. */
+  background-image: var(--mp-accent-grad);
+  background-size: 200% 100%;
+  background-position: 0 0;
   box-shadow: var(--mp-shadow-sm);
   font: inherit;
   font-size: 13px;
   font-weight: 600;
   text-decoration: none;
   cursor: pointer;
-  transition: filter var(--mp-fast) var(--mp-ease), box-shadow var(--mp-fast) var(--mp-ease);
+  transition:
+    background-position var(--mp-fast) var(--mp-ease),
+    filter var(--mp-fast) var(--mp-ease),
+    box-shadow var(--mp-fast) var(--mp-ease);
 }
-.pb-action:hover { filter: brightness(1.06); box-shadow: var(--mp-shadow); }
+.pb-action:hover { background-position: 100% 0; filter: brightness(1.06); box-shadow: var(--mp-shadow); }
 
 /* The toast a repost leaves: the ad is at the top now, and the page has not
    noticed until the seller says so. */

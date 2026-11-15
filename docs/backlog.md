@@ -2066,7 +2066,20 @@ slices. **The order is the point**: an English site in front of a Dutch popup is
 to prevent, so every build before T97 is Dutch only and nobody sees a **Language switch** until the whole
 path is English.
 
-#### T94 · Two things to prove before anything is built on them · **S**
+#### T94 · Two things to prove before anything is built on them · **S** · **done 2026-11-15**
+**Both spikes ran, and the findings are in ADR-0043's "Checked" section.** `ui_locales` carries English
+through the sign-in page, the reset page and the mail, and `locale` does the same for Checkout and the
+Portal — so T96's hand-offs are built on things that were seen to work. Two things came out differently
+from what the ADR first said, and the operator took both as found:
+- **The mail follows the language the account registered in**, not the page that asked for it. Registration
+  stores the page's language on the account and a stored language beats the page.
+- **Receipts follow the browser the plan was bought from.** Stripe records the browser's language ahead of
+  the session's.
+
+Neither adds work to T95–T97. **One thing T97 inherits:** production accounts were not looked at, and what
+they hold decides which mail an existing reader gets.
+
+*As written before the run:*
 Both are marked *unproven* in ADR-0043, and the answers are written into it as a "Checked" section.
 - **Does a reset mail follow the sign-in page?** On the local stack, with `supportedLocales: ["nl", "en"]`:
   open the sign-in page in English through the locale parameter, press *Forgot password?*, and read the mail.
@@ -2077,7 +2090,7 @@ Both are marked *unproven* in ADR-0043, and the answers are written into it as a
   Checkout with an explicit English locale, pay, and read the customer's preferred language and the receipt.
   Record whether the Customer Portal lets a subscriber change it.
 - **If the mail does not follow the page, stop.** That reopens the ADR's mail decision, and it goes back to
-  the operator before T95 starts.
+  the operator before T95 starts. *(It did not, and it did.)*
 
 #### T95 · The Dutch moves into catalogs, and no screen changes · **L**
 The bulk of the work and the safest to review, because it is not behaviour: every existing test passes

@@ -52,7 +52,7 @@ written. A change that moves code updates the ADRs naming it, alongside
 | [0039](0039-a-pending-repost-is-finished-never-re-authorized.md) | A pending repost is finished, never re-authorized | Accepted, refines 0003 and 0007; re-admits `alarms` |
 | [0040](0040-the-page-button-lives-on-mijn-advertenties.md) | The second surface is a Page button on Mijn Advertenties, in its own React content script | Accepted, narrows 0004 |
 | [0042](0042-a-switch-buys-a-fresh-period-now-or-at-renewal.md) | A switch buys a fresh period, now or at renewal, and both doors are ours | Accepted, supersedes part of 0036, refines 0037 |
-| [0043](0043-the-language-belongs-to-the-device-and-is-carried.md) | The Language belongs to the device, is carried across every hand-off, and changes only our words | Accepted, refines 0033 and 0035; two claims await T94 |
+| [0043](0043-the-language-belongs-to-the-device-and-is-carried.md) | The Language belongs to the device, is carried across every hand-off, and changes only our words | Accepted, refines 0033 and 0035 |
 
 **Amended by the 2026-08-13 session:** 0006 (Stripe narrowed to money + lifecycle), 0007 (gating depth,
 `/api/me` display state, `marktplaatsAccountId` dropped), 0009 (monorepo, React popup, Options page removed).

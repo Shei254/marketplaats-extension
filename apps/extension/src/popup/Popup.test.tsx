@@ -752,7 +752,11 @@ describe("signed out", () => {
     expect(text()).not.toContain("reposts left");
     expect(text()).not.toContain("Free");
     expect(container.querySelector('[aria-label="Vernieuwen"]')).toBeNull();
-    expect(container.querySelectorAll("button")).toHaveLength(1);
+    // One button to act on. The header's light/dark switch is the popup's own and
+    // is on every screen, so it is not part of what this screen offers.
+    const offered = [...container.querySelectorAll("button")].filter((button) => !button.closest(".popup-header"));
+    expect(offered).toHaveLength(1);
+    expect(container.querySelector('.popup-header [aria-label$="modus"]')).not.toBeNull();
   });
 
   it("and names the act once, in the word the rest of the popup uses", async () => {

@@ -49,6 +49,7 @@ export type PaletteName =
   | "accent"
   | "accent-hover"
   | "on-accent"
+  | "accent-grad"
   | "brand-from"
   | "brand-to"
   | "on-brand"
@@ -106,6 +107,11 @@ export const palette: Record<Theme, Record<PaletteName, string>> = {
     accent: "#1d63ef",
     "accent-hover": "#0b34f9",
     "on-accent": "#ffffff",
+    // The primary button's ramp, themed because the two themes cannot share one.
+    // The button shows the first half at rest and slides to the second on hover
+    // (styles.ts). The label here is white, so every stop is from the blue half of
+    // the mark: white on the teal is 1.27:1.
+    "accent-grad": "linear-gradient(135deg, #1d63ef, #0b34f9 50%, #0019ff)",
     ...BRAND_MARK,
     ok: "#15803d",
     "ok-bg": "#f0fdf4",
@@ -143,6 +149,12 @@ export const palette: Record<Theme, Record<PaletteName, string>> = {
     // Dark text on a light accent, which is the contrast that works when the
     // accent has to be light enough to be seen against `bg`.
     "on-accent": "#0b1220",
+    // In the dark the label is ink, which reads on the teal (14.8:1), so the ramp
+    // can be the mark's own — teal to blue, the way the quota meter draws it. It
+    // used to run `accent` to `accent-hover`, two light blues, and read as one flat
+    // colour. It ends on #3b82f6 and no deeper: ink on that is 5.1:1, and the
+    // mark's own `brand-to` under ink could not be read.
+    "accent-grad": "linear-gradient(135deg, #58ffcd, #4da3f5 50%, #3b82f6)",
     ...BRAND_MARK,
     ok: "#4ade80",
     "ok-bg": "#0f2419",

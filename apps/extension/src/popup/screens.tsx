@@ -3,7 +3,7 @@ import { UNLIMITED_REPOSTS, type DisplayState } from "@mprelist/contracts";
 import type { JSX, ReactNode } from "react";
 
 import { grantsNothing, MANAGING, type Handoff, type PlansView } from "./plans";
-
+import { ThemeToggle } from "./ThemeToggle";
 
 /**
  * The screens, as functions of what they show and nothing else — no state,
@@ -29,7 +29,10 @@ export function Header({ actions }: { actions?: ReactNode }): JSX.Element {
         </span>
         {__BRAND_NAME__}
       </span>
-      {actions ? <span className="popup-actions">{actions}</span> : null}
+      <span className="popup-actions">
+        {actions}
+        <ThemeToggle />
+      </span>
     </header>
   );
 }

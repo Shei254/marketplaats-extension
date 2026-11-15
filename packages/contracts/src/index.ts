@@ -9,7 +9,8 @@
  * `./features` is that agreement (T69; ADR-0026). A quota is nullable on four wire
  * shapes and had five readers spelling that out four ways, and `./quota` is the one
  * spelling (T73; ADR-0029). And a plan is read aloud on two surfaces since the
- * site's landing page (T58), and `./wording` is how it reads. They are the only
+ * site's landing page (T58), and `./wording` is how it reads — in whichever
+ * **Language** it is handed (ADR-0043), from the catalog in `./words`. They are the only
  * runtime code here that is not a list of the enum values the wire uses, and all
  * four are here for the same reason: two copies of a rule about one field is the
  * pair that drifts.
@@ -85,19 +86,23 @@ export {
 
 export { isQuota } from "./quota";
 
+export { DUTCH, LANGUAGES, languageFor, type Language } from "./language";
+
+export { PLAN_WORDS, planWordsNl } from "./words";
+
 export {
   dayOf,
   dueToday,
   freshPeriodLine,
   fromRenewalLine,
   grantOf,
-  PAY_THE_OPEN_INVOICE_FIRST,
+  payTheOpenInvoiceFirst,
   pendingLine,
   priceAndRhythmOf,
   priceOf,
-  SWITCH_AT_RENEWAL,
-  SWITCHED_TODAY,
-  UNDO_FAILED,
-  UNLIMITED_REPOSTS,
+  switchAtRenewal,
+  switchedToday,
+  undoFailed,
+  unlimitedReposts,
   waysToPay,
 } from "./wording";

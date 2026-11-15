@@ -370,6 +370,19 @@ describe("extension build", () => {
     expect(shipped.length).toBeLessThan(forTesters.length * 0.75);
   });
 
+  it("bundles the words into what says them, and nothing into the relay", () => {
+    // Manifest V3 forbids fetching a catalog, so the Dutch has to be in each bundle
+    // that says any of it (ADR-0043).
+    for (const name of ["popup.js", "page-button.js", "background.js"]) {
+      expect(production.bundles[name], `${name} has no catalog`).toContain("De herplaatsing werd onderbroken");
+    }
+    // The relay runs on every marktplaats.nl page and says nothing. It imports
+    // `@mprelist/contracts` for a wire enum, and that must not bring i18next and
+    // the plan sentences along — which it did until the package said it has no
+    // side effects and made its instance on first use.
+    expect(production.bundles["content.js"]).not.toContain("i18next");
+  });
+
   it("passes the pinned `key` through untouched", async () => {
     // The key is the extension id (T44, #13), which is the Keycloak redirect URI,
     // in a realm that imports once. Templating the manifest must not disturb it.

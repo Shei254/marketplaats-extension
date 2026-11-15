@@ -6,12 +6,12 @@ import {
   fromRenewalLine,
   grantOf,
   isInDunning,
-  PAY_THE_OPEN_INVOICE_FIRST,
+  payTheOpenInvoiceFirst,
   pendingLine,
   priceAndRhythmOf,
-  SWITCH_AT_RENEWAL,
-  SWITCHED_TODAY,
-  UNDO_FAILED,
+  switchAtRenewal,
+  switchedToday,
+  undoFailed,
   type DisplayState,
   type Plan,
   type PlanPrice,
@@ -19,6 +19,8 @@ import {
 import { useEffect, useRef, useState, type JSX } from "react";
 
 import type { SwitchAnswer } from "../api/subscribing";
+import { useTranslation } from "../i18n/react";
+import { language, t } from "../i18n/words";
 import type { Handoff, PlansView } from "./plans";
 import { grantLine } from "./screens";
 
@@ -74,6 +76,7 @@ export function PlanCards({
    */
   switching?: Switching;
 }): JSX.Element {
+  const { t } = useTranslation();
   const [confirming, setConfirming] = useState<Confirming | null>(null);
   if (view.status === "loading") return <LoadingCards />;
   if (view.status === "failed") {
@@ -81,9 +84,9 @@ export function PlanCards({
       <div className="popup-plans-failed">
         {/* The contract's own words for a `503` here: never a guessed amount, and
             never a card whose button would open a Checkout for one. */}
-        <Note tone="warn">De prijzen konden nu niet worden geladen.</Note>
+        <Note tone="warn">{t("plans.notLoaded")}</Note>
         <Button shape="rect" tone="secondary" onClick={onRetry}>
-          Opnieuw proberen
+          {t("common.tryAgain")}
         </Button>
       </div>
     );
@@ -97,7 +100,7 @@ export function PlanCards({
   const inDunning = payer !== null && isInDunning(payer.current.subscriptionStatus);
   return (
     <div className="popup-plans">
-      {inDunning ? <Note tone="warn">{PAY_THE_OPEN_INVOICE_FIRST}</Note> : null}
+      {inDunning ? <Note tone="warn">{payTheOpenInvoiceFirst(language())}</Note> : null}
       {holdsOneOnSale ? null : <CurrentPlanCard current={current} switching={payer?.switching} />}
       {onSale.map((plan) => (
         <PlanCard
@@ -116,7 +119,7 @@ export function PlanCards({
       {onSale.length === 0 ? (
         // Not a failure: nothing is on sale, which is every stack whose Stripe
         // Prices have not been created yet (T22, #28).
-        <p className="popup-plans-empty">Er zijn op dit moment geen betaalde abonnementen beschikbaar.</p>
+        <p className="popup-plans-empty">{t("plans.noneOnSale")}</p>
       ) : null}
     </div>
   );
@@ -131,15 +134,16 @@ export function PlanCards({
  * as a row of comparable things.
  */
 function CurrentPlanCard({ current, switching }: { current: DisplayState; switching?: Switching }): JSX.Element {
+  const { t } = useTranslation();
   return (
     <div className="popup-plan-card popup-plan-card--current">
       <div className="popup-plan-card-head">
         <span className="popup-plan-card-name">{current.tier.name}</span>
-        <Badge tone="accent">Huidig</Badge>
+        <Badge tone="accent">{t("plans.current")}</Badge>
       </div>
       <p className="popup-plan-card-grant">{grantLine(current)}</p>
-      <Button shape="block" tone="done" aria-label={`${current.tier.name} is je abonnement`}>
-        Je abonnement
+      <Button shape="block" tone="done" aria-label={t("plans.isYours", { plan: current.tier.name })}>
+        {t("plans.yours")}
       </Button>
       {switching ? <PendingOnHeldCard current={current} switching={switching} /> : null}
     </div>
@@ -171,19 +175,20 @@ function PlanCard({
   confirming: Confirming | null;
   onConfirming: (confirming: Confirming | null) => void;
 }): JSX.Element {
+  const { t } = useTranslation();
   const opening = handoff.kind === "opening";
   return (
     <div className={current ? "popup-plan-card popup-plan-card--current" : "popup-plan-card"}>
       <div className="popup-plan-card-head">
         <span className="popup-plan-card-name">{plan.tier.name}</span>
-        {current ? <Badge tone="accent">Huidig</Badge> : null}
+        {current ? <Badge tone="accent">{t("plans.current")}</Badge> : null}
       </div>
       {/* The quota, described in the rhythm of the first price — which is the
           cheapest, and the one somebody reads the card by. */}
-      <p className="popup-plan-card-grant">{grantOf(plan)}</p>
+      <p className="popup-plan-card-grant">{grantOf(plan, language())}</p>
       {current ? (
-        <Button shape="block" tone="done" aria-label={`${plan.tier.name} is je abonnement`}>
-          Je abonnement
+        <Button shape="block" tone="done" aria-label={t("plans.isYours", { plan: plan.tier.name })}>
+          {t("plans.yours")}
         </Button>
       ) : null}
       {current && holder ? <PendingOnHeldCard current={holder.current} switching={holder.switching} /> : null}
@@ -201,7 +206,7 @@ function PlanCard({
           .map((price) =>
             isPendingTarget(payer.current, plan, price) ? (
               <p key={price.interval} className="popup-plan-card-pending">
-                Vanaf {dayOf(payer.current.pendingSwitch?.at ?? "")}
+                {t("plans.from", { day: dayOf(payer.current.pendingSwitch?.at ?? "", language()) })}
               </p>
             ) : (
               <Button
@@ -210,7 +215,7 @@ function PlanCard({
                 tone="secondary"
                 onClick={() => onConfirming({ tierCode: plan.tier.code, price, phase: { kind: "pricing" } })}
               >
-                Overstappen · {priceAndRhythmOf(price)}
+                {t("plans.switchFor", { price: priceAndRhythmOf(price, language()) })}
               </Button>
             ),
           )
@@ -260,6 +265,7 @@ function SwitchConfirm({
   confirming: Confirming;
   onConfirming: (confirming: Confirming | null) => void;
 }): JSX.Element {
+  const { t } = useTranslation();
   const { switching, current } = payer;
   const { price, phase } = confirming;
   const to = (next: Phase) => onConfirming({ ...confirming, phase: next });
@@ -298,16 +304,21 @@ function SwitchConfirm({
   };
 
   return (
-    <div className="popup-switch" role="group" aria-label={`Overstappen naar ${plan.tier.name}`}>
-      {phase.kind === "pricing" ? <p className="popup-switch-copy">Het bedrag wordt opgehaald…</p> : null}
+    <div className="popup-switch" role="group" aria-label={t("plans.switchTo", { plan: plan.tier.name })}>
+      {phase.kind === "pricing" ? <p className="popup-switch-copy">{t("plans.pricing")}</p> : null}
       {phase.kind === "priced" ? (
         <>
           <p className="popup-switch-copy">
-            <b>Nu:</b> {dueToday(phase.preview)}{" "}
-            {freshPeriodLine(plan, { name: current.tier.name, relistQuotaPerPeriod: current.relistQuotaPerPeriod })}
+            <b>{t("plans.nowLabel")}</b> {dueToday(phase.preview, language())}{" "}
+            {freshPeriodLine(
+              plan,
+              { name: current.tier.name, relistQuotaPerPeriod: current.relistQuotaPerPeriod },
+              language(),
+            )}
           </p>
           <p className="popup-switch-copy">
-            <b>Op {dayOf(phase.preview.renewsAt)}:</b> {fromRenewalLine(phase.preview.renewsAt, price, current.tier.name)}
+            <b>{t("plans.onLabel", { day: dayOf(phase.preview.renewsAt, language()) })}</b>{" "}
+            {fromRenewalLine(phase.preview.renewsAt, price, current.tier.name, language())}
           </p>
           {/* Both the same tone: neither is the default (ADR-0042). */}
           <Button
@@ -318,7 +329,7 @@ function SwitchConfirm({
               void switching.now(plan.tier.code, price.interval).then((answer) => made(answer, "now"));
             }}
           >
-            Nu
+            {t("plans.now")}
           </Button>
           <Button
             shape="block"
@@ -328,29 +339,29 @@ function SwitchConfirm({
               void switching.schedule(plan.tier.code, price.interval).then((answer) => made(answer, "renewal"));
             }}
           >
-            Op {dayOf(phase.preview.renewsAt)}
+            {t("plans.on", { day: dayOf(phase.preview.renewsAt, language()) })}
           </Button>
         </>
       ) : null}
-      {phase.kind === "working" ? <p className="popup-switch-copy">Een moment…</p> : null}
+      {phase.kind === "working" ? <p className="popup-switch-copy">{t("common.oneMoment")}</p> : null}
       {phase.kind === "done" ? (
         <p className="popup-switch-copy" role="status">
-          {phase.when === "now" ? SWITCHED_TODAY : SWITCH_AT_RENEWAL}
+          {phase.when === "now" ? switchedToday(language()) : switchAtRenewal(language())}
         </p>
       ) : null}
       {phase.kind === "paying" ? (
         <p className="popup-switch-copy" role="status">
-          Rond de betaling af in het tabblad dat is geopend.
+          {t("plans.finishPaying")}
         </p>
       ) : null}
       {phase.kind === "failed" ? <Note tone="warn">{phase.message}</Note> : null}
       {phase.kind === "pricing" || phase.kind === "priced" ? (
         <Button shape="block" tone="secondary" onClick={close}>
-          Annuleren
+          {t("common.cancel")}
         </Button>
       ) : phase.kind === "failed" ? (
         <Button shape="block" tone="secondary" onClick={close}>
-          Sluiten
+          {t("common.close")}
         </Button>
       ) : null}
     </div>
@@ -359,13 +370,14 @@ function SwitchConfirm({
 
 /** The held card's half of a pending switch: what it moves to and when, and the way back. */
 function PendingOnHeldCard({ current, switching }: { current: DisplayState; switching: Switching }): JSX.Element | null {
+  const { t } = useTranslation();
   const [undoing, setUndoing] = useState<"idle" | "busy" | "failed">("idle");
   const pending = current.pendingSwitch;
   if (!pending) return null;
   return (
     <>
-      <p className="popup-plan-card-pending">{pendingLine(pending)}</p>
-      {undoing === "failed" ? <Note tone="warn">{UNDO_FAILED}</Note> : null}
+      <p className="popup-plan-card-pending">{pendingLine(pending, language())}</p>
+      {undoing === "failed" ? <Note tone="warn">{undoFailed(language())}</Note> : null}
       <Button
         shape="block"
         tone={undoing === "busy" ? "busy" : "secondary"}
@@ -378,7 +390,7 @@ function PendingOnHeldCard({ current, switching }: { current: DisplayState; swit
           });
         }}
       >
-        {undoing === "busy" ? "Een moment…" : "Ongedaan maken"}
+        {undoing === "busy" ? t("common.oneMoment") : t("plans.undo")}
       </Button>
     </>
   );
@@ -392,13 +404,13 @@ function isPendingTarget(current: DisplayState, plan: Plan, price: PlanPrice): b
 function failureOf(answer: SwitchAnswer): string {
   switch (answer.status) {
     case "invoice-open":
-      return PAY_THE_OPEN_INVOICE_FIRST;
+      return payTheOpenInvoiceFirst(language());
     case "gone":
-      return "Dat abonnement wordt niet meer aangeboden.";
+      return t("plans.gone");
     case "not-paying":
-      return "Je hebt nog geen betaald abonnement. Vernieuw om de abonnementen opnieuw te laden.";
+      return t("plans.notPaying");
     default:
-      return "Dat lukte nu niet. Er is niets veranderd; probeer het zo nog eens.";
+      return t("plans.switchFailed");
   }
 }
 
@@ -452,6 +464,7 @@ function RhythmButton({
   alternative?: boolean;
   onUpgrade: (tierCode: string, interval: string) => void;
 }): JSX.Element {
+  const { t } = useTranslation();
   // Keyed by tier *and* rhythm, so the button that was clicked is the one that
   // says "Opening…" — a plan with two of them would otherwise light both.
   const openingThis = opening && handoff.kind === "opening" && handoff.what === buying(plan, price);
@@ -464,7 +477,7 @@ function RhythmButton({
       tone={openingThis ? "busy" : opening ? "locked" : alternative ? "secondary" : "primary"}
       onClick={() => onUpgrade(plan.tier.code, price.interval)}
     >
-      {openingThis ? "Bezig met openen…" : priceAndRhythmOf(price)}
+      {openingThis ? t("common.opening") : priceAndRhythmOf(price, language())}
       {openingThis || opening ? null : <Icon name="external" size={13} />}
     </Button>
   );

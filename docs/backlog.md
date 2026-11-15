@@ -833,6 +833,8 @@ a feature no user of this build can reach is not one to put in front of a first 
   the ad id sent). Not financial information — payment is Stripe's, on the site, and `/privacy` says so. All
   three certifications. Over-disclosing costs nothing; a box left empty beside a marktplaats.nl host
   permission reads as concealment. `/privacy` stays Dutch, with an English line in *Test instructions*.
+  *(Overturned 2026-11-15 by [ADR-0043](adr/0043-the-language-belongs-to-the-device-and-is-carried.md): `/privacy` and
+  `/terms` exist in both languages once T97 ships. The listing itself stays Dutch.)*
 - **The description states that a repost deletes first — one sentence, the outcome and not the mechanism.**
   The *Misleading or Unexpected Behavior* policy requires that a description "directly state the
   functionality", and an irreversible delete is the one a user would not guess.
@@ -2031,20 +2033,19 @@ cards the moment its quota is set, because setting a quota is what publishes a t
 **Ask the client first:** whether it is worth it at their volume. Until enough people want more than the
 second-highest plan, the card plus a `mailto:` and a manually-adjusted plan is cheaper than all three.
 
-#### T93 · English beside Dutch · **out of scope** · quote ≈ 5–8 days, translations supplied by the client
-There is no i18n anywhere in the extension or the site: every string is Dutch inline in components
-(eight popup files, five site files, the page button — ~230 lines of copy). **The pieces:**
-- **Extract the copy** into an `nl` and an `en` dictionary per surface · M — the bulk of the work, and
-  mechanical; the client fills in `en`.
-- **One switch that follows the user** · M — Dutch by default. Once signed in, the choice is stored on
-  the account as Keycloak's own user `locale`, which the login page and the mail already read, so the
-  popup, the site, the sign-in and the mail all follow one setting; a signed-out visitor's choice on the
-  site is kept in the browser and passed to the login page.
-- **Keycloak** · S–M — realm `supportedLocales: ["nl", "en"]`, an English login bundle, and `messages_en`
-  for the mail ADR-0035 wrote.
-- **Legal pages** · S for the plumbing — but the English privacy and terms text is the client's to supply
-  and to stand behind; a translation of a legal text is not a copy edit.
-- **The Web Store listing** in English · S — the store supports one listing per locale.
+#### T93 · English beside Dutch · **decided 2026-11-15**, built as T94–T97 below
+No longer a quote: the design was settled in a grilling session and is
+[ADR-0043](adr/0043-the-language-belongs-to-the-device-and-is-carried.md); the terms are **Language**,
+**Language switch** and **Our words** in the glossary. **Four things the quote said that the decision
+changed**, so nobody builds from the old text:
+- **The choice is the device's, not the account's.** The quote stored it as Keycloak's user `locale`;
+  nothing is stored on the account now, and the Language is carried across each hand-off instead.
+- **It follows the browser, not "Dutch by default"** — on the site as well.
+- **The words are held by i18next**, not by an `nl` and an `en` dictionary per surface.
+- **The Web Store listing stays Dutch**, with the manifest, the brand name and the tagline.
+
+The English legal text is drafted here and reviewed before it ships; whoever publishes it stands behind
+it, as the quote said.
 
 #### T70 · Bulk repost (tweak 8) · **out of scope** · quote ≈ 3–5 days + a real-account walk
 Already ticketed above; the API half (entitlement, `batch` on `authorize`, pacing, the `/admin` cap) is
@@ -2055,6 +2056,75 @@ the batch runs**, because every repost happens in their own browser session. The
 Power batch of 25 take about two hours. The quote includes slice E of
 [`click-through.md`](click-through.md) walked against an account with enough real ads to select from —
 the walk that was never done the first time.
+
+---
+
+## English beside Dutch (T93)
+
+[ADR-0043](adr/0043-the-language-belongs-to-the-device-and-is-carried.md) is the decision and these are its
+slices. **The order is the point**: an English site in front of a Dutch popup is the failure the ADR exists
+to prevent, so every build before T97 is Dutch only and nobody sees a **Language switch** until the whole
+path is English.
+
+#### T94 · Two things to prove before anything is built on them · **S**
+Both are marked *unproven* in ADR-0043, and the answers are written into it as a "Checked" section.
+- **Does a reset mail follow the sign-in page?** On the local stack, with `supportedLocales: ["nl", "en"]`:
+  open the sign-in page in English through the locale parameter, press *Forgot password?*, and read the mail.
+  Record which parameter carries the language (`ui_locales` or `kc_locale`), whether it survives every page
+  of the flow, and whether the mail came out English. Also record whether registering or signing in writes a
+  locale onto the user — the ADR assumes nothing does.
+- **What does Stripe record for its receipts?** In the sandbox — which is not production's account — open a
+  Checkout with an explicit English locale, pay, and read the customer's preferred language and the receipt.
+  Record whether the Customer Portal lets a subscriber change it.
+- **If the mail does not follow the page, stop.** That reopens the ADR's mail decision, and it goes back to
+  the operator before T95 starts.
+
+#### T95 · The Dutch moves into catalogs, and no screen changes · **L**
+The bulk of the work and the safest to review, because it is not behaviour: every existing test passes
+untouched, and that is the acceptance.
+- **i18next, bundled.** `i18next` everywhere and `react-i18next` on the React surfaces, with catalogs imported
+  as modules — nothing fetched, since Manifest V3 and the site's `script-src 'self'` forbid it. It must
+  initialise synchronously, so a component test renders without waiting.
+- **`@mprelist/contracts` gets the shared half**: the `Language` type, the browser-list rule as one pure
+  function (first of Dutch or English in the list, else Dutch), and a catalog for the plan sentences that
+  `wording.ts` reads, taking the Language as an argument. Money keeps `nl-NL`.
+- **The extension**: the popup, the **Page button** and the worker's sentences move to one set of catalogs in
+  `apps/extension`. **The site**: the public pages and both legal documents move to catalogs in `apps/web`.
+  One PR per surface.
+- **Keys are typed from the Dutch catalog**, so a misspelled key does not compile.
+- **Pinned to Dutch.** No English catalog, no switch and no browser rule is wired to anything yet.
+
+#### T96 · English, still unseen · **L**
+Everything the path needs in English, with the Language still pinned to Dutch in every build.
+- **The English catalogs** for the extension, the site and the shared plan sentences, held to exactly the
+  Dutch keys by the type check and one test. *Repost* for *herplaatsen*; Marktplaats's labels, tier names,
+  the brand name and the tagline are not translated (**Our words**). Dates follow the Language.
+- **The English privacy and terms**, drafted from `legal.tsx` and reviewed by the operator before merge.
+  Equal standing: no governing-language line.
+- **Keycloak**: `en` joins `supportedLocales` in both realm files; the locale dropdown comes out of the login
+  template and its rules out of `css.ts`; the mail gets an English bundle beside `dutchMessages`; the
+  committed theme is regenerated; `KeycloakRealmTest` and `ProductionRealmTest` hold the two locales and the
+  absent dropdown. Local stacks need a `down -v`.
+- **The API**: an optional language on the two requests that open Checkout and the Portal, handed to Stripe
+  as its locale; absent means what it means today. The contract and `enforcement-contract.md` say so.
+- **The hand-offs are wired but carry Dutch**: `?lang` on the popup's links to the site, the locale parameter
+  on both sign-ins, the field on both Stripe requests.
+
+#### T97 · The switches, and the release · **M**
+The first build in which a user can see any of it.
+- **The site**: a **Language switch** in the navigation bar; the choice kept in the browser; nothing chosen
+  follows the browser's list; `?lang` on an incoming link sets the choice; `<html lang>` follows.
+- **The extension**: a **Language switch** in the popup header beside the theme switch, with the choice kept
+  where the popup, the content script and the worker can all read it; the **Page button** re-labels when it
+  changes, with no reload and no control of its own. The header was only just made to fit the theme switch
+  (`3a727fe`), so this is checked at the popup's real width in both languages.
+- **By hand, before the release**: the live realm's supported locales gain English in the admin console — a
+  realm imports once — and `mprelist-deploy` warns when the sign-in page will not answer in English, the way
+  it already does for the theme.
+- **Walked, not assumed**: `click-through.md` gains the path in English from the landing page to a repost,
+  including the reset mail and a Checkout, with a browser set to Dutch and the switches set to English — the
+  case where only the hand-offs can be carrying it.
+- **The extension is resubmitted to the Web Store**; the listing is unchanged.
 
 ---
 

@@ -82,6 +82,7 @@ export const componentCss = `
   cursor: pointer;
   transition:
     background-color var(--mp-fast) var(--mp-ease),
+    background-position var(--mp-fast) var(--mp-ease),
     border-color var(--mp-fast) var(--mp-ease),
     color var(--mp-fast) var(--mp-ease),
     filter var(--mp-fast) var(--mp-ease),
@@ -97,27 +98,22 @@ export const componentCss = `
 }
 
 /* The primary tone is the one gradient in the system that is not a shimmer, and
-   the two stops are the two accents we already have. That is worth stating,
-   because the names now say something the rule does not: \`--mp-accent-hover\` is a
-   **rest** stop here, and \`:hover\` no longer touches the background at all.
+   its ramp is a themed token, \`--mp-accent-grad\`, because the two themes cannot
+   share one: the light label is white and has to stay off the mark's teal, the
+   dark label is ink and reads on it. The two values are in tokens.ts.
 
-   It has to be that way round. A gradient is \`background-image\`, and
-   \`background-image\` does not interpolate in any browser — so a hover that swapped
-   one gradient for another would snap where this control has always faded. What
-   hover changes instead is the two things that *do* interpolate: the elevation it
-   already owned, and brightness. The button lifts rather than repaints.
+   A gradient is \`background-image\`, and \`background-image\` does not interpolate
+   in any browser — so a hover that swapped one gradient for another would snap
+   where this control has always faded. What hover changes instead is what *does*
+   interpolate: the ramp's position, the elevation, and brightness.
 
    \`background-color\` is spelled separately from \`background-image\` rather than
    folded into one \`background\`, so there is a solid accent underneath the ramp for
    the forced-colours rule at the foot of this sheet to fall back to.
 
-   The ramp runs corner to corner, which is a decision with two visible costs taken
-   knowingly: the two accents sit on opposite sides of the neutral in the two
-   themes, so the light button darkens towards its bottom-right and the dark one
-   lightens towards it; and a 135deg ramp reads as more horizontal the wider the
-   control, so a \`pill\` in a row and a \`block\` in the foot are not lit identically.
-   Both are cured by an \`--accent-grad\` token drawn on the canvas per theme, which
-   is where to start if either one ever grates.
+   The ramp runs corner to corner, and a 135deg ramp reads as more horizontal the
+   wider the control, so a \`pill\` in a row and a \`block\` in the foot are not lit
+   identically.
 
    Over the ramp, a touch of the mark's teal in the top-left corner and nowhere
    else: the button stays the accent, and only its corner says where the colour
@@ -131,10 +127,17 @@ export const componentCss = `
   background-color: var(--mp-accent);
   background-image:
     radial-gradient(70px 46px at 0 0, color-mix(in srgb, var(--mp-brand-from) 45%, transparent), transparent),
-    linear-gradient(135deg, var(--mp-accent), var(--mp-accent-hover));
+    var(--mp-accent-grad);
+  /* The ramp is drawn twice the button's width and the button shows its first
+     half. Hover slides to the second half: \`background-image\` does not
+     interpolate, \`background-position\` does, so the ramp can move where it could
+     never be swapped. The corner tint is the first layer and stays where it is. */
+  background-size: 100% 100%, 200% 100%;
+  background-position: 0 0, 0 0;
   box-shadow: var(--mp-shadow-sm);
 }
 .mp-btn--primary:hover:not(:disabled) {
+  background-position: 0 0, 100% 0;
   filter: brightness(1.06);
   box-shadow: var(--mp-shadow);
 }

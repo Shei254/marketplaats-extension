@@ -88,11 +88,17 @@ body:has(.popup-ads) { max-height: 600px; }
   height: 24px;
   border-radius: var(--mp-radius-block);
 }
-.popup-actions { display: flex; align-items: center; gap: 2px; }
+/* Five things share 360px here — the brand, two glyphs and two words — so the
+   actions are packed: no gap between them, and the padding below is what keeps
+   them apart. The brand never gives way to them (it used to shrink, and the
+   glyph beside it then sat on the name). */
+.popup-brand { flex: none; }
+.popup-actions { display: flex; align-items: center; gap: 0; min-width: 0; }
+.popup-header .mp-icon-btn { padding: 5px; }
 /* The header's own scale. \`ghost\` is a control the whole product shares, and in
    a 360px header it is a caption beside a glyph rather than a 13.5px control. */
 .popup-header .mp-btn--ghost {
-  padding: 5px 8px;
+  padding: 5px 6px;
   border-radius: var(--mp-radius-note);
   font: var(--mp-text-caption) var(--mp-font-family);
   font-weight: 600;

@@ -30,8 +30,8 @@ export function Header({ actions }: { actions?: ReactNode }): JSX.Element {
         {__BRAND_NAME__}
       </span>
       <span className="popup-actions">
-        <ThemeToggle />
         {actions}
+        <ThemeToggle />
       </span>
     </header>
   );

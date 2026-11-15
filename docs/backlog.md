@@ -2006,6 +2006,10 @@ header's proportion.
   PNG export with real transparency, if the client sends one, replaces it the same way and is lossless
   around the glyph where this one is not.
 - **Note for iOS:** a pre-rounded icon shows its transparent corners on a home screen.
+- **The tab and toolbar sizes are cut rounder than the artwork** (same day, the client's ask). The
+  artwork's corner is about a tenth of its tile, which is under two pixels at 16px, so the favicon still
+  read as a square. `iconSet` cuts every size of 32px and under to a 22% corner; 48px and up — the login
+  mark, chrome://extensions, the Store, the apple-touch icon — are the artwork as sent.
 - **Not redrawn:** `store/media/promo/` are committed images made by hand, and the popup header draws the
   vector (T48).
 

@@ -298,7 +298,70 @@ export function iconSet(master, sizes) {
     );
   }
 
-  return new Map([...sizes].map((size) => [size, encodePng(resizeImage(image, size, size))]));
+  return new Map(
+    [...sizes].map((size) => {
+      const resized = resizeImage(image, size, size);
+      return [size, encodePng(size <= SMALL_ICON_MAX ? roundCorners(resized, size * SMALL_ICON_RADIUS) : resized)];
+    }),
+  );
+}
+
+/**
+ * The sizes a tab and Chrome's toolbar draw, and the corner they are cut to.
+ *
+ * The artwork's own corner is about a tenth of its tile. That is plain at 512px
+ * and under two pixels at 16, where the icon reads as a square — so at these
+ * sizes, and only these, the corner is cut rounder than the artwork: 22% of the
+ * side, an app icon's proportion. It is the one place a derivative is not simply
+ * the master made smaller, asked for by the client (2026-11-15) and decided here
+ * rather than by a second master, which would be a copy of the artwork to keep in
+ * step.
+ *
+ * 32 and under, not 48: 48 is the login page's mark at 1x beside its 96 at 2x,
+ * and those two have to be the same picture.
+ */
+const SMALL_ICON_MAX = 32;
+const SMALL_ICON_RADIUS = 0.22;
+
+/** Sub-samples per pixel, each way, for the arc's edge. */
+const ARC_SAMPLES = 4;
+
+/**
+ * The image with its four corners cut to an arc of `radius` pixels. Alpha is only
+ * ever multiplied down, so a corner the artwork already cleared stays clear.
+ *
+ * @param {import("./icon-png.d.mts").RasterImage} image @param {number} radius
+ * @returns {import("./icon-png.d.mts").RasterImage}
+ */
+function roundCorners({ width, height, pixels }, radius) {
+  const out = new Uint8Array(pixels);
+  const reach = Math.ceil(radius);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      // Only a pixel inside one of the four corner squares can be outside an arc.
+      const nearX = x < reach || x >= width - reach;
+      const nearY = y < reach || y >= height - reach;
+      if (!nearX || !nearY) continue;
+
+      // The centre of the arc this pixel answers to.
+      const cx = x < reach ? radius : width - radius;
+      const cy = y < reach ? radius : height - radius;
+      let inside = 0;
+      for (let sy = 0; sy < ARC_SAMPLES; sy += 1) {
+        for (let sx = 0; sx < ARC_SAMPLES; sx += 1) {
+          const px = x + (sx + 0.5) / ARC_SAMPLES;
+          const py = y + (sy + 0.5) / ARC_SAMPLES;
+          // Past the arc's centre on either axis is the straight edge, not the corner.
+          const dx = x < reach ? Math.max(0, cx - px) : Math.max(0, px - cx);
+          const dy = y < reach ? Math.max(0, cy - py) : Math.max(0, py - cy);
+          if (dx * dx + dy * dy <= radius * radius) inside += 1;
+        }
+      }
+      const at = (y * width + x) * 4 + 3;
+      out[at] = Math.round((out[at] * inside) / (ARC_SAMPLES * ARC_SAMPLES));
+    }
+  }
+  return { width, height, pixels: out };
 }
 
 /** @param {string} type @param {Buffer} data */

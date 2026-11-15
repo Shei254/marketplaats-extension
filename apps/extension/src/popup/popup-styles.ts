@@ -41,6 +41,11 @@
  * before the first ad.
  */
 export const popupCss = `
+/* A pinned theme pins the browser's own drawing too — scrollbars, the caret, the
+   canvas behind the first paint — which otherwise go on following the system. */
+[data-mp-theme="light"] { color-scheme: light; }
+[data-mp-theme="dark"] { color-scheme: dark; }
+
 body {
   margin: 0;
   /* Chrome sizes a popup to its content; the width is ours to state, and 360px

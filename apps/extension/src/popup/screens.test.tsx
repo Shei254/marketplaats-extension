@@ -19,6 +19,13 @@ const PLAN = {
   pendingSwitch: null,
 } as const;
 
+/**
+ * A screen without its header. The header carries the light/dark switch on every
+ * screen, which is the popup's own control and not something the screen offers —
+ * so "this screen has no button" is a statement about what is under it.
+ */
+const belowHeader = (markup: string): string => markup.replace(/<header\b.*?<\/header>/s, "");
+
 describe("what is left of the plan", () => {
   it("is a fraction, because one number alone says nothing", () => {
     // "2" does not say whether that is nearly all of them or nearly none. The
@@ -176,7 +183,7 @@ describe("the update screen", () => {
     // Every other screen here hands the user their next move. This one has none:
     // the extension cannot update itself and a retry cannot help, so it says what
     // will fix it — Chrome, within a few hours — instead of miming a control.
-    expect(markup).not.toContain("<button");
+    expect(belowHeader(markup)).not.toContain("<button");
   });
 
   it("says the ads are untouched, which is what somebody locked out most needs to read", () => {
@@ -234,7 +241,7 @@ describe("the no-plan screen", () => {
     const empty = noTier({ status: "ready", plans: [], paymentMethods: [] });
 
     expect(empty).toContain("opnieuw proberen helpt niet");
-    expect(empty).not.toContain("<button");
+    expect(belowHeader(empty)).not.toContain("<button");
     expect(empty).not.toContain("popup-plan-card");
   });
 

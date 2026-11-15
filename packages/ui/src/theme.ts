@@ -46,9 +46,9 @@ export const themeCss = [
 ].join("\n\n");
 
 /**
- * The attribute that pins a subtree to one theme. Nothing in the popup sets it —
- * the popup follows the browser, as it always has — but `apps/web` (T50) and any
- * screenshot of a single theme need a way to say so.
+ * The attribute that pins a subtree to one theme. The popup follows the browser
+ * until its header switch is used, and sets this on its document element from
+ * then on; `apps/web` (T50) and any screenshot of a single theme say so with it.
  */
 export function themeAttribute(theme: Theme): { "data-mp-theme": Theme } {
   return { "data-mp-theme": theme };

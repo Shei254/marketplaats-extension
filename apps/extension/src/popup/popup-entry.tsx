@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 
 import { Popup } from "./Popup";
+import { applyStoredTheme } from "./theme";
 import { workerPort } from "./worker-port";
 
 /**
@@ -13,6 +14,14 @@ import { workerPort } from "./worker-port";
  * case are one file on a case-insensitive checkout, and TypeScript refuses the
  * pair rather than letting the difference be a machine's.
  */
+// Before anything renders: a remembered light/dark choice goes on the document
+// now, so the popup never opens in the other theme and then flips.
+try {
+  applyStoredTheme(document.documentElement, localStorage);
+} catch {
+  // No store to read; the popup follows the browser.
+}
+
 const root = document.getElementById("root");
 if (!root) throw new Error("popup.html has no #root to render into");
 

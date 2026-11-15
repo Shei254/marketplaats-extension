@@ -20,7 +20,9 @@ export type IconName =
   | "external"
   | "card"
   | "bolt"
-  | "close";
+  | "close"
+  | "moon"
+  | "sun";
 
 type IconSpec = {
   /** The size the canvas draws it at, which is the default a caller gets. */
@@ -132,6 +134,22 @@ const ICONS: Record<IconName, IconSpec> = {
     size: 24,
     strokeWidth: 1.8,
     shapes: <path d="M6.5 6.5l7 7M13.5 6.5l-7 7" />,
+  },
+  // The theme switch's two faces: each shows the theme a press leads to.
+  moon: {
+    size: 16,
+    strokeWidth: 1.6,
+    shapes: <path d="M16.4 11.9A6.7 6.7 0 1 1 8.1 3.6a5.3 5.3 0 0 0 8.3 8.3z" />,
+  },
+  sun: {
+    size: 16,
+    strokeWidth: 1.6,
+    shapes: (
+      <>
+        <circle cx="10" cy="10" r="3.3" />
+        <path d="M10 2.6v1.6M10 15.8v1.6M2.6 10h1.6M15.8 10h1.6M4.8 4.8l1.1 1.1M14.1 14.1l1.1 1.1M4.8 15.2l1.1-1.1M14.1 5.9l1.1-1.1" />
+      </>
+    ),
   },
 };
 

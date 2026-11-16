@@ -1,6 +1,8 @@
 import { Icon, IconButton, Input } from "@mprelist/ui";
 import type { JSX } from "react";
 
+import { useTranslation } from "../i18n/react";
+
 /**
  * The box above the ad list (T31, #40).
  *
@@ -28,20 +30,21 @@ export function SearchBox({
   onType: (raw: string) => void;
   onClear: () => void;
 }): JSX.Element {
+  const { t } = useTranslation();
   return (
     <div className="popup-search">
       <Input
         // The label is what a screen reader reads; the placeholder is what
         // everybody else does, and a placeholder alone is not a label.
-        aria-label="Zie jouw advertenties"
-        placeholder="Zie jouw advertenties"
+        aria-label={t("search.box")}
+        placeholder={t("search.box")}
         value={value}
         onChange={(event) => onType(event.target.value)}
         autoComplete="off"
         spellCheck={false}
       />
       {value.length > 0 ? (
-        <IconButton label="Zoekopdracht wissen" className="popup-search-clear" onClick={onClear}>
+        <IconButton label={t("search.clear")} className="popup-search-clear" onClick={onClear}>
           <Icon name="close" />
         </IconButton>
       ) : null}

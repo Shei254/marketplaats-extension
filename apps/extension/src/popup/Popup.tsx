@@ -1,11 +1,12 @@
 import { UiStyles } from "@mprelist/ui";
-import { waysToPay } from "@mprelist/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
 
 import type { WireRelistOutcome } from "../background/messages";
 import type { HandoffAnswer, SwitchAnswer } from "../api/subscribing";
 import { NoMarktplaatsTabError, StaleMarktplaatsTabError } from "../adapters/relay-marktplaats-client";
 import type { PendingRepost } from "../domain/types";
+import { useTranslation } from "../i18n/react";
+import { t } from "../i18n/words";
 import { fetchAdPage } from "./ad-pages";
 import { ADS_LOADING, describeAdsFailure, type AdsView } from "./ads";
 import { adListCss, planCardCss, popupCss } from "./popup-styles";
@@ -49,6 +50,8 @@ import {PendingNotice} from "./PendingNotice";
  * long.
  */
 export function Popup({ worker }: { worker: WorkerPort }): JSX.Element {
+  // Read here so the whole popup is drawn again when the Language changes (T97).
+  useTranslation();
   const [screen, setScreen] = useState<Screen>(LOADING);
   const [ads, setAds] = useState<AdsView>(ADS_LOADING);
   /** Reposts that did not finish, which the ad list draws above the ads (ADR-0039). */
@@ -573,7 +576,7 @@ function body(screen: Screen, handlers: Handlers): JSX.Element {
           // Only once the cards are here. While they are loading there is nothing
           // for the sentence to be about, and a screen that announced how to pay
           // above three skeletons would be describing a page that is not there yet.
-          payWith={plans.status === "ready" ? "Je kunt betalen met iDEAL | Wero, PayPal, creditcard en debitcard" : null}
+          payWith={plans.status === "ready" ? t("plans.payWith") : null}
         >
           <PlanCards
             view={plans}
@@ -598,7 +601,7 @@ function body(screen: Screen, handlers: Handlers): JSX.Element {
  */
 function reportable(error: unknown): string | undefined {
   if (error instanceof Error && error.name === "SignInCancelledError") return undefined;
-  return error instanceof Error ? error.message : "Inloggen is niet gelukt. Probeer het opnieuw.";
+  return error instanceof Error ? error.message : t("signedOut.failed");
 }
 
 /**

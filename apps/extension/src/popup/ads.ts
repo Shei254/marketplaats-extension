@@ -10,6 +10,7 @@ import {
   SpikePendingError,
 } from "../domain/marktplaats-client";
 import type { ListingSummary } from "../domain/types";
+import { t } from "../i18n/words";
 import type { AdPage } from "./ad-pages";
 
 /**
@@ -53,7 +54,7 @@ export const ADS_LOADING: AdsView = { status: "loading" };
  * installing, every marktplaats.nl tab already open is one, and this is the
  * first thing a new user reads.
  */
-export const STALE_TAB = "Nog één stap: vernieuw je Marktplaats-pagina, dan kan AdBump aan de slag.";
+export const STALE_TAB = t("ads.staleTab");
 
 /**
  * What to tell the user about a failure, in words about *their* situation rather
@@ -67,22 +68,22 @@ export const STALE_TAB = "Nog één stap: vernieuw je Marktplaats-pagina, dan ka
  */
 export function describeAdsFailure(error: unknown): string {
   if (error instanceof NoMarktplaatsTabError) {
-    return "Open marktplaats.nl in een tabblad en probeer het opnieuw.";
+    return t("failure.noTab");
   }
   if (error instanceof StaleMarktplaatsTabError) {
     return STALE_TAB;
   }
   if (error instanceof NotAuthenticatedError) {
-    return "Log eerst in op Marktplaats en probeer het opnieuw.";
+    return t("failure.signedOutOfMarktplaats");
   }
   if (error instanceof CreateNotConfirmedError) {
     // We never pay on a seller's behalf (ADR-0041), and nothing was deleted.
     return error.paymentRequired
-      ? "Marktplaats vraagt geld om deze advertentie opnieuw te plaatsen, en de extensie betaalt nooit voor je."
-      : "Marktplaats bevestigde niet dat de nieuwe advertentie geplaatst is.";
+      ? t("failure.paymentRequired")
+      : t("failure.createNotConfirmed");
   }
   if (error instanceof AdNotFoundError) {
-    return "Marktplaats heeft deze advertentie niet meer.";
+    return t("failure.adGone");
   }
   if (error instanceof SpikePendingError) {
     // Its message names the endpoint that is unset, which is the whole diagnosis
@@ -90,7 +91,7 @@ export function describeAdsFailure(error: unknown): string {
     return error.message;
   }
   if (error instanceof ApiRequestError) {
-    return `Marktplaats heeft het verzoek geweigerd (HTTP ${error.status}).`;
+    return t("failure.refused", { status: error.status });
   }
   return error instanceof Error ? error.message : String(error);
 }
@@ -166,11 +167,11 @@ export function describePrice(ad: ListingSummary): PriceLine {
       // established. There is no number here we can stand behind, so the row says
       // the one thing that is true. See `docs/internal-api-findings.md`
       // § `listMyAds`.
-      return ad.priceCents ? { label: "", amount: formatEuro(ad.priceCents), bidding: false } : { label: "Bieden", amount: null, bidding: false };
+      return ad.priceCents ? { label: "", amount: formatEuro(ad.priceCents), bidding: false } : { label: t("ads.bid"), amount: null, bidding: false };
     case "FREE":
-      return { label: "Gratis", amount: null, bidding: ad.biddingEnabled };
+      return { label: t("ads.free"), amount: null, bidding: ad.biddingEnabled };
     case "SEE_DESCRIPTION":
-      return { label: "Zie beschrijving", amount: null, bidding: ad.biddingEnabled };
+      return { label: t("ads.seeDescription"), amount: null, bidding: ad.biddingEnabled };
     default:
       // A type Marktplaats has added since. Printing the constant at a seller is
       // worse than saying nothing, and a 0 under a type we cannot name is not a

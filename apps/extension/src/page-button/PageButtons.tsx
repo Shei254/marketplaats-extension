@@ -5,6 +5,8 @@ import { createPortal } from "react-dom";
 import type { WireRelistOutcome } from "../background/messages";
 import type { PendingRepost } from "../domain/types";
 import type { LockedState } from "../gate/authorization-gate";
+import { useTranslation } from "../i18n/react";
+import { t } from "../i18n/words";
 import { useCountdown } from "../popup/AdList";
 import {
   BUSY,
@@ -58,30 +60,21 @@ interface CardView {
 }
 
 /** The sentence a repost that deleted the ad and could not put it back says here. */
-export const PUTTING_BACK =
-  "Er ging iets mis tijdens het herplaatsen. Je advertentie staat nog online; we proberen het automatisch opnieuw. " +
-  "Je kunt het hier opnieuw proberen; laten gaan kan in de extensie.";
+export const PUTTING_BACK = t("page.puttingBack");
 
 /** A pending repost the background has stopped retrying (`needsUser`). */
-export const NEEDS_YOU =
-  "Dit lukt niet vanzelf. Probeer het opnieuw; laten gaan kan in de extensie.";
+export const NEEDS_YOU = t("page.needsYou");
 
 
 /**
  * What a waiting row is told when the background settled it before the page ever
  * saw it pending, so there is no `deleted` to read: the page claims neither.
  */
-export const SETTLED_UNSEEN =
-  "De extensie heeft deze herplaatsing afgerond. Vernieuw de pagina om te zien hoe het ging.";
+export const SETTLED_UNSEEN = t("page.settledUnseen");
 
 /** How often the page asks what the worker still holds, while a row waits on it. */
 export const PENDING_CHECK_MS = 5_000;
 
-const RESUME: CardAction = { kind: "resume", label: "Opnieuw" };
-
-export const PUTTING_BACK_LABEL = "Wordt teruggezet";
-export const TOAST_TEXT = "Advertentie staat weer bovenaan";
-export const REFRESH = "Vernieuwen";
 
 export function PageButtons({
   worker,
@@ -102,6 +95,8 @@ export function PageButtons({
   plansUrl: string;
   onRefresh: () => void;
 }): JSX.Element {
+  // Read here so every button is drawn again when the Language changes (T97).
+  useTranslation();
   const [states, setStates] = useState<Record<string, RowState>>({});
   const [running, setRunning] = useState<string | null>(null);
   const [remote, setRemote] = useState<string | null>(null);
@@ -168,7 +163,7 @@ export function PageButtons({
           kind: "failed",
           tone: "error",
           action: "relist",
-          message: `Er is niets herplaatst. ${error instanceof Error ? error.message : String(error)}`,
+          message: t("page.nothingReposted", { why: error instanceof Error ? error.message : String(error) }),
         };
       }
       setStates((current) => ({ ...current, [listingId]: state }));
@@ -296,7 +291,7 @@ export function PageButtons({
       : notes[card]
         ? { tone: "info" as const, text: notes[card]!, action: null }
         : needsYou[card] && cardState.kind === "parked"
-          ? { tone: "warn" as const, text: NEEDS_YOU, action: RESUME }
+          ? { tone: "warn" as const, text: NEEDS_YOU, action: resume() }
           : cardFor(cardState, grantsNothing);
 
   return (
@@ -387,16 +382,16 @@ export function viewFor({
   title: string;
 }): ButtonView {
   if (state.kind === "busy" && pacing !== null) {
-    return { tone: "busy", label: `Over ${pacing}s`, title: PACING_NOTE, disabled: true, count: true };
+    return { tone: "busy", label: t("page.in", { seconds: pacing }), title: PACING_NOTE, disabled: true, count: true };
   }
   if (state.kind === "idle" && cooldown !== null) {
-    return { tone: "cooldown", label: `Over ${cooldown}s`, title: refusalNote({ state: "cooldown", retryAfter: cooldown }, false), disabled: true, count: true };
+    return { tone: "cooldown", label: t("page.in", { seconds: cooldown }), title: refusalNote({ state: "cooldown", retryAfter: cooldown }, false), disabled: true, count: true };
   }
   if (state.kind === "failed" && state.action === "retry") {
-    return { tone: "retry", label: PUTTING_BACK_LABEL, title: PUTTING_BACK, disabled: false, count: false };
+    return { tone: "retry", label: t("page.puttingBackLabel"), title: PUTTING_BACK, disabled: false, count: false };
   }
   if (needsYou) {
-    return { tone: "retry", label: "Opnieuw", title: NEEDS_YOU, disabled: false, count: false };
+    return { tone: "retry", label: t("common.again"), title: NEEDS_YOU, disabled: false, count: false };
   }
   if (state.kind === "idle" && grantsNothing) {
     return { tone: "locked", label: labelFor(state), title: refusalNote({ state: "upgrade", resetAt: null }, true), disabled: false, count: false };
@@ -426,15 +421,15 @@ export function cardFor(state: RowState, grantsNothing: boolean): CardView | nul
   switch (state.kind) {
     case "idle":
       return grantsNothing
-        ? { tone: "info", text: refusalNote({ state: "upgrade", resetAt: null }, true), action: PLANS }
+        ? { tone: "info", text: refusalNote({ state: "upgrade", resetAt: null }, true), action: plans() }
         : null;
     case "refused":
       if (state.locked.state === "cooldown") return null;
       return { tone: "info", text: refusalNote(state.locked, grantsNothing), action: actionFor(state.locked) };
     case "failed":
       return state.action === "retry"
-        ? { tone: "warn", text: PUTTING_BACK, action: RESUME }
-        : { tone: "error", text: state.message, action: { kind: "again", label: "Opnieuw proberen" } };
+        ? { tone: "warn", text: PUTTING_BACK, action: resume() }
+        : { tone: "error", text: state.message, action: { kind: "again", label: t("common.tryAgain") } };
     case "parked":
       return { tone: "info", text: UNCONFIRMED, action: null };
     case "waiting":
@@ -445,18 +440,20 @@ export function cardFor(state: RowState, grantsNothing: boolean): CardView | nul
   }
 }
 
-const PLANS: CardAction = { kind: "plans", label: "Bekijk abonnementen" };
+const resume = (): CardAction => ({ kind: "resume", label: t("common.again") });
+
+const plans = (): CardAction => ({ kind: "plans", label: t("common.seePlans") });
 
 function actionFor(locked: LockedState): CardAction {
   switch (locked.state) {
     case "upgrade":
     case "no-tier":
     case "not-in-plan":
-      return PLANS;
+      return plans();
     case "update-card":
-      return { kind: "portal", label: "Betaling bijwerken" };
+      return { kind: "portal", label: t("page.updatePayment") };
     case "retry":
-      return { kind: "again", label: "Opnieuw proberen" };
+      return { kind: "again", label: t("common.tryAgain") };
     case "cooldown":
       return null;
   }
@@ -468,7 +465,7 @@ function titleOf(mount: Mount): string {
   const host = (mount.container.getRootNode() as ShadowRoot).host;
   const row = host.closest(".cells") ?? host.closest("li, tr, article");
   const link = row?.querySelector<HTMLElement>(".description-column a, a[href*='/seller/view/']");
-  return link?.textContent?.trim() || "deze advertentie";
+  return link?.textContent?.trim() || t("page.thisAd");
 }
 
 function visibleAnchor(anchors: Map<string, HTMLButtonElement>, listingId: string): HTMLButtonElement | null {
@@ -553,6 +550,7 @@ function Card({
   onAction: (action: NonNullable<CardAction>) => void;
   onClose: () => void;
 }): JSX.Element {
+  const { t } = useTranslation();
   const [place, setPlace] = useState<{ top: number; left: number; caret: number; above: boolean } | null>(null);
   const self = useRef<HTMLDivElement>(null);
 
@@ -615,7 +613,7 @@ function Card({
           <Icon name="logo" />
         </span>
         <span className="pb-brand">{__BRAND_NAME__}</span>
-        <button type="button" className="pb-close" aria-label="Sluiten" onClick={onClose}>
+        <button type="button" className="pb-close" aria-label={t("common.close")} onClick={onClose}>
           <Icon name="close" />
         </button>
       </div>
@@ -636,17 +634,18 @@ function Card({
 }
 
 function Toast({ onRefresh, onClose }: { onRefresh: () => void; onClose: () => void }): JSX.Element {
+  const { t } = useTranslation();
   return (
     <div className="pb-toast" role="status" onClick={ours}>
       <span className="pb-toast-check" aria-hidden="true">
         <Icon name="check" />
       </span>
-      <span>{TOAST_TEXT}</span>
+      <span>{t("page.toast")}</span>
       <button type="button" className="pb-action" onClick={onRefresh}>
         <Icon name="refresh" />
-        {REFRESH}
+        {t("common.refresh")}
       </button>
-      <button type="button" className="pb-close" aria-label="Sluiten" onClick={onClose}>
+      <button type="button" className="pb-close" aria-label={t("common.close")} onClick={onClose}>
         <Icon name="close" />
       </button>
     </div>

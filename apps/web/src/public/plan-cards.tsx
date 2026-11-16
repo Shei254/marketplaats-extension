@@ -1,13 +1,13 @@
 import {
-  PAY_THE_OPEN_INVOICE_FIRST,
-  UNLIMITED_REPOSTS,
+  payTheOpenInvoiceFirst,
+  unlimitedReposts,
   dayOf,
   dueToday,
   freshPeriodLine,
   fromRenewalLine,
-  SWITCH_AT_RENEWAL,
-  SWITCHED_TODAY,
-  UNDO_FAILED,
+  switchAtRenewal,
+  switchedToday,
+  undoFailed,
   grantOf,
   pendingLine,
   priceOf,
@@ -223,7 +223,7 @@ export function PlanSection({
       ) : null}
       {inDunning ? (
         <p className="web-plans-notice" role="status">
-          {PAY_THE_OPEN_INVOICE_FIRST}
+          {payTheOpenInvoiceFirst()}
         </p>
       ) : null}
       <div className="web-plans">
@@ -406,7 +406,7 @@ function HeldCardPending({ plan, account }: { plan: Plan; account: Account }): J
       <p className="web-plan-note web-plan-note--pending">{pendingLine(viewer.pendingSwitch)}</p>
       {undoing === "failed" ? (
         <p className="web-plan-note" role="status">
-          {UNDO_FAILED}
+          {undoFailed()}
         </p>
       ) : null}
       <button
@@ -440,7 +440,7 @@ function Grant({ grant, words, ceiling }: { grant: number | null; words: string;
 
 /** "herplaatsingen per maand", under the number — `grantOf` without the number it already shows. */
 function grantWords(plan: Plan): string {
-  if (plan.relistQuotaPerPeriod === null) return UNLIMITED_REPOSTS.toLowerCase();
+  if (plan.relistQuotaPerPeriod === null) return unlimitedReposts().toLowerCase();
   return grantOf(plan).replace(/^\d+\s+/, "");
 }
 
@@ -541,7 +541,7 @@ export function SwitchDialog({
           ) : null}
           {phase.kind === "switching" ? <p>Je abonnement wordt aangepast…</p> : null}
           {phase.kind === "done" ? (
-            <p>{phase.when === "now" ? SWITCHED_TODAY : SWITCH_AT_RENEWAL}</p>
+            <p>{phase.when === "now" ? switchedToday() : switchAtRenewal()}</p>
           ) : null}
           {phase.kind === "failed" ? <p>{phase.message}</p> : null}
         </div>
@@ -592,7 +592,7 @@ export function SwitchDialog({
 }
 
 function failureOf(status: string): string {
-  if (status === "invoice-open") return PAY_THE_OPEN_INVOICE_FIRST;
+  if (status === "invoice-open") return payTheOpenInvoiceFirst();
   return status === "not-for-sale"
     ? "Dit abonnement wordt niet meer aangeboden. Vernieuw de pagina voor wat er nu te koop is."
     : "Dat lukte nu niet. Er is niets veranderd; probeer het zo nog eens.";

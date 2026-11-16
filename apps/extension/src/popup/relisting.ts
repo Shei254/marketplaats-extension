@@ -1,6 +1,7 @@
 import type { LockedState } from "../gate/authorization-gate";
 import type { WireRelistOutcome } from "../background/messages";
 import { fromWireError } from "../content/messages";
+import { t } from "../i18n/words";
 import { describeAdsFailure } from "./ads";
 
 /**
@@ -39,12 +40,10 @@ export const IDLE: RowState = { kind: "idle" };
  * Both are the prefix rather than the whole message: the row appends what
  * actually failed.
  */
-export const AD_UNCHANGED = "Er is niets herplaatst — je advertentie is ongewijzigd.";
-export const UNCONFIRMED =  "Nog niet zeker of dit gelukt is. De extensie controleert het op de achtergrond en probeert het opnieuw.";
-export const BUSY = "Er loopt al een herplaatsing. Wacht tot die klaar is.";
-export const AD_IS_DOWN =
-  "Je advertentie is verwijderd, maar herplaatsen is mislukt. " +
-  "De advertentie is opgeslagen in de extensie — klik op Opnieuw.";
+export const AD_UNCHANGED = t("repost.adUnchanged");
+export const UNCONFIRMED = t("repost.unconfirmed");
+export const BUSY = t("repost.busy");
+export const AD_IS_DOWN = t("repost.adIsDown");
 
 /**
  * The outcome the worker answered with, as a row.
@@ -99,8 +98,7 @@ export function rowStateFor(outcome: WireRelistOutcome): RowState {
  * fast as a worker can loop is machine-shaped against *their* Marktplaats
  * account, which is the account that gets flagged.
  */
-export const PACING_NOTE =
-  "Even wachten voor deze, zodat je herplaatsingen op klikken lijken en niet op een script.";
+export const PACING_NOTE = t("repost.pacing");
 
 /**
  * What a refusal says on the row.
@@ -133,26 +131,24 @@ export function refusalNote(locked: LockedState, grantsNothing: boolean): string
       // a question nobody asked. The one it replaces was worse than irrelevant —
       // it named a limit that was never reached, on a plan where nothing comes
       // back next period either.
-      return grantsNothing
-        ? "Dit abonnement bevat geen herplaatsingen."
-        : "Je hebt je limiet voor herplaatsingen in deze periode bereikt.";
+      return grantsNothing ? t("refusal.grantsNothing") : t("refusal.spent");
     case "cooldown":
       return locked.retryAfter === null
-        ? "Geef Marktplaats even de tijd voordat je opnieuw herplaatst."
-        : `Geef Marktplaats even de tijd — opnieuw herplaatsen over ${locked.retryAfter}s.`;
+        ? t("refusal.cooldown")
+        : t("refusal.cooldownFor", { seconds: locked.retryAfter });
     case "not-in-plan":
       // Names the capability rather than the plan: "upgrade to Pro" is a sentence
       // about our pricing, and this one is about what the user just tried to do.
-      return "Meerdere tegelijk herplaatsen hoort niet bij je abonnement.";
+      return t("refusal.notInPlan");
     case "update-card":
-      return "Je betaling is niet gelukt, dus herplaatsen is gepauzeerd.";
+      return t("refusal.updateCard");
     case "no-tier":
       // Says what happened and that waiting is the whole of what there is to do —
       // which is the sentence the code was added to make sayable (T77, ADR-0032).
       // No "try again": nothing is down and no retry changes the answer.
-      return "Er staat nu geen abonnement op dit account, dus herplaatsen is gepauzeerd.";
+      return t("refusal.noTier");
     case "retry":
-      return "Je abonnement kon niet worden gecontroleerd, dus er is niets herplaatst. Probeer het opnieuw.";
+      return t("refusal.retry");
   }
 }
 
@@ -189,18 +185,18 @@ export function labelFor(state: RowState): string {
     // Short, so it fits beside a title in the popup and inside the cell Marktplaats
     // gives the Page button; `tooltipFor` says it in full.
     case "busy":
-      return "Herplaatsen…";
+      return t("repost.label.busy");
     case "done":
-      return "Herplaatst";
+      return t("repost.label.done");
     case "failed":
       // "Opnieuw" is a resume from the snapshot — the ad is already gone and this
       // is what puts it back. "Opnieuw proberen" starts over on an ad that is
       // still there.
-      return state.action === "retry" ? "Opnieuw" : "Opnieuw proberen";
+      return state.action === "retry" ? t("common.again") : t("common.tryAgain");
     case "parked":
-      return "Wordt gecontroleerd…";
+      return t("repost.label.parked");
     default:
-      return "Herplaats";
+      return t("repost.label.idle");
   }
 }
 
@@ -211,8 +207,8 @@ export function labelFor(state: RowState): string {
  */
 export function tooltipFor(state: RowState, title: string): string {
   if (state.kind === "idle") {
-    return `Verwijder “${title}” en plaats de advertentie opnieuw, zodat deze weer bovenaan staat.`;
+    return t("repost.tooltip.idle", { title });
   }
-  if (state.kind === "busy") return "Bezig met herplaatsen…";
+  if (state.kind === "busy") return t("repost.tooltip.busy");
   return labelFor(state);
 }

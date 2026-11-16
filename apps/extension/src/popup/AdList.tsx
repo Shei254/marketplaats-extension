@@ -4,6 +4,8 @@ import {useCallback, useEffect, useState, type JSX, useRef} from "react";
 import type { WireRelistOutcome } from "../background/messages";
 
 import type { ListingSummary, PendingRepost } from "../domain/types";
+import { useTranslation } from "../i18n/react";
+import { t } from "../i18n/words";
 import { positionAfter, type AdPage, type SavedPosition } from "./ad-pages";
 import { STALE_TAB, describePrice, type AdsView, type PriceLine } from "./ads";
 import {
@@ -54,7 +56,7 @@ export function AdList({
   worker,
   onOutcome,
   grantsNothing,
-  empty = "Je hebt geen actieve advertenties.",
+  empty,
   pending = [],
   onLetGo = () => {},
   onReloadMarktplaats = () => {},
@@ -123,6 +125,7 @@ export function AdList({
   /** Goes up with every refresh, which is what shows the seller the copies just counted. */
   refreshes?: number;
 }): JSX.Element {
+  const { t } = useTranslation();
   const [running, setRunning] = useState<string | null>(null);
   /**
    +   * The listing the **worker** says it is reposting, which is not always the one
@@ -291,7 +294,7 @@ export function AdList({
           kind: "failed",
           tone: "error",
           action: "relist",
-          message: `Nothing was reposted. ${error instanceof Error ? error.message : String(error)}`,
+          message: t("ads.workerSilent", { why: error instanceof Error ? error.message : String(error) }),
         };
       }
 
@@ -314,7 +317,7 @@ export function AdList({
       }
       onOutcome(outcome ?? { status: "refused", locked: { state: "retry" } });
     },
-    [worker, onOutcome, onSavePosition, leave],
+    [worker, onOutcome, onSavePosition, leave, t],
   );
 
   const noTab = view.status === "failed" && view.noTab === true;
@@ -349,7 +352,7 @@ export function AdList({
       )}
       <Ads
         view={view}
-        empty={empty}
+        empty={empty ?? t("ads.none")}
         onReloadMarktplaats={onReloadMarktplaats}
         rows={() => (
           <ul
@@ -359,7 +362,7 @@ export function AdList({
           >
             {shown.length === 0 && (
               <li className="popup-ads-empty">
-                {page ? "Alle advertenties op deze pagina zijn herplaatst." : "Alle gevonden advertenties zijn herplaatst."}
+                {page ? t("ads.allOnPageReposted") : t("ads.allFoundReposted")}
               </li>
             )}
             {shown.map((ad) => (
@@ -386,7 +389,7 @@ export function AdList({
       />
       {view.status === "ready" && view.moveError && (
         <div className="popup-page-error">
-          <Note tone="error">Deze pagina kon niet worden geladen. {view.moveError}</Note>
+          <Note tone="error">{t("ads.pageNotLoaded", { why: view.moveError })}</Note>
         </div>
       )}
       {line && (
@@ -394,7 +397,7 @@ export function AdList({
           {line}
           {page?.number === 1 && reposted > 0 && !atTop && (
             <button type="button" className="popup-list-up" onClick={() => listRef.current?.scrollTo({ top: 0 })}>
-              Naar boven
+              {t("ads.toTop")}
             </button>
           )}
         </p>
@@ -432,14 +435,17 @@ function listLine({
   page: AdPage | undefined;
 }): string | null {
   if (attempt && running) {
-    return `Bezig: ${attempt.title}${pacingSeconds != null ? ` · ${pacingSeconds} s` : ""}`;
+    return pacingSeconds != null
+      ? t("ads.runningIn", { title: attempt.title, seconds: pacingSeconds })
+      : t("ads.running", { title: attempt.title });
   }
   if (attempt && state?.kind === "failed" && state.action === "relist") return `${attempt.title}: ${state.message}`;
   if (attempt && state?.kind === "refused") return `${attempt.title}: ${refusalNote(state.locked, grantsNothing)}`;
   if (reposted === 0) return null;
   // On the first page the copies are its top rows; past it, a move to page 1 shows them.
-  const where = page && page.number > 1 ? "ze staan bovenaan pagina 1" : "ze staan bovenaan";
-  return `${reposted} herplaatst · ${where}`;
+  return page && page.number > 1
+    ? t("ads.repostedOnFirstPage", { count: reposted })
+    : t("ads.reposted", { count: reposted });
 }
 
 /**
@@ -467,20 +473,21 @@ function PageBar({
   moving: boolean;
   onGoTo: (number: number) => void;
 }): JSX.Element {
+  const { t } = useTranslation();
   const { number, last } = page;
   return (
-    <nav className="popup-page-bar" aria-label="Pagina's">
-      <Button tone="secondary" aria-label="Naar begin" title="Naar begin" disabled={moving || number <= 1} onClick={() => onGoTo(1)}>
+    <nav className="popup-page-bar" aria-label={t("ads.pages")}>
+      <Button tone="secondary" aria-label={t("ads.toStart")} title={t("ads.toStart")} disabled={moving || number <= 1} onClick={() => onGoTo(1)}>
         «
       </Button>
       <Button tone="secondary" disabled={moving || number <= 1} onClick={() => onGoTo(number - 1)}>
-        ‹ Vorige
+        {t("ads.previous")}
       </Button>
       <span className="popup-page-number" aria-live="polite">
-        {moving ? "Laden…" : `Pagina ${number} van ${last}`}
+        {moving ? t("ads.loading") : t("ads.pageOf", { number, last })}
       </span>
       <Button tone="secondary" disabled={moving || number >= last} onClick={() => onGoTo(number + 1)}>
-        Volgende ›
+        {t("ads.next")}
       </Button>
     </nav>
   );
@@ -498,6 +505,7 @@ function Ads({
   onReloadMarktplaats: (tabId: number) => void;
   rows: () => JSX.Element;
 }): JSX.Element {
+  const { t } = useTranslation();
   switch (view.status) {
     case "loading":
       return <LoadingRows />;
@@ -506,14 +514,14 @@ function Ads({
         <div className="popup-ads-failed">
           <Note tone="warn">{STALE_TAB}</Note>
           <Button shape="rect" tone="primary" onClick={() => onReloadMarktplaats(view.tabId)}>
-            Pagina vernieuwen
+            {t("ads.reloadPage")}
           </Button>
         </div>
       );
     case "failed":
       return (
         <div className="popup-ads-failed">
-          <Note tone="error">Je advertenties konden niet worden geladen. {view.message}</Note>
+          <Note tone="error">{t("ads.notLoaded", { why: view.message })}</Note>
         </div>
       );
     case "ready":
@@ -542,14 +550,15 @@ function PendingRow({
   onRetry: () => void;
   onLetGo: () => void;
 }): JSX.Element {
+  const { t } = useTranslation();
   const [asking, setAsking] = useState(false);
   const note = busy
-    ? "Wordt teruggezet…"
+    ? t("pendingRow.puttingBack")
     : repost.needsUser
-      ? "Terugzetten lukt niet vanzelf — klik op Opnieuw."
+      ? t("pendingRow.needsYou")
       : noTab
-        ? "Onderbroken: open Marktplaats om af te ronden"
-        : "Wordt teruggezet…";
+        ? t("pendingRow.noTab")
+        : t("pendingRow.puttingBack");
   return (
     <li className="popup-ad" data-state="pending">
       <div className="popup-ad-row">
@@ -561,27 +570,25 @@ function PendingRow({
         </div>
         {busy ? (
           <Button shape="rect" tone="busy">
-            Bezig…
+            {t("common.busy")}
           </Button>
         ) : (
           !noTab && (
             <Button shape="rect" tone="retry" onClick={onRetry}>
-              Opnieuw
+              {t("common.again")}
             </Button>
           )
         )}
       </div>
       {asking ? (
         <>
-          <Note tone="warn">
-            Deze advertentie staat niet meer op Marktplaats. Weet je zeker dat je hem niet wilt terugzetten?
-          </Note>
+          <Note tone="warn">{t("pendingRow.ask")}</Note>
           <div className="popup-ad-row">
             <Button shape="rect" tone="secondary" onClick={onLetGo}>
-              Ja, niet terugzetten
+              {t("pendingRow.letGoYes")}
             </Button>
             <Button shape="rect" tone="ghost" onClick={() => setAsking(false)}>
-              Annuleren
+              {t("common.cancel")}
             </Button>
           </div>
         </>
@@ -590,7 +597,7 @@ function PendingRow({
           <Note tone={repost.needsUser ? "error" : "warn"}>{note}</Note>
           {!busy && (
             <Button shape="rect" tone="ghost" onClick={() => setAsking(true)}>
-              Niet terugzetten
+              {t("pendingRow.letGo")}
             </Button>
           )}
         </>
@@ -640,6 +647,7 @@ export function AdRow({
   pacingSeconds?: number | null;
   onStart: (listingId: string, action: "relist" | "retry") => void;
 }): JSX.Element {
+  const { t } = useTranslation();
   const action = state.kind === "failed" ? state.action : "relist";
   // The row's own wait wins over the account's: this row is the one running, and
   // what it is waiting for is the number it should be counting down.
@@ -660,7 +668,7 @@ export function AdRow({
           title={tooltipFor(state, ad.title)}
           onClick={() => onStart(ad.id, action)}
         >
-          {counting != null ? `${counting}s` : labelFor(state)}
+          {counting != null ? t("ads.countdown", { seconds: counting }) : labelFor(state)}
         </Button>
       </div>
       <RowNote state={state} pacing={pacingSeconds != null} grantsNothing={grantsNothing} />
@@ -686,31 +694,21 @@ export function AdRow({
  * this.
  */
 function PriceMeta({ price, reserved }: { price: PriceLine; reserved: boolean }): JSX.Element | null {
+  const { t } = useTranslation();
   if (!reserved && !price.label && !price.amount && !price.bidding) return null;
   return (
     <span className="popup-ad-meta">
       {reserved && (
-        <Badge tone="accent" className="popup-ad-reserved" title={RESERVED_TOOLTIP}>
-          Gereserveerd
+        <Badge tone="accent" className="popup-ad-reserved" title={t("ads.reservedTooltip")}>
+          {t("ads.reserved")}
         </Badge>
       )}
       {price.label && <Badge className="popup-ad-type">{price.label}</Badge>}
       {price.amount && <span className="popup-ad-price">{price.amount}</span>}
-      {price.bidding && <span className="popup-ad-bidding">· bieden</span>}
+      {price.bidding && <span className="popup-ad-bidding">{t("ads.bidding")}</span>}
     </span>
   );
 }
-
-/**
- * What the badge says on hover — and the half of it that matters is the second
- * sentence (T71, #157).
- *
- * A repost deletes the ad first (ADR-0002), and until T71 the ad that came back
- * was not reserved: an item its seller had promised went quietly back on the open
- * market. The badge is the first place a seller learns this ad is different, so it
- * is also the place to say the mechanic knows.
- */
-const RESERVED_TOOLTIP = "Gereserveerd voor een koper. Bij herplaatsen blijft de advertentie gereserveerd.";
 
 /**
  * The countdown on a cooldown, in whole seconds, ending itself when it runs out.

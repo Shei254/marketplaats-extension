@@ -1,6 +1,7 @@
 import { Icon, IconButton, type Theme } from "@mprelist/ui";
 import { useState, type JSX } from "react";
 
+import { useTranslation } from "../i18n/react";
 import { chooseTheme, effectiveTheme, otherTheme, storedTheme, type ThemeStore } from "./theme";
 
 /** `localStorage`, or nothing where reaching for it throws or there is no window. */
@@ -27,12 +28,13 @@ function themeOnScreen(): Theme {
  * the account's.
  */
 export function ThemeToggle(): JSX.Element {
+  const { t } = useTranslation();
   const [theme, setTheme] = useState<Theme>(themeOnScreen);
   const next = otherTheme(theme);
   return (
     <IconButton
-      label={next === "dark" ? "Donkere modus" : "Lichte modus"}
-      title={next === "dark" ? "Donkere modus" : "Lichte modus"}
+      label={next === "dark" ? t("header.darkMode") : t("header.lightMode")}
+      title={next === "dark" ? t("header.darkMode") : t("header.lightMode")}
       onClick={() => {
         chooseTheme(next, document.documentElement, themeStore());
         setTheme(next);

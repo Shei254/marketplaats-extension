@@ -4,6 +4,7 @@
   "private": true,
   "description": "The API's wire types, and the reading of the amounts they carry, consumed by both clients. See docs/enforcement-contract.md.",
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": "./src/index.ts"
   },
@@ -16,5 +17,8 @@
     "@types/node": "^26.2.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
+  },
+  "dependencies": {
+    "i18next": "^27.1.2"
   }
 }

@@ -1,6 +1,7 @@
 import type { DisplayState, Plan } from "@mprelist/contracts";
 
 import type { HandoffAnswer } from "../api/subscribing";
+import { t } from "../i18n/words";
 
 /**
  * The plan cards, as the popup holds them (T52, #83).
@@ -61,19 +62,15 @@ export const MANAGING = "manage-billing";
  */
 export function handoffFailure(answer: HandoffAnswer, asked: "checkout" | "portal"): string | null {
   if (answer.status === "gone") {
-    return asked === "checkout"
-      ? "Dat abonnement wordt niet meer aangeboden."
-      : "Je hebt nog niets betaald, dus er is niets te beheren.";
+    return asked === "checkout" ? t("plans.gone") : t("plans.nothingToManage");
   }
   if (answer.status === "already-paying") {
     // Checkout's alone (T83). Only a stale card meets it now that a payer's cards
     // say Overstappen (T90), so the popup reloads the plan and these become those.
-    return "Je hebt al een betaald abonnement. Stap over met Overstappen bij het abonnement dat je wilt.";
+    return t("plans.alreadyPaying");
   }
   if (answer.status === "unavailable") {
-    return asked === "checkout"
-      ? "Het afrekenen kon niet worden geopend. Probeer het zo opnieuw."
-      : "Je betaalpagina kon niet worden geopend. Probeer het zo opnieuw.";
+    return asked === "checkout" ? t("plans.checkoutNotOpened") : t("plans.portalNotOpened");
   }
   return null;
 }

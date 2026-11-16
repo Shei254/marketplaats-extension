@@ -26,6 +26,7 @@ import type {
   RepostRecord,
 } from "./types";
 import {failureKind, type FailureKind} from "./failure";
+import { t } from "../i18n/words";
 
 const CREATE_WINDOW_MS = 180_000;
 const MAX_CREATE_ATTEMPTS = 3;
@@ -71,7 +72,7 @@ export type RelistOutcome =
  */
 export class RepostCancelledError extends Error {
   constructor() {
-    super("De herplaatsing werd onderbroken voordat er iets verwijderd was.");
+    super(t("repost.cancelled"));
     this.name = "RepostCancelledError";
   }
 }

@@ -1,5 +1,7 @@
 import { inMajorUnits, majorUnitsOf } from "./money";
 import type { PendingSwitch, Plan, PlanPrice } from "./enforcement";
+import { DUTCH, type Language } from "./language";
+import { planWords } from "./words";
 
 /**
  * How a plan reads, in the words both surfaces use for it (T58): the popup's plan
@@ -7,6 +9,10 @@ import type { PendingSwitch, Plan, PlanPrice } from "./enforcement";
  * who compared prices on one and subscribes from the other should read the same
  * sentences on both. Moved here from the popup's `plans.ts` when the landing page
  * became the second reader — the same reason `./money` and `./quota` are here.
+ *
+ * **Every sentence takes the Language it is said in** (ADR-0043) and reads the
+ * catalog in `./words`; the argument defaults to Dutch, which is what every build
+ * says until T97. Money is the one thing that does not follow it.
  */
 
 /**
@@ -53,7 +59,9 @@ export function priceOf(price: PlanPrice): string {
  * and is deliberately not built here: it needs a number `/api/me` does not send,
  * and T73 was already changing that wire shape.
  */
-export const UNLIMITED_REPOSTS = "Onbeperkt herplaatsen";
+export function unlimitedReposts(language: Language = DUTCH): string {
+  return planWords(language)("unlimited");
+}
 
 /**
  * "50 herplaatsingen per maand" — what the plan grants, which is always per month.
@@ -70,10 +78,9 @@ export const UNLIMITED_REPOSTS = "Onbeperkt herplaatsen";
  * to say does not exist. It is the same string the popup's own strip draws for the
  * plan somebody is already on.
  */
-export function grantOf(plan: Plan): string {
-  if (plan.relistQuotaPerPeriod === null) return UNLIMITED_REPOSTS;
-  const relists = `${plan.relistQuotaPerPeriod} herplaatsing${plan.relistQuotaPerPeriod === 1 ? "" : "en"}`;
-  return `${relists} per maand`;
+export function grantOf(plan: Plan, language: Language = DUTCH): string {
+  if (plan.relistQuotaPerPeriod === null) return unlimitedReposts(language);
+  return planWords(language)("grant", { count: plan.relistQuotaPerPeriod });
 }
 
 /**
@@ -84,24 +91,25 @@ export function grantOf(plan: Plan): string {
  * two amounts against two rhythms — so each price says both, rather than a card
  * saying one amount and a toggle elsewhere deciding which.
  */
-export function priceAndRhythmOf(price: PlanPrice): string {
-  return `${priceOf(price)} ${every(price.interval)}`;
+export function priceAndRhythmOf(price: PlanPrice, language: Language = DUTCH): string {
+  return planWords(language)("priceAndRhythm", { price: priceOf(price), rhythm: every(price.interval, language) });
 }
 
-function every(interval: string): string {
+function every(interval: string, language: Language): string {
+  const t = planWords(language);
   switch (interval) {
     case "day":
-      return "per dag";
+      return t("every.day");
     case "week":
-      return "per week";
+      return t("every.week");
     case "month":
-      return "per maand";
+      return t("every.month");
     case "year":
-      return "per jaar";
+      return t("every.year");
     default:
       // Stripe's own word, untranslated and deliberately: a new interval should
       // read oddly rather than be silently called something it is not.
-      return `per ${interval}`;
+      return t("every.other", { interval });
   }
 }
 
@@ -125,12 +133,12 @@ function every(interval: string): string {
  * so naming one never makes it false. A method with no entry here (`google_pay`
  * among them) is still left out.
  */
-const WAYS_TO_PAY: ReadonlyArray<readonly [token: string, name: string]> = [
+const WAYS_TO_PAY: ReadonlyArray<readonly [token: string, name: string | Ours]> = [
   ["ideal", "iDEAL"],
   ["paypal", "PayPal"],
-  ["card", "creditcard"],
+  ["card", { ours: "methods.card" }],
   ["bancontact", "Bancontact"],
-  ["sepa_debit", "SEPA-incasso"],
+  ["sepa_debit", { ours: "methods.sepa_debit" }],
   ["amazon_pay", "Amazon Pay"],
   ["apple_pay", "Apple Pay"],
   ["blik", "BLIK"],
@@ -145,6 +153,15 @@ const WAYS_TO_PAY: ReadonlyArray<readonly [token: string, name: string]> = [
   ["samsung_pay", "Samsung Pay"],
   ["satispay", "Satispay"],
 ];
+
+/**
+ * A method whose name is a word of ours rather than a brand's, and so is read
+ * from the catalog: a card is a "creditcard" in Dutch and something else in English,
+ * where iDEAL is iDEAL in both.
+ */
+interface Ours {
+  ours: "methods.card" | "methods.sepa_debit";
+}
 
 /**
  * "Je kunt betalen met iDEAL, PayPal, creditcard of SEPA-incasso." — or nothing
@@ -168,11 +185,15 @@ const WAYS_TO_PAY: ReadonlyArray<readonly [token: string, name: string]> = [
  * and the API logs the whole offered set whenever it refreshes — so a method
  * nobody has named is visible where an operator is, not where a buyer is.
  */
-export function waysToPay(methods: readonly string[]): string | null {
-  const named = WAYS_TO_PAY.filter(([token]) => methods.includes(token)).map(([, name]) => name);
-  if (named.length === 0) return null;
-  if (named.length === 1) return `Je kunt betalen met ${named[0]}.`;
-  return `Je kunt betalen met ${named.slice(0, -1).join(", ")} of ${named[named.length - 1]}.`;
+export function waysToPay(methods: readonly string[], language: Language = DUTCH): string | null {
+  const t = planWords(language);
+  const named = WAYS_TO_PAY.filter(([token]) => methods.includes(token)).map(([, name]) =>
+    typeof name === "string" ? name : t(name.ours),
+  );
+  const last = named.pop();
+  if (last === undefined) return null;
+  if (named.length === 0) return t("waysToPay.one", { method: last });
+  return t("waysToPay.several", { most: named.join(", "), last });
 }
 
 /**
@@ -188,14 +209,18 @@ export function waysToPay(methods: readonly string[]): string | null {
 export function freshPeriodLine(
   to: { relistQuotaPerPeriod: number | null },
   from: { name: string; relistQuotaPerPeriod: number | null },
+  language: Language = DUTCH,
 ): string {
+  const t = planWords(language);
   const grant =
     to.relistQuotaPerPeriod === null
-      ? "onbeperkt herplaatsen"
-      : `${to.relistQuotaPerPeriod} herplaatsing${to.relistQuotaPerPeriod === 1 ? "" : "en"}`;
+      ? t("freshPeriod.unlimited")
+      : t("freshPeriod.reposts", { count: to.relistQuotaPerPeriod });
   const lost =
-    from.relistQuotaPerPeriod === null ? `de rest van je ${from.name}-periode vervalt` : `wat over is van ${from.name} vervalt`;
-  return `Je nieuwe maand begint vandaag met ${grant}; ${lost}.`;
+    from.relistQuotaPerPeriod === null
+      ? t("freshPeriod.restOfPeriod", { plan: from.name })
+      : t("freshPeriod.leftOver", { plan: from.name });
+  return t("freshPeriod.sentence", { grant, lost });
 }
 
 /**
@@ -203,47 +228,58 @@ export function freshPeriodLine(
  * price, or less where the Stripe customer holds a credit, and never negative
  * since nothing is credited (ADR-0042) — so zero is the only other case.
  */
-export function dueToday(preview: { amount: number; currency: string }): string {
-  if (preview.amount <= 0) return "Er wordt vandaag niets afgeschreven.";
-  return `Je betaalt vandaag ${priceOf({ amount: preview.amount, currency: preview.currency, interval: "month" })}.`;
+export function dueToday(preview: { amount: number; currency: string }, language: Language = DUTCH): string {
+  const t = planWords(language);
+  if (preview.amount <= 0) return t("dueToday.nothing");
+  return t("dueToday.amount", {
+    amount: priceOf({ amount: preview.amount, currency: preview.currency, interval: "month" }),
+  });
 }
 
 /** "12 december", in the reader's own zone: the day on their calendar. Empty for no date. */
-export function dayOf(iso: string): string {
+export function dayOf(iso: string, language: Language = DUTCH): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
-  return `${date.getDate()} ${MONTHS[date.getMonth()]}`;
+  const t = planWords(language);
+  return t("day", { day: date.getDate(), month: t(`months.${date.getMonth() as Month}`) });
 }
 
+/** `Date#getMonth`'s answer, which is the catalog's key for that month's name. */
+type Month = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
+
 /** The held card's line while a Scheduled switch waits (T90). */
-export function pendingLine(pending: PendingSwitch): string {
-  return `Gaat op ${dayOf(pending.at)} over naar ${pending.tier.name}`;
+export function pendingLine(pending: PendingSwitch, language: Language = DUTCH): string {
+  return planWords(language)("pending", { day: dayOf(pending.at, language), plan: pending.tier.name });
 }
 
 /** *Op {datum}*'s line in the confirm: the card's price from the renewal, and the plan kept until then (T90). */
-export function fromRenewalLine(renewsAt: string, price: PlanPrice, keeping: string): string {
-  return `Vanaf ${dayOf(renewsAt)} ${priceAndRhythmOf(price)}; tot dan houd je ${keeping}.`;
+export function fromRenewalLine(
+  renewsAt: string,
+  price: PlanPrice,
+  keeping: string,
+  language: Language = DUTCH,
+): string {
+  return planWords(language)("fromRenewal", {
+    day: dayOf(renewsAt, language),
+    price: priceAndRhythmOf(price, language),
+    plan: keeping,
+  });
 }
 
 /** What both confirms say once Stripe has taken the switch (T90). */
-export const SWITCHED_TODAY = "Gelukt. Je nieuwe abonnement gaat vandaag in.";
-export const SWITCH_AT_RENEWAL = "Gelukt. Je stapt over zodra je huidige periode afloopt.";
-export const UNDO_FAILED = "Ongedaan maken lukte nu niet. Probeer het zo nog eens.";
+export function switchedToday(language: Language = DUTCH): string {
+  return planWords(language)("switchedToday");
+}
+
+export function switchAtRenewal(language: Language = DUTCH): string {
+  return planWords(language)("switchAtRenewal");
+}
+
+export function undoFailed(language: Language = DUTCH): string {
+  return planWords(language)("undoFailed");
+}
 
 /** What both surfaces' cards say during Dunning instead of offering a switch (T90, `OPEN_INVOICE`). */
-export const PAY_THE_OPEN_INVOICE_FIRST = "Betaal eerst je openstaande factuur via Betaling beheren.";
-
-const MONTHS = [
-  "januari",
-  "februari",
-  "maart",
-  "april",
-  "mei",
-  "juni",
-  "juli",
-  "augustus",
-  "september",
-  "oktober",
-  "november",
-  "december",
-];
+export function payTheOpenInvoiceFirst(language: Language = DUTCH): string {
+  return planWords(language)("payTheOpenInvoiceFirst");
+}

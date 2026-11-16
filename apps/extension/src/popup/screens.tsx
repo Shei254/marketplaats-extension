@@ -1,7 +1,9 @@
 import { Badge, Button, Icon, IconButton, Meter, Note, Skeleton, Spinner } from "@mprelist/ui";
-import { UNLIMITED_REPOSTS, type DisplayState } from "@mprelist/contracts";
+import { unlimitedReposts, type DisplayState } from "@mprelist/contracts";
 import type { JSX, ReactNode } from "react";
 
+import { useTranslation } from "../i18n/react";
+import { language, t } from "../i18n/words";
 import { grantsNothing, MANAGING, type Handoff, type PlansView } from "./plans";
 import { ThemeToggle } from "./ThemeToggle";
 
@@ -11,7 +13,8 @@ import { ThemeToggle } from "./ThemeToggle";
  * *which* of them is on the screen is `screen.ts`, and what fetches anything is
  * the worker.
  *
- * The layout is the design canvas's (`docs/design/`), and so are the words. Two
+ * The layout is the design canvas's (`docs/design/`), and so are the words, which
+ * are read from the catalog in `../i18n` (ADR-0043). Two
  * deliberate departures, both in the header and both the same shape. The canvas
  * has no sign-out control anywhere and the slice-A click-through ends by signing
  * out; it has no way into the plan cards either except the prompt beside a spent
@@ -53,6 +56,7 @@ export function SignedOutScreen({
   busy: boolean;
   failure?: string;
 }): JSX.Element {
+  const { t } = useTranslation();
   return (
     <>
       <Header />
@@ -62,18 +66,13 @@ export function SignedOutScreen({
         <div className="mp-mark popup-badge">
           <Icon name="logo" size={40} />
         </div>
-        <h1 className="popup-title">Zet je advertenties weer bovenaan</h1>
-        <p className="popup-copy">
-          Log in om je Marktplaats-advertenties met één klik te herplaatsen.
-        </p>
+        <h1 className="popup-title">{t("signedOut.title")}</h1>
+        <p className="popup-copy">{t("signedOut.copy")}</p>
         <Button shape="block" tone={busy ? "busy" : "primary"} onClick={onSignIn}>
-          {busy ? "Bezig met inloggen…" : "Inloggen"}
+          {busy ? t("signedOut.signingIn") : t("signedOut.signIn")}
         </Button>
         {failure ? <Note tone="error">{failure}</Note> : null}
-        <p className="popup-micro">
-          {__BRAND_NAME__} ziet je Marktplaats-wachtwoord nooit — het herplaatsen gebeurt in je
-          eigen browsersessie.
-        </p>
+        <p className="popup-micro">{t("signedOut.micro")}</p>
       </div>
     </>
   );
@@ -81,6 +80,7 @@ export function SignedOutScreen({
 
 /** Waiting on the worker: the shape of the answer rather than a spinner alone. */
 export function LoadingScreen(): JSX.Element {
+  const { t } = useTranslation();
   return (
     <>
       <Header />
@@ -89,7 +89,7 @@ export function LoadingScreen(): JSX.Element {
         <Skeleton width={64} height={11} />
       </div>
       <div className="popup-centred">
-        <Spinner size="lg" label="Je abonnement wordt geladen" />
+        <Spinner size="lg" label={t("loading")} />
       </div>
     </>
   );
@@ -115,6 +115,7 @@ export function LoadingScreen(): JSX.Element {
  * is true, and saying so is more useful than a button that reloads a refusal.
  */
 export function OutdatedScreen(): JSX.Element {
+  const { t } = useTranslation();
   return (
     <>
       <Header />
@@ -122,15 +123,9 @@ export function OutdatedScreen(): JSX.Element {
         <div className="popup-warning">
           <Icon name="warning" />
         </div>
-        <h1 className="popup-title">{__BRAND_NAME__} moet worden bijgewerkt</h1>
-        <p className="popup-copy">
-          Deze versie is te oud om veilig te blijven herplaatsen, dus dat is gestopt. Chrome werkt
-          extensies meestal binnen een paar uur bij — open dit dan opnieuw.
-        </p>
-        <p className="popup-micro">
-          Er is niets gewijzigd op Marktplaats en je advertenties staan precies waar je ze
-          hebt achtergelaten.
-        </p>
+        <h1 className="popup-title">{t("outdated.title")}</h1>
+        <p className="popup-copy">{t("outdated.copy")}</p>
+        <p className="popup-micro">{t("common.nothingChangedOnMarktplaats")}</p>
       </div>
     </>
   );
@@ -176,6 +171,7 @@ export function NoTierScreen({
    */
   children: ReactNode;
 }): JSX.Element {
+  const { t } = useTranslation();
   // Only a *loaded and empty* catalog is the dead end. While the call is in flight
   // or has failed, the cards own the screen and say so themselves — `PlanCards`
   // draws skeletons and a retry — and claiming "this will resolve itself" over a
@@ -188,16 +184,11 @@ export function NoTierScreen({
         <div className="popup-warning">
           <Icon name="warning" />
         </div>
-        <h1 className="popup-title">Er staat nu geen abonnement op dit account</h1>
-        <p className="popup-copy">
-          {nothingToBuy
-            ? "Het abonnement waar je op zat bestaat niet meer, en er is nog geen ander ingesteld. Herplaatsen is daarom gepauzeerd tot dat gebeurd is."
-            : "Het abonnement waar je op zat bestaat niet meer. Kies hieronder een abonnement om weer te kunnen herplaatsen."}
-        </p>
+        <h1 className="popup-title">{t("noTier.title")}</h1>
+        <p className="popup-copy">{nothingToBuy ? t("noTier.nothingToBuy") : t("noTier.chooseOne")}</p>
         <p className="popup-micro">
-          Er is niets gewijzigd op Marktplaats en je advertenties staan precies waar je ze hebt
-          achtergelaten.
-          {nothingToBuy ? " Dit lost zich vanzelf op — opnieuw proberen helpt niet." : null}
+          {t("common.nothingChangedOnMarktplaats")}
+          {nothingToBuy ? t("noTier.resolvesItself") : null}
         </p>
       </div>
       {nothingToBuy ? null : children}
@@ -212,6 +203,7 @@ export function UnavailableScreen({
   onRetry: () => void;
   busy: boolean;
 }): JSX.Element {
+  const { t } = useTranslation();
   return (
     <>
       <Header />
@@ -219,13 +211,10 @@ export function UnavailableScreen({
         <div className="popup-warning">
           <Icon name="warning" />
         </div>
-        <h1 className="popup-title">{__BRAND_NAME__} is nu niet bereikbaar</h1>
-        <p className="popup-copy">
-          Je abonnement en limiet kunnen niet worden gecontroleerd, dus herplaatsen is gepauzeerd.
-          Er is niets gewijzigd op Marktplaats.
-        </p>
+        <h1 className="popup-title">{t("unavailable.title")}</h1>
+        <p className="popup-copy">{t("unavailable.copy")}</p>
         <Button shape="rect" tone={busy ? "busy" : "secondary"} onClick={onRetry}>
-          {busy ? "Bezig…" : "Opnieuw proberen"}
+          {busy ? t("common.busy") : t("common.tryAgain")}
         </Button>
       </div>
     </>
@@ -259,6 +248,7 @@ export function SignedInScreen({
   handoff: Handoff;
   busy: boolean;
 }): JSX.Element {
+  const { t } = useTranslation();
   // The three states a quota can be in, named rather than re-derived at each of
   // the four places below that branch on them (ADR-0029). `unlimited` reads the
   // grant and not the remainder: the two are null together, and the ceiling is the
@@ -276,14 +266,14 @@ export function SignedInScreen({
       <Header
         actions={
           <>
-            <IconButton label="Vernieuwen" onClick={onRefresh} disabled={busy}>
+            <IconButton label={t("common.refresh")} onClick={onRefresh} disabled={busy}>
               <Icon name="refresh" />
             </IconButton>
             <Button tone="ghost" onClick={onSeePlans} disabled={busy}>
-              Abonnementen
+              {t("header.plans")}
             </Button>
             <Button tone="ghost" onClick={onSignOut} disabled={busy}>
-              Uitloggen
+              {t("header.signOut")}
             </Button>
           </>
         }
@@ -292,7 +282,7 @@ export function SignedInScreen({
         <div className="popup-plan-top">
           <span className="popup-plan-name">
             {plan.tier.name}
-            {paymentFailing ? <Badge tone="err">betaling mislukt</Badge> : null}
+            {paymentFailing ? <Badge tone="err">{t("plan.paymentFailed")}</Badge> : null}
           </span>
           <span className="popup-plan-left">{grantLine(plan, paymentFailing)}</span>
         </div>
@@ -374,7 +364,7 @@ function stripClass(nothingToSpend: boolean, paymentFailing: boolean): string {
 export function grantLine(plan: DisplayState, paymentFailing = false): string {
   // Unlimited first, and before the failing card: "Onbeperkt herplaatsen" is what the
   // tier grants, which is exactly what that branch says for a capped one.
-  if (plan.relistQuotaPerPeriod === null) return UNLIMITED_REPOSTS;
+  if (plan.relistQuotaPerPeriod === null) return unlimitedReposts(language());
   // **A tier granting 0 is not an exhausted one**, and "0 of 0 reposts left" reads
   // as somebody who spent them. Nobody on this plan ever had any.
   //
@@ -383,13 +373,11 @@ export function grantLine(plan: DisplayState, paymentFailing = false): string {
   // under the people already on it (ADR-0029), one of whom may have a card
   // failing — and "0 relists" over a dunning prompt blames Stripe for a nothing
   // the operator chose.
-  if (plan.relistQuotaPerPeriod === 0) return "Geen herplaatsingen in dit abonnement";
+  if (plan.relistQuotaPerPeriod === 0) return t("plan.grantsNothing");
   // A card that is failing shows the grant rather than the remainder: the tier is
   // still theirs (ADR-0018) and nothing of it can be spent, so a number that moved
   // would be describing spending that cannot happen.
-  if (paymentFailing) {
-    return `${plan.relistQuotaPerPeriod} herplaatsing${plan.relistQuotaPerPeriod === 1 ? "" : "en"}`;
-  }
+  if (paymentFailing) return t("plan.grant", { count: plan.relistQuotaPerPeriod });
   return repostsLeft(plan.quotaRemaining ?? 0, plan.relistQuotaPerPeriod);
 }
 
@@ -416,19 +404,18 @@ function ExhaustedPrompt({
   resetAt: string;
   onSeePlans: () => void;
 }): JSX.Element {
+  const { t } = useTranslation();
+  const on = resetDay(resetAt);
   return (
     <div className="popup-prompt">
       <span className="popup-prompt-mark">
         <Icon name="bolt" />
       </span>
       <div>
-        <p className="popup-prompt-title">Je hebt je limiet voor herplaatsingen in deze periode bereikt</p>
-        <p className="popup-prompt-copy">
-          Ze resetten{" "}
-          {resetsOn(resetAt).replace("Reset op ", "op ") || "wanneer de periode wordt vernieuwd"}.
-        </p>
+        <p className="popup-prompt-title">{t("exhausted.title")}</p>
+        <p className="popup-prompt-copy">{on ? t("exhausted.comeBackOn", on) : t("exhausted.comeBack")}</p>
         <Button shape="rect" tone="primary" onClick={onSeePlans}>
-          Bekijk abonnementen
+          {t("common.seePlans")}
         </Button>
       </div>
     </div>
@@ -449,16 +436,17 @@ function ExhaustedPrompt({
  * subscription that ends falls back there (ADR-0018).
  */
 function NoRepostsPrompt({ onSeePlans }: { onSeePlans: () => void }): JSX.Element {
+  const { t } = useTranslation();
   return (
     <div className="popup-prompt">
       <span className="popup-prompt-mark">
         <Icon name="bolt" />
       </span>
       <div>
-        <p className="popup-prompt-title">Dit abonnement bevat geen herplaatsingen</p>
-        <p className="popup-prompt-copy">Met een betaald abonnement krijg je ze wel.</p>
+        <p className="popup-prompt-title">{t("noReposts.title")}</p>
+        <p className="popup-prompt-copy">{t("noReposts.copy")}</p>
         <Button shape="rect" tone="primary" onClick={onSeePlans}>
-          Bekijk abonnementen
+          {t("common.seePlans")}
         </Button>
       </div>
     </div>
@@ -483,6 +471,7 @@ function DunningPrompt({
   onManageBilling: () => void;
   handoff: Handoff;
 }): JSX.Element {
+  const { t } = useTranslation();
   const opening = handoff.kind === "opening" && handoff.what === MANAGING;
   return (
     <div className="popup-prompt popup-prompt--failing">
@@ -490,13 +479,10 @@ function DunningPrompt({
         <Icon name="card" />
       </span>
       <div>
-        <p className="popup-prompt-title">Je betaling is niet gelukt</p>
-        <p className="popup-prompt-copy">
-          We blijven het proberen. Werk je betaalgegevens bij om weer te kunnen herplaatsen — je
-          abonnement is nog steeds {tier}.
-        </p>
+        <p className="popup-prompt-title">{t("dunning.title")}</p>
+        <p className="popup-prompt-copy">{t("dunning.copy", { tier })}</p>
         <Button shape="rect" tone={opening ? "busy" : "secondary"} onClick={onManageBilling}>
-          {opening ? "Bezig met openen…" : "Betaalgegevens bijwerken"}
+          {opening ? t("common.opening") : t("dunning.updateCard")}
         </Button>
         {handoff.kind === "failed" ? <Note tone="error">{handoff.message}</Note> : null}
       </div>
@@ -548,34 +534,33 @@ export function PlansScreen({
   /** `PlanCards` — the cards own the loading and failed states of the list itself. */
   children?: ReactNode;
 }): JSX.Element {
+  const { t } = useTranslation();
   const managing = handoff.kind === "opening" && handoff.what === MANAGING;
   return (
     <>
       <Header
         actions={
           <Button tone="ghost" onClick={onBack}>
-            Terug
+            {t("header.back")}
           </Button>
         }
       />
       <div className="popup-plans-body">
-        <h1 className="popup-plans-lede">Kies een abonnement</h1>
+        <h1 className="popup-plans-lede">{t("plans.title")}</h1>
         <p className="popup-plans-lede">
-          Het afrekenen wordt geopend in een nieuw tabblad. Kom daarna hier terug.
+          {t("plans.lede")}
           {payWith ? <>{payWith}</> : null}
         </p>
         {children}
         {handoff.kind === "failed" ? <Note tone="error">{handoff.message}</Note> : null}
-        <p className="popup-plans-fine">
-          Je kunt op elk moment opzeggen — je gaat dan terug naar Gratis en behoudt altijd toegang.
-        </p>
+        <p className="popup-plans-fine">{t("plans.fine")}</p>
         <Button
           tone="ghost"
           className="popup-plans-manage"
           onClick={onManageBilling}
           disabled={handoff.kind === "opening"}
         >
-          {managing ? "Bezig met openen…" : "Betaling beheren"}
+          {managing ? t("common.opening") : t("plans.manage")}
         </Button>
       </div>
     </>
@@ -597,7 +582,7 @@ export function PlansScreen({
  * is what let the copy become Dutch without touching a contract.
  */
 export function repostsLeft(remaining: number, granted: number): string {
-  return `${remaining} van ${granted} herplaatsing${granted === 1 ? "" : "en"} over`;
+  return t("plan.left", { remaining, count: granted });
 }
 
 /**
@@ -605,7 +590,7 @@ export function repostsLeft(remaining: number, granted: number): string {
  * reading `Reset op Invalid Date` is worse than one that says only what it knows.
  *
  * **Still spelled from a table rather than by `Intl`, and the reason survived the
- * translation intact.** `Intl` with `nl-NL` renders March as **"mrt."** on current
+ * translation intact** — the table is the catalog's `plan.monthsShort` now. `Intl` with `nl-NL` renders March as **"mrt."** on current
  * ICU and September as "sep." — with the trailing stop, and inconsistently across
  * ICU versions, exactly as `en-GB` disagreed with itself over "Sept" and "Sep". One
  * build would read differently on two Chromes and neither would match the design
@@ -620,9 +605,16 @@ export function repostsLeft(remaining: number, granted: number): string {
  * is the day on their own calendar.
  */
 export function resetsOn(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-  return `Reset op ${date.getDate()} ${MONTHS[date.getMonth()]}`;
+  const on = resetDay(iso);
+  return on ? t("plan.resetsOn", on) : "";
 }
 
-const MONTHS = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
+/** The day a quota comes back, as the two sentences that name it want it; null for no date. */
+function resetDay(iso: string): { day: number; month: string } | null {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return { day: date.getDate(), month: t(`plan.monthsShort.${date.getMonth() as Month}`) };
+}
+
+/** `Date#getMonth`'s answer, which is the catalog's key for that month. */
+type Month = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;

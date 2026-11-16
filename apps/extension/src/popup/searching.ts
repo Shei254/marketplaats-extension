@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { t } from "../i18n/words";
+
 /**
  * The search box over the ad list (T31, #40) — what it means, and when it fires.
  *
@@ -62,7 +64,7 @@ export function sameShowing(one: Showing, other: Showing): boolean {
 
 /** What to say when a search matched nothing — never "you have no active ads". */
 export function noMatches(query: string): string {
-  return `Geen advertenties gevonden voor “${query}”.`;
+  return t("search.noMatches", { query });
 }
 
 /**

@@ -1,3 +1,4 @@
+import type { Language } from "@mprelist/contracts";
 import { describe, expect, it } from "vitest";
 
 import { Authenticator } from "./authenticator";
@@ -26,6 +27,7 @@ function authenticator(options: {
   answer?: (url: URL) => LaunchOutcome;
   routes?: FakeHttpRoutes;
   session?: AuthSession | null;
+  language?: Language;
 } = {}) {
   const flow = new FakeBrowserAuthFlow(options.answer);
   const http = new FakeHttp(options.routes);
@@ -36,6 +38,7 @@ function authenticator(options: {
     http: http.fetch,
     config: { ...DEFAULT_AUTH_CONFIG, issuer: ISSUER },
     now: () => NOW,
+    language: () => options.language ?? "nl",
   });
   return { auth, flow, http, store };
 }
@@ -89,6 +92,18 @@ describe("signing in", () => {
     await auth.signIn();
 
     expect(flow.authorizeUrl.searchParams.get("scope")).toBe("openid");
+  });
+
+  it("carries the Language to the sign-in page, which only inherits it (ADR-0043)", async () => {
+    // `ui_locales` is the parameter Keycloak follows, through the sign-in page,
+    // the reset page and the mail (T94); `kc_locale` did nothing.
+    const dutch = authenticator();
+    await dutch.auth.signIn();
+    expect(dutch.flow.authorizeUrl.searchParams.get("ui_locales")).toBe("nl");
+
+    const english = authenticator({ language: "en" });
+    await english.auth.signIn();
+    expect(english.flow.authorizeUrl.searchParams.get("ui_locales")).toBe("en");
   });
 
   it("exchanges the code with the same redirect URI it asked with", async () => {

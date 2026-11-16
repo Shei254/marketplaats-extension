@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { t } from "../i18n/words";
+import { language, t } from "../i18n/words";
 import type { Account, Choice, SwitchAnswer, SwitchPreviewAnswer, Viewer } from "../public/viewer";
 import { CustomerApi, type Fetch, type Me } from "./customer-api";
 import { signIn, signOutCustomer, start, type SessionDeps } from "./customer-session";
@@ -56,7 +56,7 @@ export function useAccount(
     }
     setBusy(choice);
     setNotice(null);
-    void signedIn.checkout(choice).then(async (opened) => {
+    void signedIn.checkout(choice, language()).then(async (opened) => {
       if (opened.status === "opened") return depsRef.current.navigate(opened.url);
       if (opened.status === "expired") return again(choice);
       setBusy(null);
@@ -104,7 +104,7 @@ export function useAccount(
     if (!signedIn) return;
     setBusy("billing");
     setNotice(null);
-    void signedIn.portal().then((opened) => {
+    void signedIn.portal(language()).then((opened) => {
       if (opened.status === "opened") return depsRef.current.navigate(opened.url);
       if (opened.status === "expired") return again();
       setBusy(null);

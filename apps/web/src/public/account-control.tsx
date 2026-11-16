@@ -1,5 +1,6 @@
 import { useState, type JSX } from "react";
 
+import { useTranslation } from "../i18n/react";
 import type { Account } from "./viewer";
 
 /**
@@ -12,13 +13,14 @@ import type { Account } from "./viewer";
  * the card marked "Huidig".
  */
 export function AccountControl({ account }: { account: Account }): JSX.Element | null {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const { viewer } = account;
   if (viewer.kind === "checking") return null;
   if (viewer.kind === "signed-out") {
     return (
       <button type="button" className="web-account" onClick={() => account.signIn()}>
-        Inloggen
+        {t("nav.signIn")}
       </button>
     );
   }
@@ -31,7 +33,7 @@ export function AccountControl({ account }: { account: Account }): JSX.Element |
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
-        Mijn account
+        {t("nav.account")}
       </button>
       {open ? (
         <span className="web-account-items" role="menu">
@@ -42,11 +44,11 @@ export function AccountControl({ account }: { account: Account }): JSX.Element |
               disabled={account.busy === "billing"}
               onClick={account.manageBilling}
             >
-              Betaling beheren
+              {t("nav.manageBilling")}
             </button>
           ) : null}
           <button type="button" role="menuitem" onClick={account.signOut}>
-            Uitloggen
+            {t("nav.signOut")}
           </button>
         </span>
       ) : null}

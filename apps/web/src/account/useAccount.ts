@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { t } from "../i18n/words";
 import type { Account, Choice, SwitchAnswer, SwitchPreviewAnswer, Viewer } from "../public/viewer";
 import { CustomerApi, type Fetch, type Me } from "./customer-api";
 import { signIn, signOutCustomer, start, type SessionDeps } from "./customer-session";
@@ -41,7 +42,7 @@ export function useAccount(
         again();
         return null;
       case "unavailable":
-        setNotice("Je abonnement kon niet worden geladen. Vernieuw de pagina om het nog eens te proberen.");
+        setNotice(t("account.notLoaded"));
         return ON_NO_TIER;
     }
   }, [again]);
@@ -59,7 +60,7 @@ export function useAccount(
       if (opened.status === "opened") return depsRef.current.navigate(opened.url);
       if (opened.status === "expired") return again(choice);
       setBusy(null);
-      setNotice("Afrekenen kon niet worden geopend. Probeer het zo nog eens.");
+      setNotice(t("account.checkoutNotOpened"));
       // A refusal may be a view gone stale — somebody who started paying in
       // another tab — so what they are shown is asked again.
       const viewerNow = shown(await signedIn.me());
@@ -107,7 +108,7 @@ export function useAccount(
       if (opened.status === "opened") return depsRef.current.navigate(opened.url);
       if (opened.status === "expired") return again();
       setBusy(null);
-      setNotice("Het betaaloverzicht kon niet worden geopend. Probeer het zo nog eens.");
+      setNotice(t("account.portalNotOpened"));
     });
   }, [again]);
 
@@ -224,7 +225,7 @@ async function settle(
     }
   }
   if (last.status === "ready") setViewer(viewerOf(last, null));
-  setNotice("Gelukt. Het kan even duren voordat je abonnement hier zo staat.");
+  setNotice(t("account.settling"));
 }
 
 function viewerOf(me: Extract<Me, { status: "ready" }>, picked: Choice | null): Viewer {

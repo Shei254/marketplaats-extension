@@ -1,6 +1,7 @@
 import type { AdminConfig } from "../admin/admin-config";
 import { beginSignIn, completeSignIn, signOut } from "../admin/admin-session";
 import type { Http } from "../admin/discovery";
+import { t } from "../i18n/words";
 import type { Choice } from "../public/viewer";
 
 /**
@@ -77,7 +78,7 @@ export async function start(deps: SessionDeps, search: string): Promise<Start> {
     }
     remove(deps.local, SIGNED_IN);
     takeChoice(deps.session);
-    return { kind: "signed-out", notice: "Inloggen is niet gelukt. Probeer het nog eens." };
+    return { kind: "signed-out", notice: t("account.signInFailed") };
   }
   if (read(deps.local, SIGNED_IN) !== null) {
     try {

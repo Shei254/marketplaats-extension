@@ -2115,7 +2115,25 @@ untouched, and that is the acceptance.
 - **Keys are typed from the Dutch catalog**, so a misspelled key does not compile.
 - **Pinned to Dutch.** No English catalog, no switch and no browser rule is wired to anything yet.
 
-#### T96 · English, still unseen · **L**
+#### T96 · English, still unseen · **L** · **done 2026-11-16**
+**Every surface on the path has its English, and every hand-off carries the Language — as Dutch.** Each
+English catalog `satisfies CatalogOf<typeof nl>` and one test per catalog compares `keyPaths` with the
+Dutch, so the legal documents are held paragraph for paragraph. **Before merge, the operator reviews the
+English privacy and terms** (`apps/web/src/i18n/en/`): they are a translation of the operator's own text,
+including the parts that do not match this build, and whoever publishes them stands behind them.
+**What T97 inherits:**
+- **Checkout now asks Stripe for Dutch.** It sent no locale before, so an English browser got an English
+  Checkout; it now gets `locale=nl` like every other hand-off. The Portal likewise. This is the one place
+  "unseen" changes what somebody sees, and the switch is what undoes it.
+- `PRIVACY` and `TERMS` in `legal.tsx` stay the Dutch documents the tests read; the pages themselves follow
+  the Language. The site's account notices are still stored as finished sentences, so a notice on screen
+  when the Language changes keeps its words until it is replaced.
+- **Local stacks need a `down -v`** for the realm's second locale. The live realm needs it set in the admin
+  console (T97's own step).
+- The sign-in page's footer links to `/privacy` and `/terms` carry no `?lang`; the site's own choice
+  decides those pages.
+
+*As written before the work:*
 Everything the path needs in English, with the Language still pinned to Dutch in every build.
 - **The English catalogs** for the extension, the site and the shared plan sentences, held to exactly the
   Dutch keys by the type check and one test. *Repost* for *herplaatsen*; Marktplaats's labels, tier names,

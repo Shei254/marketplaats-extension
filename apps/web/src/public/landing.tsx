@@ -1,7 +1,7 @@
 import { Icon } from "@mprelist/ui";
 import { useCallback, useEffect, useState, type JSX } from "react";
 
-import { BRAND } from "../brand";
+import { Trans, useTranslation } from "../i18n/react";
 import { PlanSection } from "./plan-cards";
 import type { LoadPlans, PlansOnOffer } from "./plans-on-offer";
 import { STORE_URL } from "./store";
@@ -87,51 +87,50 @@ export function LandingPage({
   onRetry: () => void;
   account?: Account;
 }): JSX.Element {
+  const { t } = useTranslation();
   return (
     <>
       <section className="web-hero">
         <div>
-          <h1 className="web-hero-title">Zet je advertentie weer bovenaan</h1>
-          <p className="web-hero-copy">
-            Herplaats hem vanuit je browser, met behoud van alle tekst en foto’s.
-          </p>
+          <h1 className="web-hero-title">{t("landing.title")}</h1>
+          <p className="web-hero-copy">{t("landing.copy")}</p>
           <Install />
-          <p className="web-hero-micro">Gratis te installeren · werkt in Chrome</p>
+          <p className="web-hero-micro">{t("landing.micro")}</p>
         </div>
         <Repost />
-        <a className="web-scroll" href="#zo-werkt-het" aria-label="Verder naar Zo werkt het" />
+        <a className="web-scroll" href="#zo-werkt-het" aria-label={t("landing.onToHowItWorks")} />
       </section>
 
       <section className="web-band" id="zo-werkt-het">
-        <h2 className="web-band-title">Zo werkt het</h2>
+        <h2 className="web-band-title">{t("landing.howItWorks")}</h2>
         <ol className="web-steps">
           <li>
-            <span className="web-step-title">Open Marktplaats</span>
-            <span className="web-step-copy">Ga in de website naar je advertenties.</span>
+            <span className="web-step-title">{t("landing.steps.open.title")}</span>
+            <span className="web-step-copy">{t("landing.steps.open.copy")}</span>
           </li>
           <li>
-            <span className="web-step-title">Log in bij {BRAND.name}</span>
-            <span className="web-step-copy">Via het icoon in je werkbalk.</span>
+            <span className="web-step-title">{t("landing.steps.signIn.title")}</span>
+            <span className="web-step-copy">{t("landing.steps.signIn.copy")}</span>
           </li>
           <li>
             <span className="web-step-title">
-              Klik op <b>Herplaats</b>
+              <Trans i18nKey="landing.steps.repost.title" components={{ b: <b /> }} />
             </span>
-            <span className="web-step-copy">Je advertentie staat weer bovenaan.</span>
+            <span className="web-step-copy">{t("landing.steps.repost.copy")}</span>
           </li>
         </ol>
       </section>
 
       <section className="web-band web-band--subtle" id="abonnementen">
-        <h2 className="web-band-title">Abonnementen</h2>
-        <p className="web-band-copy">Begin gratis, of kies een abonnement als je vaker wilt herplaatsen.</p>
+        <h2 className="web-band-title">{t("landing.plans")}</h2>
+        <p className="web-band-copy">{t("landing.plansCopy")}</p>
         <PlanSection plans={plans} onRetry={onRetry} account={account} installUrl={STORE_URL} />
       </section>
 
       <section className="web-band web-closing">
-        <h2 className="web-band-title">Begin gratis</h2>
+        <h2 className="web-band-title">{t("landing.startFree")}</h2>
         <Install />
-        <p className="web-hero-micro">Werkt in Chrome</p>
+        <p className="web-hero-micro">{t("landing.worksInChrome")}</p>
       </section>
     </>
   );
@@ -142,9 +141,10 @@ export function LandingPage({
  * top and once at the end of it — and both the same element.
  */
 function Install(): JSX.Element {
+  const { t } = useTranslation();
   return (
     <a className="mp-btn mp-btn--primary web-install" href={STORE_URL}>
-      Toevoegen aan Chrome
+      {t("common.addToChrome")}
       <Icon name="external" />
     </a>
   );
@@ -161,23 +161,24 @@ function Install(): JSX.Element {
  * dresses up as their site.
  */
 function Repost(): JSX.Element {
+  const { t } = useTranslation();
   return (
     <div className="web-repost" aria-hidden="true">
       <p className="web-repost-caption">
-        <Swap before="Na een paar dagen" after="Na herplaatsen" />
+        <Swap before={t("landing.demo.before")} after={t("landing.demo.after")} />
       </p>
       <div className="web-repost-list">
         <div className="web-repost-row web-repost-row--yours">
           <span className="web-repost-thumb" />
           <span>
-            <b>Jouw fiets</b> · <Swap before="5 dagen" after="zojuist" />
+            <b>{t("landing.demo.yours")}</b> · <Swap before={t("landing.demo.fiveDays")} after={t("landing.demo.justNow")} />
           </span>
-          <span className="web-repost-top web-after">Bovenaan</span>
+          <span className="web-repost-top web-after">{t("landing.demo.onTop")}</span>
         </div>
-        {["vandaag", "gisteren", "2 dagen"].map((when) => (
+        {(["today", "yesterday", "twoDays"] as const).map((when) => (
           <div key={when} className="web-repost-row">
             <span className="web-repost-thumb" />
-            <span>Nieuw geplaatst · {when}</span>
+            <span>{t("landing.demo.newlyPlaced", { when: t(`landing.demo.${when}`) })}</span>
           </div>
         ))}
       </div>

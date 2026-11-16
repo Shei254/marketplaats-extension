@@ -1,7 +1,7 @@
 import { Icon } from "@mprelist/ui";
 import type { JSX, ReactNode } from "react";
 
-import { BRAND } from "../brand";
+import { Trans, useTranslation } from "../i18n/react";
 import { STORE_URL } from "./store";
 
 /**
@@ -28,7 +28,18 @@ import { STORE_URL } from "./store";
  * Both borrow the shape of the two that were drawn.
  */
 
-/** The line every one of these pages ends on: the product is in the toolbar, not here. */
+/**
+ * "Klik op het **{brand}**-icoon in je werkbalk" — the line three of these pages
+ * end on: the product is in the toolbar, not here.
+ */
+function ClickTheIcon(): JSX.Element {
+  return (
+    <Callout>
+      <Trans i18nKey="pages.clickTheIcon" components={{ b: <b /> }} />
+    </Callout>
+  );
+}
+
 function Callout({ children }: { children: ReactNode }): JSX.Element {
   return (
     <p className="web-callout">
@@ -41,41 +52,34 @@ function Callout({ children }: { children: ReactNode }): JSX.Element {
 }
 
 export function SuccessPage(): JSX.Element {
+  const { t } = useTranslation();
   return (
     <>
       <div className="web-badge web-badge--ok">
         <Icon name="check" size={26} />
       </div>
-      <h1 className="web-title">Alles is geregeld</h1>
-      <p className="web-copy">
-        Je betaling is gelukt. Open het {BRAND.name}-icoon in de werkbalk van je browser — je
-        nieuwe herplaatsingen staan er al klaar.
-      </p>
-      <Callout>
-        Klik op het <b>{BRAND.name}</b>-icoon in je werkbalk
-      </Callout>
-      <p className="web-micro">Hier hoef je niets te doen — je kunt dit tabblad sluiten.</p>
+      <h1 className="web-title">{t("pages.success.title")}</h1>
+      <p className="web-copy">{t("pages.success.copy")}</p>
+      <ClickTheIcon />
+      <p className="web-micro">{t("pages.closeThisTab")}</p>
       <p className="web-micro">
-        Nog niet geïnstalleerd? <a href={STORE_URL}>Toevoegen aan Chrome</a> — je abonnement staat
-        klaar zodra je inlogt.
+        <Trans i18nKey="pages.success.notInstalled" components={{ a: <a href={STORE_URL} /> }} />
       </p>
     </>
   );
 }
 
 export function CancelPage(): JSX.Element {
+  const { t } = useTranslation();
   return (
     <>
       <div className="web-badge web-badge--quiet">
         <Icon name="close" />
       </div>
-      <h1 className="web-title">Er is niets afgeschreven</h1>
-      <p className="web-copy">
-        Je hebt het afrekenen afgebroken, dus er is niets betaald en er is niets veranderd. Je
-        gratis herplaatsingen staan er nog gewoon.
-      </p>
+      <h1 className="web-title">{t("pages.cancel.title")}</h1>
+      <p className="web-copy">{t("pages.cancel.copy")}</p>
       <Callout>
-        Probeer het opnieuw vanuit {BRAND.name} of via <a href="/#abonnementen">de abonnementen</a>
+        <Trans i18nKey="pages.cancel.tryAgain" components={{ a: <a href="/#abonnementen" /> }} />
       </Callout>
     </>
   );
@@ -98,39 +102,30 @@ export function CancelPage(): JSX.Element {
  * copy asks about *how they pay* instead.
  */
 export function BillingPage(): JSX.Element {
+  const { t } = useTranslation();
   return (
     <>
       <div className="web-badge web-badge--quiet">
         <Icon name="card" />
       </div>
-      <h1 className="web-title">Dat is opgeslagen</h1>
-      <p className="web-copy">
-        Wat je ook hebt gewijzigd — hoe je betaalt, je abonnement, of opzeggen — het is opgeslagen
-        bij Stripe, de betaaldienst die wij gebruiken. Open het {BRAND.name}-icoon in de werkbalk van
-        je browser om te zien wat dat betekent; het kan even duren voordat een wijziging daar is.
-      </p>
-      <Callout>
-        Klik op het <b>{BRAND.name}</b>-icoon in je werkbalk
-      </Callout>
-      <p className="web-micro">Hier hoef je niets te doen — je kunt dit tabblad sluiten.</p>
+      <h1 className="web-title">{t("pages.billing.title")}</h1>
+      <p className="web-copy">{t("pages.billing.copy")}</p>
+      <ClickTheIcon />
+      <p className="web-micro">{t("pages.closeThisTab")}</p>
     </>
   );
 }
 
 export function NotFoundPage(): JSX.Element {
+  const { t } = useTranslation();
   return (
     <>
       <div className="web-badge web-badge--quiet">
         <Icon name="warning" />
       </div>
-      <h1 className="web-title">Op dit adres staat niets</h1>
-      <p className="web-copy">
-        {BRAND.name} zit in de werkbalk van je browser en niet op deze site. Heb je zojuist
-        betaald, dan is die betaling gelukt — deze pagina hoort daar niet bij.
-      </p>
-      <Callout>
-        Klik op het <b>{BRAND.name}</b>-icoon in je werkbalk
-      </Callout>
+      <h1 className="web-title">{t("pages.notFound.title")}</h1>
+      <p className="web-copy">{t("pages.notFound.copy")}</p>
+      <ClickTheIcon />
     </>
   );
 }

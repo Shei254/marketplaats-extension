@@ -2,6 +2,7 @@ import { Icon, UiStyles } from "@mprelist/ui";
 import type { JSX } from "react";
 
 import { BRAND } from "./brand";
+import { useTranslation } from "./i18n/react";
 import { AccountControl } from "./public/account-control";
 import { Landing } from "./public/landing";
 import { PrivacyPage, TermsPage } from "./public/legal";
@@ -49,6 +50,7 @@ export function Site({
   /** Handed to the landing page: its plans have answered (see `Landing`). */
   onLandingSettled?: () => void;
 }): JSX.Element {
+  const { t } = useTranslation();
   const showing = pageFor(pathname);
   const wide = showing === "landing";
   const frame = (
@@ -74,7 +76,7 @@ export function Site({
           © {year} {BRAND.name}
         </span>
         <span className="web-footer-links">
-          <a href={PATHS.privacy}>Privacy</a> · <a href={PATHS.terms}>Voorwaarden</a> ·{" "}
+          <a href={PATHS.privacy}>{t("nav.privacy")}</a> · <a href={PATHS.terms}>{t("nav.terms")}</a> ·{" "}
           <a href={`mailto:${BRAND.supportEmail}`}>{BRAND.supportEmail}</a>
         </span>
       </footer>
@@ -82,9 +84,7 @@ export function Site({
           the Web Store's Impersonation policy expects it of a listing that uses
           somebody else's name, and this page is where that listing points. */}
       {wide ? (
-        <p className="web-disclaimer">
-          {BRAND.name} is een onafhankelijk product en is niet gelieerd aan Marktplaats.
-        </p>
+        <p className="web-disclaimer">{t("footer.disclaimer")}</p>
       ) : null}
     </>
   );
@@ -110,9 +110,10 @@ export function Site({
  * a nav that dropped the current entry would move the other one as you navigate.
  */
 function DocumentLink({ to, showing }: { to: "privacy" | "terms"; showing: Page }): JSX.Element {
+  const { t } = useTranslation();
   return (
     <a href={PATHS[to]} aria-current={showing === to ? "page" : undefined}>
-      {to === "privacy" ? "Privacy" : "Voorwaarden"}
+      {t(`nav.${to}`)}
     </a>
   );
 }

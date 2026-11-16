@@ -18,6 +18,8 @@ import {
 import { Button, Skeleton } from "@mprelist/ui";
 import { useEffect, useState, type JSX } from "react";
 
+import { Trans, useTranslation } from "../i18n/react";
+import { language, t } from "../i18n/words";
 import type { PlansOnOffer } from "./plans-on-offer";
 import type { Account, Choice, SwitchAnswer, SwitchPreviewAnswer, Viewer } from "./viewer";
 
@@ -39,23 +41,6 @@ import type { Account, Choice, SwitchAnswer, SwitchPreviewAnswer, Viewer } from 
  * instead.
  */
 
-/**
- * How a buyer pays, under the cards — the operator's own copy, as written
- * (2026-09-25), and three deliberate departures worth knowing before "fixing":
- *
- * - **It says *u*.** The rest of this page, the popup and the mail say *je*
- *   (ADR-0035); this one sentence is formal because the operator asked for it.
- * - **It is fixed, not built from what Stripe offers.** The popup still names
- *   only the methods Stripe's Checkout offers (`waysToPay`, T65); this names
- *   iDEAL | Wero whether or not the Stripe account has it switched on.
- * - **The landing page's only.** The popup keeps `waysToPay`'s sentence.
- *
- * Shown only beside something to buy: a free card alone has nothing to pay for.
- */
-const PAY_WITH =
-  "Uw betaling wordt veilig verwerkt via Stripe. U kunt eenvoudig kiezen uit verschillende " +
-  "betaalmethoden, waaronder iDEAL | Wero, PayPal, creditcard en debitcard.";
-
 /** A card's button, as a function of who is looking — kept pure so it can be read off in a test. */
 export type CardAction =
   | { kind: "sign-in"; label: string; choice: Choice }
@@ -72,23 +57,23 @@ export function actionFor(plan: Plan, interval: string, viewer: Viewer): CardAct
   const choice = { tierCode: plan.tier.code, interval };
   switch (viewer.kind) {
     case "checking":
-      return { kind: "wait", label: `Kies ${plan.tier.name}` };
+      return { kind: "wait", label: t("plans.choose", { plan: plan.tier.name }) };
     case "signed-out":
-      return { kind: "sign-in", label: `Kies ${plan.tier.name}`, choice };
+      return { kind: "sign-in", label: t("plans.choose", { plan: plan.tier.name }), choice };
     case "signed-in":
-      if (!viewer.paying) return { kind: "buy", label: `Kies ${plan.tier.name}`, choice };
+      if (!viewer.paying) return { kind: "buy", label: t("plans.choose", { plan: plan.tier.name }), choice };
       const pending = viewer.pendingSwitch;
       if (pending && pending.tier.code === plan.tier.code && pending.rhythm === interval) {
-        return { kind: "pending", label: `Vanaf ${dayOf(pending.at)}` };
+        return { kind: "pending", label: t("plans.from", { day: dayOf(pending.at, language()) }) };
       }
-      let label = `Overstappen naar ${plan.tier.name}`;
+      let label = t("plans.switchTo", { to: plan.tier.name });
       if (viewer.tierCode === plan.tier.code) {
         // A rhythm nobody could read is not a reason to sell them the other
         // one: without it, their own tier is theirs at either.
         if (viewer.rhythm === null || viewer.rhythm === interval) {
-          return { kind: "current", label: "Huidig abonnement" };
+          return { kind: "current", label: t("plans.current") };
         }
-        label = `Overstappen naar ${rhythmWord(interval)}`;
+        label = t("plans.switchTo", { to: rhythmWord(interval) });
       }
       // No switch during Dunning, now or at renewal (ADR-0042).
       if (viewer.inDunning) return { kind: "blocked", label };
@@ -106,12 +91,12 @@ export function freeActionFor(free: FreeTier, viewer: Viewer): FreeAction {
   switch (viewer.kind) {
     case "checking":
     case "signed-out":
-      return { kind: "install", label: "Gratis beginnen" };
+      return { kind: "install", label: t("plans.startFree") };
     case "signed-in":
       // Moving to the free tier is cancelling, not a switch: there is no Price to
       // switch to, and the Portal cancels at the period's end (ADR-0018).
-      if (viewer.paying) return { kind: "cancel", label: "Opzeggen" };
-      if (viewer.tierCode === free.tier.code) return { kind: "current", label: "Huidig abonnement" };
+      if (viewer.paying) return { kind: "cancel", label: t("plans.cancelPlan") };
+      if (viewer.tierCode === free.tier.code) return { kind: "current", label: t("plans.current") };
       return { kind: "none" };
   }
 }
@@ -167,6 +152,7 @@ export function PlanSection({
   account: Account;
   installUrl: string;
 }): JSX.Element {
+  const { t } = useTranslation();
   const [interval, setRhythm] = useState("month");
   const [switching, setSwitching] = useState<{ plan: Plan; choice: Choice } | null>(null);
 
@@ -187,11 +173,10 @@ export function PlanSection({
     return (
       <div className="web-plans-unavailable">
         <p>
-          De prijzen kunnen nu niet worden geladen. Je vindt ze ook in de extensie, onder{" "}
-          <b>Kies een abonnement</b>.
+          <Trans i18nKey="plans.unavailable" components={{ b: <b /> }} />
         </p>
         <Button tone="retry" shape="rect" onClick={onRetry}>
-          Opnieuw proberen
+          {t("common.tryAgain")}
         </Button>
       </div>
     );
@@ -223,7 +208,7 @@ export function PlanSection({
       ) : null}
       {inDunning ? (
         <p className="web-plans-notice" role="status">
-          {payTheOpenInvoiceFirst()}
+          {payTheOpenInvoiceFirst(language())}
         </p>
       ) : null}
       <div className="web-plans">
@@ -243,7 +228,7 @@ export function PlanSection({
           />
         ))}
       </div>
-      {onSale.length > 0 ? <p className="web-pay-with">{PAY_WITH}</p> : null}
+      {onSale.length > 0 ? <p className="web-pay-with">{t("plans.payWith")}</p> : null}
       {switching ? (
         <SwitchDialog
           plan={switching.plan}
@@ -265,8 +250,9 @@ function RhythmSwitch({
   onChange: (interval: string) => void;
   saving: number | undefined;
 }): JSX.Element {
+  const { t } = useTranslation();
   return (
-    <div className="web-rhythm" role="radiogroup" aria-label="Betaalritme">
+    <div className="web-rhythm" role="radiogroup" aria-label={t("plans.rhythm")}>
       {(["month", "year"] as const).map((rhythm) => (
         <button
           key={rhythm}
@@ -276,8 +262,8 @@ function RhythmSwitch({
           className={interval === rhythm ? "is-on" : undefined}
           onClick={() => onChange(rhythm)}
         >
-          {rhythm === "month" ? "Maandelijks" : "Jaarlijks"}
-          {rhythm === "year" && saving ? <span className="web-rhythm-save">tot −{saving}%</span> : null}
+          {rhythm === "month" ? t("plans.monthly") : t("plans.yearly")}
+          {rhythm === "year" && saving ? <span className="web-rhythm-save">{t("plans.upTo", { saving })}</span> : null}
         </button>
       ))}
     </div>
@@ -295,13 +281,14 @@ function FreeCard({
   account: Account;
   installUrl: string;
 }): JSX.Element {
+  const { t } = useTranslation();
   const action = freeActionFor(free, account.viewer);
   return (
     <div className="web-plan">
       <p className="web-plan-name">{free.tier.name}</p>
       <Grant grant={free.relistQuotaPerPeriod} words={freeWords(free)} ceiling={ceiling} />
       <p className="web-plan-price">
-        <b>Gratis</b>
+        <b>{t("plans.free")}</b>
       </p>
       <p className="web-plan-note">&nbsp;</p>
       {action.kind === "install" ? (
@@ -341,6 +328,7 @@ function PlanCard({
   account: Account;
   onSwitch: (choice: Choice) => void;
 }): JSX.Element {
+  const { t } = useTranslation();
   const price = priceShown(plan, interval);
   const at = price?.interval ?? interval;
   const action = actionFor(plan, at, account.viewer);
@@ -350,21 +338,19 @@ function PlanCard({
   const classes = ["web-plan", featured ? "web-plan--featured" : "", picked ? "web-plan--picked" : ""];
   return (
     <div className={classes.filter(Boolean).join(" ")}>
-      {featured ? <span className="web-plan-flag">Meeste herplaatsingen</span> : null}
+      {featured ? <span className="web-plan-flag">{t("plans.mostReposts")}</span> : null}
       <p className="web-plan-name">{plan.tier.name}</p>
       <Grant grant={plan.relistQuotaPerPeriod} words={grantWords(plan)} ceiling={ceiling} />
       {price ? (
         <p className="web-plan-price">
-          <b>{priceOf(price)}</b> {at === "year" ? "per jaar" : at === "month" ? "per maand" : ""}
+          <b>{priceOf(price)}</b> {at === "year" ? t("plans.perYear") : at === "month" ? t("plans.perMonth") : ""}
         </p>
       ) : null}
       <p className="web-plan-note">
         {interval === "year" && at !== "year"
-          ? "Alleen maandelijks"
+          ? t("plans.monthlyOnly")
           : price && at === "year"
-            ? `${priceOf({ ...price, amount: Math.round(price.amount / 12) })} per maand${
-                saving ? ` · bespaar ${saving}%` : ""
-              }`
+            ? aMonth(priceOf({ ...price, amount: Math.round(price.amount / 12) }), saving)
             : " "}
       </p>
       <HeldCardPending plan={plan} account={account} />
@@ -386,7 +372,7 @@ function PlanCard({
             if (action.kind === "switch") onSwitch(action.choice);
           }}
         >
-          {busy ? "Een moment…" : action.label}
+          {busy ? t("common.oneMoment") : action.label}
         </button>
       )}
     </div>
@@ -398,15 +384,16 @@ function PlanCard({
  * Ongedaan maken. Nothing on any other card.
  */
 function HeldCardPending({ plan, account }: { plan: Plan; account: Account }): JSX.Element | null {
+  const { t } = useTranslation();
   const [undoing, setUndoing] = useState<"idle" | "busy" | "failed">("idle");
   const viewer = account.viewer;
   if (viewer.kind !== "signed-in" || !viewer.pendingSwitch || viewer.tierCode !== plan.tier.code) return null;
   return (
     <>
-      <p className="web-plan-note web-plan-note--pending">{pendingLine(viewer.pendingSwitch)}</p>
+      <p className="web-plan-note web-plan-note--pending">{pendingLine(viewer.pendingSwitch, language())}</p>
       {undoing === "failed" ? (
         <p className="web-plan-note" role="status">
-          {undoFailed()}
+          {undoFailed(language())}
         </p>
       ) : null}
       <button
@@ -418,7 +405,7 @@ function HeldCardPending({ plan, account }: { plan: Plan; account: Account }): J
           void account.undoSwitch().then((answer) => setUndoing(answer.status === "undone" ? "idle" : "failed"));
         }}
       >
-        {undoing === "busy" ? "Een moment…" : "Ongedaan maken"}
+        {undoing === "busy" ? t("common.oneMoment") : t("plans.undo")}
       </button>
     </>
   );
@@ -440,8 +427,8 @@ function Grant({ grant, words, ceiling }: { grant: number | null; words: string;
 
 /** "herplaatsingen per maand", under the number — `grantOf` without the number it already shows. */
 function grantWords(plan: Plan): string {
-  if (plan.relistQuotaPerPeriod === null) return unlimitedReposts().toLowerCase();
-  return grantOf(plan).replace(/^\d+\s+/, "");
+  if (plan.relistQuotaPerPeriod === null) return unlimitedReposts(language()).toLowerCase();
+  return grantOf(plan, language()).replace(/^\d+\s+/, "");
 }
 
 /** The free tier as a plan with nothing to pay, which is all `grantWords` reads of it. */
@@ -450,7 +437,12 @@ function freeWords(free: FreeTier): string {
 }
 
 function rhythmWord(interval: string): string {
-  return interval === "year" ? "jaarlijks" : interval === "month" ? "maandelijks" : interval;
+  return interval === "year" || interval === "month" ? t(`plans.rhythmWord.${interval}`) : interval;
+}
+
+/** A yearly price as what it comes to a month, and what that saves where it saves anything. */
+function aMonth(price: string, saving: number | undefined): string {
+  return saving ? t("plans.aMonthSaving", { price, saving }) : t("plans.aMonth", { price });
 }
 
 function bestSaving(plans: readonly Plan[]): number | undefined {
@@ -481,6 +473,7 @@ export function SwitchDialog({
     | { kind: "switching" }
     | { kind: "done"; when: "now" | "renewal" }
     | { kind: "failed"; message: string };
+  const { t } = useTranslation();
   const [phase, setPhase] = useState<Phase>({ kind: "pricing" });
   const after = plan.prices.find((price) => price.interval === choice.interval);
   const viewer = account.viewer.kind === "signed-in" ? account.viewer : null;
@@ -506,7 +499,8 @@ export function SwitchDialog({
     setPhase({ kind: "failed", message: failureOf(answer.status) });
   };
 
-  const renews = phase.kind === "priced" ? dayOf(phase.preview.renewsAt) : "";
+  const renews = phase.kind === "priced" ? dayOf(phase.preview.renewsAt, language()) : "";
+  const leaving = viewer?.tierName ?? t("plans.yourCurrentPlan");
   return (
     <div className="web-dialog-backdrop" onClick={onClose}>
       <div
@@ -517,38 +511,35 @@ export function SwitchDialog({
         onClick={(event) => event.stopPropagation()}
       >
         <h3 id="web-dialog-title" className="web-dialog-title">
-          Overstappen naar {plan.tier.name}
+          {t("plans.switchTo", { to: plan.tier.name })}
           {after ? ` · ${rhythmWord(after.interval)}` : ""}
         </h3>
         <div className="web-dialog-copy" aria-live="polite">
-          {phase.kind === "pricing" ? <p>Het bedrag wordt opgehaald…</p> : null}
+          {phase.kind === "pricing" ? <p>{t("plans.pricing")}</p> : null}
           {phase.kind === "priced" ? (
             <>
               <p>
-                <b>Nu:</b> {dueToday(phase.preview)}{" "}
-                {freshPeriodLine(plan, {
-                  name: viewer?.tierName ?? "je huidige abonnement",
-                  relistQuotaPerPeriod: viewer?.grant ?? null,
-                })}
+                <b>{t("plans.nowLabel")}</b> {dueToday(phase.preview, language())}{" "}
+                {freshPeriodLine(plan, { name: leaving, relistQuotaPerPeriod: viewer?.grant ?? null }, language())}
               </p>
               {after ? (
                 <p>
-                  <b>Op {renews}:</b>{" "}
-                  {fromRenewalLine(phase.preview.renewsAt, after, viewer?.tierName ?? "je huidige abonnement")}
+                  <b>{t("plans.onLabel", { day: renews })}</b>{" "}
+                  {fromRenewalLine(phase.preview.renewsAt, after, leaving, language())}
                 </p>
               ) : null}
             </>
           ) : null}
-          {phase.kind === "switching" ? <p>Je abonnement wordt aangepast…</p> : null}
+          {phase.kind === "switching" ? <p>{t("plans.switching")}</p> : null}
           {phase.kind === "done" ? (
-            <p>{phase.when === "now" ? switchedToday() : switchAtRenewal()}</p>
+            <p>{phase.when === "now" ? switchedToday(language()) : switchAtRenewal(language())}</p>
           ) : null}
           {phase.kind === "failed" ? <p>{phase.message}</p> : null}
         </div>
         <div className="web-dialog-actions">
           {phase.kind === "done" || phase.kind === "failed" ? (
             <button type="button" className="web-plan-btn web-plan-btn--secondary" onClick={onClose}>
-              Sluiten
+              {t("common.close")}
             </button>
           ) : (
             <>
@@ -558,7 +549,7 @@ export function SwitchDialog({
                 onClick={onClose}
                 disabled={phase.kind === "switching"}
               >
-                Annuleren
+                {t("common.cancel")}
               </button>
               {/* The same class for both: neither is the default (ADR-0042). */}
               <button
@@ -570,7 +561,7 @@ export function SwitchDialog({
                   void account.switchPlan(choice).then((answer) => made(answer, "now"));
                 }}
               >
-                Nu
+                {t("plans.now")}
               </button>
               <button
                 type="button"
@@ -581,7 +572,7 @@ export function SwitchDialog({
                   void account.scheduleSwitch(choice).then((answer) => made(answer, "renewal"));
                 }}
               >
-                {renews ? `Op ${renews}` : "Bij verlenging"}
+                {renews ? t("plans.on", { day: renews }) : t("plans.atRenewal")}
               </button>
             </>
           )}
@@ -592,8 +583,6 @@ export function SwitchDialog({
 }
 
 function failureOf(status: string): string {
-  if (status === "invoice-open") return payTheOpenInvoiceFirst();
-  return status === "not-for-sale"
-    ? "Dit abonnement wordt niet meer aangeboden. Vernieuw de pagina voor wat er nu te koop is."
-    : "Dat lukte nu niet. Er is niets veranderd; probeer het zo nog eens.";
+  if (status === "invoice-open") return payTheOpenInvoiceFirst(language());
+  return status === "not-for-sale" ? t("plans.notForSale") : t("plans.switchFailed");
 }

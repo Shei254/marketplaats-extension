@@ -17,7 +17,7 @@ import { language } from "../i18n/words";
  * device's, not the account's (`../i18n/choice.ts` says where it is kept, and how
  * the **Page button** and the worker follow it).
  */
-export function LanguageToggle(): JSX.Element {
+export function LanguageSwitch(): JSX.Element {
   // Subscribes this button to a change of Language, wherever it was made.
   useTranslation();
   const next = otherLanguage(language());

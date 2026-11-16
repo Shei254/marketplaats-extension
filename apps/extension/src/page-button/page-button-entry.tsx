@@ -6,6 +6,12 @@ import { workerPort } from "../popup/worker-port";
 import { findSlots } from "./anchors";
 import { PageButtonsOnPage } from "./page";
 
+// The popup's Language, followed while the page is open: pressing its switch
+// re-labels every button here with no reload and no control of their own
+// (ADR-0043). Not awaited — nothing is drawn before the worker answers, and the
+// read is long done by then.
+void followLanguage(chromeLanguageSource());
+
 /**
  * The **Page button**'s content script, on Mijn Advertenties only (ADR-0040).
  *
@@ -15,12 +21,6 @@ import { PageButtonsOnPage } from "./page";
  * in from the popup opens a window and gives focus back when it closes — so the
  * buttons appear without a reload and go when the seller signs out.
  */
-// The popup's Language, followed while the page is open: pressing its switch
-// re-labels every button here with no reload and no control of their own
-// (ADR-0043). Not awaited — nothing is drawn before the worker answers, and the
-// read is long done by then.
-void followLanguage(chromeLanguageSource());
-
 const worker = workerPort();
 const page = new PageButtonsOnPage({
   doc: document,

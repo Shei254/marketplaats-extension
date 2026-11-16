@@ -10,7 +10,7 @@ function source(stored: Record<string, unknown> = {}, browserList: string[] = ["
   const area: Record<string, unknown> = { ...stored };
   const listeners: Listener[] = [];
   const shown: Language[] = [];
-  const it: LanguageSource & { area: Record<string, unknown>; fire: Listener } = {
+  const fake: LanguageSource & { area: Record<string, unknown>; fire: Listener } = {
     area,
     storage: {
       get: async (key: string) => (key in area ? { [key]: area[key] } : {}),
@@ -23,7 +23,7 @@ function source(stored: Record<string, unknown> = {}, browserList: string[] = ["
     apply: (chosen) => void shown.push(chosen),
     fire: (changes, areaName) => listeners.forEach((listener) => listener(changes, areaName)),
   };
-  return { ...it, shown };
+  return { ...fake, shown };
 }
 
 describe("the extension's Language (T97)", () => {

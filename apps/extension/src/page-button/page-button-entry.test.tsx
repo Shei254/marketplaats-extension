@@ -49,5 +49,4 @@ describe("the Page button's content script", () => {
     });
     expect(ours()).toBeGreaterThan(0);
   });
-
 });

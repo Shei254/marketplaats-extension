@@ -2149,7 +2149,22 @@ Everything the path needs in English, with the Language still pinned to Dutch in
 - **The hand-offs are wired but carry Dutch**: `?lang` on the popup's links to the site, the locale parameter
   on both sign-ins, the field on both Stripe requests.
 
-#### T97 · The switches, and the release · **M**
+#### T97 · The switches, and the release · **M** · **built 2026-11-16; the release is the operator's**
+**Both switches are in, and every surface follows them.** The extension keeps its Language in
+`chrome.storage.local` (`apps/extension/src/i18n/choice.ts`) — the popup reads it before its first render,
+the worker before it answers any request, and the **Page button** follows its `onChanged`. The site keeps its
+own in the browser's storage, `?lang` sets it and is then taken out of the address, and
+`no-identity.test.ts` names the one file that reaches that storage. `mprelist-deploy` warns when the sign-in
+page will not answer `ui_locales=en`, checked against a realm with and one without `en`. **What came out of it:**
+- **The popup header's "Abonnementen" is "Plannen"** (the operator's choice): with the switch beside the
+  theme switch, the Dutch signed-in header was about 34px wider than 360px. It fits with Segoe UI- and
+  Helvetica-width fonts; with DejaVu Sans as `system-ui` (some Linux desktops) the theme switch is still
+  clipped by a few pixels.
+- **Left for the operator, in this order:** English in the live realm's supported locales (the deploy
+  warns until it is); the English walk in `click-through.md`, with a Dutch browser; the Web Store
+  resubmission, listing unchanged.
+
+*As written before the work:*
 The first build in which a user can see any of it.
 - **The site**: a **Language switch** in the navigation bar; the choice kept in the browser; nothing chosen
   follows the browser's list; `?lang` on an incoming link sets the choice; `<html lang>` follows.

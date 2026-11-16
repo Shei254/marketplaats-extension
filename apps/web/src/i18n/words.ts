@@ -11,8 +11,9 @@ import { nl } from "./nl";
  * synchronously, so the first paint and a component test both have their
  * sentences.
  *
- * **Pinned to Dutch.** The English catalog is bundled beside it (T96), and nothing
- * chooses it yet: no **Language switch** and no browser rule is wired until T97.
+ * **It starts in Dutch and is told the Language** by `./choice`: `main.tsx` asks
+ * it on arrival, and the **Language switch** in the navigation bar on a press
+ * (T97).
  *
  * Values are not escaped: React escapes what it renders, and a tier named
  * "Pro & Co" must read that way on its own button.

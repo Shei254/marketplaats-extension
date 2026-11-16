@@ -83,13 +83,14 @@ describe("the plan strip", () => {
   });
 
   it("offers refresh, the plans and sign-out, which is the whole of what this screen does", () => {
-    // "Abonnementen" arrived with T52 (#83) and is the second departure from the canvas,
+    // The plans link arrived with T52 (#83), as "Abonnementen" until T97 made room
+    // for the Language switch, and is the second departure from the canvas,
     // for the reason the file's docstring gives: without a way in that does not
     // depend on being out of relists, a paying subscriber could never reach their
     // own billing — and ADR-0017 makes this popup the account surface.
     const markup = render(2);
     expect(markup).toContain('aria-label="Vernieuwen"');
-    expect(markup).toContain("Abonnementen");
+    expect(markup).toContain("Plannen");
     expect(markup).toContain("Uitloggen");
   });
 

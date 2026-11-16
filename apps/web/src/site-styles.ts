@@ -124,6 +124,18 @@ body {
 }
 .web-nav a:hover { color: var(--mp-fg); }
 .web-nav a[aria-current="page"] { color: var(--mp-fg); font-weight: 650; }
+/* The **Language switch** (T97): a link's size and colour, since it sits among
+   them, and a button because it goes nowhere. */
+.web-language {
+  padding: 0;
+  border: 0;
+  font: var(--mp-text-secondary) var(--mp-font-family);
+  font-weight: 650;
+  color: var(--mp-muted);
+  background: none;
+  cursor: pointer;
+}
+.web-language:hover { color: var(--mp-fg); }
 
 /* The page itself: one centred column, whatever the page is. */
 .web-page {
@@ -315,6 +327,9 @@ body {
   color: var(--mp-on-brand);
 }
 .web-header--over .web-nav a:hover { text-decoration: underline; }
+.web-header--over .web-language,
+.web-header--over .web-language:hover { color: var(--mp-on-brand); }
+.web-header--over .web-language:hover { text-decoration: underline; }
 
 .web-page--landing {
   padding: 0;

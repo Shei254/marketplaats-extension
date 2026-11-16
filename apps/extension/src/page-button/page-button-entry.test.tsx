@@ -14,6 +14,10 @@ beforeEach(() => {
   (globalThis as Record<string, unknown>)["IS_REACT_ACT_ENVIRONMENT"] = true;
   document.body.innerHTML = rowHtml("m1");
   (globalThis as Record<string, unknown>).chrome = {
+    storage: {
+      local: { get: async () => ({}), set: async () => {} },
+      onChanged: { addListener: () => {} },
+    },
     runtime: {
       sendMessage: vi.fn(async (request: { kind: string }) =>
         request.kind === "display-state"
@@ -45,4 +49,5 @@ describe("the Page button's content script", () => {
     });
     expect(ours()).toBeGreaterThan(0);
   });
+
 });

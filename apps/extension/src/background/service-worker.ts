@@ -13,6 +13,7 @@ import { ChromeRetryAlarm, retryStage } from "../adapters/chrome-retry-alarm";
 import { PendingRetries } from "../domain/pending-retries";
 import { RelistOrchestrator, type RelistOutcome } from "../domain/relist-orchestrator";
 import { HUMAN_PACE, RelistPacer, type PacingWindow } from "../domain/relist-pace";
+import { chromeLanguageSource, followLanguage } from "../i18n/choice";
 import { language } from "../i18n/words";
 import type { DevHook, DevHookName } from "./dev-hooks";
 import { finishSwitchOnStripe, openStripePage } from "./stripe-tab";
@@ -37,6 +38,14 @@ import {
  * orchestrator first would reach a `TemporalDeadZone` on the authenticator it
  * needs, on every wake, before any message was handled.
  */
+
+/**
+ * The worker's Language, which it carries to the sign-in page and to Stripe
+ * (ADR-0043). Followed from the moment it wakes, and every request waits for the
+ * first read: a worker woken by "sign in" must not hand Keycloak the browser's
+ * Language a moment before it learns the popup's.
+ */
+const languageFollowed = followLanguage(chromeLanguageSource());
 
 /**
  * Sign-in lives here rather than in the popup because `launchWebAuthFlow` opens a
@@ -184,7 +193,8 @@ chrome.runtime.onMessage.addListener(
     sender,
     sendResponse: (response: BackgroundResponse) => void,
   ) => {
-    answer(request, sender)
+    languageFollowed
+      .then(() => answer(request, sender))
       .then((value) => sendResponse({ ok: true, answer: value }))
       .catch((error) => {
         // The message, not the error: a sign-in failure's cause can carry a URL

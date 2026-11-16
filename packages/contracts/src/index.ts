@@ -87,7 +87,16 @@ export {
 
 export { isQuota } from "./quota";
 
-export { DUTCH, LANGUAGES, languageFor, type Language } from "./language";
+export {
+  asLanguage,
+  DUTCH,
+  LANGUAGE_NAMES,
+  LANGUAGES,
+  languageFor,
+  languageOnScreen,
+  otherLanguage,
+  type Language,
+} from "./language";
 
 export { keyPaths, PLAN_WORDS, planWordsNl, type CatalogOf } from "./words";
 

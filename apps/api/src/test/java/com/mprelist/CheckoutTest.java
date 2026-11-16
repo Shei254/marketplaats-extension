@@ -108,6 +108,15 @@ class CheckoutTest {
 		assertThat(unavailable.body()).isEmpty();
 	}
 
+	/** In either Language, which is read rather than refused (T96, ADR-0043). */
+	@Test
+	void inEitherLanguage() {
+		assertThat(post("{\"tierCode\":\"pro\",\"interval\":\"month\",\"language\":\"en\"}").statusCode())
+				.isEqualTo(503);
+		assertThat(post("{\"tierCode\":\"pro\",\"interval\":\"month\",\"language\":\"nl\"}").statusCode())
+				.isEqualTo(503);
+	}
+
 	@Test
 	void aBodyThatNamesNoTierIsNotARequestThisApiCanRead() {
 		assertThat(post("{}").statusCode()).isEqualTo(400);
@@ -125,6 +134,18 @@ class CheckoutTest {
 	void andNeitherIsOneThatNamesNoRhythm() {
 		assertThat(post("{\"tierCode\":\"pro\"}").statusCode()).isEqualTo(400);
 		assertThat(post("{\"tierCode\":\"pro\",\"interval\":\"  \"}").statusCode()).isEqualTo(400);
+	}
+
+	/**
+	 * The Language is optional (T96, ADR-0043), and one this product does not speak is a request it could not
+	 * read rather than a page in some other language: a `400`, with nothing to parse.
+	 */
+	@Test
+	void andNeitherIsOneInALanguageThatIsNotOneOfOurs() {
+		HttpResponse<String> refused = post("{\"tierCode\":\"pro\",\"interval\":\"month\",\"language\":\"de\"}");
+
+		assertThat(refused.statusCode()).isEqualTo(400);
+		assertThat(refused.body()).isEmpty();
 	}
 
 	/**

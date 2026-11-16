@@ -53,11 +53,12 @@ export interface ThemeType {
    * the strings this product says differently and every other string in every
    * other mail stays Keycloak's own.
    *
-   * **Only `email` has any, and that asymmetry is the decision.** `base/login`
-   * writes every control `class="${properties.kcInputClass!}"`, so the sign-in
-   * page became ours without one of Keycloak's words being touched; `base/email`
-   * has no hooks at all and the body of each mail *is* a message, so the words
-   * are the only thing there is to own.
+   * **`email` owns its words and `login` owns one**, and that asymmetry is the
+   * decision. `base/login` writes every control `class="${properties.kcInputClass!}"`,
+   * so the sign-in page became ours without one of Keycloak's words being
+   * touched — the only word of ours there is the shell's own footer
+   * (`SHELL_WORDS`, in `./shell-words`); `base/email` has no hooks at all and the body of each
+   * mail *is* a message, so the words are the only thing there is to own.
    */
   messages(brand: BrandProperties): Record<string, Record<string, string>>;
   /** Text files written under `resources/`, by the path they are served at. */

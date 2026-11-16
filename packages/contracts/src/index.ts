@@ -53,6 +53,7 @@ export {
   type Plan,
   type PlanPrice,
   type Plans,
+  type PortalRequest,
   type PortalSession,
   type RelistAuthorization,
   type RelistOutcomeCode,
@@ -88,7 +89,7 @@ export { isQuota } from "./quota";
 
 export { DUTCH, LANGUAGES, languageFor, type Language } from "./language";
 
-export { PLAN_WORDS, planWordsNl } from "./words";
+export { keyPaths, PLAN_WORDS, planWordsNl, type CatalogOf } from "./words";
 
 export {
   dayOf,

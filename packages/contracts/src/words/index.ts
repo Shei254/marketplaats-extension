@@ -1,6 +1,7 @@
 import { createInstance, type i18n } from "i18next";
 
 import { DUTCH, type Language } from "../language";
+import { en } from "./en";
 import { nl } from "./nl";
 
 /** The namespace the plan sentences live in, on this instance and in an app's key types. */
@@ -29,16 +30,18 @@ function instance(): i18n {
     fallbackLng: DUTCH,
     ns: [PLAN_WORDS],
     defaultNS: PLAN_WORDS,
-    resources: { nl: { [PLAN_WORDS]: nl } },
+    resources: { nl: { [PLAN_WORDS]: nl }, en: { [PLAN_WORDS]: en } },
     interpolation: { escapeValue: false },
     initAsync: false,
   });
   return words;
 }
 
-/** The plan sentences in one Language. A Language with no catalog yet reads Dutch. */
+/** The plan sentences in one Language. */
 export function planWords(language: Language) {
   return instance().getFixedT(language, PLAN_WORDS);
 }
 
 export { nl as planWordsNl };
+
+export { keyPaths, type CatalogOf } from "./catalog";

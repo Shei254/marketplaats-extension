@@ -13,6 +13,7 @@ import { ChromeRetryAlarm, retryStage } from "../adapters/chrome-retry-alarm";
 import { PendingRetries } from "../domain/pending-retries";
 import { RelistOrchestrator, type RelistOutcome } from "../domain/relist-orchestrator";
 import { HUMAN_PACE, RelistPacer, type PacingWindow } from "../domain/relist-pace";
+import { language } from "../i18n/words";
 import type { DevHook, DevHookName } from "./dev-hooks";
 import { finishSwitchOnStripe, openStripePage } from "./stripe-tab";
 import { loadEndpointConfig, saveEndpointOverrides } from "../shared/endpoint-config";
@@ -46,6 +47,7 @@ import {
 const authenticator = new Authenticator({
   flow: new ChromeAuthFlow(),
   store: new ChromeSessionStore(),
+  language,
 });
 
 /**
@@ -63,7 +65,7 @@ const api = new MprelistApi({ tokens: authenticator });
  * that starts a Checkout is destroyed by the tab that Checkout opens, so the call
  * cannot be held there.
  */
-const subscribing = new Subscribing({ tokens: authenticator });
+const subscribing = new Subscribing({ tokens: authenticator, language });
 
 /**
  * What the extension should do differently from what it was built to do (T27,

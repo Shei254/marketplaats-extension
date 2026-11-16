@@ -1,5 +1,7 @@
 package com.mprelist.billing.internal;
 
+import java.util.Optional;
+
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -58,7 +60,14 @@ class StartCheckout {
 			// charge somebody a rhythm they did not pick.
 			return ResponseEntity.badRequest().build();
 		}
-		return switch (this.checkout.open(buyer, request.tierCode().strip(), request.interval().strip())) {
+		Optional<Language> language = Language.named(request.language());
+		if (request.language() != null && language.isEmpty()) {
+			// A Language this product does not speak (T96, ADR-0043) — unreadable, like a missing code, rather
+			// than a page in whatever Stripe would make of it.
+			return ResponseEntity.badRequest().build();
+		}
+		return switch (this.checkout.open(buyer, request.tierCode().strip(), request.interval().strip(),
+				language)) {
 			case Checkout.Opened opened -> ResponseEntity.ok(new CheckoutSession(opened.url()));
 			case Checkout.NotForSale ignored -> ResponseEntity.notFound().build();
 			case Checkout.Unavailable ignored -> ResponseEntity.status(503).build();
@@ -82,8 +91,11 @@ class StartCheckout {
 	 * <p>{@code interval} arrived with T62 (#128), when a tier stopped being sold at one price. It is Stripe's
 	 * vocabulary — {@code month}, {@code year} — and it is the catalog's copy of it that a client is given on
 	 * a plan card and sends back here, so the two are always the same string.
+	 *
+	 * <p>{@code language} arrived with T96 (ADR-0043): {@code nl} or {@code en}, the page's Language. Optional, and
+	 * absent means what it meant before — no locale, so Stripe follows the browser.
 	 */
-	record CheckoutRequest(String tierCode, String interval) {
+	record CheckoutRequest(String tierCode, String interval, String language) {
 	}
 
 	/**

@@ -21,10 +21,11 @@ theme/mprelist/login/
   template.ftl                     the one template this type replaces
   resources/css/login.css          the token sheet + the component sheet + this page's rules
   resources/img/*.png              the mark at the sizes template.ftl asks for
+  messages/messages_{nl,en}.properties  the shell's one word of ours, the footer's "Terms"
 theme/mprelist/email/
   theme.properties                 parent=base, the brand's four values, and this surface's inline styles
   html/template.ftl                the shell every mail is framed in
-  messages/messages_nl.properties  the words
+  messages/messages_{nl,en}.properties  the words, in both of the realm's locales
 ```
 
 The mail has **no `resources/` and no icons**, and that is not an omission: a theme's resources are served
@@ -98,7 +99,7 @@ So `src/email` is three decisions the login type never had to make ([ADR-0035](.
 
 | | |
 |---|---|
-| **The copy is ours** | `copy.ts` generates `messages_nl.properties` from `brand.json`, for the two mails a customer can receive. It is what keeps `realmName` — an administrator's label, reading `mprelist (production)` — out of a sentence a customer reads, and it is why the mail says *je* where Keycloak's Dutch says *u* |
+| **The copy is ours** | `copy.ts` generates `messages_nl.properties` and `messages_en.properties` from `brand.json`, for the two mails a customer can receive — which of the two a customer gets is the language their account registered in (ADR-0043). It is what keeps `realmName` — an administrator's label, reading `mprelist (production)` — out of a sentence a customer reads, and it is why the mail says *je* where Keycloak's Dutch says *u* |
 | **The sheet is values, not rules** | `themeCss` is `:root { --mp-…: … }` and every component rule reads `var(--mp-…)`. Gmail keeps no `:root` rule and resolves no custom property, so `styles.ts` rewrites the rules as inline declarations and reads every *value* from `@mprelist/ui`. A change to a token reaches the mail; a change to `componentCss` does not |
 | **No mark, and light only** | The wordmark and nothing else — an `<img>` would need an absolute URL, and `brand.domain` carried a VPS IP address while a sent mail is permanent. T56 retired that objection on 2026-09-23 ([ADR-0035](../../docs/adr/0035-the-mail-is-ours-and-so-are-the-words.md), amended); the mark is deferred by scope now rather than by permanence. One palette, because a mail carries no theme switch and `BRAND_MARK` is the same in both halves anyway |
 
@@ -117,7 +118,8 @@ writes `account''s`. And the placeholder indexes are positional and fixed by the
 | `src/login/css.ts` | This page's own rules. Every colour is a `var(--mp-…)`, and the suite asserts it |
 | `src/login/template.ftl` | The shell. Holds no copy of the brand: it reads `${properties.brandName!}` |
 | `src/email/index.ts` | The email type: `parent=base`, the brand, the inline styles, and the one message bundle |
-| `src/email/copy.ts` | Every word this product sends by mail, and the two `MessageFormat` traps under them |
+| `src/email/copy.ts` | Every word this product sends by mail, in Dutch and English, and the two `MessageFormat` traps under them |
+| `src/shell-words.ts` | The one word both shells say themselves — the footer's link to the terms — in each Language, so neither shell holds a word in one language |
 | `src/email/styles.ts` | The same rules as the sign-in card, as inline declarations. Every value is `@mprelist/ui`'s, and the suite asserts it |
 | `src/email/html/template.ftl` | The shell. Holds no colour, no size and no name: it reads them all as theme properties |
 | `scripts/build.mjs` | Emits the theme. Bundles `src/theme.ts` with esbuild, because the design system is TypeScript source and Node cannot import it |

@@ -45,6 +45,7 @@ function authenticator(session: AuthSession | null, routes: FakeHttpRoutes = {})
     http: http.fetch,
     config: { ...DEFAULT_AUTH_CONFIG, issuer: ISSUER },
     now: () => NOW,
+    language: () => "nl",
   });
   return { auth, http, store };
 }

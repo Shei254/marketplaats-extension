@@ -1,3 +1,5 @@
+import type { Language } from "@mprelist/contracts";
+
 import { ADMIN_ROLE, type AdminConfig } from "./admin-config";
 import { fetchOidcEndpoints, type Http } from "./discovery";
 import { challengeFor, createState, createVerifier } from "./pkce";
@@ -76,6 +78,12 @@ const IN_FLIGHT = "mprelist.admin.sign-in";
 export interface SignInOptions {
   key?: string;
   prompt?: "none";
+  /**
+   * The Language the sign-in page inherits, as Keycloak's `ui_locales` (T96,
+   * ADR-0043). The visitor's sign-in carries one; `/admin` has no Language and
+   * sends none, so the page follows the operator's browser.
+   */
+  language?: Language;
 }
 
 interface InFlight {
@@ -119,6 +127,7 @@ export async function beginSignIn(
   // challenge is the verifier itself travelling in the URL, which is no protection.
   authorize.searchParams.set("code_challenge_method", "S256");
   if (options.prompt) authorize.searchParams.set("prompt", options.prompt);
+  if (options.language) authorize.searchParams.set("ui_locales", options.language);
   navigate(authorize.toString());
 }
 

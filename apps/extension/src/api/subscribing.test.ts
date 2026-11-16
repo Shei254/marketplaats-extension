@@ -1,4 +1,4 @@
-import type { Plan } from "@mprelist/contracts";
+import type { Language, Plan } from "@mprelist/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { AccessToken } from "../auth/session";
@@ -18,10 +18,13 @@ interface Call {
   body: string | undefined;
 }
 
-function api(options: { token?: AccessToken; answer?: () => Response | Promise<Response> } = {}) {
+function api(
+  options: { token?: AccessToken; answer?: () => Response | Promise<Response>; language?: Language } = {},
+) {
   const calls: Call[] = [];
   const client = new Subscribing({
     tokens: { accessToken: async () => options.token ?? { status: "ready", token: "an-access-token" } },
+    language: () => options.language ?? "nl",
     http: async (url, init) => {
       calls.push({
         url,
@@ -216,8 +219,19 @@ describe("buying a plan", () => {
     });
     expect(calls[0]?.url).toBe("http://localhost:8080/api/checkout");
     expect(calls[0]?.method).toBe("POST");
-    expect(calls[0]?.body).toBe('{"tierCode":"pro","interval":"month"}');
+    expect(calls[0]?.body).toBe('{"tierCode":"pro","interval":"month","language":"nl"}');
     expect(calls[0]?.headers["content-type"]).toBe("application/json");
+  });
+
+  it("and carries the Language the page should be in (T96, ADR-0043)", async () => {
+    const { client, calls } = api({
+      answer: () => json({ url: "https://checkout.stripe.com/c/pay/1" }),
+      language: "en",
+    });
+
+    await client.checkout("pro", "month");
+
+    expect(JSON.parse(calls[0]?.body ?? "{}")).toMatchObject({ language: "en" });
   });
 
   it("reads a plan that is no longer on sale as gone, not as unavailable", async () => {
@@ -259,11 +273,14 @@ describe("buying a plan", () => {
 });
 
 describe("managing what has already been bought", () => {
-  it("posts nothing at all, because there is nothing to say", async () => {
+  it("posts the Language and nothing else, because there is nothing else to say", async () => {
     // Who is asking comes from the token, and what the Portal offers is configured
-    // in Stripe's dashboard. A `content-type: application/json` with no body after
-    // it is a request the backend is entitled to refuse.
-    const { client, calls } = api({ answer: () => json({ url: "https://billing.stripe.com/p/session/1" }) });
+    // in Stripe's dashboard. The one thing a client has to say is the Language the
+    // Portal is shown in (T96, ADR-0043).
+    const { client, calls } = api({
+      answer: () => json({ url: "https://billing.stripe.com/p/session/1" }),
+      language: "en",
+    });
 
     await expect(client.portal()).resolves.toEqual({
       status: "opened",
@@ -271,8 +288,8 @@ describe("managing what has already been bought", () => {
     });
     expect(calls[0]?.url).toBe("http://localhost:8080/api/portal");
     expect(calls[0]?.method).toBe("POST");
-    expect(calls[0]?.body).toBeUndefined();
-    expect(calls[0]?.headers["content-type"]).toBeUndefined();
+    expect(calls[0]?.body).toBe('{"language":"en"}');
+    expect(calls[0]?.headers["content-type"]).toBe("application/json");
   });
 
   it("reads an account Stripe has never billed as gone", async () => {

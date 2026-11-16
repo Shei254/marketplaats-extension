@@ -47,6 +47,8 @@ describe("starting a sign-in", () => {
     expect(params.get("response_type")).toBe("code");
     expect(params.get("client_id")).toBe("mprelist-dashboard");
     expect(params.get("scope")).toBe("openid");
+    // `/admin` has no Language (ADR-0043), so the sign-in page follows the browser.
+    expect(params.get("ui_locales")).toBeNull();
   });
 
   it("names the one redirect URI the realm registered", async () => {

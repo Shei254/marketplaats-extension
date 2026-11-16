@@ -77,8 +77,10 @@ class OpenCheckout {
 	 * vocabulary (T62, #128). **A tier code alone no longer names a price**: monthly and annual Pro are one
 	 * plan, so the request has to say which one, and a default here would charge somebody yearly because a
 	 * client forgot to send a field
+	 * @param language the reader's Language, which becomes the page's {@code locale} (T96, ADR-0043); empty sends
+	 * none, and Stripe follows the browser
 	 */
-	Checkout open(UserRef buyer, String tierCode, String interval) {
+	Checkout open(UserRef buyer, String tierCode, String interval, Optional<Language> language) {
 		// Before what is on sale: a payer is going to the Portal whatever they asked for, and "that plan is gone"
 		// would send them looking for another to buy.
 		if (this.subscriptions.isPaying(buyer)) {
@@ -106,7 +108,7 @@ class OpenCheckout {
 			return new Checkout.Unavailable();
 		}
 		try {
-			Session session = client.get().checkout().sessions().create(sessionFor(buyer, price.get()));
+			Session session = client.get().checkout().sessions().create(sessionFor(buyer, price.get(), language));
 			// What Stripe actually resolved for this session, which is the only place the answer exists.
 			// `CachedPaymentMethods` predicts it from the account's configuration and cannot see the two
 			// things that narrow it here — the session's currency, and whether a method is approved for
@@ -130,7 +132,7 @@ class OpenCheckout {
 	}
 
 	/**
-	 * The session, and the five things it has to say.
+	 * The session, and the five things it has to say — six, when the reader's Language came with the request.
 	 *
 	 * <p>{@code success_url} and {@code cancel_url} point at {@code apps/web}'s public pages (T50, #81), which
 	 * carry no authentication at all — the browser Stripe redirects is not one this application knows
@@ -138,7 +140,7 @@ class OpenCheckout {
 	 * those are is {@link WebPages}', so that this module's copy of {@code apps/web/src/routes.ts} is one
 	 * copy rather than one per call site.
 	 */
-	private SessionCreateParams sessionFor(UserRef buyer, TierPrice price) {
+	private SessionCreateParams sessionFor(UserRef buyer, TierPrice price, Optional<Language> language) {
 		SessionCreateParams.Builder session = SessionCreateParams.builder()
 				.setMode(SessionCreateParams.Mode.SUBSCRIPTION)
 				.addLineItem(SessionCreateParams.LineItem.builder()
@@ -169,6 +171,9 @@ class OpenCheckout {
 						.putMetadata(ACCOUNT_TAG, buyer.id().toString())
 						.build());
 		this.subscriptions.stripeCustomerFor(buyer).ifPresent(session::setCustomer);
+		// The page, and nothing after it: Stripe records the paying browser's own language ahead of this one on
+		// the customer it creates, and its receipts follow that (ADR-0043, T94).
+		language.map(Language::checkoutLocale).ifPresent(session::setLocale);
 		return session.build();
 	}
 

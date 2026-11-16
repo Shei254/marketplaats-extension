@@ -1,4 +1,4 @@
-import { isQuota, type Plan } from "@mprelist/contracts";
+import { isQuota, type CheckoutRequest, type Language, type Plan, type PortalRequest } from "@mprelist/contracts";
 
 import type { Http } from "../auth/discovery";
 import { DEFAULT_API_CONFIG, type ApiConfig } from "./api-config";
@@ -77,6 +77,12 @@ export type SwitchAnswer =
 
 export interface SubscribingDeps {
   tokens: AccessTokens;
+  /**
+   * The Language on screen, carried to both Stripe pages (T96, ADR-0043) — asked
+   * at each call rather than once, because the reader can change it while the
+   * worker lives. Required, so a wiring that forgot it does not compile.
+   */
+  language: () => Language;
   config?: ApiConfig;
   http?: Http;
 }
@@ -143,18 +149,20 @@ export class Subscribing {
    * nothing here or above it redraws a plan on the strength of this answer.
    */
   async checkout(tierCode: string, interval: string): Promise<HandoffAnswer> {
-    return this.handoff("/api/checkout", JSON.stringify({ tierCode, interval }));
+    const request: CheckoutRequest = { tierCode, interval, language: this.deps.language() };
+    return this.handoff("/api/checkout", JSON.stringify(request));
   }
 
   /**
    * Turn a session into a Stripe Customer Portal URL — the card, the invoices and
    * cancelling, all of them Stripe's own pages (ADR-0006).
    *
-   * **No body**, because there is nothing to say: who is asking comes from the
-   * token, and what the Portal offers is configured in Stripe's dashboard.
+   * **The Language and nothing else** (T96, ADR-0043): who is asking comes from
+   * the token, and what the Portal offers is configured in Stripe's dashboard.
    */
   async portal(): Promise<HandoffAnswer> {
-    return this.handoff("/api/portal", undefined);
+    const request: PortalRequest = { language: this.deps.language() };
+    return this.handoff("/api/portal", JSON.stringify(request));
   }
 
   async previewSwitch(tierCode: string, interval: string): Promise<SwitchAnswer> {
@@ -234,7 +242,7 @@ export class Subscribing {
    * body — a difference that would send `Content-Type: application/json` with
    * nothing after it, which is a request the backend is entitled to refuse.
    */
-  private async handoff(path: string, body: string | undefined): Promise<HandoffAnswer> {
+  private async handoff(path: string, body: string): Promise<HandoffAnswer> {
     const token = await this.deps.tokens.accessToken();
     if (token.status !== "ready") return { status: token.status };
 
@@ -245,10 +253,10 @@ export class Subscribing {
         headers: {
           authorization: `Bearer ${token.token}`,
           accept: "application/json",
-          ...(body === undefined ? {} : { "content-type": "application/json" }),
+          "content-type": "application/json",
           ...clientHeaders(),
         },
-        ...(body === undefined ? {} : { body }),
+        body,
       });
     } catch {
       return UNAVAILABLE;

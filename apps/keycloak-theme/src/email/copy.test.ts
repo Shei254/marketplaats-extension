@@ -1,10 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import brand from "../../../../brand.json";
-import { ARGUMENTS, dutchMessages } from "./copy";
+import { ARGUMENTS, dutchMessages, englishMessages } from "./copy";
 
-const messages = dutchMessages(brand.name);
-const entries = Object.entries(messages);
+/**
+ * Both bundles (T96, ADR-0043). Every trap below is a property of the format, not
+ * of the language, so each is held in both — an English apostrophe is far likelier
+ * than a Dutch one, and it swallows the link just the same.
+ */
+const BUNDLES = [
+  ["Dutch", dutchMessages(brand.name)],
+  ["English", englishMessages(brand.name)],
+] as const;
 
 /**
  * The keys `FreeMarkerEmailTemplateProvider` actually looks up, taken out of
@@ -45,7 +52,21 @@ const PROVIDER_KEYS = [
 const ELEMENTS = ["p", "a"];
 const ATTRIBUTES = ["style", "href"];
 
-describe("the mail's copy", () => {
+describe("the mail's English", () => {
+  it("overrides exactly the keys the Dutch does, so neither mail falls back to Keycloak's words", () => {
+    expect(Object.keys(englishMessages(brand.name))).toEqual(Object.keys(dutchMessages(brand.name)));
+  });
+
+  it("is English, with the link where the Dutch has it", () => {
+    const english = englishMessages(brand.name);
+    expect(english["passwordResetSubject"]).toBe(`Reset your password · ${brand.name}`);
+    expect(english["passwordResetBodyHtml"]).toContain("{0}");
+  });
+});
+
+describe.each(BUNDLES)("the mail's copy in %s", (_language, messages) => {
+  const entries = Object.entries(messages);
+
   it("names only keys Keycloak asks for", () => {
     for (const key of Object.keys(messages)) {
       const subject = key.replace(/(Body|BodyHtml)$/, "Subject");
@@ -136,6 +157,11 @@ describe("the mail's copy", () => {
     expect(Object.values(messages).join("\n")).toContain(brand.name);
     expect(Object.values(messages).join("\n")).not.toContain("mprelist");
   });
+
+});
+
+describe("the mail's Dutch", () => {
+  const entries = Object.entries(dutchMessages(brand.name));
 
   it("speaks the product's Dutch rather than Keycloak's", () => {
     // ADR-0035: the popup, `apps/web` and `brand.tagline` all say *je*; the

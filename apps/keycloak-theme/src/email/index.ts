@@ -1,5 +1,6 @@
+import { SHELL_WORDS } from "../shell-words";
 import type { ThemeType } from "../theme";
-import { dutchMessages } from "./copy";
+import { dutchMessages, englishMessages } from "./copy";
 import { STYLES } from "./styles";
 
 /**
@@ -37,14 +38,20 @@ export const email: ThemeType = {
     ...STYLES,
   }),
   /**
-   * One bundle, in the one locale both realms support.
+   * A bundle per locale both realms support, Dutch and English (T96, ADR-0043),
+   * each with the shell's footer word beside the mails.
    *
    * Keycloak merges a theme's messages over its parent's, so every key not named
    * here — every other mail, and every string inside the ones that are — is
-   * still Keycloak's own Dutch. What this overrides is the two mails a customer
-   * can be sent, in both their HTML and plain-text forms.
+   * still Keycloak's own. What this overrides is the two mails a customer can be
+   * sent, in both their HTML and plain-text forms. **Which bundle a mail is read
+   * from is the account's**: Keycloak stores the registration page's language on
+   * the user and reads it for every mail (T94).
    */
-  messages: (brand) => ({ nl: dutchMessages(brand.brandName) }),
+  messages: (brand) => ({
+    nl: { ...dutchMessages(brand.brandName), ...SHELL_WORDS.nl },
+    en: { ...englishMessages(brand.brandName), ...SHELL_WORDS.en },
+  }),
   resources: {},
   icons: {},
 };

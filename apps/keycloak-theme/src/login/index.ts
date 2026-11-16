@@ -1,5 +1,6 @@
 import { componentCss, themeCss } from "@mprelist/ui";
 
+import { SHELL_WORDS } from "../shell-words";
 import type { ThemeType } from "../theme";
 import { loginCss } from "./css";
 
@@ -132,13 +133,15 @@ export const login: ThemeType = {
     ...HOOKS,
   }),
   /**
-   * None. Every string on these pages is Keycloak's own, in Keycloak's own
-   * Dutch, and that is the point of the hook map above: the page was made ours
-   * without a word of it being taken over. The mail could not be
-   * (`src/email/copy.ts`, ADR-0035), and closing the register seam between the
-   * two — this page says *u*, the mail says *je* — is where a bundle would go.
+   * The shell's own footer word and nothing else, in each of the realm's two
+   * locales (T96, ADR-0043). Every other string on these pages is Keycloak's own,
+   * in Keycloak's own Dutch or English, and that is the point of the hook map
+   * above: the page was made ours without a word of it being taken over. The
+   * mail could not be (`src/email/copy.ts`, ADR-0035), and closing the register
+   * seam between the two — this page says *u*, the mail says *je* — is where the
+   * rest of a bundle would go.
    */
-  messages: () => ({}),
+  messages: () => SHELL_WORDS,
   resources: { "css/login.css": loginStylesheet() },
   icons: ICONS,
 };

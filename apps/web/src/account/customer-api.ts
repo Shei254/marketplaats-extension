@@ -1,4 +1,10 @@
-import { isInDunning, type PendingSwitch } from "@mprelist/contracts";
+import {
+  isInDunning,
+  type CheckoutRequest,
+  type Language,
+  type PendingSwitch,
+  type PortalRequest,
+} from "@mprelist/contracts";
 
 import type { Choice, SwitchAnswer, SwitchPreviewAnswer } from "../public/viewer";
 
@@ -61,14 +67,16 @@ export class CustomerApi {
     };
   }
 
-  /** Checkout for a first subscription. */
-  checkout(choice: Choice): Promise<Opened> {
-    return this.opening("/api/checkout", choice);
+  /** Checkout for a first subscription, in the Language on screen (T96, ADR-0043). */
+  checkout(choice: Choice, language: Language): Promise<Opened> {
+    const request: CheckoutRequest = { ...choice, language };
+    return this.opening("/api/checkout", request);
   }
 
-  /** The Customer Portal. */
-  portal(): Promise<Opened> {
-    return this.opening("/api/portal");
+  /** The Customer Portal, in the Language on screen. */
+  portal(language: Language): Promise<Opened> {
+    const request: PortalRequest = { language };
+    return this.opening("/api/portal", request);
   }
 
   async previewSwitch(choice: Choice): Promise<SwitchPreviewAnswer | { status: "expired" }> {
@@ -116,7 +124,7 @@ export class CustomerApi {
     return (await refusal(response)) ?? { status: "undone" };
   }
 
-  private async opening(path: string, body?: Choice): Promise<Opened> {
+  private async opening(path: string, body: CheckoutRequest | PortalRequest): Promise<Opened> {
     const response = await this.call("POST", path, body);
     if (!response) return { status: "refused" };
     if (response.status === 401) return { status: "expired" };

@@ -138,15 +138,25 @@ describe("Checkout and the Portal", () => {
   it("are a URL to send the browser to", async () => {
     const { client } = api(() => json({ url: "https://checkout.stripe.com/c/pay/x" }));
 
-    expect(await client.checkout({ tierCode: "pro", interval: "year" })).toEqual({
+    expect(await client.checkout({ tierCode: "pro", interval: "year" }, "nl")).toEqual({
       status: "opened",
       url: "https://checkout.stripe.com/c/pay/x",
     });
   });
 
   it("or a refusal, which is the page's to say", async () => {
-    expect(await api(() => json({ reason: "ALREADY_PAYING" }, 409)).client.checkout({ tierCode: "pro", interval: "month" }))
+    expect(await api(() => json({ reason: "ALREADY_PAYING" }, 409)).client.checkout({ tierCode: "pro", interval: "month" }, "nl"))
       .toEqual({ status: "refused" });
-    expect(await api(() => empty(404)).client.portal()).toEqual({ status: "refused" });
+    expect(await api(() => empty(404)).client.portal("nl")).toEqual({ status: "refused" });
+  });
+
+  it("carry the Language Stripe's page is to be in, and nothing else new (T96, ADR-0043)", async () => {
+    const { client, sent } = api(() => json({ url: "https://checkout.stripe.com/c/pay/x" }));
+
+    await client.checkout({ tierCode: "pro", interval: "year" }, "en");
+    await client.portal("en");
+
+    expect(JSON.parse(String(sent[0]?.init?.body))).toEqual({ tierCode: "pro", interval: "year", language: "en" });
+    expect(JSON.parse(String(sent[1]?.init?.body))).toEqual({ language: "en" });
   });
 });

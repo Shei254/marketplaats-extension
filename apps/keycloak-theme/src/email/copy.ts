@@ -72,13 +72,18 @@ const p = (style: string, content: string): string =>
 const button = (label: string): string =>
   p(buttonRowStyle, `<a href="{0}" style="${attribute(buttonStyle)}">${label}</a>`);
 
-/** "the button did not work" — the link again, as something to copy. */
-const fallback = (): string =>
-  p(paragraphStyle, "Werkt de knop niet? Kopieer deze link naar je browser:")
-  + p(urlStyle, "{0}");
+/** The sentence before the link written out, in each Language. */
+const COPY_THE_LINK = {
+  nl: "Werkt de knop niet? Kopieer deze link naar je browser:",
+  en: "If the button does not work, copy this link into your browser:",
+};
+
+/** "the button did not work" — the link again, as something to copy, after the sentence that says so. */
+const fallback = (sentence: string): string => p(paragraphStyle, sentence) + p(urlStyle, "{0}");
 
 /**
- * The bundle, in Dutch.
+ * The bundle, in Dutch — the source, which {@link englishMessages} follows key
+ * for key.
  *
  * Only the keys a *customer* can be sent. `emailTest*` stays Keycloak's — it goes
  * to whoever pressed **Test** on the SMTP settings in the admin console, and
@@ -103,7 +108,7 @@ export function dutchMessages(brandName: string): Record<string, string> {
       )
       + button("Nieuw wachtwoord kiezen")
       + p(paragraphStyle, "Deze link verloopt over {3}.")
-      + fallback()
+      + fallback(COPY_THE_LINK.nl)
       + p(
         asideStyle,
         "Heb je dit niet aangevraagd? Dan hoef je niets te doen. "
@@ -134,7 +139,7 @@ export function dutchMessages(brandName: string): Record<string, string> {
       )
       + button("Account bijwerken")
       + p(paragraphStyle, "Deze link verloopt over {4}.")
-      + fallback()
+      + fallback(COPY_THE_LINK.nl)
       + p(
         asideStyle,
         "Wist je hier niets van? Dan hoef je niets te doen. "
@@ -152,6 +157,84 @@ export function dutchMessages(brandName: string): Record<string, string> {
       + "\n"
       + "Wist je hier niets van? Dan hoef je niets te doen. "
       + "Er verandert dan niets aan je account.\n"
+      + "\n"
+      + `— ${brandName}\n`,
+  };
+}
+
+/**
+ * The bundle, in English (T96, ADR-0043) — the same keys as the Dutch, the same
+ * placeholders in the same places, and the same register: plain, and addressed
+ * to the reader.
+ *
+ * **Which of the two a customer receives is their account's, not the page's.**
+ * Keycloak stores the language of the page an account registered from and reads
+ * it for every mail (T94), so a reader who registered in Dutch keeps Dutch mail
+ * from an English sign-in page. Only an account holding nothing follows the page.
+ *
+ * Written without one apostrophe — *did not*, never *didn't* — because English
+ * reaches for them far more often than Dutch does, and each one is the
+ * `MessageFormat` trap above.
+ */
+export function englishMessages(brandName: string): Record<string, string> {
+  return {
+    // — Password reset.
+    passwordResetSubject: `Reset your password · ${brandName}`,
+    passwordResetBodyHtml:
+      p(
+        paragraphStyle,
+        `Someone asked to reset the password of your ${brandName} account. `
+          + "If that was you, choose a new password below.",
+      )
+      + button("Choose a new password")
+      + p(paragraphStyle, "This link expires in {3}.")
+      + fallback(COPY_THE_LINK.en)
+      + p(
+        asideStyle,
+        "If you did not ask for this, you do not need to do anything. "
+          + "Your password stays as it is.",
+      )
+      + p(signatureStyle, `— ${brandName}`),
+    passwordResetBody:
+      `Someone asked to reset the password of your ${brandName} account.\n`
+      + "If that was you, choose a new password through this link:\n"
+      + "\n"
+      + "{0}\n"
+      + "\n"
+      + "This link expires in {3}.\n"
+      + "\n"
+      + "If you did not ask for this, you do not need to do anything. "
+      + "Your password stays as it is.\n"
+      + "\n"
+      + `— ${brandName}\n`,
+
+    // — Execute actions. `{3}` is Keycloak's own list of what has to happen.
+    executeActionsSubject: `Update your account · ${brandName}`,
+    executeActionsBodyHtml:
+      p(
+        paragraphStyle,
+        `Someone asked for your ${brandName} account to be updated. It concerns: {3}.`,
+      )
+      + button("Update account")
+      + p(paragraphStyle, "This link expires in {4}.")
+      + fallback(COPY_THE_LINK.en)
+      + p(
+        asideStyle,
+        "If you did not know about this, you do not need to do anything. "
+          + "Nothing changes on your account.",
+      )
+      + p(signatureStyle, `— ${brandName}`),
+    executeActionsBody:
+      `Someone asked for your ${brandName} account to be updated. It concerns: {3}.\n`
+      + "\n"
+      + "You can do that through this link:\n"
+      + "\n"
+      + "{0}\n"
+      + "\n"
+      + "This link expires in {4}.\n"
+      + "\n"
+      + "If you did not know about this, you do not need to do anything. "
+      + "Nothing changes on your account.\n"
       + "\n"
       + `— ${brandName}\n`,
   };

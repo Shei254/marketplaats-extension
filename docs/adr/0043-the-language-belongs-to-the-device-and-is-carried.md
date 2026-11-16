@@ -134,7 +134,8 @@ what the Decision above now says.
   an account that holds nothing.
 - **The link in the mail carries no language.** Opened in a browser other than the one that asked, the
   new-password page follows that browser.
-- **The English mail is Keycloak's own** ("Reset password") until T96 writes ours.
+- **The English mail is Keycloak's own** ("Reset password") until T96 writes ours. *(T96 has: "Reset your
+  password", `apps/keycloak-theme/src/email/copy.ts`.)*
 
 **Stripe**
 

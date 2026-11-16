@@ -37,8 +37,10 @@ site's landing page ([ADR-0011](../../docs/adr/0011-repository-layout.md), amend
 **And the shared half of the Language** ([ADR-0043](../../docs/adr/0043-the-language-belongs-to-the-device-and-is-carried.md),
 T95): `language.ts` is the `Language` type and the browser-list rule, and `words/` is the catalog `wording.ts`
 reads, through an i18next instance of its own. Every sentence takes the Language as an argument, and the
-keys are typed from the Dutch catalog. The instance is made on first use and the package declares no side
-effects, so a bundle that says no plan sentence — the relay content script — carries none of it.
+keys are typed from the Dutch catalog. The English beside it (T96) `satisfies CatalogOf<typeof nl>`, and
+`keyPaths` is the runtime half of that hold — the one each app's catalog test uses too. The instance is made
+on first use and the package declares no side effects, so a bundle that says no plan sentence — the relay
+content script — carries none of it.
 
 **Every quota on the read side is `number | null`** since T73
 ([ADR-0029](../../docs/adr/0029-unlimited-is-null-and-zero-still-grants-nothing.md)): `null` is an unlimited

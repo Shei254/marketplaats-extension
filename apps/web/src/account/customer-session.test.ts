@@ -62,6 +62,16 @@ describe("a visitor arriving on /", () => {
     expect(authorize.searchParams.get("client_id")).toBe("mprelist-dashboard");
   });
 
+  it("carries the Language to the sign-in page, silent or not (T96, ADR-0043)", async () => {
+    const silent = world({ [SIGNED_IN]: "1" });
+    await start(silent.deps, "");
+    expect(new URL(silent.sentTo[0] ?? "").searchParams.get("ui_locales")).toBe("nl");
+
+    const pressed = world();
+    await signIn(pressed.deps);
+    expect(new URL(pressed.sentTo[0] ?? "").searchParams.get("ui_locales")).toBe("nl");
+  });
+
   it("keeps no token anywhere, only the flag", async () => {
     const { deps, sentTo } = world();
     await signIn(deps);

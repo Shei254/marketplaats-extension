@@ -10,7 +10,7 @@
   "loginTheme": "mprelist",
   "emailTheme": "mprelist",
   "internationalizationEnabled": true,
-  "supportedLocales": ["nl"],
+  "supportedLocales": ["nl", "en"],
   "defaultLocale": "nl",
   "smtpServer": {
     "host": "${MPRELIST_SMTP_HOST:sandbox.smtp.mailtrap.io}",

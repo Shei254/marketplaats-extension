@@ -1,3 +1,5 @@
+import type { Language } from "@mprelist/contracts";
+
 import { DEFAULT_AUTH_CONFIG, type AuthConfig } from "./auth-config";
 import type { BrowserAuthFlow } from "./browser-flow";
 import { fetchOidcEndpoints, type Http, type OidcEndpoints } from "./discovery";
@@ -32,6 +34,12 @@ export interface AuthenticatorDeps {
   config?: AuthConfig;
   http?: Http;
   now?: () => number;
+  /**
+   * The Language on screen, which the sign-in page inherits as `ui_locales`
+   * (T96, ADR-0043) and offers no choice of its own. Required, so a wiring that
+   * forgot it does not compile.
+   */
+  language: () => Language;
 }
 
 export class Authenticator {
@@ -91,6 +99,9 @@ export class Authenticator {
       // given, and it is a hash — which is the whole of PKCE.
       code_challenge: await challengeFor(verifier),
       code_challenge_method: "S256",
+      // Keycloak's parameter for the page's language, which it carries through
+      // the reset page and into the mail of an account that holds none (T94).
+      ui_locales: this.deps.language(),
     }).toString();
 
     const launched = await this.deps.flow.launch(authorizeUrl.toString(), { interactive: true });

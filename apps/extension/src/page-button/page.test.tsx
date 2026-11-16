@@ -178,7 +178,8 @@ describe("when a repost is refused", () => {
     expect(card()?.textContent).toContain(refusalNote(locked, false));
     const link = card()?.querySelector("a");
     expect(link?.textContent).toBe("Bekijk abonnementen");
-    expect(link?.getAttribute("href")).toBe(PLANS_URL);
+    // Carrying the Language, which sets the site's (T96, ADR-0043).
+    expect(link?.getAttribute("href")).toBe("https://www.example.test/?lang=nl#abonnementen");
     expect(link?.getAttribute("target")).toBe("_blank");
   });
 

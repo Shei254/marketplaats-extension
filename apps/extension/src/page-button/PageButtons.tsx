@@ -6,7 +6,7 @@ import type { WireRelistOutcome } from "../background/messages";
 import type { PendingRepost } from "../domain/types";
 import type { LockedState } from "../gate/authorization-gate";
 import { useTranslation } from "../i18n/react";
-import { t } from "../i18n/words";
+import { onTheSite, t } from "../i18n/words";
 import { useCountdown } from "../popup/AdList";
 import {
   BUSY,
@@ -619,7 +619,7 @@ function Card({
       </div>
       <p className="pb-card-text">{view.text}</p>
       {view.action?.kind === "plans" && (
-        <a className="pb-action" href={plansUrl} target="_blank" rel="noopener" onClick={() => onAction(view.action!)}>
+        <a className="pb-action" href={onTheSite(plansUrl)} target="_blank" rel="noopener" onClick={() => onAction(view.action!)}>
           {view.action.label}
           <Icon name="external" />
         </a>

@@ -1,7 +1,7 @@
 import type { AdminConfig } from "../admin/admin-config";
 import { beginSignIn, completeSignIn, signOut } from "../admin/admin-session";
 import type { Http } from "../admin/discovery";
-import { t } from "../i18n/words";
+import { language, t } from "../i18n/words";
 import type { Choice } from "../public/viewer";
 
 /**
@@ -85,6 +85,7 @@ export async function start(deps: SessionDeps, search: string): Promise<Start> {
       await beginSignIn(deps.config, deps.http, deps.session, deps.navigate, "/", {
         key: IN_FLIGHT,
         prompt: "none",
+        language: language(),
       });
       return { kind: "redirecting" };
     } catch {
@@ -103,6 +104,8 @@ export async function signIn(deps: SessionDeps, choice?: Choice, silent = false)
   if (choice) write(deps.session, CHOICE, JSON.stringify(choice));
   await beginSignIn(deps.config, deps.http, deps.session, deps.navigate, "/", {
     key: IN_FLIGHT,
+    // The sign-in page inherits the site's Language and offers no choice (ADR-0043).
+    language: language(),
     ...(silent ? { prompt: "none" as const } : {}),
   });
 }

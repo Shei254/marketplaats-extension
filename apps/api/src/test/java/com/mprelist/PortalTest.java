@@ -121,6 +121,32 @@ class PortalTest {
 		assertThat(manageBilling(dunning.token()).statusCode()).isEqualTo(503);
 	}
 
+	/**
+	 * A body naming the Language is read and gets as far as Stripe like no body at all (T96, ADR-0043): it is
+	 * optional, and a client that sends none is the client every installed build is.
+	 */
+	@Test
+	void aBodyNamingTheLanguageGetsAsFarAsStripeToo() {
+		Subscriber user = this.rows.entitledTo(50);
+		this.rows.billedAsStripeCustomer(user, "cus_paying");
+
+		assertThat(manageBilling(user.token(), "{\"language\":\"en\"}").statusCode()).isEqualTo(503);
+		assertThat(manageBilling(user.token(), "{}").statusCode()).isEqualTo(503);
+	}
+
+	/** While a Language this product does not speak is a request it could not read, with nothing to parse. */
+	@Test
+	void whileALanguageThatIsNotOneOfOursIsNotARequestThisApiCanRead() {
+		Subscriber user = this.rows.entitledTo(50);
+		this.rows.billedAsStripeCustomer(user, "cus_paying");
+
+		HttpResponse<String> refused = manageBilling(user.token(), "{\"language\":\"de\"}");
+
+		assertThat(refused.statusCode()).isEqualTo(400);
+		assertThat(refused.body()).isEmpty();
+		assertThat(manageBilling(user.token(), "not json").statusCode()).isEqualTo(400);
+	}
+
 	@Test
 	void andNobodyManagesAnythingWithoutATokenAtAll() {
 		HttpResponse<String> refused = Http.send(HttpRequest.newBuilder(uri())
@@ -138,6 +164,15 @@ class PortalTest {
 				.timeout(TIMEOUT)
 				.header("Authorization", "Bearer " + token)
 				.POST(HttpRequest.BodyPublishers.noBody())
+				.build());
+	}
+
+	private HttpResponse<String> manageBilling(String token, String json) {
+		return Http.send(HttpRequest.newBuilder(uri())
+				.timeout(TIMEOUT)
+				.header("Authorization", "Bearer " + token)
+				.header("Content-Type", "application/json")
+				.POST(HttpRequest.BodyPublishers.ofString(json, java.nio.charset.StandardCharsets.UTF_8))
 				.build());
 	}
 

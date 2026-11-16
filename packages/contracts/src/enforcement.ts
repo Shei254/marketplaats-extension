@@ -1,3 +1,5 @@
+import type { Language } from "./language";
+
 /**
  * The wire shapes of `docs/enforcement-contract.md`, which is their source of
  * truth — this package restates them in TypeScript so both clients read one
@@ -414,6 +416,17 @@ export interface CheckoutRequest {
    * holding yesterday's cards deserves and is nobody's error.
    */
   interval: string;
+  /**
+   * The **Language** the reader is reading in (T96, ADR-0043), which the API hands
+   * to Stripe as the Checkout page's `locale`. **Optional, and absent means what
+   * it meant before**: no locale, so Stripe follows the browser. Anything other
+   * than `nl` or `en` is a `400`.
+   *
+   * It decides the page and nothing after it. Stripe records the paying
+   * browser's language ahead of this one on the customer it creates, and that is
+   * what its receipts follow.
+   */
+  language?: Language;
 }
 
 /**
@@ -446,7 +459,7 @@ export interface CheckoutSession {
  * body and makes it a **Scheduled switch** instead, answered with
  * {@link SwitchScheduled}; `DELETE /api/plan-switch/scheduled` undoes it, `204`.
  */
-export type SwitchRequest = CheckoutRequest;
+export type SwitchRequest = Omit<CheckoutRequest, "language">;
 
 /**
  * What the switch would invoice now, from Stripe's own preview — never an
@@ -486,7 +499,8 @@ export interface SwitchScheduled {
 /**
  * `POST /api/portal` — where "manage billing" becomes a Stripe page (T21, #31).
  *
- * **The request has no body.** Who is asking comes from the token, and everything
+ * **The request's body is optional** ({@link PortalRequest}) and says only which
+ * Language to show the Portal in. Who is asking comes from the token, and everything
  * the Portal offers — the card, the invoices, the cancel button — is configured in
  * Stripe's dashboard rather than named here. It is a `POST` because each call
  * creates a short-lived single-use session, so two calls are two sessions.
@@ -507,6 +521,16 @@ export interface SwitchScheduled {
  * subscriber who cancelled is **not** a `404`: ADR-0018 keeps their customer id
  * precisely so their invoices stay reachable.
  */
+export interface PortalRequest {
+  /**
+   * The **Language** for the Portal's pages (T96, ADR-0043), handed to Stripe as
+   * the session's `locale`. Optional — a body may be absent altogether, as it was
+   * before — and absent means Stripe's own choice, which follows what the
+   * customer has stored. Anything other than `nl` or `en` is a `400`.
+   */
+  language?: Language;
+}
+
 export interface PortalSession {
   url: string;
 }

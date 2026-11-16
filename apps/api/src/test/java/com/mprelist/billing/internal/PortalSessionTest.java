@@ -72,7 +72,7 @@ class PortalSessionTest {
 
 	@Test
 	void somebodyWhoHasPaidGetsAUrlToSendTheBrowserTo() {
-		Portal opened = portal(Optional.of("cus_paying")).open(SUBSCRIBER);
+		Portal opened = portal(Optional.of("cus_paying")).open(SUBSCRIBER, Optional.empty());
 
 		assertThat(opened).isEqualTo(new Portal.Opened("https://billing.stripe.com/p/session/bps_test_1"));
 	}
@@ -84,14 +84,14 @@ class PortalSessionTest {
 	 */
 	@Test
 	void andItIsOpenedForTheirOwnStripeCustomer() {
-		portal(Optional.of("cus_paying")).open(SUBSCRIBER);
+		portal(Optional.of("cus_paying")).open(SUBSCRIBER, Optional.empty());
 
 		assertThat(this.posted).containsEntry("customer", "cus_paying");
 	}
 
 	@Test
 	void andStripeSendsThemBackToALoginlessPageOfOurOwn() {
-		portal(Optional.of("cus_paying")).open(SUBSCRIBER);
+		portal(Optional.of("cus_paying")).open(SUBSCRIBER, Optional.empty());
 
 		// `apps/web`'s own PATHS, on the other side of a Java/TypeScript boundary — and not `/success`, which
 		// congratulates somebody on a payment. The commonest reason to be in the Portal is cancelling.
@@ -100,17 +100,34 @@ class PortalSessionTest {
 
 	@Test
 	void nothingElseAboutThemIsSent() {
-		portal(Optional.of("cus_paying")).open(SUBSCRIBER);
+		portal(Optional.of("cus_paying")).open(SUBSCRIBER, Optional.empty());
 
 		// Not our own account id either: unlike a Checkout session, nothing comes back from this to attribute.
 		assertThat(this.posted.keySet()).containsExactlyInAnyOrder("customer", "return_url");
+	}
+
+	// --- the Language it is shown in (T96, ADR-0043) -------------------------------------------------------
+
+	@Test
+	void aLanguageIsHandedToStripeAsThePortalsLocale() {
+		portal(Optional.of("cus_paying")).open(SUBSCRIBER, Optional.of(Language.EN));
+
+		assertThat(this.posted).containsEntry("locale", "en");
+	}
+
+	/** None is Stripe's own choice, which follows what the customer has stored rather than the browser (T94). */
+	@Test
+	void noLanguageSendsNoLocale() {
+		portal(Optional.of("cus_paying")).open(SUBSCRIBER, Optional.empty());
+
+		assertThat(this.posted).doesNotContainKey("locale");
 	}
 
 	// --- what there is nothing to manage for ---------------------------------------------------------------
 
 	@Test
 	void anAccountThatHasNeverPaidHasNothingToManage() {
-		Portal answered = portal(Optional.empty()).open(SUBSCRIBER);
+		Portal answered = portal(Optional.empty()).open(SUBSCRIBER, Optional.empty());
 
 		assertThat(answered).isEqualTo(new Portal.NothingToManage());
 		// And Stripe is not asked, since there is no customer to name in the question.
@@ -125,7 +142,7 @@ class PortalSessionTest {
 		// minute, and telling a paying subscriber they have no billing account would be a support ticket.
 		this.stripeAnswers = false;
 
-		assertThat(portal(Optional.of("cus_paying")).open(SUBSCRIBER)).isEqualTo(new Portal.Unavailable());
+		assertThat(portal(Optional.of("cus_paying")).open(SUBSCRIBER, Optional.empty())).isEqualTo(new Portal.Unavailable());
 	}
 
 	@Test
@@ -133,7 +150,7 @@ class PortalSessionTest {
 		OpenPortal unconfigured = new OpenPortal(subscriberWith(Optional.of("cus_paying")), new StripeAccount(""),
 				new WebPages("https://example.test"));
 
-		assertThat(unconfigured.open(SUBSCRIBER)).isEqualTo(new Portal.Unavailable());
+		assertThat(unconfigured.open(SUBSCRIBER, Optional.empty())).isEqualTo(new Portal.Unavailable());
 	}
 
 	/** While an account with nothing to manage is answered as such with no Stripe to ask, since it never asks. */
@@ -142,13 +159,13 @@ class PortalSessionTest {
 		OpenPortal unconfigured = new OpenPortal(subscriberWith(Optional.empty()), new StripeAccount(""),
 				new WebPages("https://example.test"));
 
-		assertThat(unconfigured.open(SUBSCRIBER)).isEqualTo(new Portal.NothingToManage());
+		assertThat(unconfigured.open(SUBSCRIBER, Optional.empty())).isEqualTo(new Portal.NothingToManage());
 	}
 
 	@Test
 	void aBaseUrlWithATrailingSlashDoesNotBecomeADoubleOne() {
 		new OpenPortal(subscriberWith(Optional.of("cus_paying")), account(), new WebPages("https://example.test/"))
-				.open(SUBSCRIBER);
+				.open(SUBSCRIBER, Optional.empty());
 
 		assertThat(this.posted).containsEntry("return_url", "https://example.test/billing");
 	}

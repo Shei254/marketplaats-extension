@@ -256,6 +256,11 @@ about their **software**. It therefore carries none, exactly like every other `4
   required as the code** (T62, #128): a tier may be sold monthly and annually, so the code alone names two
   prices and a default would charge somebody a rhythm they did not pick. A body without it is a `400`; a
   rhythm the tier is not sold at is the same `404` an unknown code gets.
+- **`"language": "nl" | "en"`, optional** (T96, [ADR-0043](adr/0043-the-language-belongs-to-the-device-and-is-carried.md))
+  — the reader's **Language**, handed to Stripe as the session's `locale`, and the first and only place this
+  API learns that a language exists. Nothing is stored. **Absent means what it meant before**: no locale, so
+  Stripe follows the browser. Any other value is a `400`. It decides the page and not the receipts: the
+  customer Checkout creates records the paying browser's language ahead of the session's.
 - **Returns `200`:** `{ "url": "https://checkout.stripe.com/…" }`. The popup opens it in a tab and is
   destroyed the moment that tab takes focus — expected, and what T50's success page catches.
 - **A `200` is an offer to pay, not an entitlement.** What moves the plan is Stripe saying the money did,
@@ -276,7 +281,8 @@ about their **software**. It therefore carries none, exactly like every other `4
 - **`503` with an empty body** when Stripe could not be asked. The two refusals are different statuses on
   purpose: one says the plan is gone, the other says come back in a minute, and only the second is worth a
   retry. Neither carries a `reason` — they are not denials about the user.
-- **`400` with an empty body** for a body this API could not read, including one naming no tier.
+- **`400` with an empty body** for a body this API could not read, including one naming no tier or a
+  Language that is not one of the two.
 - **The session carries our own account id twice**: as `client_reference_id`, which is what the Stripe
   dashboard shows beside the payment, and as `subscription_data.metadata.app_user_id`, which Stripe copies
   onto the subscription and is what the webhook below actually pulls on. This API deliberately holds no email
@@ -288,8 +294,8 @@ about their **software**. It therefore carries none, exactly like every other `4
 - **Auth:** `Authorization: Bearer <Keycloak access token>`. Called by the site (T85) and, since T90, by the
   popup ([ADR-0042](adr/0042-a-switch-buys-a-fresh-period-now-or-at-renewal.md)). The Customer Portal no
   longer switches plans.
-- **Request:** `{ "tierCode": "power", "interval": "month" }` — `POST /api/checkout`'s body, with its `400`
-  for one that is missing either field or is not JSON. `DELETE /api/plan-switch/scheduled` has no body.
+- **Request:** `{ "tierCode": "power", "interval": "month" }` — `POST /api/checkout`'s body without its
+  `language`, which opens no page here, and with its `400` for one that is missing either field or is not JSON. `DELETE /api/plan-switch/scheduled` has no body.
 - **A switch made now restarts the billing period at the new plan's full price, and credits nothing**
   (`billing_cycle_anchor=now`, `proration_behavior=none`), up or down and for a tier or a Rhythm. The new
   period, a fresh Quota period and its full grant all start that day. It is applied only once paid where
@@ -323,8 +329,11 @@ about their **software**. It therefore carries none, exactly like every other `4
 - **Auth:** `Authorization: Bearer <Keycloak access token>`. Called by the **popup**, which opens the returned
   URL in a tab exactly as it opens a Checkout one, and since T85 by the **landing page** — *Betaling beheren*
   and *Opzeggen* (ADR-0036).
-- **No body.** Who is asking comes from the token, and everything the Portal offers — the card, the invoices,
-  the cancel button — is configured in Stripe's dashboard rather than named here. It is a `POST` because each
+- **An optional body, `{ "language": "nl" | "en" }`** (T96, ADR-0043) — the Portal's **Language**, handed to
+  Stripe as the session's `locale`. No body, or none named, is what every request was before, and Stripe then
+  follows what the customer has stored. Any other value, or a body that is not JSON, is a `400` with an empty
+  body. Who is asking comes from the token, and everything the Portal offers — the card, the invoices, the
+  cancel button — is configured in Stripe's dashboard rather than named here. It is a `POST` because each
   call creates a short-lived single-use session at Stripe, so two calls are two sessions.
 - **Returns `200`:** `{ "url": "https://billing.stripe.com/…" }`. Stripe's own "return" link comes back to
   `apps/web`'s `/billing`, **not** `/success` — the commonest reason to be in the Portal is cancelling, and a

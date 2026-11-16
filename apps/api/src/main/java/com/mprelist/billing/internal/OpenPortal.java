@@ -41,7 +41,11 @@ class OpenPortal {
 		this.web = web;
 	}
 
-	Portal open(UserRef subscriber) {
+	/**
+	 * @param language the Portal's Language, handed to Stripe as its {@code locale} (T96, ADR-0043); empty sends
+	 * none, and Stripe follows what the customer has stored
+	 */
+	Portal open(UserRef subscriber, Optional<Language> language) {
 		Optional<String> customer = this.subscriptions.stripeCustomerFor(subscriber);
 		if (customer.isEmpty()) {
 			LOG.info("The account {} has never been billed, so there is no Customer Portal to open for it",
@@ -53,12 +57,13 @@ class OpenPortal {
 			return new Portal.Unavailable();
 		}
 		try {
-			Session session = client.get().billingPortal().sessions().create(SessionCreateParams.builder()
+			SessionCreateParams.Builder params = SessionCreateParams.builder()
 					.setCustomer(customer.get())
 					// Where Stripe's own "return" link goes. Not the success page: the commonest reason to be
 					// here is cancelling, and congratulating somebody for it would be the wrong screen.
-					.setReturnUrl(this.web.billingManaged())
-					.build());
+					.setReturnUrl(this.web.billingManaged());
+			language.map(Language::portalLocale).ifPresent(params::setLocale);
+			Session session = client.get().billingPortal().sessions().create(params.build());
 			return new Portal.Opened(session.getUrl());
 		}
 		catch (StripeException unavailable) {

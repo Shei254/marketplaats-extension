@@ -25,7 +25,7 @@ export type CatalogOf<Source> = Source extends string
  * catalog writes them — the runtime half of the hold, which one test per catalog
  * compares against the Dutch.
  *
- * The type cannot see an array's length, and a translated legal document with a
+ * The type cannot see an array's length, and an English legal document with a
  * paragraph missing is exactly what this exists to catch.
  */
 export function keyPaths(catalog: unknown, prefix = ""): string[] {

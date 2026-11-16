@@ -72,6 +72,12 @@ const p = (style: string, content: string): string =>
 const button = (label: string): string =>
   p(buttonRowStyle, `<a href="{0}" style="${attribute(buttonStyle)}">${label}</a>`);
 
+/** The sentence before the link written out, in each Language. */
+const COPY_THE_LINK = {
+  nl: "Werkt de knop niet? Kopieer deze link naar je browser:",
+  en: "If the button does not work, copy this link into your browser:",
+};
+
 /** "the button did not work" — the link again, as something to copy, after the sentence that says so. */
 const fallback = (sentence: string): string => p(paragraphStyle, sentence) + p(urlStyle, "{0}");
 
@@ -102,7 +108,7 @@ export function dutchMessages(brandName: string): Record<string, string> {
       )
       + button("Nieuw wachtwoord kiezen")
       + p(paragraphStyle, "Deze link verloopt over {3}.")
-      + fallback("Werkt de knop niet? Kopieer deze link naar je browser:")
+      + fallback(COPY_THE_LINK.nl)
       + p(
         asideStyle,
         "Heb je dit niet aangevraagd? Dan hoef je niets te doen. "
@@ -133,7 +139,7 @@ export function dutchMessages(brandName: string): Record<string, string> {
       )
       + button("Account bijwerken")
       + p(paragraphStyle, "Deze link verloopt over {4}.")
-      + fallback("Werkt de knop niet? Kopieer deze link naar je browser:")
+      + fallback(COPY_THE_LINK.nl)
       + p(
         asideStyle,
         "Wist je hier niets van? Dan hoef je niets te doen. "
@@ -178,26 +184,26 @@ export function englishMessages(brandName: string): Record<string, string> {
       p(
         paragraphStyle,
         `Someone asked to reset the password of your ${brandName} account. `
-          + "Was that you? Then choose a new password below.",
+          + "If that was you, choose a new password below.",
       )
       + button("Choose a new password")
       + p(paragraphStyle, "This link expires in {3}.")
-      + fallback("Does the button not work? Copy this link into your browser:")
+      + fallback(COPY_THE_LINK.en)
       + p(
         asideStyle,
-        "Did you not ask for this? Then there is nothing you need to do. "
+        "If you did not ask for this, you do not need to do anything. "
           + "Your password stays as it is.",
       )
       + p(signatureStyle, `— ${brandName}`),
     passwordResetBody:
       `Someone asked to reset the password of your ${brandName} account.\n`
-      + "Was that you? Then choose a new password through this link:\n"
+      + "If that was you, choose a new password through this link:\n"
       + "\n"
       + "{0}\n"
       + "\n"
       + "This link expires in {3}.\n"
       + "\n"
-      + "Did you not ask for this? Then there is nothing you need to do. "
+      + "If you did not ask for this, you do not need to do anything. "
       + "Your password stays as it is.\n"
       + "\n"
       + `— ${brandName}\n`,
@@ -207,19 +213,19 @@ export function englishMessages(brandName: string): Record<string, string> {
     executeActionsBodyHtml:
       p(
         paragraphStyle,
-        `Someone asked for your ${brandName} account to be updated. It is about: {3}.`,
+        `Someone asked for your ${brandName} account to be updated. It concerns: {3}.`,
       )
       + button("Update account")
       + p(paragraphStyle, "This link expires in {4}.")
-      + fallback("Does the button not work? Copy this link into your browser:")
+      + fallback(COPY_THE_LINK.en)
       + p(
         asideStyle,
-        "Did you not know about this? Then there is nothing you need to do. "
+        "If you did not know about this, you do not need to do anything. "
           + "Nothing changes on your account.",
       )
       + p(signatureStyle, `— ${brandName}`),
     executeActionsBody:
-      `Someone asked for your ${brandName} account to be updated. It is about: {3}.\n`
+      `Someone asked for your ${brandName} account to be updated. It concerns: {3}.\n`
       + "\n"
       + "You can do that through this link:\n"
       + "\n"
@@ -227,7 +233,7 @@ export function englishMessages(brandName: string): Record<string, string> {
       + "\n"
       + "This link expires in {4}.\n"
       + "\n"
-      + "Did you not know about this? Then there is nothing you need to do. "
+      + "If you did not know about this, you do not need to do anything. "
       + "Nothing changes on your account.\n"
       + "\n"
       + `— ${brandName}\n`,

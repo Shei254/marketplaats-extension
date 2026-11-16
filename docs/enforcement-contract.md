@@ -295,7 +295,8 @@ about their **software**. It therefore carries none, exactly like every other `4
   popup ([ADR-0042](adr/0042-a-switch-buys-a-fresh-period-now-or-at-renewal.md)). The Customer Portal no
   longer switches plans.
 - **Request:** `{ "tierCode": "power", "interval": "month" }` — `POST /api/checkout`'s body without its
-  `language`, which opens no page here, and with its `400` for one that is missing either field or is not JSON. `DELETE /api/plan-switch/scheduled` has no body.
+  `language`, which opens no page here, and with its `400` for one that is missing either field or is not
+  JSON. `DELETE /api/plan-switch/scheduled` has no body.
 - **A switch made now restarts the billing period at the new plan's full price, and credits nothing**
   (`billing_cycle_anchor=now`, `proration_behavior=none`), up or down and for a tier or a Rhythm. The new
   period, a fresh Quota period and its full grant all start that day. It is applied only once paid where

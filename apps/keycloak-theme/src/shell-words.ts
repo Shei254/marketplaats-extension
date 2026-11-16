@@ -1,6 +1,6 @@
 /**
  * The words the two shells say themselves — the footer's link to the terms —
- * by locale, as a message each `template.ftl` asks for with `msg()` (T96,
+ * in each Language, as a message each `template.ftl` asks for with `msg()` (T96,
  * ADR-0043). A word written into a shell would be Dutch on the English page,
  * since the shell is one file for both.
  *

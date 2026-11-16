@@ -119,7 +119,7 @@ writes `account''s`. And the placeholder indexes are positional and fixed by the
 | `src/login/template.ftl` | The shell. Holds no copy of the brand: it reads `${properties.brandName!}` |
 | `src/email/index.ts` | The email type: `parent=base`, the brand, the inline styles, and the one message bundle |
 | `src/email/copy.ts` | Every word this product sends by mail, in Dutch and English, and the two `MessageFormat` traps under them |
-| `src/shell-words.ts` | The one word both shells say themselves — the footer's link to the terms — per locale, so neither shell holds a word in one language |
+| `src/shell-words.ts` | The one word both shells say themselves — the footer's link to the terms — in each Language, so neither shell holds a word in one language |
 | `src/email/styles.ts` | The same rules as the sign-in card, as inline declarations. Every value is `@mprelist/ui`'s, and the suite asserts it |
 | `src/email/html/template.ftl` | The shell. Holds no colour, no size and no name: it reads them all as theme properties |
 | `scripts/build.mjs` | Emits the theme. Bundles `src/theme.ts` with esbuild, because the design system is TypeScript source and Node cannot import it |

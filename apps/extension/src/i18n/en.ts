@@ -6,7 +6,7 @@ import type { nl } from "./nl";
  * **Our words** in English, for the popup, the **Page button** and the worker,
  * held to the Dutch catalog's keys (ADR-0043). *Repost* for *herplaatsen*.
  *
- * **Not translated, because they are not ours:** Marktplaats's own labels
+ * **Written one way in both languages, because they are not ours:** Marktplaats's own labels
  * (*Gereserveerd*, *Bieden*, *Gratis*, *Zie beschrijving*), which a seller has to
  * be able to find on Marktplaats's page; a tier's name (*Gratis* is the free
  * tier's); and the payment brands. `{{brand}}` is the build's brand name.

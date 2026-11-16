@@ -11,7 +11,7 @@ import type { terms as nl } from "../nl/terms";
  *
  * It says what the Dutch says, including where the Dutch does not match this
  * build (a free trial, account settings): `../../public/legal.tsx` records why
- * those were left as written, and a translation that quietly corrected them
+ * those were left as written, and an English text that quietly corrected them
  * would make the two documents disagree.
  */
 export const terms = {

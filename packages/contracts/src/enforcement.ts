@@ -405,7 +405,7 @@ export interface Plans {
  * ADR-0014 makes the thing anything references, and it is ours to resolve: a
  * client naming a price id could name one we never published.
  */
-export interface CheckoutRequest {
+export interface CheckoutRequest extends SwitchRequest {
   tierCode: string;
   /**
    * Which rhythm to buy — one of the `interval`s on that plan's `prices` (T62,
@@ -459,7 +459,10 @@ export interface CheckoutSession {
  * body and makes it a **Scheduled switch** instead, answered with
  * {@link SwitchScheduled}; `DELETE /api/plan-switch/scheduled` undoes it, `204`.
  */
-export type SwitchRequest = Omit<CheckoutRequest, "language">;
+export interface SwitchRequest {
+  tierCode: string;
+  interval: string;
+}
 
 /**
  * What the switch would invoice now, from Stripe's own preview — never an
@@ -496,6 +499,17 @@ export interface SwitchScheduled {
   at: string | null;
 }
 
+/** The optional body of `POST /api/portal`, below. */
+export interface PortalRequest {
+  /**
+   * The **Language** for the Portal's pages (T96, ADR-0043), handed to Stripe as
+   * the session's `locale`. Optional — a body may be absent altogether, as it was
+   * before — and absent means Stripe's own choice, which follows what the
+   * customer has stored. Anything other than `nl` or `en` is a `400`.
+   */
+  language?: Language;
+}
+
 /**
  * `POST /api/portal` — where "manage billing" becomes a Stripe page (T21, #31).
  *
@@ -521,16 +535,6 @@ export interface SwitchScheduled {
  * subscriber who cancelled is **not** a `404`: ADR-0018 keeps their customer id
  * precisely so their invoices stay reachable.
  */
-export interface PortalRequest {
-  /**
-   * The **Language** for the Portal's pages (T96, ADR-0043), handed to Stripe as
-   * the session's `locale`. Optional — a body may be absent altogether, as it was
-   * before — and absent means Stripe's own choice, which follows what the
-   * customer has stored. Anything other than `nl` or `en` is a `400`.
-   */
-  language?: Language;
-}
-
 export interface PortalSession {
   url: string;
 }

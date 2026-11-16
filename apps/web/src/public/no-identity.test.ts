@@ -29,6 +29,12 @@ const SRC = fileURLToPath(new URL("..", import.meta.url));
 /** Where identity code lives: the admin corner, and the customer session on `/` (T85). */
 const AUTHENTICATED = new Set(["admin", "account"]);
 const ANONYMOUS_FETCH = join("public", "plans-on-offer.ts");
+/**
+ * **And one file may reach `localStorage`** (T97): the **Language** is kept on the
+ * device (ADR-0043), which is a preference and not an identity. What is asserted
+ * of it is that it keeps nothing else.
+ */
+const LANGUAGE_STORAGE = join("i18n", "browser-language.ts");
 
 /** What learning who somebody is looks like, spelled as the APIs that do it. */
 const IDENTITY = [
@@ -81,9 +87,11 @@ describe("the public bundle", () => {
   for (const path of files) {
     const source = readFileSync(path, "utf8");
     const anonymousFetch = path.endsWith(ANONYMOUS_FETCH);
+    const languageStorage = path.endsWith(LANGUAGE_STORAGE);
     it(`asks nobody who they are — ${path.slice(SRC.length)}`, () => {
       for (const api of IDENTITY) {
         if (anonymousFetch && api === "fetch(") continue;
+        if (languageStorage && api === "localStorage") continue;
         expect(source, api).not.toContain(api);
       }
     });
@@ -96,5 +104,18 @@ describe("the public bundle", () => {
     expect(source).toContain('credentials: "omit"');
     expect(source).not.toContain("Authorization");
     expect(source).not.toContain('credentials: "include"');
+  });
+
+  it("and the one store it reaches keeps the Language and nothing else", () => {
+    const source = readFileSync(join(SRC, LANGUAGE_STORAGE), "utf8");
+    const choice = readFileSync(join(SRC, "i18n", "choice.ts"), "utf8");
+
+    // It hands the store on rather than reading or writing it itself…
+    expect(source).not.toMatch(/\b(getItem|setItem|removeItem|key)\(/);
+    // …and the file it hands it to spells one key.
+    expect([...choice.matchAll(/(getItem|setItem)\(([^,)]*)/g)].map((call) => call[2])).toEqual([
+      "LANGUAGE_KEY",
+      "LANGUAGE_KEY",
+    ]);
   });
 });

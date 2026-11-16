@@ -884,7 +884,7 @@ describe("the plan cards", () => {
     const { worker } = fakeWorker();
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
 
     expect(text()).toContain("Kies een abonnement");
   });
@@ -895,7 +895,7 @@ describe("the plan cards", () => {
     const { worker } = fakeWorker();
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
 
     expect(text()).toContain("Het afrekenen wordt geopend in een nieuw tabblad");
     expect(text()).toContain("je gaat dan terug naar Gratis en behoudt altijd toegang");
@@ -909,7 +909,7 @@ describe("the plan cards", () => {
     const { worker } = fakeWorker();
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
 
     expect(text()).toContain("Je kunt betalen met iDEAL | Wero, PayPal, creditcard en debitcard");
   });
@@ -923,7 +923,7 @@ describe("the plan cards", () => {
     });
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
 
     expect(text()).not.toContain("Pay with");
     expect(text()).toContain("Het afrekenen wordt geopend in een nieuw tabblad");
@@ -934,7 +934,7 @@ describe("the plan cards", () => {
     const { worker } = fakeWorker();
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
 
     expect(text()).toContain("Free");
     expect(text()).toContain("Je abonnement");
@@ -948,7 +948,7 @@ describe("the plan cards", () => {
     const { worker, asked } = fakeWorker();
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
     await click("Terug");
 
     expect(asked).toEqual(["display-state", "list-ads", "plans"]);
@@ -960,7 +960,7 @@ describe("the plan cards", () => {
     const { worker } = fakeWorker(undefined, ADS, { plans: { status: "unavailable" } });
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
 
     expect(text()).toContain("De prijzen konden nu niet worden geladen");
     expect(text()).not.toContain("Upgrade");
@@ -970,7 +970,7 @@ describe("the plan cards", () => {
     const { worker, asked } = fakeWorker(undefined, ADS, { plans: { status: "unavailable" } });
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
     await click("Opnieuw proberen");
 
     expect(asked.filter((call) => call === "plans")).toHaveLength(2);
@@ -982,7 +982,7 @@ describe("the plan cards", () => {
     const { worker } = fakeWorker(undefined, ADS, { plans: { status: "signed-out" } });
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
 
     expect(text()).toContain("Inloggen");
     expect(text()).not.toContain("Kies een abonnement");
@@ -992,7 +992,7 @@ describe("the plan cards", () => {
     const { worker } = fakeWorker(undefined, ADS, { plans: { status: "outdated" } });
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
 
     expect(text()).toContain("moet worden bijgewerkt");
   });
@@ -1006,7 +1006,7 @@ describe("handing off to Stripe", () => {
     const { worker, asked } = fakeWorker();
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
     await click("€ 9,99 per maand");
 
     expect(asked).toContain("checkout:pro:month");
@@ -1035,7 +1035,7 @@ describe("handing off to Stripe", () => {
     });
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
     await click("€ 99,00 per jaar");
 
     expect(asked).toContain("checkout:pro:year");
@@ -1047,7 +1047,7 @@ describe("handing off to Stripe", () => {
     const { worker } = fakeWorker(undefined, ADS, { checkout: { status: "gone" } });
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
     await click("€ 9,99 per maand");
 
     expect(text()).toContain("wordt niet meer aangeboden");
@@ -1057,7 +1057,7 @@ describe("handing off to Stripe", () => {
     const { worker } = fakeWorker(undefined, ADS, { checkout: { status: "unavailable" } });
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
     await click("€ 9,99 per maand");
 
     expect(text()).toContain("Het afrekenen kon niet worden geopend");
@@ -1067,7 +1067,7 @@ describe("handing off to Stripe", () => {
     const { worker, asked } = fakeWorker();
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
     await click("Betaling beheren");
 
     expect(asked).toContain("portal");
@@ -1079,7 +1079,7 @@ describe("handing off to Stripe", () => {
     const { worker } = fakeWorker(undefined, ADS, { portal: { status: "gone" } });
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
     await click("Betaling beheren");
 
     expect(text()).toContain("niets te beheren");
@@ -1324,7 +1324,7 @@ describe("switching plan from the popup (T90, ADR-0042)", () => {
     const { worker, asked } = fakeWorker([{ status: "ready", plan: ON_PRO }]);
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
     await click("Overstappen · € 19,99 per maand");
 
     expect(asked).not.toContain("checkout:power:month");
@@ -1335,7 +1335,7 @@ describe("switching plan from the popup (T90, ADR-0042)", () => {
     const { worker } = fakeWorker([{ status: "ready", plan: ON_PRO }]);
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
     await click("Overstappen · € 19,99 per maand");
 
     expect(readable(text())).toContain("Je betaalt vandaag € 19,99.");
@@ -1361,7 +1361,7 @@ describe("switching plan from the popup (T90, ADR-0042)", () => {
       ]);
 
       await show(worker);
-      await click("Abonnementen");
+      await click("Plannen");
       await click("Overstappen · € 19,99 per maand");
       await click("Nu");
 
@@ -1381,7 +1381,7 @@ describe("switching plan from the popup (T90, ADR-0042)", () => {
     const { worker, asked } = fakeWorker([{ status: "ready", plan: ON_PRO }]);
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
     await click("Overstappen · € 19,99 per maand");
     await click("Op 12 december");
 
@@ -1394,7 +1394,7 @@ describe("switching plan from the popup (T90, ADR-0042)", () => {
     const { worker, asked } = fakeWorker([{ status: "ready", plan: ON_PRO }]);
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
     await click("Overstappen · € 19,99 per maand");
     await click("Annuleren");
 
@@ -1415,7 +1415,7 @@ describe("switching plan from the popup (T90, ADR-0042)", () => {
     });
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
 
     expect(buttons()).toContain("Overstappen · € 99,00 per jaar");
     expect(buttons()).not.toContain("Overstappen · € 9,99 per maand");
@@ -1425,7 +1425,7 @@ describe("switching plan from the popup (T90, ADR-0042)", () => {
     const { worker } = fakeWorker([{ status: "ready", plan: { ...ON_PRO, rhythm: null } }]);
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
 
     expect(buttons()).not.toContain("Overstappen · € 9,99 per maand");
     expect(buttons()).toContain("Overstappen · € 19,99 per maand");
@@ -1439,7 +1439,7 @@ describe("switching plan from the popup (T90, ADR-0042)", () => {
     const { worker, asked } = fakeWorker([{ status: "ready", plan: pending }]);
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
 
     expect(text()).toContain("Gaat op 12 december over naar Power");
     expect(text()).toContain("Vanaf 12 december");
@@ -1453,7 +1453,7 @@ describe("switching plan from the popup (T90, ADR-0042)", () => {
     const { worker } = fakeWorker([{ status: "ready", plan: { ...ON_PRO, subscriptionStatus: "PAST_DUE" } }]);
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
 
     expect(text()).toContain("Betaal eerst je openstaande factuur via Betaling beheren.");
     expect(buttons().some((label) => label.startsWith("Overstappen"))).toBe(false);
@@ -1468,7 +1468,7 @@ describe("switching plan from the popup (T90, ADR-0042)", () => {
     const { worker, asked } = fakeWorker([{ status: "ready", plan }]);
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
     await click("Ongedaan maken");
 
     expect(text()).toContain("Gaat op 12 december over naar Power");
@@ -1481,7 +1481,7 @@ describe("switching plan from the popup (T90, ADR-0042)", () => {
     });
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
     await click("Overstappen · € 19,99 per maand");
 
     expect(text()).toContain("Betaal eerst je openstaande factuur via Betaling beheren.");
@@ -1491,7 +1491,7 @@ describe("switching plan from the popup (T90, ADR-0042)", () => {
     const { worker, asked } = fakeWorker();
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
     await click("€ 19,99 per maand");
 
     expect(asked).toContain("checkout:power:month");
@@ -1506,7 +1506,7 @@ describe("a Checkout refused because they already pay (T83, T90)", () => {
     });
 
     await show(worker);
-    await click("Abonnementen");
+    await click("Plannen");
     await click("€ 19,99 per maand");
 
     expect(readable(text())).toContain("Stap over met Overstappen");

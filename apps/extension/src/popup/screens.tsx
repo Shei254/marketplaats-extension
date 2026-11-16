@@ -5,6 +5,7 @@ import type { JSX, ReactNode } from "react";
 import { useTranslation } from "../i18n/react";
 import { language, t } from "../i18n/words";
 import { grantsNothing, MANAGING, type Handoff, type PlansView } from "./plans";
+import { LanguageSwitch } from "./LanguageSwitch";
 import { ThemeToggle } from "./ThemeToggle";
 
 /**
@@ -34,6 +35,7 @@ export function Header({ actions }: { actions?: ReactNode }): JSX.Element {
       </span>
       <span className="popup-actions">
         {actions}
+        <LanguageSwitch />
         <ThemeToggle />
       </span>
     </header>

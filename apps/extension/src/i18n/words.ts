@@ -10,9 +10,9 @@ import { nl } from "./nl";
  * fetching one — and initialised synchronously, so the first render and a
  * component test both have their sentences.
  *
- * **Pinned to Dutch.** The English catalog is bundled beside it (T96), and nothing
- * chooses it yet: no **Language switch** and no browser rule is wired until T97.
- * This file has no React in it, so the worker's bundle does not carry any;
+ * **It starts in Dutch and is told the Language** by `./choice`, which each of the
+ * three contexts runs on start and which follows the popup's **Language switch**
+ * from then on (T97). This file has no React in it, so the worker's bundle does not carry any;
  * `./react` is the half that does.
  *
  * Values are not escaped: React escapes what it renders, and an ad titled

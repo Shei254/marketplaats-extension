@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserSite, isCustomerArrival } from "./account/BrowserSite";
 import { BrowserAdminApp, returningFromSignIn } from "./admin/BrowserAdminApp";
 import { deployedConfig } from "./admin/deployed-config";
+import { arriveInLanguage } from "./i18n/browser-language";
 import { plansOnOffer } from "./public/plans-on-offer";
 import { isAdminPath } from "./routes";
 
@@ -51,6 +52,10 @@ if (!root) throw new Error("index.html has no #root to render into");
 // is the admin corner's, as it always was.
 const adminArriving = returningFromSignIn(location.search) && !isCustomerArrival(location.search);
 
-createRoot(root).render(
-  isAdminPath(location.pathname) || adminArriving ? <BrowserAdminApp /> : <BrowserSite loadPlans={loadPlans} />,
-);
+const admin = isAdminPath(location.pathname) || adminArriving;
+
+// The public site's Language is decided before anything is drawn (T97).
+// `/admin` has no Language (ADR-0043).
+if (!admin) arriveInLanguage();
+
+createRoot(root).render(admin ? <BrowserAdminApp /> : <BrowserSite loadPlans={loadPlans} />);

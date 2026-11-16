@@ -1,5 +1,7 @@
 import { createRoot } from "react-dom/client";
 
+import { chromeLanguageSource, followLanguage } from "../i18n/choice";
+import { words } from "../i18n/words";
 import { Popup } from "./Popup";
 import { applyStoredTheme } from "./theme";
 import { workerPort } from "./worker-port";
@@ -25,4 +27,12 @@ try {
 const root = document.getElementById("root");
 if (!root) throw new Error("popup.html has no #root to render into");
 
-createRoot(root).render(<Popup worker={workerPort()} />);
+// The Language is read before the first render, for the theme's reason: a popup
+// that opened in Dutch and then turned English would flicker every time. It is
+// one `chrome.storage` read (`../i18n/choice.ts` says why there, not
+// `localStorage`), and `<html lang>` follows it from here on.
+words.on("languageChanged", (language) => document.documentElement.setAttribute("lang", language));
+void followLanguage(chromeLanguageSource()).then(() => {
+  document.documentElement.setAttribute("lang", words.language);
+  createRoot(root).render(<Popup worker={workerPort()} />);
+});

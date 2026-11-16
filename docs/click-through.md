@@ -729,3 +729,44 @@ is left paying for a plan that no longer exists, and that an emptied catalog say
 
 **What this does not check:** that a tier with thousands of subscribers drains in a sensible time. That is
 ADR-0032's own "revisit if", and the point at which the confirmation's promise outruns what the job can do.
+
+## English beside Dutch · the whole path in English (T97)
+
+**Proves:** a reader who picks English on either switch reads English from the landing page to a repost —
+the sign-in page, the reset mail and Stripe included — **with a browser set to Dutch**, the case where only
+the hand-offs can be carrying it. [ADR-0043](adr/0043-the-language-belongs-to-the-device-and-is-carried.md).
+
+> Needs a realm with `en` in its supported locales: **`down -v`** on a local stack started before T96, or, on
+> the live realm, *Realm settings → Localization → Supported locales* in the admin console — `mprelist-deploy`
+> warns while it is missing. Chrome's language list set to **Nederlands only**
+> (`chrome://settings/languages`). Stripe as in slice C, and a throwaway ad as in slice A.
+
+1. Open `/` in a fresh profile.
+   *Expect:* Dutch, and **EN** at the end of the navigation bar. `<html lang="nl">`.
+2. Press **EN**.
+   *Expect:* the page turns English with no reload — **Put your ad back on top**, **Privacy**, **Terms** —
+   the switch now offers **NL**, and `<html lang="en">`. Open `/terms` and reload: still English. The brand
+   name, the tagline and the prices ("€ 9,99") are as they were.
+3. Press **Sign in**, then **Forgot password?**, and ask for a reset for an account **registered from an
+   English sign-in page** (register one now if needed).
+   *Expect:* the sign-in page, the reset page and the mail (**Reset your password · …**) are English, and the
+   sign-in page has **no language dropdown**. An account registered in Dutch receives a **Dutch** mail — that is
+   ADR-0043's Consequence, not a failure.
+4. Back on `/`, press **Choose …** on a paid plan.
+   *Expect:* Stripe Checkout in English. Pay with `4242…`; the success page is English.
+5. Open the popup.
+   *Expect:* Dutch — the extension keeps its own choice — with **EN** between the header's other controls and
+   the theme switch, and **every control visible at the popup's 360px**, in both Languages. Press **EN**:
+   the popup turns English at once and offers **NL**.
+6. Sign in from the popup.
+   *Expect:* the sign-in page is English. Then **Plans → Manage billing** (as a payer): the Portal is English.
+7. With a Mijn Advertenties tab open, press **NL** and then **EN** in the popup.
+   *Expect:* the **Page button** on every row re-labels — **Herplaats** / **Repost** — with no reload of the tab.
+8. Press **Repost** on the throwaway ad.
+   *Expect:* the button, its tooltip and the toast are English; the ad is back on top as in slice A.
+9. On an account whose plan grants no reposts, press a **Page button** and follow its card's link to the plans,
+   with the site's own choice set to Dutch.
+   *Expect:* the site opens in English — `?lang=en` set its choice — and the address no longer carries `?lang`.
+
+**What this does not check:** the language of Stripe's receipt mails, which follow the browser the plan was
+bought from (ADR-0043), and nothing here can change.

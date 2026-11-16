@@ -2,8 +2,10 @@ import { Icon, UiStyles } from "@mprelist/ui";
 import type { JSX } from "react";
 
 import { BRAND } from "./brand";
+import type { LanguageStore } from "./i18n/choice";
 import { useTranslation } from "./i18n/react";
 import { AccountControl } from "./public/account-control";
+import { LanguageSwitch } from "./public/language-switch";
 import { Landing } from "./public/landing";
 import { PrivacyPage, TermsPage } from "./public/legal";
 import { BillingPage, CancelPage, NotFoundPage, SuccessPage } from "./public/pages";
@@ -41,6 +43,7 @@ export function Site({
   loadPlans,
   account,
   onLandingSettled,
+  languageStore,
 }: {
   pathname: string;
   year: number;
@@ -49,6 +52,8 @@ export function Site({
   account?: Account;
   /** Handed to the landing page: its plans have answered (see `Landing`). */
   onLandingSettled?: () => void;
+  /** Where the **Language switch** keeps its choice (T97); absent, a press keeps nothing. */
+  languageStore?: LanguageStore;
 }): JSX.Element {
   const { t } = useTranslation();
   const showing = pageFor(pathname);
@@ -66,6 +71,7 @@ export function Site({
           <DocumentLink to="privacy" showing={showing} />
           <DocumentLink to="terms" showing={showing} />
           {wide && account ? <AccountControl account={account} /> : null}
+          <LanguageSwitch store={languageStore} />
         </nav>
       </header>
       <main className={wide ? "web-page web-page--landing" : "web-page"}>

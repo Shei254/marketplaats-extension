@@ -22,7 +22,10 @@ export const nl = {
       "Er is niets gewijzigd op Marktplaats en je advertenties staan precies waar je ze hebt achtergelaten.",
   },
   header: {
-    plans: "Abonnementen",
+    // Not "Abonnementen": with the Language switch beside the theme switch (T97)
+    // that word left no room for either in a 360px header. The plan screens and
+    // the site still say Abonnementen.
+    plans: "Plannen",
     signOut: "Uitloggen",
     back: "Terug",
     darkMode: "Donkere modus",

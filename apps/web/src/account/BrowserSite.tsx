@@ -2,6 +2,7 @@ import type { JSX } from "react";
 
 import { deployedConfig } from "../admin/deployed-config";
 import type { LoadPlans } from "../public/plans-on-offer";
+import { languageStore } from "../i18n/browser-language";
 import { pageFor } from "../routes";
 import { Site } from "../Site";
 import { customerArriving } from "./customer-session";
@@ -35,6 +36,7 @@ export function BrowserSite({ loadPlans }: { loadPlans: LoadPlans }): JSX.Elemen
       loadPlans={loadPlans}
       account={account}
       onLandingSettled={revealFragment}
+      languageStore={languageStore()}
     />
   );
 }

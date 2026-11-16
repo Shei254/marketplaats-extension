@@ -233,5 +233,36 @@ else
 	echo "mprelist-deploy:         Localization (Dutch) and the realm display name are in the same position." >&2
 fi
 
+# **The sign-in page answers in English when it is asked to** (T97, ADR-0043). `supportedLocales` is a realm
+# property too, so the live realm gained `en` in the admin console rather than from the file — and a realm
+# without it answers Dutch to `ui_locales=en`, which ends the English path at its first hand-off with nothing
+# else noticing. Asked the way the site asks: its own client, its own return address, a PKCE challenge (the
+# client requires one; nothing is ever exchanged for it). Our template writes `lang="…"` from the locale it
+# chose, so the page's own attribute is the answer. It warns, for the reason the theme check above does.
+echo "==> Checking the sign-in page answers in English"
+web_url="$(sed -n 's|^MPRELIST_WEB_BASE_URL=||p' "$env_file" | tail -1)"
+if ! command -v curl >/dev/null; then
+	echo "mprelist-deploy: NOTE no curl on this host, so the sign-in page's English was not checked." >&2
+elif [[ -z "$keycloak_url" || -z "$web_url" ]]; then
+	echo "mprelist-deploy: NOTE $env_file lacks MPRELIST_KEYCLOAK_URL or MPRELIST_WEB_BASE_URL, so the sign-in" >&2
+	echo "mprelist-deploy:      page's English was not checked." >&2
+elif curl -fsSL --max-time 20 -G "$keycloak_url/realms/mprelist/protocol/openid-connect/auth" \
+	--data-urlencode "client_id=mprelist-dashboard" \
+	--data-urlencode "redirect_uri=$web_url/" \
+	--data-urlencode "response_type=code" \
+	--data-urlencode "scope=openid" \
+	--data-urlencode "code_challenge=mprelist-deploy-checks-the-language-and-signs-nobody-in" \
+	--data-urlencode "code_challenge_method=S256" \
+	--data-urlencode "ui_locales=en" | grep -q 'lang="en"'; then
+	echo "    the sign-in page answers in English"
+else
+	echo "mprelist-deploy: WARNING the sign-in page did not answer in English when asked to." >&2
+	echo "mprelist-deploy:         The site and the popup offer English; this realm does not support it, so" >&2
+	echo "mprelist-deploy:         an English reader is handed a Dutch sign-in page, reset page and mail." >&2
+	echo "mprelist-deploy:         A realm imports once, so this is set in the admin console, not in a file:" >&2
+	echo "mprelist-deploy:           $keycloak_url  →  Realm settings → Localization → Supported locales → add English" >&2
+	echo "mprelist-deploy:         Keep Dutch as the default locale." >&2
+fi
+
 echo "==> Running $tag"
 compose ps

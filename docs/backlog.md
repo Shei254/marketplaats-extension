@@ -2092,7 +2092,15 @@ Both are marked *unproven* in ADR-0043, and the answers are written into it as a
 - **If the mail does not follow the page, stop.** That reopens the ADR's mail decision, and it goes back to
   the operator before T95 starts. *(It did not, and it did.)*
 
-#### T95 · The Dutch moves into catalogs, and no screen changes · **L**
+#### T95 · The Dutch moves into catalogs, and no screen changes · **L** · **done 2026-11-16**
+**Both surfaces read catalogs, and every existing test passed untouched.** The extension and the site have
+one i18next instance each, in `src/i18n`, and the legal documents came out deep-equal to the constants they
+replaced. **What T96 inherits**, harmless while the Language is pinned:
+- `PRIVACY` and `TERMS` in `legal.tsx` are read once at import, and the site's account notices are stored as
+  finished sentences — neither follows a change of Language.
+- Both apps' `i18next.d.ts` declare a `plans` namespace that no instance loads.
+
+*As written before the work:*
 The bulk of the work and the safest to review, because it is not behaviour: every existing test passes
 untouched, and that is the acceptance.
 - **i18next, bundled.** `i18next` everywhere and `react-i18next` on the React surfaces, with catalogs imported

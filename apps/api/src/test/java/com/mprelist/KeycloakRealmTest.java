@@ -441,6 +441,30 @@ class KeycloakRealmTest {
 	}
 
 	/**
+	 * The sign-in page answers in English when it is asked to, and in Dutch when nothing asks (T96, ADR-0043).
+	 *
+	 * <p>{@code ui_locales} is the parameter both clients carry the Language in — T94 found it follows through
+	 * the reset page and into the mail, and {@code kc_locale} does nothing. A realm whose
+	 * {@code supportedLocales} lacked {@code en} would answer Dutch to both, and the English path would end at
+	 * its first hand-off. The page's own {@code lang} is read rather than a sentence, so Keycloak's wording
+	 * can change without this noticing.
+	 */
+	@Test
+	void theSignInPageSpeaksTheLanguageItIsHanded() {
+		Map<String, String> english = new java.util.HashMap<>(pkce());
+		english.put("ui_locales", "en");
+		Map<String, String> dutch = new java.util.HashMap<>(pkce());
+		dutch.put("ui_locales", "nl");
+
+		assertThat(keycloak.authorizationRequest(EXTENSION_CLIENT, EXTENSION_REDIRECT_URI, english).body())
+				.contains("lang=\"en\"");
+		assertThat(keycloak.authorizationRequest(EXTENSION_CLIENT, EXTENSION_REDIRECT_URI, dutch).body())
+				.contains("lang=\"nl\"");
+		assertThat(keycloak.authorizationRequest(EXTENSION_CLIENT, EXTENSION_REDIRECT_URI, pkce()).body())
+				.contains("lang=\"nl\"");
+	}
+
+	/**
 	 * And the two credentials that mail needs are not in this repository. They are a secret, and the realm
 	 * file is the one place in the stack that would otherwise be a natural home for them.
 	 */

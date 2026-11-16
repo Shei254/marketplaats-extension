@@ -83,7 +83,7 @@
             <p style="${properties.mailFootStyle!}">
                 <a href="https://${properties.brandDomain!}/privacy" style="${properties.mailFootLinkStyle!}">Privacy</a>
                 ·
-                <a href="https://${properties.brandDomain!}/terms" style="${properties.mailFootLinkStyle!}">Voorwaarden</a>
+                <a href="https://${properties.brandDomain!}/terms" style="${properties.mailFootLinkStyle!}">${msg("mprelistTerms")}</a>
                 ·
                 <a href="mailto:${properties.brandSupportEmail!}" style="${properties.mailFootLinkStyle!}">${properties.brandSupportEmail!}</a>
             </p>

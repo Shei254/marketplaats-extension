@@ -891,33 +891,6 @@
 .login-foot a { color: var(--mp-muted); }
 .login-foot a:hover { color: var(--mp-fg); }
 
-/* The locale switcher. The realm offers one language, so this is drawn for the
-   day it offers two rather than being left to render as a bare list. */
-.login-locale {
-  display: flex;
-  justify-content: flex-end;
-  padding: var(--mp-space-sm) var(--mp-space-lg) 0;
-  font: var(--mp-text-caption) var(--mp-font-family);
-}
-.login-locale ul {
-  margin: var(--mp-space-xs) 0 0;
-  padding: var(--mp-space-xs);
-  list-style: none;
-  position: absolute;
-  background: var(--mp-bg);
-  border: 1px solid var(--mp-line);
-  border-radius: var(--mp-radius-block);
-  box-shadow: var(--mp-shadow);
-}
-.login-locale ul[aria-hidden="true"] { display: none; }
-.login-locale button {
-  font: var(--mp-text-caption) var(--mp-font-family);
-  color: var(--mp-muted);
-  background: none;
-  border: 0;
-  cursor: pointer;
-}
-
 @media (forced-colors: active) {
   /* The ribbon is decoration and a forced palette drops `background-image`, which
      would leave a solid bar of the one stop that survives. It goes instead. */

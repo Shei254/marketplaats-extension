@@ -125,22 +125,10 @@
     <main class="mp-card login-card">
         <div class="login-ribbon" aria-hidden="true"></div>
 
-        <#if realm.internationalizationEnabled && locale.supported?size gt 1>
-            <div class="login-locale" id="kc-locale">
-                <div id="kc-locale-dropdown" class="menu-button-links">
-                    <button tabindex="1" id="kc-current-locale-link" aria-label="${msg("languages")}" aria-haspopup="true" aria-expanded="false" aria-controls="language-switch1">${locale.current}</button>
-                    <ul role="menu" tabindex="-1" aria-labelledby="kc-current-locale-link" aria-activedescendant="" id="language-switch1">
-                        <#assign i = 1>
-                        <#list locale.supported as l>
-                            <li role="none">
-                                <a role="menuitem" id="language-${i}" href="${l.url}">${l.label}</a>
-                            </li>
-                            <#assign i++>
-                        </#list>
-                    </ul>
-                </div>
-            </div>
-        </#if>
+        <#-- No language dropdown, though the realm supports two (ADR-0043). This
+             page shows the Language it was handed in `ui_locales` and offers no
+             choice of its own: the reader chose on the site or in the popup, and
+             a third switch here would be one they could disagree with. -->
 
         <header class="login-head">
             <#-- The artwork itself, resized from `brand.json`'s master at build
@@ -217,7 +205,7 @@
     <footer class="login-foot">
         <a href="https://${properties.brandDomain!}/privacy">Privacy</a>
         ·
-        <a href="https://${properties.brandDomain!}/terms">Voorwaarden</a>
+        <a href="https://${properties.brandDomain!}/terms">${msg("mprelistTerms")}</a>
         ·
         <a href="mailto:${properties.brandSupportEmail!}">${properties.brandSupportEmail!}</a>
     </footer>

@@ -189,7 +189,7 @@ class ProductionRealmTest {
 	 * built-in pages, which is why nothing below reads the markup.
 	 */
 	@Test
-	void andItsSignInPageIsOursAndInDutch() {
+	void andItsSignInPageIsOursAndDutchByDefault() {
 		JsonNode realm = Json.of(realm());
 		assertThat(realm.get("loginTheme").asText())
 				.withFailMessage("the production realm does not ask for the `mprelist` login theme, so a "
@@ -198,6 +198,23 @@ class ProductionRealmTest {
 				.isEqualTo("mprelist");
 		assertThat(realm.get("internationalizationEnabled").asBoolean()).isTrue();
 		assertThat(realm.get("defaultLocale").asText()).isEqualTo("nl");
+	}
+
+	/**
+	 * In both Languages, Dutch first (T96, ADR-0043): {@code en} beside {@code nl}, so the sign-in page and the
+	 * mail can answer the English path. The page draws no dropdown for the second one — that is the theme's
+	 * template, held in {@code apps/keycloak-theme}.
+	 *
+	 * <p><strong>This file is what a fresh realm imports, not what the live one holds</strong>: a realm imports
+	 * on first start only, so the live realm's second locale is set by hand in the admin console before the
+	 * release that shows a Language switch (T97).
+	 */
+	@Test
+	void andSupportsEnglishBesideDutch() {
+		JsonNode locales = Json.of(realm()).get("supportedLocales");
+		assertThat(locales.size()).isEqualTo(2);
+		assertThat(locales.get(0).asText()).isEqualTo("nl");
+		assertThat(locales.get(1).asText()).isEqualTo("en");
 	}
 
 	/**
